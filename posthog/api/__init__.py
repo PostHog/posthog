@@ -1,4 +1,6 @@
-from rest_framework import routers
+from rest_framework import decorators, exceptions, response, routers
+
+from posthog.version import VERSION
 
 from . import (
     action,
@@ -21,6 +23,13 @@ class OptionalTrailingSlashRouter(routers.DefaultRouter):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.trailing_slash = "/?"
+
+
+@decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
+@decorators.authentication_classes([])
+@decorators.permission_classes([])
+def api_not_found(request):
+    raise exceptions.NotFound(detail="Endpoint not found.")
 
 
 router = OptionalTrailingSlashRouter()

@@ -19,7 +19,7 @@ from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
 
-from .api import capture, dashboard, decide, router, user
+from .api import api_not_found, capture, dashboard, decide, router, user
 from .models import Event, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
@@ -257,21 +257,17 @@ urlpatterns = [
     path("api/user/redirect_to_site/", user.redirect_to_site),
     path("api/user/change_password/", user.change_password),
     path("api/user/test_slack_webhook/", user.test_slack_webhook),
-    path("decide/", decide.get_decide),
+    re_path(r"api/.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
-    path("e/", capture.get_event),
-    path("e", capture.get_event),
-    path("engage/", capture.get_event),
-    path("engage", capture.get_event),
-    path("track", capture.get_event),
-    path("track/", capture.get_event),
-    path("capture", capture.get_event),
-    path("capture/", capture.get_event),
-    path("batch", capture.get_event),
-    path("batch/", capture.get_event),
+    re_path(r"decide/?", decide.get_decide),
+    re_path(r"e/?", capture.get_event),
+    re_path(r"engage/?", capture.get_event),
+    re_path(r"track/?", capture.get_event),
+    re_path(r"capture/?", capture.get_event),
+    re_path(r"batch/?", capture.get_event),
 ]
 
 if not settings.EMAIL_HOST:
