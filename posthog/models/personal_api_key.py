@@ -5,6 +5,9 @@ from .utils import generate_random_token
 
 
 class PersonalAPIKey(models.Model):
+    class Meta:
+        get_latest_by = "created_at"
+
     id: models.CharField = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="personal_api_keys")

@@ -382,5 +382,4 @@ def get_token_from_personal_api_key(request, data) -> Tuple[Optional[str], bool]
     )
     if personal_api_key_with_source:
         token = personal_api_key_with_source[0]
-    is_personal_api_key = True
-    return (token, is_personal_api_key)
+    return (token, True)
