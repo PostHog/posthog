@@ -84,9 +84,10 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         if not event.elements_hash:
             return []
         if hasattr(event, "elements_group_cache"):
-            if event.elements_group_cache:
+            if event.elements_group_cache:  # type: ignore
                 return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"), many=True,
+                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
+                    many=True,
                 ).data
         elements = (
             ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
