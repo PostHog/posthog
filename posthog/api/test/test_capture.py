@@ -268,7 +268,7 @@ class TestCapture(BaseTest):
 
         response = self.client.generic(
             "POST",
-            "/batch/",
+            "/batch",
             data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
             content_type="application/json",
             HTTP_CONTENT_ENCODING="lz64",
@@ -433,7 +433,7 @@ class TestCapture(BaseTest):
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
 
         self.client.post(
-            "/track/",
+            "/track",
             data={
                 "sent_at": tomorrow_sent_at.isoformat(),
                 "data": self._dict_to_b64(
