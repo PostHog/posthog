@@ -1,63 +1,21 @@
-import base64
-import gzip
-import json
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
-import lzstring  # type: ignore
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import FeatureFlag, Team
-from posthog.utils import cors_response
+from posthog.utils import base64_to_json, cors_response, load_data_from_request
 
 
-def _load_data(request) -> Optional[Dict[str, Any]]:
+def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
     # JS Integration reloadFeatureFlags call
     if request.content_type == "application/x-www-form-urlencoded":
-        return _base64_to_json(request.POST["data"])
+        return base64_to_json(request.POST["data"])
 
-    if request.content_type == "application/json":
-        data = request.body
-    else:
-        data = request.POST.get("data")
-
-    if not data:
-        return None
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
-
-    if compression == "gzip":
-        data = gzip.decompress(data)
-
-    if compression == "lz64":
-        if isinstance(data, str):
-            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
-        else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
-
-    #  Is it plain json?
-    try:
-        data = json.loads(data)
-    except json.JSONDecodeError:
-        # if not, it's probably base64 encoded from other libraries
-        data = _base64_to_json(data)
-
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data
-
-
-def _base64_to_json(data) -> Dict:
-    return json.loads(
-        base64.b64decode(data.replace(" ", "+") + "===")
-        .decode("utf8", "surrogatepass")
-        .encode("utf-16", "surrogatepass")
-    )
+    return load_data_from_request(request)
 
 
 def _get_token(data, request):

@@ -1,4 +1,6 @@
+import base64
 import datetime
+import gzip
 import hashlib
 import json
 import os
@@ -8,6 +10,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlsplit
 
+import lzstring  # type: ignore
 import pytz
 import redis
 from dateutil import parser
@@ -21,6 +24,7 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from sentry_sdk import push_scope
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -321,3 +325,51 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
+
+
+def base64_to_json(data) -> Dict:
+    return json.loads(
+        base64.b64decode(data.replace(" ", "+") + "===")
+        .decode("utf8", "surrogatepass")
+        .encode("utf-16", "surrogatepass")
+    )
+
+
+# Used by non-DRF endpoins from capture.py and decide.py  (/decide, /batch, /capture, etc)
+def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
+    if request.method == "POST":
+        if request.content_type == "application/json":
+            data = request.body
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+    if not data:
+        return None
+
+    # add the data in sentry's scope in case there's an exception
+    with push_scope() as scope:
+        scope.set_context("data", data)
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    )
+    compression = compression.lower()
+
+    if compression == "gzip":
+        data = gzip.decompress(data)
+
+    if compression == "lz64":
+        if isinstance(data, str):
+            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        else:
+            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+
+    #  Is it plain json?
+    try:
+        data = json.loads(data)
+    except json.JSONDecodeError:
+        # if not, it's probably base64 encoded from other libraries
+        data = base64_to_json(data)
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
+    return data
