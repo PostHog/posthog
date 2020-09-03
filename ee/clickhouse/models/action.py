@@ -30,12 +30,14 @@ def format_action_query(action: Action) -> Tuple[str, Dict]:
     for step in steps:
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            element_query = filter_element(step)
+            element_query, element_params = filter_element(step)
+            params = {**params, **element_params}
             or_queries.append(element_query)
 
         # filter event
         elif step.event:
-            event_query = filter_event(step)
+            event_query, event_params = filter_event(step)
+            params = {**params, **event_params}
             or_queries.append(event_query)
 
     or_separator = "OR id IN"
@@ -46,30 +48,33 @@ def format_action_query(action: Action) -> Tuple[str, Dict]:
     return final_query, params
 
 
-def handle_url(step) -> str:
+def filter_event(step) -> Tuple[str, Dict]:
+    params = {}
     event_filter = ""
+    efilter = ""
+    property_filter = ""
     if step.url:
-        operator = "LIKE"
         if step.url_matching == ActionStep.EXACT:
-            operator = "="
-        event_filter = "AND id IN {}".format(
-            EVENT_ACTION_FILTER.format(
-                event_filter="",
-                property_filter="AND key = '$current_url' AND value {operator} '{}'".format(
-                    step.url, operator=operator
-                ),
-            )
-        )
-    return event_filter
+            operation = "value = '{}'".format(step.url)
+            params.update({"prop_val": step.url})
+        elif step.url_matching == ActionStep.REGEX:
+            operation = "like(value, '{}')".format(step.url)
+            params.update({"prop_val": step.url})
+        else:
+            operation = "value LIKE %(prop_val)s ".format(step.url)
+            params.update({"prop_val": "%" + step.url + "%"})
+        property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
+
+    if step.event:
+        efilter = "AND event = '{}'".format(step.event)
+
+    event_filter = EVENT_ACTION_FILTER.format(event_filter=efilter, property_filter=property_filter,)
+
+    return event_filter, params
 
 
-def filter_event(step: ActionStep) -> str:
-    event_query = EVENT_ACTION_FILTER.format(property_filter="", event_filter="AND event = '{}'".format(step.event))
-    return event_query
-
-
-def filter_element(step: ActionStep) -> str:
-    event_filter = handle_url(step)
+def filter_element(step: ActionStep) -> Tuple[str, Dict]:
+    event_filter, params = filter_event(step) if step.url else ("", {})
 
     filters = model_to_dict(step)
 
@@ -85,4 +90,7 @@ def filter_element(step: ActionStep) -> str:
     separator = " AND "
     selector_query = separator.join(prop_queries)
 
-    return ELEMENT_ACTION_FILTER.format(element_filter=selector_query, event_filter=event_filter)
+    return (
+        ELEMENT_ACTION_FILTER.format(element_filter=selector_query, event_filter="AND id IN {}".format(event_filter)),
+        params,
+    )

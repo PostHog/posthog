@@ -9,7 +9,6 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ee.clickhouse.models.action import query_action
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
