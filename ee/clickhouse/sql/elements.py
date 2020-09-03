@@ -122,8 +122,8 @@ attributes,
 order,
 team_id,
 group_id,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(attributes, 'varchar')) array_property_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(attributes, 'varchar')) array_property_values
+arrayMap(k -> k.1, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_keys,
+arrayMap(k -> k.2, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_values
 FROM elements
 """
 
@@ -134,8 +134,8 @@ ORDER BY (key, value, id)
 POPULATE
 AS SELECT id,
 team_id,
-array_property_keys as key,
-array_property_values as value
-from elements_with_array_props_mv
-ARRAY JOIN array_property_keys, array_property_values
+array_attribute_keys as key,
+array_attribute_values as value
+from elements_with_array_props_view
+ARRAY JOIN array_attribute_keys, array_attribute_values
 """
