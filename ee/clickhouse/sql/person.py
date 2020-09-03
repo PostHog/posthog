@@ -1,3 +1,5 @@
+from .clickhouse import STORAGE_POLICY, table_engine
+
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
 """
@@ -13,9 +15,12 @@ CREATE TABLE person
     created_at datetime,
     team_id Int32,
     properties VARCHAR
-) ENGINE = MergeTree()
-Order By (id)
-"""
+) ENGINE = {engine} 
+Order By (team_id, id)
+{storage_policy}
+""".format(
+    engine=table_engine("person"), storage_policy=STORAGE_POLICY
+)
 
 GET_PERSON_SQL = """
 SELECT * FROM person
@@ -28,9 +33,12 @@ CREATE TABLE person_distinct_id
     distinct_id VARCHAR,
     person_id Int32,
     team_id Int32
-) ENGINE = MergeTree()
-Order By (id)
-"""
+) ENGINE = {engine} 
+Order By (team_id, id)
+{storage_policy}
+""".format(
+    engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY
+)
 
 GET_DISTINCT_IDS_SQL = """
 SELECT * FROM person_distinct_id

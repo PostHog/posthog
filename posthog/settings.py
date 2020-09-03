@@ -115,7 +115,6 @@ if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
 
 
 # Clickhouse Settings
-
 CLICKHOUSE_TEST_DB = "posthog_test"
 
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
@@ -125,6 +124,8 @@ CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
+CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

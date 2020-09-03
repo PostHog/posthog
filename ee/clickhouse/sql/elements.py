@@ -1,3 +1,5 @@
+from .clickhouse import STORAGE_POLICY, table_engine
+
 DROP_ELEMENTS_TABLE_SQL = """
 DROP TABLE elements
 """
@@ -23,10 +25,13 @@ CREATE TABLE elements
     team_id Int32,
     created_at DateTime,
     group_id UUID
-) ENGINE = MergeTree()
+) ENGINE = {engine} 
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (id, intHash32(team_id))
-"""
+ORDER BY (team_id, id)
+{storage_policy}
+""".format(
+    engine=table_engine("elements"), storage_policy=STORAGE_POLICY
+)
 
 INSERT_ELEMENTS_SQL = """
 INSERT INTO elements SELECT 
@@ -51,9 +56,12 @@ CREATE TABLE elements_group
     id UUID,
     elements_hash VARCHAR,
     team_id Int32
-) ENGINE = MergeTree()
-ORDER BY (id)
-"""
+) ENGINE = {engine}
+ORDER BY (team_id, id)
+{storage_policy}
+""".format(
+    engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY
+)
 
 
 INSERT_ELEMENT_GROUP_SQL = """

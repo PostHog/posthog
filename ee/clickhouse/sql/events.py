@@ -1,3 +1,5 @@
+from .clickhouse import STORAGE_POLICY, table_engine
+
 DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
 """
@@ -25,11 +27,14 @@ CREATE TABLE events
     distinct_id VARCHAR,
     elements_hash VARCHAR,
     created_at DateTime
-) ENGINE = MergeTree()
+) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (id, timestamp, intHash32(team_id))
-SAMPLE BY intHash32(team_id)
-"""
+ORDER BY (team_id, timestamp, distinct_id, id)
+SAMPLE BY id 
+{storage_policy}
+""".format(
+    engine=table_engine("events"), storage_policy=STORAGE_POLICY
+)
 
 INSERT_EVENT_SQL = """
 INSERT INTO events SELECT generateUUIDv4(), %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(element_hash)s, now()
@@ -52,11 +57,14 @@ CREATE TABLE events_with_array_props_view
     created_at DateTime,
     array_property_keys Array(VARCHAR),
     array_property_values Array(VARCHAR)
-) ENGINE = MergeTree()
+) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, created_at, id)
 SAMPLE BY id
-"""
+{storage_policy}
+""".format(
+    engine=table_engine("events_with_array_props_view"), storage_policy=STORAGE_POLICY
+)
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
 SELECT * FROM events_with_array_props_view where team_id = %(team_id)s {conditions} ORDER BY timestamp desc {limit}
