@@ -64,7 +64,6 @@ six==1.14.0
 social-auth-app-django==3.1.0
 social-auth-core==3.3.3
 sqlparse==0.3.0
-statsd==3.3.0
 tenacity==6.1.0
 traitlets==4.3.3
 typing==3.7.4.3
