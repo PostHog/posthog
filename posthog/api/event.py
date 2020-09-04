@@ -11,6 +11,8 @@ from django.db.models.functions import Lag
 from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
@@ -91,8 +93,15 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         return ElementSerializer(elements, many=True).data
 
+    def to_representation(self, instance):
+        ret = super(EventSerializer, self).to_representation(instance)
+        if "text/csv" in self.context["request"].accepted_media_type:
+            ret.pop("elements")
+        return ret
+
 
 class EventViewSet(viewsets.ModelViewSet):
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
@@ -194,7 +203,7 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             next_url = None
 
-        return response.Response({"next": next_url, "results": EventSerializer(prefetched_events, many=True).data,})
+        return response.Response({"next": next_url, "results": EventSerializer(prefetched_events, many=True, context={"request": self.request}).data,})
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
