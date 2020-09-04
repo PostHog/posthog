@@ -628,7 +628,7 @@ class TestIdentify(TransactionTestCase):
         person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
         self.assertTrue(person_after_event.is_identified)
 
-    def test_team_event_properties(self):
+    def test_team_event_properties(self) -> None:
         self.assertListEqual(self.team.event_properties_numerical, [])
         process_event(
             "xxx",
