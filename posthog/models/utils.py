@@ -1,5 +1,17 @@
 import secrets
 from collections import namedtuple
+from typing import Callable, Sequence
+
+
+def sane_repr(*attrs: str) -> Callable[[object], str]:
+    if "id" not in attrs and "pk" not in attrs:
+        attrs = ("id",) + attrs
+
+    def _repr(self):
+        pairs = (f"{attr}={repr(getattr(self, attr))}" for attr in attrs)
+        return f"<{type(self).__name__} at {hex(id(self))}: {', '.join(pairs)}>"
+
+    return _repr
 
 
 def namedtuplefetchall(cursor):

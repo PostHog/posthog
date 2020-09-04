@@ -91,7 +91,9 @@ class TeamManager(models.Manager):
 
 
 class Team(models.Model):
-    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team",
+    )
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
@@ -107,9 +109,12 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=uuidlib.uuid4, editable=False, unique=True)
 
-    # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
+    # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams
+    # This may be brought back into use with a more robust approach (and some constraint checks)
+    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
 
     objects = TeamManager()
 

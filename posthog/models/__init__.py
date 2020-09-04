@@ -11,6 +11,7 @@ from .event import Event
 from .feature_flag import FeatureFlag
 from .filter import Filter
 from .funnel import Funnel
+from .organization import Organization, OrganizationMembership
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .property import Property
