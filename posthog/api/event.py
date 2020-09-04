@@ -12,6 +12,7 @@ from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
     Action,
     Element,
@@ -269,20 +270,15 @@ class EventViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
         team = self.request.user.team_set.get()
-        session_type = self.request.GET.get("session")
 
         filter = Filter(request=request)
-        result: Dict[str, Any] = {
-            "result": Sessions().run(
-                filter, team, session_type=self.request.GET.get("session"), offset=self.request.GET.get("offset")
-            )
-        }
+        result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
 
         # add pagination
-        if session_type is None:
-            offset = int(request.GET.get("offset", "0")) + 50
+        if filter.session_type is None:
+            offset = filter.offset + 50
             if len(result["result"]) > 49:
                 date_from = result["result"][0]["start_time"].isoformat()
-                result.update({"offset": offset})
-                result.update({"date_from": date_from})
+                result.update({OFFSET: offset})
+                result.update({DATE_FROM: date_from})
         return response.Response(result)

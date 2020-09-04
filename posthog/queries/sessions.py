@@ -1,5 +1,4 @@
-import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 from dateutil.relativedelta import relativedelta
@@ -10,6 +9,7 @@ from django.db.models.functions import Lag
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
+from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
@@ -24,41 +24,36 @@ class Sessions(BaseQuery):
             .order_by("-timestamp")
         )
 
-        session_type = kwargs.get("session_type", None)
-        offset = kwargs.get("offset", 0)
+        offset = filter.offset
 
         if not filter.date_to:
             filter._date_to = now().isoformat()
         calculated = []
 
         # get compared period
-        if filter.compare and filter._date_from != "all" and session_type == "avg":
-            calculated = self.calculate_sessions(
-                events.filter(filter.date_filter_Q), session_type, filter, team, offset
-            )
+        if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
+            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, offset)
             calculated = self._convert_to_comparison(calculated, "current")
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
-                events.filter(compare_filter.date_filter_Q), session_type, compare_filter, team, offset
+                events.filter(compare_filter.date_filter_Q), compare_filter, team, offset
             )
             converted_compared_calculated = self._convert_to_comparison(compared_calculated, "previous")
             calculated.extend(converted_compared_calculated)
         else:
             # if session_type is None, it's a list of sessions which shouldn't have any date filtering
-            if session_type is not None:
+            if filter.session_type is not None:
                 events = events.filter(filter.date_filter_Q)
-            calculated = self.calculate_sessions(events, session_type, filter, team, offset)
+            calculated = self.calculate_sessions(events, filter, team, offset)
 
         return calculated
 
-    def calculate_sessions(
-        self, events: QuerySet, session_type: Optional[str], filter: Filter, team: Team, offset: int
-    ) -> List[Dict[str, Any]]:
+    def calculate_sessions(self, events: QuerySet, filter: Filter, team: Team, offset: int) -> List[Dict[str, Any]]:
 
         # format date filter for session view
         _date_gte = Q()
-        if session_type is None:
+        if filter.session_type is None:
             # if _date_from is not explicitely set we only want to get the last day worth of data
             # otherwise the query is very slow
             if filter._date_from and filter.date_to:
@@ -106,9 +101,9 @@ class Sessions(BaseQuery):
         )
 
         result: List = []
-        if session_type == "avg":
+        if filter.session_type == SESSION_AVG:
             result = self._session_avg(all_sessions, sessions_sql_params, filter)
-        elif session_type == "dist":
+        elif filter.session_type == SESSION_DIST:
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
             result = self._session_list(all_sessions, sessions_sql_params, team, filter, offset)

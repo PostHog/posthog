@@ -169,6 +169,14 @@ else:
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
+# Use django-extensions if it exists
+try:
+    import django_extensions
+
+    INSTALLED_APPS.append("django_extensions")
+except ImportError:
+    pass
+
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
 

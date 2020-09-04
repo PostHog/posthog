@@ -77,7 +77,7 @@ export const sceneLogic = kea({
         ],
         loadedScenes: [
             {
-                '404': {
+                404: {
                     component: Error404,
                 },
                 '4xx': {
