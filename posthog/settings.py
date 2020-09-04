@@ -59,7 +59,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv
 
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
