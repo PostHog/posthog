@@ -1,16 +1,21 @@
 import datetime
-from numbers import Number
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
-import posthoganalytics
 from celery import shared_task
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-from django.core import serializers
 from django.db import IntegrityError
-from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, Team, User
+from ee.clickhouse.models.element import create_elements
+from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.person import (
+    attach_distinct_ids,
+    create_person_with_distinct_id,
+    merge_people,
+    update_person_properties,
+)
+from posthog.models.element import Element
+from posthog.models.person import Person
+from posthog.models.team import Team
+from posthog.tasks.process_event import check_and_create_person, handle_timestamp, store_names_and_properties
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -30,6 +35,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     if old_person and not new_person:
         try:
             old_person.add_distinct_id(distinct_id)
+            attach_distinct_ids(old_person.pk, [distinct_id], team_id)
         # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
         except IntegrityError:
             if retry_if_failed:  # run everything again to merge the users if needed
@@ -39,6 +45,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     if not old_person and new_person:
         try:
             new_person.add_distinct_id(previous_distinct_id)
+            attach_distinct_ids(new_person.pk, [previous_distinct_id], team_id)
         # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
         except IntegrityError:
             if retry_if_failed:  # run everything again to merge the users if needed
@@ -47,8 +54,9 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if not old_person and not new_person:
         try:
-            Person.objects.create(
-                team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],)
+            create_person_with_distinct_id(
+                person_id=person.pk, team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],
             )
         # Catch race condition where in between getting and creating, another request already created this user.
         except IntegrityError:
@@ -58,27 +66,13 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         return
 
     if old_person and new_person and old_person != new_person:
+        old_person_id = old_person.pk
+        old_person_props = old_person.properties
         new_person.merge_people([old_person])
+        merge_people(new_person, old_person_id, old_person_props)
 
 
-def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
-    # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
-    save = False
-    if event not in team.event_names:
-        save = True
-        team.event_names.append(event)
-    for key, value in properties.items():
-        if key not in team.event_properties:
-            team.event_properties.append(key)
-            save = True
-        if isinstance(value, Number) and key not in team.event_properties_numerical:
-            team.event_properties_numerical.append(key)
-            save = True
-    if save:
-        team.save()
-
-
-def _capture(
+def _capture_ee(
     ip: str,
     site_url: str,
     team_id: int,
@@ -88,7 +82,7 @@ def _capture(
     timestamp: Union[datetime.datetime, str],
 ) -> None:
     elements = properties.get("$elements")
-    elements_list = None
+    elements_list = []
     if elements:
         del properties["$elements"]
         elements_list = [
@@ -106,48 +100,32 @@ def _capture(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only(
-        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
-    ).get(pk=team_id)
-
-    if not team.ingested_event:
-        # First event for the team captured
-        for user in Team.objects.get(pk=team_id).users.all():
-            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
-
-        team.ingested_event = True
-        team.save()
+    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
+        pk=team_id
+    )
 
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
     store_names_and_properties(team=team, event=event, properties=properties)
 
-    Event.objects.create(
+    # determine/create elements
+    element_hash = create_elements(elements_list, team)
+
+    # # determine create events
+    create_event(
         event=event,
-        distinct_id=distinct_id,
         properties=properties,
+        timestamp=timestamp,
         team=team,
-        site_url=site_url,
-        **({"timestamp": timestamp} if timestamp else {}),
-        **({"elements": elements_list} if elements_list else {})
+        element_hash=element_hash,
+        distinct_id=distinct_id,
     )
 
-    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
-
-
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        # Catch race condition where in between getting and creating, another request already created this user.
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        except IntegrityError:
-            pass
-
-        return person
-    else:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-        return person
+    # # check/create persondistinctid
+    person = check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
+    if person:
+        create_person_with_distinct_id(person_id=person.pk, distinct_ids=[distinct_id], team_id=team.pk)
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
@@ -156,11 +134,16 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            create_person_with_distinct_id(person.pk, [distinct_id], team_id)
         # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+
+    update_person_properties(person.pk, properties)
     person.properties.update(properties)
     person.save()
+
+    pass
 
 
 def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
@@ -169,6 +152,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            create_person_with_distinct_id(person.pk, [distinct_id], team_id)
         # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
@@ -177,27 +161,8 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
-    if data.get("timestamp"):
-        if sent_at:
-            # sent_at - timestamp == now - x
-            # x = now + (timestamp - sent_at)
-            try:
-                # timestamp and sent_at must both be in the same format: either both with or both without timezones
-                # otherwise we can't get a diff to add to now
-                return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
-            except TypeError as e:
-                capture_exception(e)
-
-        return data["timestamp"]
-    now_datetime = parser.parse(now)
-    if data.get("offset"):
-        return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
-    return now_datetime
-
-
 @shared_task
-def process_event(
+def process_event_ee(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
     if data["event"] == "$create_alias":
@@ -215,7 +180,7 @@ def process_event(
 
     properties = data.get("properties", data.get("$set", {}))
 
-    _capture(
+    _capture_ee(
         ip=ip,
         site_url=site_url,
         team_id=team_id,

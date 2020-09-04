@@ -223,6 +223,7 @@ export const eventsTableLogic = kea({
                 })
 
                 const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                console.log(events)
                 breakpoint()
                 actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
