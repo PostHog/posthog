@@ -1,5 +1,13 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
+FILTER_EVENT_BY_COHORT_SQL = """
+SELECT * FROM events WHERE distinct_id IN (
+    SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
+        SELECT person_id FROM {table_name}
+    )
+)
+"""
+
 
 def create_cohort_mapping_table_sql(table_name: str) -> str:
     return """
@@ -26,4 +34,8 @@ FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL = """
 SELECT distinct_id FROM events where id IN (
     SELECT id FROM {table_name}
 )
+"""
+
+PERSON_PROPERTY_FILTER_SQL = """
+SELECT id FROM person WHERE {filters}
 """
