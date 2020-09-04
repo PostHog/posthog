@@ -323,9 +323,9 @@ def get_redis_heartbeat() -> Union[str, int]:
     return "offline"
 
 
-def get_celery_queue_length(queue="default") -> Dict[str, int]:
+def get_celery_queue_length(queue="default") -> int:
     if settings.REDIS_URL:
         redis_instance = redis.from_url(settings.REDIS_URL, db=0)
     else:
-        return {}
-    return {"celery": redis_instance.llen(queue)}
+        return 0
+    return redis_instance.llen(queue)

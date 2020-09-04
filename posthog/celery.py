@@ -1,9 +1,8 @@
 import os
 import time
-from typing import Dict
 
 import redis
-import statsd
+import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
