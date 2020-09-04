@@ -5,7 +5,6 @@ from django.forms.models import model_to_dict
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.sql.actions import (
     ACTION_QUERY,
-    DROP_ACTION_MAPPING_TABLE,
     ELEMENT_ACTION_FILTER,
     ELEMENT_PROP_FILTER,
     EVENT_ACTION_FILTER,
@@ -13,28 +12,33 @@ from ee.clickhouse.sql.actions import (
     INSERT_INTO_ACTION_TABLE,
     create_action_mapping_table_sql,
 )
+from ee.clickhouse.sql.clickhouse import DROP_TABLE_IF_EXISTS_SQL
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Action, Team
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_table_name(action: Action) -> str:
+def format_action_table_name(action: Action) -> str:
     return "action_" + str(action.team.pk) + "_" + str(action.pk)
 
 
 def filter_events_by_action(action: Action) -> List:
-    table_name = format_table_name(action)
-    res = ch_client.execute(FILTER_EVENT_BY_ACTION_SQL.format(table_name=table_name))
-    return res
+    query = format_events_by_action_query(action)
+    return ch_client.execute(query)
+
+
+def format_events_by_action_query(action: Action) -> str:
+    table_name = format_action_table_name(action)
+    return FILTER_EVENT_BY_ACTION_SQL.format(table_name=table_name)
 
 
 def populate_action_event_table(action: Action) -> None:
     query, params = format_action_query(action)
 
-    table_name = format_table_name(action)
+    table_name = format_action_table_name(action)
 
-    ch_client.execute(DROP_ACTION_MAPPING_TABLE.format(table_name))
+    ch_client.execute(DROP_TABLE_IF_EXISTS_SQL.format(table_name))
 
     ch_client.execute(create_action_mapping_table_sql(table_name))
 

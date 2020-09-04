@@ -10,3 +10,8 @@ TABLE_ENGINE = (
 
 def table_engine(table: str) -> str:
     return TABLE_ENGINE.format(table=table)
+
+
+DROP_TABLE_IF_EXISTS_SQL = """
+DROP TABLE IF EXISTS {}
+"""

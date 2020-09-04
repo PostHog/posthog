@@ -6,10 +6,6 @@ SELECT * FROM events where id IN (
 )
 """
 
-DROP_ACTION_MAPPING_TABLE = """
-DROP TABLE IF EXISTS {}
-"""
-
 
 def create_action_mapping_table_sql(table_name: str) -> str:
     return """
