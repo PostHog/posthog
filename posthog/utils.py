@@ -225,7 +225,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def find_key(
-        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None
+        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, str]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -296,8 +296,7 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
         if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"),
-                pk=request.parser_context["kwargs"].get("pk"),
+                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
             )
             if not dashboard.exists():
                 raise AuthenticationFailed(detail="Dashboard doesn't exist")
