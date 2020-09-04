@@ -43,13 +43,6 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
                     (property: string) => ({ value: property, label: property } as EventProperty)
                 ) || ([] as EventProperty[]),
         ],
-        eventPropertiesNumerical: [
-            () => [selectors.user],
-            (user) =>
-                user?.team.event_properties_numerical.map(
-                    (property: string) => ({ value: property, label: property } as EventProperty)
-                ) || ([] as EventProperty[]),
-        ],
         eventNames: [() => [selectors.user], (user) => user?.team.event_names || []],
         customEventNames: [
             () => [selectors.user],
@@ -89,7 +82,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
 
                     const PostHog = (window as any).posthog
                     if (PostHog) {
-                        PostHog.identify(user.distinct_id)
+                        PostHog.identify(user.distinct_id, {
+                            email: user.anonymize_data ? null : user.email,
+                        })
                         PostHog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,

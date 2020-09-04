@@ -77,7 +77,6 @@ const MATHS = {
         onProperty: true,
     },
 }
-const MATH_ENTRIES = Object.entries(MATHS)
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide filters'
@@ -93,7 +92,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
-    const { eventProperties, eventPropertiesNumerical } = useValues(userLogic)
+    const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
     let entity, name, value
@@ -154,16 +153,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 {name || 'Select action'}
                 <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </button>
-            {!hideMathSelector && (
-                <MathSelector
-                    math={math}
-                    index={index}
-                    onMathSelect={onMathSelect}
-                    areEventPropertiesNumericalAvailable={
-                        eventPropertiesNumerical && eventPropertiesNumerical.length > 0
-                    }
-                />
-            )}
+            {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
                     name={name}
@@ -171,7 +161,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                     mathProperty={mathProperty}
                     index={index}
                     onMathPropertySelect={onMathPropertySelect}
-                    properties={eventPropertiesNumerical}
+                    properties={eventProperties}
                 />
             )}
             <div
@@ -216,54 +206,25 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     )
 }
 
-function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
-    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
-        areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
-    }`
-
+function MathSelector(props) {
     return (
         <Dropdown
-            title={MATHS[math || 'total']?.name}
+            title={MATHS[props.math || 'total']?.name}
             buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-selector-${index}`}
+            data-attr={`math-selector-${props.index}`}
         >
-            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
-                const disabled = onProperty && !areEventPropertiesNumericalAvailable
-                return (
-                    <Tooltip
-                        placement="right"
-                        title={
-                            onProperty ? (
-                                <>
-                                    {description}
-                                    <br />
-                                    {numericalNotice}
-                                </>
-                            ) : (
-                                description
-                            )
-                        }
-                        key={`math-${key}`}
+            {Object.entries(MATHS).map(([key, value]) => (
+                <Tooltip placement="right" title={value.description} key={`math-${key}`}>
+                    <a
+                        href="#"
+                        className="dropdown-item"
+                        onClick={() => props.onMathSelect(props.index, key)}
+                        data-attr={`math-${key}-${props.index}`}
                     >
-                        <div>
-                            <button
-                                className="dropdown-item"
-                                disabled={disabled}
-                                onClick={
-                                    disabled
-                                        ? undefined
-                                        : () => {
-                                              onMathSelect(index, key)
-                                          }
-                                }
-                                data-attr={`math-${key}-${index}`}
-                            >
-                                {name}
-                            </button>
-                        </div>
-                    </Tooltip>
-                )
-            })}
+                        {value.name}
+                    </a>
+                </Tooltip>
+            ))}
         </Dropdown>
     )
 }
