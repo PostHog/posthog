@@ -2,7 +2,6 @@ import os
 import time
 
 import redis
-import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
@@ -31,14 +30,6 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
-
-
-def get_statsd_client():
-    # Can't use the django specific statsd implementation in celery
-    # So we provide this convenience function to give you a client
-    # Doesn't need to be closed
-    c = statsd.StatsClient(settings.STATSD_HOST, settings.STATSD_PORT, prefix=settings.STATSD_PREFIX)
-    return c
 
 
 def celery_queue_length(queue="default") -> int:
@@ -70,8 +61,6 @@ def setup_periodic_tasks(sender, **kwargs):
 
 @app.task
 def redis_heartbeat():
-    c = get_statsd_client()
-    c.gauge("celery_queue_size", celery_queue_length())
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
