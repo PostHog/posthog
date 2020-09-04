@@ -296,7 +296,8 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
         if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
+                share_token=request.GET.get("share_token"),
+                pk=request.parser_context["kwargs"].get("pk"),
             )
             if not dashboard.exists():
                 raise AuthenticationFailed(detail="Dashboard doesn't exist")
@@ -321,3 +322,11 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
+
+
+def get_celery_queue_length(queue="default") -> Dict[str, int]:
+    if settings.REDIS_URL:
+        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    else:
+        return {}
+    return {"celery": redis_instance.llen(queue)}
