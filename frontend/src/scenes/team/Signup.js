@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './signupLogic'
-import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
+import hedgehogBlue from './../../../public/hedgehog-blue.png'
 import posthogLogo from './../../../public/posthog-icon.svg'
-import { Row, Col, Space, Button, Input, Checkbox } from 'antd'
+import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
 
 function Signup() {
@@ -64,10 +64,8 @@ function Signup() {
                 <div className="page-caption">Understand your users. Build a better product.</div>
             </Space>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
-                <div
-                    style={{ display: 'flex', alignItems: 'center', flexDirection: 'column', justifyContent: 'center' }}
-                >
-                    <img src={hedgehogBlue} style={{ maxHeight: '100%' }} alt="" />
+                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
+                    <img src={hedgehogBlue} style={{ maxHeight: '100%', maxWidth: 300, marginTop: 64 }} alt="" />
                 </div>
                 <div
                     style={{
@@ -79,77 +77,70 @@ function Signup() {
                     }}
                 >
                     <form onSubmit={handleSubmit}>
-                        <Row gutter={[16, 16]}>
-                            <Col span={12}>
-                                <div className="ph-input-group">
-                                    <label>Name</label>
-                                    <Input
-                                        placeholder="John"
-                                        autoFocus
-                                        value={formState.firstName.value}
-                                        onChange={(e) => updateForm('firstName', e.target)}
-                                        required
-                                        disabled={accountLoading}
-                                        id="signupFirstName"
-                                    />
-                                </div>
-                            </Col>
-                            <Col span={12}>
-                                <div className="ph-input-group">
-                                    <label>Company or Project</label>
-                                    <Input
-                                        placeholder="Rocket Rides"
-                                        value={formState.companyName.value}
-                                        onChange={(e) => updateForm('companyName', e.target)}
-                                        disabled={accountLoading}
-                                        id="signupCompanyName"
-                                    />
-                                </div>
-                            </Col>
-                        </Row>
-                        <Row gutter={[16, 16]}>
-                            <Col span={12}>
-                                <div className="ph-input-group">
-                                    <label>Email</label>
-                                    <Input
-                                        placeholder="john@posthog.com"
-                                        type="email"
-                                        value={formState.email.value}
-                                        onChange={(e) => updateForm('email', e.target)}
-                                        required
-                                        disabled={accountLoading}
-                                        id="signupEmail"
-                                    />
-                                    <span className="caption">This will be your username.</span>
-                                </div>
-                            </Col>
-                            <Col span={12}>
-                                <div
-                                    className={`ph-input-group ${
-                                        state.submitted && !formState.password.valid ? 'errored' : ''
-                                    }`}
-                                >
-                                    <label>Password</label>
-                                    <Input.Password
-                                        placeholder="********"
-                                        value={formState.password.value}
-                                        onChange={(e) => updateForm('password', e.target)}
-                                        required
-                                        ref={passwordInput}
-                                        disabled={accountLoading}
-                                        id="signupPassword"
-                                    />
-                                    <span className="caption">At least 8 characters.</span>
-                                </div>
-                            </Col>
-                        </Row>
+                        <div className="ph-input-group">
+                            <label>First Name</label>
+                            <Input
+                                placeholder="John"
+                                autoFocus
+                                value={formState.firstName.value}
+                                onChange={(e) => updateForm('firstName', e.target)}
+                                required
+                                disabled={accountLoading}
+                                id="signupFirstName"
+                            />
+                        </div>
+
+                        <div className="ph-input-group">
+                            <label>Company or Project</label>
+                            <Input
+                                placeholder="Rocket Rides"
+                                value={formState.companyName.value}
+                                onChange={(e) => updateForm('companyName', e.target)}
+                                disabled={accountLoading}
+                                id="signupCompanyName"
+                            />
+                        </div>
+
+                        <div className="ph-input-group">
+                            <label>Email</label>
+                            <Input
+                                placeholder="john@posthog.com"
+                                type="email"
+                                value={formState.email.value}
+                                onChange={(e) => updateForm('email', e.target)}
+                                required
+                                disabled={accountLoading}
+                                id="signupEmail"
+                            />
+                            <span className="caption">This will be your username.</span>
+                        </div>
+
+                        <div
+                            className={`ph-input-group ${
+                                state.submitted && !formState.password.valid ? 'errored' : ''
+                            }`}
+                        >
+                            <label>Password</label>
+                            <Input.Password
+                                placeholder="********"
+                                value={formState.password.value}
+                                onChange={(e) => updateForm('password', e.target)}
+                                required
+                                ref={passwordInput}
+                                disabled={accountLoading}
+                                id="signupPassword"
+                            />
+                            <span className="caption">At least 8 characters.</span>
+                        </div>
+
                         <div>
                             <Checkbox
                                 checked={formState.emailOptIn.value}
                                 onChange={(e) => updateForm('emailOptIn', e.target, 'checked')}
                                 disabled={accountLoading}
                             >
-                                Send me emails about security and product updates (unsubscribe at any time).
+                                Send me occasional emails about security and product updates. You may unsubscribe at any
+                                time.
                             </Checkbox>
                         </div>
                         <div className="text-center space-top">
@@ -165,7 +156,7 @@ function Signup() {
                         </div>
 
                         <div style={{ color: '#666666', marginBottom: 60 }} className="space-top">
-                            By tapping the button above you agree to our{' '}
+                            By clicking the button above you agree to our{' '}
                             <a href="https://posthog.com/terms" target="_blank">
                                 Terms of Service
                             </a>{' '}
