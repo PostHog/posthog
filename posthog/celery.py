@@ -1,12 +1,11 @@
 import os
 import time
-from datetime import datetime
-from typing import Optional
+from typing import Dict
 
 import redis
-from celery import Celery, group
+import statsd
+from celery import Celery
 from celery.schedules import crontab
-from dateutil import parser
 from django.conf import settings
 from django.db import connection
 
@@ -35,12 +34,29 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
 
+def get_statsd_client():
+    # Can't use the django specific statsd implementation in celery
+    # So we provide this convenience function to give you a client
+    # Doesn't need to be closed
+    c = statsd.StatsClient(settings.STATSD_HOST, settings.STATSD_PORT, prefix=settings.STATSD_PREFIX)
+    return c
+
+
+def celery_queue_length(queue="default") -> int:
+    if settings.REDIS_URL:
+        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    else:
+        return 0
+    return redis_instance.llen(queue)
+
+
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
+        crontab(day_of_week="mon,fri"),
+        update_event_partitions.s(),  # check twice a week
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
@@ -56,6 +72,8 @@ def setup_periodic_tasks(sender, **kwargs):
 
 @app.task
 def redis_heartbeat():
+    c = get_statsd_client()
+    c.gauge("celery_queue_size", celery_queue_length())
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
