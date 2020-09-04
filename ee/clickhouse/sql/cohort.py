@@ -27,3 +27,7 @@ SELECT distinct_id FROM events where id IN (
     SELECT id FROM {table_name}
 )
 """
+
+PERSON_PROPERTY_FILTER_SQL = """
+SELECT id FROM person WHERE {filters}
+"""

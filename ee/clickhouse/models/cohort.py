@@ -5,10 +5,10 @@ from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL,
     INSERT_INTO_COHORT_TABLE,
+    PERSON_PROPERTY_FILTER_SQL,
     create_cohort_mapping_table_sql,
 )
-from posthog.models import Cohort
-from posthog.models.action import Action
+from posthog.models import Action, Cohort, Filter
 
 
 def format_cohort_table_name(cohort: Cohort) -> str:
@@ -32,9 +32,13 @@ def format_filter_query(cohort: Cohort) -> str:
     filters = []
     for group in cohort.groups:
         if group.get("action_id"):
-            action = action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
+            action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
             table_name = format_action_table_name(action)
             filters.append("(" + FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL.format(table_name=table_name) + ")")
+        elif group.get("properties"):
+            filter = Filter(data=group)
+            prop_filter = filter.format_ch(team_id=cohort.team.pk)
+            filters.append("(" + PERSON_PROPERTY_FILTER_SQL.format(filters=prop_filter) + ")")
 
     separator = " OR person_id IN "
     joined_filter = separator.join(filters)
