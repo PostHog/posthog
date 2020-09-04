@@ -627,3 +627,18 @@ class TestIdentify(TransactionTestCase):
         )
         person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
         self.assertTrue(person_after_event.is_identified)
+
+    def test_team_event_properties(self):
+        self.assertListEqual(self.team.event_properties_numerical, [])
+        process_event(
+            "xxx",
+            "",
+            "",
+            {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        self.team.refresh_from_db()
+        self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
+        self.assertListEqual(self.team.event_properties_numerical, ["price"])
