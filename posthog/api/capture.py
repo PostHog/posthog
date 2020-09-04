@@ -13,8 +13,6 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from sentry_sdk import push_scope
 
-from ee.clickhouse.process_event import process_event_ee
-from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
 from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address
@@ -217,16 +215,5 @@ def get_event(request):
             now=now,
             sent_at=sent_at,
         )
-
-        if check_ee_enabled():
-            process_event_ee.delay(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
 
     return cors_response(request, JsonResponse({"status": 1}))

@@ -61,7 +61,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.merge_people([old_person])
 
 
-def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
     if event not in team.event_names:
@@ -121,8 +121,6 @@ def _capture(
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
-    store_names_and_properties(team=team, event=event, properties=properties)
-
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
@@ -132,22 +130,14 @@ def _capture(
         **({"timestamp": timestamp} if timestamp else {}),
         **({"elements": elements_list} if elements_list else {})
     )
+    _store_names_and_properties(team=team, event=event, properties=properties)
 
-    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
-
-
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         # Catch race condition where in between getting and creating, another request already created this user.
         try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
             pass
-
-        return person
-    else:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-        return person
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
@@ -177,7 +167,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
+def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
@@ -222,5 +212,5 @@ def process_event(
         event=data["event"],
         distinct_id=distinct_id,
         properties=properties,
-        timestamp=handle_timestamp(data, now, sent_at),
+        timestamp=_handle_timestamp(data, now, sent_at),
     )
