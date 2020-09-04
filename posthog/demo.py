@@ -140,7 +140,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             event="purchase",
                             team=team,
                             distinct_id=distinct_id,
-                            properties={"cost": 10},
+                            properties={"price": 10},
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
