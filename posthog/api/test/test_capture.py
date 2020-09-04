@@ -10,7 +10,8 @@ from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import PersonalAPIKey
+from posthog.models import PersonalAPIKey, Team
+from posthog.tasks.process_event import _capture
 
 from .base import BaseTest
 
