@@ -19,20 +19,20 @@ from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_table_name(action: Action, team: Team) -> str:
-    return "action_" + str(team.pk) + "_" + str(action.pk)
+def format_table_name(action: Action) -> str:
+    return "action_" + str(action.team.pk) + "_" + str(action.pk)
 
 
-def filter_events_by_action(action: Action, team: Team) -> List:
-    table_name = format_table_name(action, team)
+def filter_events_by_action(action: Action) -> List:
+    table_name = format_table_name(action)
     res = ch_client.execute(FILTER_EVENT_BY_ACTION_SQL.format(table_name=table_name))
     return res
 
 
-def populate_action_event_table(action: Action, team: Team) -> None:
+def populate_action_event_table(action: Action) -> None:
     query, params = format_action_query(action)
 
-    table_name = format_table_name(action, team)
+    table_name = format_table_name(action)
 
     ch_client.execute(DROP_ACTION_MAPPING_TABLE.format(table_name))
 
