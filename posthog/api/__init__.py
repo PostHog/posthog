@@ -22,7 +22,7 @@ from . import (
 class OptionalTrailingSlashRouter(routers.DefaultRouter):
     def __init__(self, *args, **kwargs):
         super().__init__()
-        self.trailing_slash = "/?"
+        self.trailing_slash = r"/?"
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
