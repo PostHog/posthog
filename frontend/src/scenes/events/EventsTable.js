@@ -5,7 +5,7 @@ import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
-import { SearchOutlined } from '@ant-design/icons'
+import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Spin, Table, Tooltip } from 'antd'
 import { router } from 'kea-router'
@@ -138,6 +138,21 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Events</h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
+            <Button
+                type="default"
+                icon={<ExportOutlined />}
+                href={'/api/event.csv' + function(properties, eventFilter){
+                    var params = '?';
+
+                    if(eventFilter) params += ('event=' + eventFilter + '&');
+                    if(Object.keys(properties).length !== 0) params += 'properties=' + JSON.stringify(properties);
+
+                    return params;
+                }(properties, eventFilter)}
+                style={{ marginBottom: '1rem' }}
+            >
+                Export
+            </Button>
             <Table
                 dataSource={eventsFormatted}
                 loading={isLoading}
