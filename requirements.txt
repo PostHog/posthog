@@ -10,6 +10,7 @@ celery-redbeat==0.13.0
 certifi==2019.11.28
 cffi==1.14.0
 chardet==3.0.4
+clickhouse-driver==0.1.4
 coreapi==2.3.3
 coreschema==0.0.4
 cryptography==2.9
@@ -28,7 +29,9 @@ future==0.18.2
 gunicorn==20.0.4
 idna==2.8
 importlib-metadata==1.6.0
+infi.clickhouse-orm==2.1.0
 inflection==0.3.1
+iso8601==0.1.12
 itypes==1.1.0
 Jinja2==2.11.1
 kombu==4.6.8
@@ -64,6 +67,7 @@ social-auth-core==3.3.3
 sqlparse==0.3.0
 tenacity==6.1.0
 traitlets==4.3.3
+typing==3.7.4.3
 typing-extensions==3.7.4.2
 uritemplate==3.0.1
 urllib3==1.25.8
