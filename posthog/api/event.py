@@ -95,8 +95,10 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def to_representation(self, instance):
         ret = super(EventSerializer, self).to_representation(instance)
-        if "text/csv" in self.context["request"].accepted_media_type:
-            ret.pop("elements")
+        req = self.context.get('request', {})
+        if req:
+            if 'text/csv' in req.get('accepted_media_type', {}):
+                ret.pop("elements")
         return ret
 
 
