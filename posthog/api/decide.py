@@ -23,6 +23,7 @@ def _load_data(data: str) -> Dict[str, Any]:
 def feature_flags(request: HttpRequest) -> List[str]:
     if request.method != "POST" or not request.POST.get("data"):
         return []
+
     data = _load_data(request.POST["data"])
     team = Team.objects.get_cached_from_token(data["token"])
     flags_enabled = []
@@ -78,6 +79,17 @@ def get_decide(request: HttpRequest):
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
                 request.user.save()
+
+    try:
+        _load_data(request.POST["data"])
+    except json.decoder.JSONDecodeError:
+        return cors_response(
+            request,
+            JsonResponse(
+                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
+                status=400,
+            ),
+        )
 
     response["featureFlags"] = feature_flags(request)
     return cors_response(request, JsonResponse(response))
