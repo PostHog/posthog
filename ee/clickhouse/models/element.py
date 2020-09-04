@@ -55,18 +55,18 @@ def create_elements(elements: List[Element], team: Team) -> str:
     return element_hash
 
 
-def get_element_group_by_hash(elements_hash: str):
-    result = ch_client.execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
+async def get_element_group_by_hash(elements_hash: str):
+    result = await ch_client.execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
     return ClickhouseElementGroupSerializer(result, many=True).data
 
 
-def get_elements_by_group(group_id: UUID):
-    result = ch_client.execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
+async def get_elements_by_group(group_id: UUID):
+    result = await ch_client.execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 
-def get_elements():
-    result = ch_client.execute(GET_ELEMENTS_SQL)
+async def get_elements():
+    result = await ch_client.execute(GET_ELEMENTS_SQL)
     return ClickhouseElementSerializer(result, many=True).data
 
 

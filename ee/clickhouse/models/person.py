@@ -35,14 +35,16 @@ def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -
     )
 
 
-def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
+async def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
     return bool(
-        ch_client.execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][0]
+        await ch_client.execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][
+            0
+        ]
     )
 
 
-def person_exists(id: int) -> bool:
-    return bool(ch_client.execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
+async def person_exists(id: int) -> bool:
+    return bool(await ch_client.execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
 
 
 def create_person_with_distinct_id(
@@ -61,24 +63,24 @@ def attach_distinct_ids(person_id: int, distinct_ids: List[str], team_id: int) -
         )
 
 
-def get_persons():
-    result = ch_client.execute(GET_PERSON_SQL)
+async def get_persons():
+    result = await ch_client.execute(GET_PERSON_SQL)
     return ClickhousePersonSerializer(result, many=True).data
 
 
-def get_person_distinct_ids():
-    result = ch_client.execute(GET_DISTINCT_IDS_SQL)
+async def get_person_distinct_ids():
+    result = await ch_client.execute(GET_DISTINCT_IDS_SQL)
     return ClickhousePersonDistinctIdSerializer(result, many=True).data
 
 
-def merge_people(target: Person, old_id: int, old_props: Dict) -> None:
+async def merge_people(target: Person, old_id: int, old_props: Dict) -> None:
     properties = {}
     # merge the properties
     properties = {**old_props, **target.properties}
 
     update_person_properties(target.pk, properties)
 
-    other_person_distinct_ids = ch_client.execute(
+    other_person_distinct_ids = await ch_client.execute(
         GET_DISTINCT_IDS_SQL_BY_ID, {"person_id": old_id, "team_id": target.team.pk}
     )
 

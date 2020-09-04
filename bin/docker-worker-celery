@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
 
-celery -A posthog worker
+celery -A posthog worker --concurrency=10 

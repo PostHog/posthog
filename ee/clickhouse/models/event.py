@@ -42,8 +42,8 @@ def create_event(
     )
 
 
-def get_events():
-    events = ch_client.execute(GET_EVENTS_SQL)
+async def get_events():
+    events = await ch_client.execute(GET_EVENTS_SQL)
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 

@@ -16,7 +16,7 @@ from posthog.utils import convert_property_value
 class ClickhouseEvents(viewsets.ViewSet):
     serializer_class = ClickhouseEventSerializer
 
-    def list(self, request):
+    async def list(self, request):
 
         team = request.user.team_set.get()
         filter = Filter(request=request)
@@ -25,12 +25,12 @@ class ClickhouseEvents(viewsets.ViewSet):
         prop_filters, prop_filter_params = parse_filter(filter.properties)
 
         if prop_filters:
-            query_result = ch_client.execute(
+            query_result = await ch_client.execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
-            query_result = ch_client.execute(
+            query_result = await ch_client.execute(
                 SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
                 {"team_id": team.pk, **condition_params},
             )

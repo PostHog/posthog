@@ -26,25 +26,25 @@ from ee.clickhouse.sql.person import (
 class ClickhouseTestMixin:
     def tearDown(self):
         self._destroy_event_tables()
-        ch_client.execute(DROP_ELEMENTS_TABLE_SQL)
-        ch_client.execute(DROP_ELEMENTS_GROUP_TABLE_SQL)
-        ch_client.execute(DROP_PERSON_TABLE_SQL)
-        ch_client.execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+        await ch_client.execute(DROP_ELEMENTS_TABLE_SQL)
+        await ch_client.execute(DROP_ELEMENTS_GROUP_TABLE_SQL)
+        await ch_client.execute(DROP_PERSON_TABLE_SQL)
+        await ch_client.execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
 
         self._create_event_tables()
-        ch_client.execute(ELEMENTS_TABLE_SQL)
-        ch_client.execute(ELEMENT_GROUP_TABLE_SQL)
-        ch_client.execute(PERSONS_TABLE_SQL)
-        ch_client.execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        await ch_client.execute(ELEMENTS_TABLE_SQL)
+        await ch_client.execute(ELEMENT_GROUP_TABLE_SQL)
+        await ch_client.execute(PERSONS_TABLE_SQL)
+        await ch_client.execute(PERSONS_DISTINCT_ID_TABLE_SQL)
 
     def _destroy_event_tables(self):
-        ch_client.execute(DROP_EVENTS_TABLE_SQL)
-        ch_client.execute(DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
-        ch_client.execute(DROP_MAT_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
-        ch_client.execute(DROP_MAT_EVENTS_PROP_TABLE_SQL)
+        await ch_client.execute(DROP_EVENTS_TABLE_SQL)
+        await ch_client.execute(DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
+        await ch_client.execute(DROP_MAT_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
+        await ch_client.execute(DROP_MAT_EVENTS_PROP_TABLE_SQL)
 
     def _create_event_tables(self):
-        ch_client.execute(EVENTS_TABLE_SQL)
-        ch_client.execute(EVENTS_WITH_PROPS_TABLE_SQL)
-        ch_client.execute(MAT_EVENTS_WITH_PROPS_TABLE_SQL)
-        ch_client.execute(MAT_EVENT_PROP_TABLE_SQL)
+        await ch_client.execute(EVENTS_TABLE_SQL)
+        await ch_client.execute(EVENTS_WITH_PROPS_TABLE_SQL)
+        await ch_client.execute(MAT_EVENTS_WITH_PROPS_TABLE_SQL)
+        await ch_client.execute(MAT_EVENT_PROP_TABLE_SQL)

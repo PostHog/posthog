@@ -1,4 +1,4 @@
-from clickhouse_driver import Client  # type: ignore
+from aioch import Client  # type: ignore
 
 from posthog.settings import (
     CLICKHOUSE,
