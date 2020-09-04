@@ -147,7 +147,7 @@ export function PersonalAPIKeys(): JSX.Element {
                 delete it and use a new one.
                 <br />
                 <a href="https://posthog.com/docs/api/api#authentication">
-                    More about API authentication in PostHog docs.
+                    More about API authentication in PostHog Docs.
                 </a>
             </p>
             <Button
