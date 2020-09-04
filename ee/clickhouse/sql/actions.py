@@ -1,3 +1,33 @@
+from .clickhouse import STORAGE_POLICY, table_engine
+
+FILTER_EVENT_BY_ACTION_SQL = """
+SELECT * FROM events where id IN (
+    SELECT id FROM {table_name}
+)
+"""
+
+DROP_ACTION_MAPPING_TABLE = """
+DROP TABLE IF EXISTS {}
+"""
+
+
+def create_action_mapping_table_sql(table_name: str) -> str:
+    return """
+        CREATE TABLE IF NOT EXISTS {table_name}
+        (
+            id UUID
+        )ENGINE = {engine}
+        ORDER BY (id)
+        {storage_policy}
+        """.format(
+        table_name=table_name, engine=table_engine(table_name), storage_policy=STORAGE_POLICY
+    )
+
+
+INSERT_INTO_ACTION_TABLE = """
+INSERT INTO {table_name} SELECT id FROM ({query})
+"""
+
 ACTION_QUERY = """
 SELECT * FROM events WHERE id IN {action_filter}
 """
