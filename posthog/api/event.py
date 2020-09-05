@@ -95,9 +95,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def to_representation(self, instance):
         ret = super(EventSerializer, self).to_representation(instance)
-        req = self.context.get('request', {})
+        req = self.context.get("request", {})
         if req:
-            if 'text/csv' in req.accepted_media_type:
+            if "text/csv" in req.accepted_media_type:
                 ret.pop("elements")
         return ret
 
@@ -205,7 +205,12 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             next_url = None
 
-        return response.Response({"next": next_url, "results": EventSerializer(prefetched_events, many=True, context={"request": self.request}).data,})
+        return response.Response(
+            {
+                "next": next_url,
+                "results": EventSerializer(prefetched_events, many=True, context={"request": self.request}).data,
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
