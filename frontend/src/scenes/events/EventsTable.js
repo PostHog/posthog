@@ -141,14 +141,17 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
             <Button
                 type="default"
                 icon={<ExportOutlined />}
-                href={'/api/event.csv' + function(properties, eventFilter){
-                    var params = '?';
+                href={
+                    '/api/event.csv' +
+                    (function (properties, eventFilter) {
+                        var params = '?'
 
-                    if(eventFilter) params += ('event=' + eventFilter + '&');
-                    if(Object.keys(properties).length !== 0) params += 'properties=' + JSON.stringify(properties);
+                        if (eventFilter) params += 'event=' + eventFilter + '&'
+                        if (Object.keys(properties).length !== 0) params += 'properties=' + JSON.stringify(properties)
 
-                    return params;
-                }(properties, eventFilter)}
+                        return params
+                    })(properties, eventFilter)
+                }
                 style={{ marginBottom: '1rem' }}
             >
                 Export
