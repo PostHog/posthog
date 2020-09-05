@@ -1,9 +1,12 @@
 import os
 import time
+from datetime import datetime
+from typing import Optional
 
 import redis
-from celery import Celery
+from celery import Celery, group
 from celery.schedules import crontab
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
 
@@ -30,14 +33,6 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
-
-
-def celery_queue_length(queue="default") -> int:
-    if settings.REDIS_URL:
-        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    else:
-        return 0
-    return redis_instance.llen(queue)
 
 
 @app.on_after_configure.connect

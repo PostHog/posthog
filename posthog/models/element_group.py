@@ -9,20 +9,19 @@ from .element import Element
 from .team import Team
 
 
-def hash_elements(elements: List) -> str:
-    elements_list: List[Dict] = []
-    for element in elements:
-        el_dict = model_to_dict(element)
-        [el_dict.pop(key) for key in ["event", "id", "group"]]
-        elements_list.append(el_dict)
-    return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-
-
 class ElementGroupManager(models.Manager):
+    def _hash_elements(self, elements: List) -> str:
+        elements_list: List[Dict] = []
+        for element in elements:
+            el_dict = model_to_dict(element)
+            [el_dict.pop(key) for key in ["event", "id", "group"]]
+            elements_list.append(el_dict)
+        return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
     def create(self, *args: Any, **kwargs: Any):
         elements = kwargs.pop("elements")
         with transaction.atomic():
-            kwargs["hash"] = hash_elements(elements)
+            kwargs["hash"] = self._hash_elements(elements)
             try:
                 with transaction.atomic():
                     group = super().create(*args, **kwargs)

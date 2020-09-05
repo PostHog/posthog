@@ -5,7 +5,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 
 from .models.user import User
-from .utils import get_celery_queue_length, get_redis_heartbeat
+from .utils import get_redis_heartbeat
 
 
 def health(request):
@@ -15,7 +15,6 @@ def health(request):
 def stats(request):
     stats_response: Dict[str, Union[int, str]] = {}
     stats_response["worker_heartbeat"] = get_redis_heartbeat()
-    stats_response["queue_lengths"] = get_celery_queue_length()
     return JsonResponse(stats_response)
 
 
