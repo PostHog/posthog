@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
+from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
