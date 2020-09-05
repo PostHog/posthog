@@ -8,6 +8,7 @@ from celery.schedules import crontab
 
 from django.conf import settings
 from django.db import connection
+from django_statsd import utils
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -69,8 +70,9 @@ def redis_heartbeat():
 
 @app.task()
 def redis_task_queue_length():
+    g = utils.get_client("production_celery", class_=statsd.Gauge)
     llen = redis_instance.llen("celery")
-    statsd.Gauge("celery_queue_depth", llen)
+    g.increment("celery_queue_depth", llen)
 
 
 @app.task
