@@ -2,12 +2,12 @@ import os
 import time
 
 import redis
-import statsd
+import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
 from django.db import connection
-from django_statsd import utils
+from django_statsd import utils  # type: ignore
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
