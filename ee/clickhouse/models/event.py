@@ -6,7 +6,7 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import async_execute, sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from posthog.models.team import Team
 
@@ -29,7 +29,7 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    ch_client.execute(
+    async_execute(
         INSERT_EVENT_SQL,
         {
             "event": event,
@@ -42,8 +42,8 @@ def create_event(
     )
 
 
-async def get_events():
-    events = await ch_client.execute(GET_EVENTS_SQL)
+def get_events():
+    events = sync_execute(GET_EVENTS_SQL)
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 

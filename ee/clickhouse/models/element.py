@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import async_execute, sync_execute
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
     GET_ELEMENT_GROUP_BY_HASH_SQL,
@@ -19,12 +19,12 @@ from posthog.models.team import Team
 
 def create_element_group(team: Team, element_hash: str) -> UUID:
     id = uuid4()
-    ch_client.execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
+    async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
     return id
 
 
 def create_element(element: Element, team: Team, group_id: UUID) -> None:
-    ch_client.execute(
+    async_execute(
         INSERT_ELEMENTS_SQL,
         {
             "text": element.text or "",
@@ -55,18 +55,18 @@ def create_elements(elements: List[Element], team: Team) -> str:
     return element_hash
 
 
-async def get_element_group_by_hash(elements_hash: str):
-    result = await ch_client.execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
+def get_element_group_by_hash(elements_hash: str):
+    result = sync_execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
     return ClickhouseElementGroupSerializer(result, many=True).data
 
 
-async def get_elements_by_group(group_id: UUID):
-    result = await ch_client.execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
+def get_elements_by_group(group_id: UUID):
+    result = sync_execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 
-async def get_elements():
-    result = await ch_client.execute(GET_ELEMENTS_SQL)
+def get_elements():
+    result = sync_execute(GET_ELEMENTS_SQL)
     return ClickhouseElementSerializer(result, many=True).data
 
 
