@@ -1,14 +1,13 @@
 import os
 import time
-from datetime import datetime
-from typing import Optional
 
 import redis
-from celery import Celery, group
+import statsd  # type: ignore
+from celery import Celery
 from celery.schedules import crontab
-from dateutil import parser
 from django.conf import settings
 from django.db import connection
+from django_statsd import utils  # type: ignore
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -39,6 +38,7 @@ ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
+    sender.add_periodic_task(1.0, redis_task_queue_length.s(), name="1 sec redis metric", priority=0)
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
@@ -57,6 +57,13 @@ def setup_periodic_tasks(sender, **kwargs):
 @app.task
 def redis_heartbeat():
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
+
+
+@app.task()
+def redis_task_queue_length():
+    g = utils.get_client("production_celery", class_=statsd.Gauge)
+    llen = redis_instance.llen("celery")
+    g.increment("celery_queue_depth", llen)
 
 
 @app.task
