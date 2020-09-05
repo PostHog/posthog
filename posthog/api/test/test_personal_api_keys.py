@@ -1,3 +1,4 @@
+import json
 from typing import Optional, Type
 
 from posthog.models import FeatureFlag, PersonalAPIKey
@@ -129,11 +130,21 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     def test_capture(self):
         response = self.client.post(
             "/capture/",
-            {"event": "x", "distinct_id": "y", "personal_api_key": self.personal_api_key.value},
+            data={
+                "data": json.dumps({"event": "x", "distinct_id": "y", "personal_api_key": self.personal_api_key.value})
+            },
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
 
     def test_decide(self):
-        response = self.client.get("/decide/", {"personal_api_key": self.personal_api_key.value})
+        FeatureFlag.objects.create(
+            team=self.team, filters={}, rollout_percentage=100, name="Test", key="test", created_by=self.user,
+        )
+        response = self.client.post(
+            "/capture/",
+            data={"data": json.dumps({"personal_api_key": self.personal_api_key.value, "distinct_id": "1234"})},
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["featureFlags"][0], "test")

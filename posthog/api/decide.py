@@ -1,3 +1,4 @@
+import json
 import secrets
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
@@ -33,7 +34,16 @@ def _get_token(data, request):
 def feature_flags(request: HttpRequest) -> List[str]:
     if request.method != "POST":
         return []
-    data = _load_data(request)
+    try:
+        data = _load_data(request)
+    except json.decoder.JSONDecodeError:
+        return cors_response(
+            request,
+            JsonResponse(
+                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON."},
+                status=400,
+            ),
+        )
     if not data:
         return []
     token = _get_token(data, request)
