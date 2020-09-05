@@ -8,10 +8,11 @@ from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
-from posthog.models import Event, Filter, Person, Team
+from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team
 from posthog.utils import convert_property_value
 
 from .base import CursorPagination as BaseCursorPagination
+from .event import EventSerializer
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
