@@ -20,6 +20,14 @@ from posthog.settings import (
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = Client(host="localhost")
     ch_sync_client = SyncClient(host="localhost")
+
+    def async_execute(query, args=None):
+        return
+
+    def sync_execute(query, args=None):
+        return
+
+
 else:
     if not TEST and CLICKHOUSE_ASYNC:
         ch_client = Client(
