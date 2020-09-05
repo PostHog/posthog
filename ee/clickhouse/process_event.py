@@ -12,6 +12,7 @@ from ee.clickhouse.models.person import (
     merge_people,
     update_person_properties,
 )
+from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -161,31 +162,43 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-@shared_task
-def process_event_ee(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
-) -> None:
-    if data["event"] == "$create_alias":
-        _alias(
-            previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
-        )
-    elif data["event"] == "$identify":
-        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
-        if data.get("properties") and data["properties"].get("$anon_distinct_id"):
+if check_ee_enabled():
+
+    @shared_task
+    def process_event_ee(
+        distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+    ) -> None:
+        if data["event"] == "$create_alias":
             _alias(
-                previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
+                previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
             )
-        if data.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+        elif data["event"] == "$identify":
+            _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+            if data.get("properties") and data["properties"].get("$anon_distinct_id"):
+                _alias(
+                    previous_distinct_id=data["properties"]["$anon_distinct_id"],
+                    distinct_id=distinct_id,
+                    team_id=team_id,
+                )
+            if data.get("$set"):
+                _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
-    properties = data.get("properties", data.get("$set", {}))
+        properties = data.get("properties", data.get("$set", {}))
 
-    _capture_ee(
-        ip=ip,
-        site_url=site_url,
-        team_id=team_id,
-        event=data["event"],
-        distinct_id=distinct_id,
-        properties=properties,
-        timestamp=handle_timestamp(data, now, sent_at),
-    )
+        _capture_ee(
+            ip=ip,
+            site_url=site_url,
+            team_id=team_id,
+            event=data["event"],
+            distinct_id=distinct_id,
+            properties=properties,
+            timestamp=handle_timestamp(data, now, sent_at),
+        )
+
+
+else:
+
+    @shared_task
+    def process_event_ee(*args, **kwargs) -> None:
+        # Noop if ee is not enabled
+        return
