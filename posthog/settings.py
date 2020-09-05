@@ -116,6 +116,7 @@ CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
+CLICKHOUSE_ASYNC = get_bool_from_env("CLICKHOUSE_ASYNC", False)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

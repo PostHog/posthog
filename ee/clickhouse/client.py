@@ -6,6 +6,7 @@ from clickhouse_driver import Client as SyncClient  # type: ignore
 
 from posthog.settings import (
     CLICKHOUSE,
+    CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HOST,
@@ -16,7 +17,7 @@ from posthog.settings import (
     TEST,
 )
 
-if not TEST:
+if not TEST and CLICKHOUSE_ASYNC:
     if PRIMARY_DB != CLICKHOUSE:
         ch_client = Client(host="localhost")
     else:
@@ -31,7 +32,8 @@ if not TEST:
 
     @async_to_sync
     async def async_execute(query, args=None):
-        task = asyncio.create_task(ch_client.execute(query, args))
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(ch_client.execute(query, args))
         # we return this in case we want to cancel it
         return task
 
