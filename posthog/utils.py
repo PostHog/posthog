@@ -225,7 +225,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def find_key(
-        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None
+        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, str]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -321,3 +321,11 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
+
+
+def get_celery_queue_length(queue="default") -> int:
+    if settings.REDIS_URL:
+        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    else:
+        return 0
+    return redis_instance.llen(queue)

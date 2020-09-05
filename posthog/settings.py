@@ -103,6 +103,30 @@ ASYNC_EVENT_ACTION_MAPPING = False
 if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
     ASYNC_EVENT_ACTION_MAPPING = True
 
+
+# Clickhouse Settings
+CLICKHOUSE_TEST_DB = "posthog_test"
+
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
+CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
+CLICKHOUSE_ASYNC = get_bool_from_env("CLICKHOUSE_ASYNC", False)
+
+_clickhouse_http_protocol = "http://"
+_clickhouse_http_port = "8123"
+if CLICKHOUSE_SECURE:
+    _clickhouse_http_protocol = "https://"
+    _clickhouse_http_port = "8443"
+
+CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
 TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
@@ -409,6 +433,11 @@ def show_toolbar(request):
 DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
+
+POSTGRES = "postgres"
+CLICKHOUSE = "clickhouse"
+
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
