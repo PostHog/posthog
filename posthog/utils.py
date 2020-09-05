@@ -321,11 +321,3 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
-
-
-def get_celery_queue_length(queue="celery") -> int:
-    if settings.REDIS_URL:
-        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    else:
-        return 0
-    return redis_instance.llen(queue)
