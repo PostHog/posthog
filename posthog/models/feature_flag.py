@@ -38,7 +38,7 @@ class FeatureFlag(models.Model):
                 return True
 
         if self.rollout_percentage:
-            hash = self._hash(self.key, distinct_id)
+            hash = self._hash(str(self.id), distinct_id)
             if hash <= (self.rollout_percentage / 100):
                 return True
         return False
@@ -47,7 +47,7 @@ class FeatureFlag(models.Model):
     # Given the same distinct_id and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, distinct_id) < 0.2
-    def _hash(self, key: str, distinct_id: str) -> float:
-        hash_key = "%s.%s" % (key, distinct_id)
+    def _hash(self, flag_id: str, distinct_id: str) -> float:
+        hash_key = "%s.%s" % (flag_id, distinct_id)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
