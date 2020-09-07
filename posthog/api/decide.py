@@ -33,8 +33,6 @@ def _get_token(data, request):
 
 def feature_flags(request: HttpRequest) -> Dict[str, Any]:
     feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
-    if request.method != "POST":
-        return feature_flags_data
     try:
         data = _load_data(request)
     except (json.decoder.JSONDecodeError, TypeError):
@@ -43,6 +41,7 @@ def feature_flags(request: HttpRequest) -> Dict[str, Any]:
 
     if not data:
         return feature_flags_data
+
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
