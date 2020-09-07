@@ -74,6 +74,7 @@ function Signup() {
                         margin: '0 32px',
                         flexDirection: 'column',
                         paddingTop: 32,
+                        maxWidth: '28rem',
                     }}
                 >
                     <form onSubmit={handleSubmit}>
