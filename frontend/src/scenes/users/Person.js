@@ -58,9 +58,9 @@ function _Person({ _: distinctId, id }) {
             <h1 className="page-header">
                 {person.properties.name.first} {person.properties.name.last}
             </h1>
-            <Button className="float-right"
-                onClick = {() => savePersonData(person)}
-            >Save Person's Data</Button>
+            <Button className="float-right" onClick={() => savePersonData(person)}>
+                Save Person's Data
+            </Button>
 
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
