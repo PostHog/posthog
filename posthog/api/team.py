@@ -34,7 +34,7 @@ class TeamSignupSerializer(serializers.Serializer):
 
         with transaction.atomic():
             user = User.objects.create_user(**validated_data)
-            Team.objects.create_with_data(users=[user], name=company_name)
+            self._team = Team.objects.create_with_data(users=[user], name=company_name)
 
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
