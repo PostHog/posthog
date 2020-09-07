@@ -1,7 +1,7 @@
 import base64
 import json
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -20,11 +20,16 @@ def _load_data(data: str) -> Dict[str, Any]:
     )
 
 
-def feature_flags(request: HttpRequest) -> List[str]:
+def feature_flags(request: HttpRequest) -> Dict[str, Any]:
+    feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
     if request.method != "POST" or not request.POST.get("data"):
-        return []
+        return feature_flags_data
+    try:
+        data = _load_data(request.POST["data"])
+    except (json.decoder.JSONDecodeError, TypeError):
+        feature_flags_data["has_malformed_json"] = True
+        return feature_flags_data
 
-    data = _load_data(request.POST["data"])
     team = Team.objects.get_cached_from_token(data["token"])
     flags_enabled = []
 
@@ -32,7 +37,8 @@ def feature_flags(request: HttpRequest) -> List[str]:
     for feature_flag in feature_flags:
         if feature_flag.distinct_id_matches(data["distinct_id"]):
             flags_enabled.append(feature_flag.key)
-    return flags_enabled
+    feature_flags_data["flags_enabled"] = flags_enabled
+    return feature_flags_data
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -79,11 +85,10 @@ def get_decide(request: HttpRequest):
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
                 request.user.save()
-
+    response["featureFlags"] = []
     if request.method == "POST":
-        try:
-            _load_data(request.POST["data"])
-        except json.decoder.JSONDecodeError:
+        feature_flags_data = feature_flags(request)
+        if feature_flags_data["has_malformed_json"]:
             return cors_response(
                 request,
                 JsonResponse(
@@ -91,6 +96,5 @@ def get_decide(request: HttpRequest):
                     status=400,
                 ),
             )
-
-    response["featureFlags"] = feature_flags(request)
+        response["featureFlags"] = feature_flags_data["flags_enabled"]
     return cors_response(request, JsonResponse(response))
