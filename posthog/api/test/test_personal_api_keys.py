@@ -2,6 +2,7 @@ import json
 from typing import Optional, Type
 
 from posthog.models import FeatureFlag, PersonalAPIKey
+
 from .base import TransactionBaseTest
 
 
@@ -125,24 +126,3 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django)
         response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key.value}")
         self.assertEqual(response.status_code, 200)
-
-    def test_capture(self):
-        response = self.client.post(
-            "/capture/",
-            data={"event": "x", "distinct_id": "y", "personal_api_key": self.personal_api_key.value},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-
-    def test_decide(self):
-        FeatureFlag.objects.create(
-            team=self.team, filters={}, rollout_percentage=100, name="Test", key="test", created_by=self.user,
-        )
-        response = self.client.post(
-            "/decide/",
-            data={"personal_api_key": self.personal_api_key.value, "distinct_id": "1234"},
-            content_type="application/json",
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["featureFlags"][0], "test")
