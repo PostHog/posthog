@@ -38,10 +38,14 @@ class FeatureFlag(models.Model):
                 return True
 
         if self.rollout_percentage:
+            print("##############################")
+            print("##############################")
+            print("##############################")
+            print("##############################")
+            print("##############################")
             hash = self._hash(str(self.id), distinct_id)
-            if hash <= (self.rollout_percentage / 100):
-                return True
-        return False
+            print(str(self.id), distinct_id, hash)
+            return hash <= (self.rollout_percentage / 100)
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are

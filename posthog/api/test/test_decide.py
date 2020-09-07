@@ -90,7 +90,7 @@ class TestDecide(BaseTest):
                 {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id"})},
                 HTTP_ORIGIN="http://127.0.0.1:8000",
             ).json()
-        self.assertEqual(response["featureFlags"][0], "beta-feature")
+        self.assertEqual(len(response["featureFlags"]), 0)
 
         with self.assertNumQueries(3):  # Caching of teams saves 1 query
             response = self.client.post(
@@ -98,4 +98,4 @@ class TestDecide(BaseTest):
                 {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "another_id"})},
                 HTTP_ORIGIN="http://127.0.0.1:8000",
             ).json()
-        self.assertEqual(len(response["featureFlags"]), 0)
+        self.assertEqual(response["featureFlags"][0], "beta-feature")
