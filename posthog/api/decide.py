@@ -36,7 +36,7 @@ def feature_flags(request: HttpRequest) -> Dict[str, Any]:
     if request.method != "POST":
         return feature_flags_data
     try:
-        data = _load_data(request.POST["data"])
+        data = _load_data(request)
     except (json.decoder.JSONDecodeError, TypeError):
         feature_flags_data["has_malformed_json"] = True
         return feature_flags_data
