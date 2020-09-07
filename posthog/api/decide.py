@@ -104,7 +104,6 @@ def get_decide(request: HttpRequest):
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
                 request.user.save()
-
     response["featureFlags"] = []
     if request.method == "POST":
         feature_flags_data = feature_flags(request)
