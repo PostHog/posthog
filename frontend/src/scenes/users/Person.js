@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PersonTable } from './PersonTable'
-import { deletePersonData } from 'lib/utils'
+import { deletePersonData, savePersonData } from 'lib/utils'
 import { Button } from 'antd'
 import { hot } from 'react-hot-loader/root'
 
@@ -58,7 +58,9 @@ function _Person({ _: distinctId, id }) {
             <h1 className="page-header">
                 {person.properties.name.first} {person.properties.name.last}
             </h1>
-            <Button className="float-right">Save Person's Data</Button>
+            <Button className="float-right"
+                onClick = {() => savePersonData(person)}
+            >Save Person's Data</Button>
 
             <div style={{ maxWidth: 750 }}>
                 <PersonTable

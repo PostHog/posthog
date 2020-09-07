@@ -231,6 +231,14 @@ export const deletePersonData = (person, callback) => {
         })
 }
 
+export const savePersonData = (person) => {
+    window.confirm("save person's data") &&
+    console.log(person)
+    api.update('api/person/' + person.id).then(() => {
+        toast('Person Updated')
+    })
+}
+
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
 
 export const idToKey = (array, keyField = 'id') => {
