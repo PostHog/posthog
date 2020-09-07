@@ -141,6 +141,10 @@ class User(AbstractUser):
     def team(self) -> Team:
         if self.current_team:
             return self.current_team
-        self.current_team = self.team_set.all()[0]
+        self.current_team = self.team_set.first()
         self.save()
         return self.current_team
+
+    @property
+    def organization(self) -> Team:
+        return self.organizations.first()
