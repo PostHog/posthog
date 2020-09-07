@@ -109,7 +109,7 @@ class TestDecide(BaseTest):
         )
         response = self.client.post(
             "/decide/",
-            {"personal_api_key": key.value, "data": json.dumps({"distinct_id": "example_id"})},
+            {"data": json.dumps({"distinct_id": "example_id", "personal_api_key": key.value})},
             HTTP_ORIGIN="http://127.0.0.1:8000",
         ).json()
         self.assertEqual(len(response["featureFlags"]), 1)

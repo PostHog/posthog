@@ -231,7 +231,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         self,
         request: Union[HttpRequest, Request],
         extra_data: Optional[Dict[str, Any]] = None,
-        request_body: Optional[Dict[Any, Any]] = None,
+        request_body: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, str]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -239,12 +239,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 return authorization_match.group(1).strip(), "Authorization header"
         if isinstance(request, Request):
             data = request.data
+        elif request_body:
+            data = request_body
         else:
-            try:
-                req_body = request_body if request_body else request.body
-                data = json.loads(req_body)
-            except json.JSONDecodeError:
-                data = {}
+            data = {}
         if "personal_api_key" in data:
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
@@ -344,7 +342,10 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
     if request.method == "POST":
         if request.content_type == "application/json":
             data = request.body
-            data_res["body"] = data
+            try:
+                data_res["body"] = {**json.loads(request.body)}
+            except:
+                pass
         else:
             data = request.POST.get("data")
     else:
@@ -376,15 +377,15 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = base64_to_json(data)
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     data_res["data"] = data
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data_res
 
 
 def get_token_from_personal_api_key(request, data, request_body) -> Tuple[Optional[str], bool]:
     token = None
     personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
-        request, data if isinstance(data, dict) else None, request_body
+        request, data if isinstance(data, dict) else None, request_body=request_body
     )
     if personal_api_key_with_source:
         token = personal_api_key_with_source[0]
