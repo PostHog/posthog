@@ -36,7 +36,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('#rc_select_6').click()
         cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
