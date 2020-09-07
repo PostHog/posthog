@@ -14,7 +14,7 @@ class TestTeamUser(BaseTest):
     TESTS_API = True
 
     def create_user_for_team(self, team):
-        suffix = random.randint(100, 999)
+        suffix = random.randint(100000, 999999)
         user = User.objects.create_user(
             f"user{suffix}@posthog.com", password=self.TESTS_PASSWORD, first_name=f"User #{suffix}",
         )
