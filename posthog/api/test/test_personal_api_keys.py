@@ -130,9 +130,7 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     def test_capture(self):
         response = self.client.post(
             "/capture/",
-            data={
-                "data": json.dumps({"event": "x", "distinct_id": "y", "personal_api_key": self.personal_api_key.value})
-            },
+            data={"event": "x", "distinct_id": "y", "personal_api_key": self.personal_api_key.value},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
@@ -142,9 +140,10 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
             team=self.team, filters={}, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
         response = self.client.post(
-            "/capture/",
-            data={"data": json.dumps({"personal_api_key": self.personal_api_key.value, "distinct_id": "1234"})},
+            "/decide/",
+            data={"personal_api_key": self.personal_api_key.value, "data": json.dumps({"distinct_id": "1234"})},
             content_type="application/json",
+            HTTP_ORIGIN="http://127.0.0.1:8000",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["featureFlags"][0], "test")
+        self.assertEqual(response.json()["featureFlags"][0], "test")
