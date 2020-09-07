@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from posthog.models import Team, User
 
 from .base import BaseTest
@@ -40,6 +42,27 @@ class TestUser(BaseTest):
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
 
+    @patch("secrets.token_urlsafe")
+    def test_user_team_update_signup_token(self, patch_token):
+        patch_token.return_value = "abcde"
+        response = self.client.patch(
+            "/api/user/", data={"team": {"signup_state": False}}, content_type="application/json",
+        ).json()
+
+        self.assertEqual(response["team"]["signup_token"], None)
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, None)
+
+        response = self.client.patch(
+            "/api/user/", data={"team": {"signup_state": True}}, content_type="application/json",
+        ).json()
+
+        self.assertEqual(response["team"]["signup_token"], "abcde")
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, "abcde")
+
 
 class TestUserChangePassword(BaseTest):
     TESTS_API = True
@@ -58,9 +81,9 @@ class TestUserChangePassword(BaseTest):
         self.assertEqual(response.json()["error"], "Incorrect old password")
 
     def test_change_password_invalid_new_password(self):
-        response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123451230"})
+        response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123456"})
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "This password is entirely numeric.")
+        self.assertEqual(response.json()["error"], "This password is too short. It must contain at least 8 characters.")
 
     def test_change_password_success(self):
         response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "prettyhardpassword123456",})

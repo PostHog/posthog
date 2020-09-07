@@ -68,12 +68,13 @@ const typeMap = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: ({ funnel, id, dashboard, name }) =>
-            combineUrl(
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
                 `/insights`,
-                { insight: ViewType.FUNNELS, id: funnel },
+                { insight: ViewType.FUNNELS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url,
+            ).url
+        },
     },
 }
 
@@ -113,7 +114,7 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: item.result,
-        funnelId: item.funnel,
+        funnelId: item.funnel || item.filters.funnel_id,
     }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))

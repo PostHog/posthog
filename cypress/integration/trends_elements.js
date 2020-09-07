@@ -4,6 +4,11 @@ describe('Trends actions & events', () => {
         cy.visit('/')
     })
 
+    it('Insight History Panel Rendered', () => {
+        cy.get('[data-attr=insight-history-button]').click()
+        cy.get('[data-attr=insight-history-panel]').should('exist')
+    })
+
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add action/event').click()
@@ -31,7 +36,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('#rc_select_6').click()
         cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })

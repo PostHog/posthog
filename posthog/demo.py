@@ -53,6 +53,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         )
         if index % 3 == 0:
             person.properties.update(demo_data[demo_data_index])
+            person.is_identified = True
             person.save()
             demo_data_index += 1
             Event.objects.create(
@@ -136,6 +137,15 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     )
                     events.append(
                         Event(
+                            event="purchase",
+                            team=team,
+                            distinct_id=distinct_id,
+                            properties={"price": 10},
+                            timestamp=date + relativedelta(seconds=60),
+                        )
+                    )
+                    events.append(
+                        Event(
                             event="$pageview",
                             team=team,
                             distinct_id=distinct_id,
@@ -143,7 +153,8 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
-
+    team.event_properties_numerical.append("purchase")
+    team.save()
     PersonDistinctId.objects.bulk_create(distinct_ids)
     Event.objects.bulk_create(events)
 
@@ -154,24 +165,12 @@ def _create_funnel(team: Team, base_url: str) -> None:
 
     user_signed_up = Action.objects.create(team=team, name="HogFlix signed up")
     ActionStep.objects.create(
-        action=user_signed_up, event="$autocapture", url="%s1/" % base_url, url_matching="exact", selector="button",
+        action=user_signed_up, event="$autocapture", url="%s1" % base_url, url_matching="contains", selector="button",
     )
 
     user_paid = Action.objects.create(team=team, name="HogFlix paid")
     ActionStep.objects.create(
-        action=user_paid, event="$autocapture", url="%s2/" % base_url, url_matching="exact", selector="button",
-    )
-
-    funnel = Funnel.objects.create(
-        team=team,
-        name="HogFlix signup -> watching movie",
-        filters={
-            "actions": [
-                {"id": homepage.id, "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
-                {"id": user_signed_up.id, "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
-                {"id": user_paid.id, "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
-            ]
-        },
+        action=user_paid, event="$autocapture", url="%s2" % base_url, url_matching="contains", selector="button",
     )
 
     dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
@@ -180,8 +179,14 @@ def _create_funnel(team: Team, base_url: str) -> None:
         dashboard=dashboard,
         name="HogFlix signup -> watching movie",
         type="FunnelViz",
-        funnel_id=funnel.pk,
-        filters={"funnel_id": funnel.pk},
+        filters={
+            "actions": [
+                {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                {"id": user_signed_up.id, "name": "HogFlix signed up", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
+                {"id": user_paid.id, "name": "HogFlix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
+            ],
+            "insight": "FUNNELS",
+        },
     )
 
 

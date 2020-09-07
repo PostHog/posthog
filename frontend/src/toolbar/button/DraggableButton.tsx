@@ -46,7 +46,7 @@ export function DraggableButton({ showInvisibleButton }: DraggableButtonProps): 
                     saveDragPosition(x, y)
                 }}
             >
-                <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
+                <div id="button-toolbar" className={`ph-no-capture${showInvisibleButton ? ' toolbar-invisible' : ''}`}>
                     <ToolbarButton />
                 </div>
             </Draggable>

@@ -3,11 +3,10 @@ ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
 WORKDIR /code
 
-RUN apt-get update && apt-get install -y --no-install-recommends gnupg \
+RUN apt-get update && apt-get install -y --no-install-recommends git gnupg \
     && apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-        postgresql redis-server \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql redis-server \
     && apt-get purge -y gnupg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -57,10 +56,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for build step only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 RUN /etc/init.d/postgresql start\
-    && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog REDIS_URL='redis:///' python manage.py migrate\
+    && SECRET_KEY='unsafe secret key for build step only' DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog REDIS_URL='redis:///' python manage.py migrate\
     && /etc/init.d/postgresql stop
 
 VOLUME /var/lib/postgresql

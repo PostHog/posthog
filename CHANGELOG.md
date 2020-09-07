@@ -1,5 +1,184 @@
 # Changelog
 
+### 1.14.0 - Thursday 03 September
+
+- [Insight History](https://github.com/PostHog/posthog/pull/1379)
+
+![Insight History Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/insight-history.png)
+
+Eric really killed this one with a massive pull request where 55 files were modified. 
+
+As a result, PostHog now allows you to look through a history of the charts you've made on 'Insights', so that you don't have to worry about forgetting the exact filters you used to reach a certain conclusion, or feeling bad about not having saved that perfect chart from a week ago.
+
+Experiment with insights all you want, now without the fear of losing your work. 
+
+- [Personal API Keys](https://github.com/PostHog/posthog/pull/1281)
+
+![Personal API Keys Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/personal-api.png)
+
+We also merged another huge PR (58 files changed!) from Michael that's been a long time in the making because we wanted to get this just right. 
+
+To facilitate integrations with external services, as well as make the experience of using our API simpler and safer, we have now introduced Personal API Keys. They can be generated and deleted on the PostHog setup page. It's worth noting that this is a private API Key, compared to your public 'Team API Key' used in the snippet. 
+
+Lastly, because of this change, we have deprecated authentication with username and password for API endpoints.
+
+- [Public Roadmap](https://github.com/orgs/PostHog/projects/1)
+
+![Public Roadmap Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/public-roadmap.png)
+
+
+At PostHog, one of our core values is transparency. As a result, we try to make as much information public as we can, from what we're working on to how we operate. 
+
+As such, it felt important to us to release a public roadmap where our entire community can view what we're up to, what we'll work on next, and what our objectives are for the future. For a long time we have had a rough roadmap available in our Handbook, but, by now having our roadmap on GitHub, we can directly link issues to the board, and community members can also vote (with emojis 👍) on issues they believe to be important.
+
+Furthermore, we have always encouraged members of our community to open issues for bugs, feature requests, or just anything at all they want to see changed. Now, issues opened by the community can be incorporated on the roadmap, so you can have an idea of how your suggestions fit in with our development process. 
+
+Keep the tickets coming!
+
+- [PostHog FOSS](https://github.com/PostHog/posthog-foss)
+
+As an open core company, we have to conciliate our open source efforts with our ability to generate revenue. Generating revenue is how we're able to continue to sustain our extensive work in the open source space. 
+
+Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
+
+This led to the creation of two key things: an `ee` subdirectory on our [main repo](https://github.com/PostHog/posthog), and a new repository called [posthog-foss](https://github.com/PostHog/posthog-foss). We'll be explaining these in more detail in the future, but, for now, you should know that to run fully MIT-licensed software, you can either clone the main repo and delete the `ee` subdirectory (without any consequences), or clone our posthog-foss repo, which is a mirror of the main repository without proprietary code.
+
+In addition, if you're an enterprise customer looking for added functionality and improved performance, contact us at sales@posthog.com to discuss the license for using our proprietary features. 
+
+- [Secret Key Requirement](https://github.com/PostHog/posthog/pull/1426)
+
+To ensure the security of your PostHog instance, it's important that you use a randomly-generated unique `SECRET_KEY`. This key is used by Django to encrypt cookies, calculate hashes, and generate tokens, making it of high importance. 
+
+Prior to this version, we denoted the importance of this in our Docs, but did not enforce it in our software. Now, to enhance security, PostHog will not allow you to run the server without setting it.
+
+Many of our deployments generate and set this key by default, so that you will not need to worry about it. This is the case with our [Heroku One-Click deployment](/docs/deployment/deploy-heroku), for example. However, other methods may not automatically do this (we're working on it!). As such, if you run into any issues when updating PostHog, make sure you have a unique `SECRET_KEY` set. 
+
+You can find more information about this on our ['Securing PostHog' page](/docs/configuring-posthog/securing-posthog#secret-key) and should always feel welcome to ask any questions on our [community Slack group](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ).
+
+
+## Bug Fixes and Performance Improvements
+
+* We [disabled our own snippet](https://github.com/PostHog/posthog/pull/1539) on DEBUG instances and [improved tracking](https://github.com/PostHog/posthog/pull/1519)
+* We [started using `django_extensions`](https://github.com/PostHog/posthog/pull/1541)
+* Tim added a test to PRs to [check if our Docker image builds](https://github.com/PostHog/posthog/pull/1515/files)
+* [Michael](https://github.com/PostHog/posthog/pull/1537/files) and [a bot](https://github.com/PostHog/posthog/pull/1527) helped us keep dependencies up-to-date
+* Marius made the Toolbar UX better by [fixing its element detection](https://github.com/PostHog/posthog/pull/1424), [making the info window follow the mouse](https://github.com/PostHog/posthog/pull/1472), and [correcting other minor things](https://github.com/PostHog/posthog/pull/1470)
+* Paolo [made user metrics better](https://github.com/PostHog/posthog/pull/1508)
+* Eric [updated our /insights endpoint](https://github.com/PostHog/posthog/pull/1498)
+* We changed the [color on some tabs](https://github.com/PostHog/posthog/pull/1485) and the [tone on some buttons](https://github.com/PostHog/posthog/commit/35e604e031da43b49da0afb0e7a854ecd93c95b8) to improve our UI
+* We [fixed](https://github.com/PostHog/posthog/pull/1514) and then [added tests for our multitenancy environment](https://github.com/PostHog/posthog/pull/1533/)
+* Michael [fixed a UI bug on our URL list](https://github.com/PostHog/posthog/pull/1526)
+* We overhauled our README, which was really in need of updating. It now [looks better](https://github.com/PostHog/posthog/pull/1410), [reads better](https://github.com/PostHog/posthog/pull/1492), and has better info about [deployment](https://github.com/PostHog/posthog/pull/1525) and [our Enterprise Edition](https://github.com/PostHog/posthog/pull/1428). 
+* We improved the [command description for `setup_review`](https://github.com/PostHog/posthog/commit/6b209413e9a6ee33b1e21b261ef72593da2b912a)
+* Tim made our [testing of PR environments easier](https://github.com/PostHog/posthog/pull/1496)
+* We made the ['Launch Toolbar' links open on a new page](https://github.com/PostHog/posthog/pull/1524)
+* We [updated our CHANGELOG](https://github.com/PostHog/posthog/pull/1522/files) and bumped versions [here](https://github.com/PostHog/posthog/pull/1421) and [there](https://github.com/PostHog/posthog/pull/1517)(and in a lot of other places)
+* We crushed a bug regarding [rest hooks for Docker images](https://github.com/PostHog/posthog/pull/1516/files)
+* We [improved our syntax highlighting for code snippets](https://github.com/PostHog/posthog/pull/1490)
+* [License issues](https://github.com/PostHog/posthog/pull/1511/files) and [disappearing user paths on Firefox](https://github.com/PostHog/posthog/pull/1513) are now bugs of the past
+* [@J0](https://github.com/J0), a community member, introduced a [feature for disabling link sharing](https://github.com/PostHog/posthog/pull/1475)
+* Michael removed a [useless release drafter action](https://github.com/PostHog/posthog/pull/1476)
+* We had a [small refactor done](https://github.com/PostHog/posthog/pull/1489/files) on PostHog's `head` template 
+* Yakko [fixed our Cypress tests](https://github.com/PostHog/posthog/pull/1486) and made them faster
+* We [allowed Sentry in DEBUG mode](https://github.com/PostHog/posthog/pull/1480)
+* We demolished issues with [Safari's funnels](https://github.com/PostHog/posthog/pull/1477) and [IDs for our CohortPeople class](https://github.com/PostHog/posthog/pull/1478)
+* Paolo set up an [awesome Preflight page](https://github.com/PostHog/posthog/pull/1473)
+* We [upgraded the Sentry SDK](https://github.com/PostHog/posthog/pull/1439)
+* We made our [action for syncing FOSS and non-FOSS repositories beautiful](https://github.com/PostHog/posthog/commit/12eeaf999ec7a1594a971ead5fda6dc82adc3c1a)("using prettier")
+* We set up an [action for syncing our FOSS and main repo](https://github.com/PostHog/posthog/pull/1423) then updated it [again](https://github.com/PostHog/posthog/commit/534c25686e1a9fc261230ef669df557cc69fb293) and [again](https://github.com/PostHog/posthog/commit/e9e6e39c189cdf261f91d56267335170c793e52e)
+* We added [regex and action hints for the Toolbar](https://github.com/PostHog/posthog/pull/1457)
+* We [migrated to `BigInteger` IDs](https://github.com/PostHog/posthog/pull/1471/)
+* We changed the Toolbar heatmap to [display number of clicks instead of page rank](https://github.com/PostHog/posthog/pull/1459)
+* We fixed our [bottom notice warning](https://github.com/PostHog/posthog/pull/1467) for PostHog running on HTTP
+* We set up a [workflow for auto-updating the version](https://github.com/PostHog/posthog/pull/1452/)
+* We [improved the description for DAUs](https://github.com/PostHog/posthog/pull/1454)
+* Michael added a [warning bar for production PostHog instances running on HTTP](https://github.com/PostHog/posthog/pull/1437)
+* Anna [fixed a bug with action deletion](https://github.com/PostHog/posthog/pull/1448/)
+* We fixed [an issue with licensing](https://github.com/PostHog/posthog/pull/1438) and [another one](https://github.com/PostHog/posthog/pull/1450)
+* We [fixed our Docker images](https://github.com/PostHog/posthog/pull/1443) to account for changes in Kea and Django's SECRET_KEY 
+* Marius upgraded us to [use the newest version of Kea Typegen](https://github.com/PostHog/posthog/pull/1427)
+* Eric pulverized a [bug about empty conditions on Trends](https://github.com/PostHog/posthog/pull/1416)
+* We added a [column to denote when actions were created](https://github.com/PostHog/posthog/pull/1415)
+* We [made the Toolbar easy to launch for all users](https://github.com/PostHog/posthog/pull/1345)
+
+
+### 1.13.0 – Thursday 13 August
+
+- [PostHog is Now Available on Segment!](/blog/posthog-segment-integration)
+
+![](https://raw.githubusercontent.com/posthog/posthog.com/b1b5c23/contents/images/posthog-segment.png)
+
+We're happy to announce that PostHog is now available as a destination on Segment.
+
+Our friends at Segment have built a platform that works as an integrated data pipeline to pull in all your customer data. It's a cool way to combine PostHog with ie Google Analytics or Salesforce data.
+
+If you're already a Segment user, check us out on their [Destination Catalog](https://segment.com/docs/connections/destinations/catalog/). Otherwise, if you're dealing with multiple tools for data collection and analysis, consider using [Segment](https://segment.com/)! They have a generous [startup scheme too](https://segment.com/industry/startups/), like us.
+
+
+- [Quicker access to everything](https://github.com/PostHog/posthog/pull/1265)
+
+![](https://user-images.githubusercontent.com/13127476/88422815-ce7a0080-cdb8-11ea-900e-ae60b36745f7.gif)
+
+We consolidated trends, sessions, funnels, retention, and user paths into one page for much faster answers to the questions you may have!
+
+- [More powerful Slack messages](https://github.com/PostHog/posthog/pull/1219)
+
+![](https://user-images.githubusercontent.com/4550621/89835642-66bc0780-db65-11ea-9203-f08b154f37b0.png)
+
+PostHog has a feature where Actions can be posted to Slack or Microsoft Teams. This helps you notify your team in real time of the user actions that really matter. Just got a new user? Ping your sales team. Did a user try out a new feature? Get an alert!
+
+The integration used to be very basic - but now you can edit the message format directly in the UI.
+
+- [Toolbars for all!](https://github.com/PostHog/posthog/pull/1326)
+
+![](https://posthog.com/images/3ce1232ef29d0d59b4ac2779d8e97cf8/inspect.gif)
+
+PostHog provides an irrefutably awesome toolbar. This lets you interact with your site or app and understand who is doing what. We've been in Beta for a few weeks, and spent a lot of time interviewing early users - thank you to everyone that took part!
+
+We have now eliminated many bugs and improved the UX, so this feature will be on by default for all new PostHog users.
+
+- [Better annotations](https://github.com/PostHog/posthog/pull/1331)
+
+![](https://user-images.githubusercontent.com/13127476/89192699-dda83d80-d572-11ea-9ef1-293ea4498cfe.gif)
+
+You can annotate graphs in PostHog - mention big releases, new features, or changes to your UX.
+
+Now, it's quicker and easier to get a quick read on what happened that caused something funky in your graphs.
+
+We've also made all annotations [default to being global](https://github.com/PostHog/posthog/pull/1296). That means if you create an annotation in one graph (or in the annotations page), it is visible across any dashboard graph that covers that date range. No need to fear losing your annotations.
+
+## Bug Fixes and Performance Improvements
+
+* Heatmaps [now work](https://github.com/PostHog/posthog/pull/1397) for sites built with Tailwind CSS.
+* Some clicks for the heatmap were being double counted. Now [they aren't](https://github.com/PostHog/posthog/pull/1400).
+* We improved the UX for [posting to Slack](https://github.com/PostHog/posthog/pull/1402).
+* We fixed [selector attributes](https://github.com/PostHog/posthog/pull/1413).
+* We made a [security improvement](https://github.com/PostHog/posthog/pull/1387) to the way session cookies are used, and [removed SameSite middleware](https://github.com/PostHog/posthog/pull/1384).
+* We fixed a bug where GitHub actions [required packer](https://github.com/PostHog/posthog/pull/1304) to be manually installed.
+* [Cohorts supported](https://github.com/PostHog/posthog/pull/1362) for people merged to a person.
+* [Solved a bug](https://github.com/PostHog/posthog/pull/1386) with the way the current version update message displayed.
+* If you're running in DEBUG mode, it'll be [more obvious](https://github.com/PostHog/posthog/pull/1378)!
+* We [refactored sessions](https://github.com/PostHog/posthog/pull/1307) into a new queries folder.
+* There was a weird issue with the user email search. [That's gone](https://github.com/PostHog/posthog/pull/1351).
+* We squished [two](https://github.com/PostHog/posthog/pull/1330) [bugs](https://github.com/PostHog/posthog/pull/1348) with our stickiness metrics when specific events were filtered.
+* The team page now [looks much nicer](https://github.com/PostHog/posthog/pull/1346).
+* Eric smushed [a bug](https://github.com/PostHog/posthog/pull/1337) with filters.
+* We [improved how logouts work](https://github.com/PostHog/posthog/pull/1309) with the toolbar.
+* We crushed [a bug](https://github.com/PostHog/posthog/pull/1335) with date filters and funnels.
+* We [improved how StatsD is used](https://github.com/PostHog/posthog/pull/1336) for better tracking of the things that PostHog doesn't track!
+* Chunk loading errors [be gone](https://github.com/PostHog/posthog/pull/1333). The assertive "attempt to" in the title says it all.
+* Saving actions from the toolbar [now makes it easier](https://github.com/PostHog/posthog/pull/1313) to view insights or to go to your actions list.
+* We cleaned up a debug warning, [leveraging heart emojis](https://github.com/PostHog/posthog/pull/1332).
+* An issue with demo data on the dashboard loading has [been disappeared](https://github.com/PostHog/posthog/pull/1334).
+* Tim eliminated an issue [with cumulative graphs](https://github.com/PostHog/posthog/pull/1328).
+* A Sentry error about breakdown filters is now [brown bread](https://github.com/PostHog/posthog/pull/1321) (dead).
+* We now [return an error](https://github.com/PostHog/posthog/pull/1319) for malformed JSONs to the API.
+* We've [converted the toolbar to TypeScript](https://github.com/PostHog/posthog/pull/1306). That always makes for a ridiculously huge pull request. 110 files changed. Noice, noice.
+* We [added a missing migration](https://github.com/PostHog/posthog/pull/1311) for ActionStep URL.
+* [Warnings on running local tests](https://github.com/PostHog/posthog/pull/1308) now don't appear.
+* The experiments tab in the navigation didn't have a highlight. [Now it does](https://github.com/PostHog/posthog/pull/1298). That was weird.
+* We [moved most of the analytics logic](https://github.com/PostHog/posthog/pull/1280) into a `queries` folder. This means it's in one place and in the future will make a ClickHouse integration way easier.
+
 ### 1.12.0 - Friday 29 July
 
 - Shared Dashboards

@@ -14,12 +14,13 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
-from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
-from django.utils.timezone import now
-from rest_framework import authentication, request
+from django.utils import timezone
+from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -37,7 +38,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = now()
+    date = timezone.now()
     if not match:
         return date
     if match.group("type") == "h":
@@ -212,8 +213,62 @@ def cors_response(request, response):
     return response
 
 
+class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+    """A way of authenticating with personal API keys.
+
+    Only the first key candidate found in the request is tried, and the order is:
+    1. Request Authorization header of type Bearer.
+    2. Request body.
+    3. Request query string.
+    """
+
+    keyword = "Bearer"
+
+    def find_key(
+        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[Tuple[str, str]]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                return authorization_match.group(1).strip(), "Authorization header"
+        if isinstance(request, Request):
+            data = request.data
+        else:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                data = {}
+        if "personal_api_key" in data:
+            return data["personal_api_key"], "body"
+        if "personal_api_key" in request.GET:
+            return request.GET["personal_api_key"], "query string"
+        if extra_data and "personal_api_key" in extra_data:
+            # compatibility with /capture endpoint
+            return extra_data["personal_api_key"], "query string data"
+        return None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        personal_api_key_with_source = self.find_key(request)
+        if not personal_api_key_with_source:
+            return None
+        personal_api_key, source = personal_api_key_with_source
+        PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
+        try:
+            personal_api_key_object = (
+                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=personal_api_key)
+            )
+        except PersonalAPIKey.DoesNotExist:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+        personal_api_key_object.last_used_at = timezone.now()
+        personal_api_key_object.save()
+        return personal_api_key_object.user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
+    def authenticate(self, request: Request):
         # if the Origin is different, the only authentication method should be temporary_token
         # This happens when someone is trying to create actions from the editor on their own website
         if (
@@ -228,11 +283,24 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                     + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
                 )
         if request.GET.get("temporary_token"):
-            user_model = apps.get_model(app_label="posthog", model_name="User")
-            user = user_model.objects.filter(temporary_token=request.GET.get("temporary_token"))
+            User = apps.get_model(app_label="posthog", model_name="User")
+            user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesnt exist")
             return (user.first(), None)
+        return None
+
+
+class PublicTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: Request):
+        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
+            Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
+            dashboard = Dashboard.objects.filter(
+                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
+            )
+            if not dashboard.exists():
+                raise AuthenticationFailed(detail="Dashboard doesn't exist")
+            return (AnonymousUser(), None)
         return None
 
 

@@ -19,7 +19,7 @@ from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
 
-from .api import capture, dashboard, decide, router, user
+from .api import capture, dashboard, decide, router, team, user
 from .models import Event, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
@@ -93,53 +93,20 @@ def signup_to_team_view(request, token):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
         team.save()
-        posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
-        posthoganalytics.identify(user.distinct_id, {"email_opt_in": user.email_opt_in})
-        return redirect("/")
-    return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
-
-
-def setup_admin(request):
-    if User.objects.exists():
-        return redirect("/login")
-    if request.method == "GET":
-        if request.user.is_authenticated:
-            return redirect("/")
-        try:
-            return render_template("setup_admin.html", request)
-        except TemplateDoesNotExist:
-            return HttpResponse(
-                "Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>"
-            )
-    if request.method == "POST":
-        email = request.POST["email"]
-        password = request.POST["password"]
-        company_name = request.POST.get("company_name")
-        name = request.POST.get("name")
-        email_opt_in = request.POST.get("emailOptIn") == "on"
-        is_first_user = not User.objects.exists()
-        valid_inputs = (
-            is_input_valid("name", name)
-            and is_input_valid("email", email)
-            and is_input_valid("password", password)
-            and is_input_valid("company", company_name)
-        )
-        if not valid_inputs:
-            return render_template(
-                "setup_admin.html",
-                request=request,
-                context={"email": email, "name": name, "invalid_input": True, "company": company_name},
-            )
-        user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
-        Team.objects.create_with_data(users=[user], name=company_name)
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": is_first_user},
+            user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
         )
         posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "company_name": company_name, "name": user.first_name,},
+            user.distinct_id,
+            {
+                "email": request.user.email if not request.user.anonymize_data else None,
+                "company_name": team.name,
+                "team_id": team.pk,  # TO-DO: handle multiple teams
+                "is_team_first_user": False,
+            },
         )
         return redirect("/")
+    return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
 
 
 def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
@@ -185,7 +152,9 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     team.users.add(user)
     team.save()
-    posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
+    posthoganalytics.capture(
+        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
+    )
 
     return {"is_new": True, "user": user}
 
@@ -220,13 +189,13 @@ def is_input_valid(inp_type, val):
     return len(val) > 0
 
 
-# Include enterprise api urls
+# Try to include EE endpoints
 try:
     from ee.urls import extend_api_router
-
-    extend_api_router(router)
 except ImportError:
     pass
+else:
+    extend_api_router(router)
 
 
 urlpatterns = [
@@ -240,14 +209,16 @@ urlpatterns = [
     path("api/user/redirect_to_site/", user.redirect_to_site),
     path("api/user/change_password/", user.change_password),
     path("api/user/test_slack_webhook/", user.test_slack_webhook),
+    path("api/team/signup/", team.TeamSignupViewset.as_view()),
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    path("engage/", capture.get_event),
-    path("engage", capture.get_event),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
     path("e/", capture.get_event),
+    path("e", capture.get_event),
+    path("engage/", capture.get_event),
+    path("engage", capture.get_event),
     path("track", capture.get_event),
     path("track/", capture.get_event),
     path("capture", capture.get_event),
@@ -267,7 +238,6 @@ urlpatterns = urlpatterns + [
     path("login", login_view, name="login"),
     path("signup/<str:token>", signup_to_team_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
-    path("setup_admin", setup_admin, name="setup_admin"),
     path(
         "accounts/reset/<uidb64>/<token>/",
         auth_views.PasswordResetConfirmView.as_view(
@@ -297,8 +267,11 @@ if settings.DEBUG:
         path("debug/", debug),
     ]
 
+# Routes added individually to remove login requirement
+frontend_unauthenticated_routes = ["preflight", "signup"]
+for route in frontend_unauthenticated_routes:
+    urlpatterns.append(path(route, home))
 
 urlpatterns += [
-    path("preflight", home),  # Added individually to remove login requirement
     re_path(r"^.*", decorators.login_required(home)),
 ]

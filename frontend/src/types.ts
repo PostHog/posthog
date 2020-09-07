@@ -12,6 +12,16 @@ export interface UserType {
     toolbar_mode: string
 }
 
+export interface PersonalAPIKeyType {
+    id: string
+    label: string
+    value?: string
+    created_at: string
+    last_used_at: string
+    team_id: number
+    user_id: string
+}
+
 export interface TeamType {
     anonymize_ips: boolean
     api_token: string
@@ -74,4 +84,43 @@ export type EditorProps = {
     instrument?: boolean
     distinctId?: boolean
     userEmail?: boolean
+}
+
+export interface PropertyFilter {
+    key: string
+    operator: string | null
+    type: string
+    value: string | number
+}
+
+export interface Entity {
+    id: string | number
+    name: string
+    order: number
+    type: string
+}
+
+export interface CohortType {
+    count?: number
+    created_by?: Record<string, any>
+    created_at?: string
+    deleted?: boolean
+    id: number
+    is_calculating?: boolean
+    last_calculation?: string
+    name?: string
+    groups?: Record<string, any>[]
+}
+
+export interface InsightHistory {
+    id: number
+    type: string
+    filters: Record<string, any>
+    name?: string
+    createdAt: string
+    saved: boolean
+}
+
+export interface SavedFunnel extends InsightHistory {
+    created_by: string
 }

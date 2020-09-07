@@ -72,7 +72,7 @@ function Team({ user }) {
     return (
         <>
             <h1 className="page-header">Team</h1>
-            <div style={{ maxWidth: 600 }}>
+            <div style={{ maxWidth: 672 }}>
                 <i>
                     <p>This is you and all your teammates. Manage them from here.</p>
                     <TeamInvitationContent user={user} />

@@ -61,6 +61,7 @@ class Person(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties: JSONField = JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    is_identified: models.BooleanField = models.BooleanField(default=False)
 
 
 class PersonDistinctId(models.Model):
