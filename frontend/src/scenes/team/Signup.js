@@ -80,7 +80,7 @@ function Signup() {
                         <div className="ph-input-group">
                             <label>First Name</label>
                             <Input
-                                placeholder="John"
+                                placeholder="Jane"
                                 autoFocus
                                 value={formState.firstName.value}
                                 onChange={(e) => updateForm('firstName', e.target)}
@@ -104,7 +104,7 @@ function Signup() {
                         <div className="ph-input-group">
                             <label>Email</label>
                             <Input
-                                placeholder="john@posthog.com"
+                                placeholder="jane@rocket-rides.com"
                                 type="email"
                                 value={formState.email.value}
                                 onChange={(e) => updateForm('email', e.target)}
@@ -112,7 +112,6 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupEmail"
                             />
-                            <span className="caption">This will be your username.</span>
                         </div>
 
                         <div
@@ -122,7 +121,6 @@ function Signup() {
                         >
                             <label>Password</label>
                             <Input.Password
-                                placeholder="********"
                                 value={formState.password.value}
                                 onChange={(e) => updateForm('password', e.target)}
                                 required
@@ -155,7 +153,7 @@ function Signup() {
                             </Button>
                         </div>
 
-                        <div style={{ color: '#666666', marginBottom: 60 }} className="space-top">
+                        <div style={{ color: '#666666', marginBottom: 60, textAlign: 'center' }} className="space-top">
                             By clicking the button above you agree to our{' '}
                             <a href="https://posthog.com/terms" target="_blank">
                                 Terms of Service
