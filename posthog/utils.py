@@ -337,8 +337,8 @@ def base64_to_json(data) -> Dict:
 
 
 # Used by non-DRF endpoins from capture.py and decide.py  (/decide, /batch, /capture, etc)
-def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
-    data_res = {"data": {}, "body": None}
+def load_data_from_request(request):
+    data_res: Dict[str, Any] = {"data": {}, "body": None}
     if request.method == "POST":
         if request.content_type == "application/json":
             data = request.body
