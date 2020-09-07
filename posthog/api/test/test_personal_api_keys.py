@@ -2,7 +2,6 @@ import json
 from typing import Optional, Type
 
 from posthog.models import FeatureFlag, PersonalAPIKey
-
 from .base import TransactionBaseTest
 
 
