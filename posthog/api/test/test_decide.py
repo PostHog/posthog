@@ -101,7 +101,6 @@ class TestDecide(BaseTest):
             ).json()
         self.assertEqual(len(response["featureFlags"]), 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user, team=self.team)
         key.save()
