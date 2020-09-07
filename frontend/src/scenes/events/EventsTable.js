@@ -13,10 +13,19 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 
-import { eventToName } from 'lib/utils'
+import { eventToName, toParams } from 'lib/utils'
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
-    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents, eventFilter } = useValues(logic)
+    const {
+        properties,
+        eventsFormatted,
+        orderBy,
+        isLoading,
+        hasNext,
+        isLoadingNext,
+        newEvents,
+        eventFilter,
+    } = useValues(logic)
     const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
     const {
         location: { search },
@@ -141,17 +150,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
             <Button
                 type="default"
                 icon={<ExportOutlined />}
-                href={
-                    '/api/event.csv' +
-                    (function (properties, eventFilter) {
-                        var params = '?'
-
-                        if (eventFilter) params += 'event=' + eventFilter + '&'
-                        if (Object.keys(properties).length !== 0) params += 'properties=' + JSON.stringify(properties)
-
-                        return params
-                    })(properties, eventFilter)
-                }
+                href={`/api/event.csv?${toParams({
+                    properties,
+                    ...(fixedFilters || {}),
+                    ...(eventFilter ? { event: eventFilter } : {}),
+                    orderBy: [orderBy],
+                })}`}
                 style={{ marginBottom: '1rem' }}
             >
                 Export
