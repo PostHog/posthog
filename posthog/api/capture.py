@@ -97,7 +97,7 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        token, is_personal_api_key = get_token_from_personal_api_key(request, data)
+        token, is_personal_api_key = get_token_from_personal_api_key(request, data, None)
     if not token:
         return cors_response(
             request,

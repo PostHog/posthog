@@ -228,7 +228,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def find_key(
-        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None
+        self,
+        request: Union[HttpRequest, Request],
+        extra_data: Optional[Dict[str, Any]] = None,
+        request_body: Optional[Dict[Any, Any]] = None,
     ) -> Optional[Tuple[str, str]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -238,7 +241,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             data = request.data
         else:
             try:
-                data = json.loads(request.body)
+                req_body = request_body if request_body else request.body
+                data = json.loads(req_body)
             except json.JSONDecodeError:
                 data = {}
         if "personal_api_key" in data:
@@ -374,10 +378,10 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
     return data
 
 
-def get_token_from_personal_api_key(request, data) -> Tuple[Optional[str], bool]:
+def get_token_from_personal_api_key(request, data, request_body) -> Tuple[Optional[str], bool]:
     token = None
     personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
-        request, data if isinstance(data, dict) else None
+        request, data if isinstance(data, dict) else None, request_body
     )
     if personal_api_key_with_source:
         token = personal_api_key_with_source[0]
