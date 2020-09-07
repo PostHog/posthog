@@ -20,10 +20,16 @@ def _load_data(data: str) -> Dict[str, Any]:
     )
 
 
-def feature_flags(request: HttpRequest) -> List[str]:
+def feature_flags(request: HttpRequest) -> Dict[str, Any]:
+    feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
     if request.method != "POST" or not request.POST.get("data"):
-        return []
-    data = _load_data(request.POST["data"])
+        return feature_flags_data
+    try:
+        data = _load_data(request.POST["data"])
+    except (json.decoder.JSONDecodeError, TypeError):
+        feature_flags_data["has_malformed_json"] = True
+        return feature_flags_data
+
     team = Team.objects.get_cached_from_token(data["token"])
     flags_enabled = []
 
@@ -31,7 +37,8 @@ def feature_flags(request: HttpRequest) -> List[str]:
     for feature_flag in feature_flags:
         if feature_flag.distinct_id_matches(data["distinct_id"]):
             flags_enabled.append(feature_flag.key)
-    return flags_enabled
+    feature_flags_data["flags_enabled"] = flags_enabled
+    return feature_flags_data
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -78,6 +85,16 @@ def get_decide(request: HttpRequest):
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
                 request.user.save()
-
-    response["featureFlags"] = feature_flags(request)
+    response["featureFlags"] = []
+    if request.method == "POST":
+        feature_flags_data = feature_flags(request)
+        if feature_flags_data["has_malformed_json"]:
+            return cors_response(
+                request,
+                JsonResponse(
+                    {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
+                    status=400,
+                ),
+            )
+        response["featureFlags"] = feature_flags_data["flags_enabled"]
     return cors_response(request, JsonResponse(response))
