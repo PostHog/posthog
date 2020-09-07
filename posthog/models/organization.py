@@ -1,4 +1,5 @@
 import uuid as uuidlib
+from typing import Tuple
 
 from django.db import models
 
@@ -18,6 +19,22 @@ class Organization(models.Model):
     __repr__ = sane_repr("name")
 
 
+class MembershipLevel(IntEnum):
+    MEMBER = 0
+    ADMIN = 1
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def label(self) -> str:
+        return {self.MEMBER: "member", self.ADMIN: "administrator",}[self]
+
+    @classmethod
+    def as_choices(cls) -> Tuple[Tuple[str, str]]:
+        return tuple((level.value, level.label) for level in cls)
+
+
 class OrganizationMembership(models.Model):
     id: models.UUIDField = models.UUIDField(primary_key=True, default=uuidlib.uuid4, editable=False)
     organization: models.ForeignKey = models.ForeignKey(
@@ -29,7 +46,9 @@ class OrganizationMembership(models.Model):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    is_admin: models.BooleanField = models.BooleanField(default=False)
+    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=MembershipLevel.MEMBER, choices=MembershipLevel.as_choices()
+    )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
