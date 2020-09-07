@@ -34,7 +34,8 @@ def _get_token(data, request):
 def feature_flags(request: HttpRequest) -> Dict[str, Any]:
     feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
     try:
-        data = _load_data(request)
+        request_data = load_data_from_request(request)
+        data = request_data["data"]
     except (json.decoder.JSONDecodeError, TypeError):
         feature_flags_data["has_malformed_json"] = True
         return feature_flags_data
@@ -45,7 +46,7 @@ def feature_flags(request: HttpRequest) -> Dict[str, Any]:
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        token, is_personal_api_key = get_token_from_personal_api_key(request, data, data)
+        token, is_personal_api_key = get_token_from_personal_api_key(request, data, request_data["body"])
     if not token:
         return feature_flags_data
     team = Team.objects.get_cached_from_token(token, is_personal_api_key)

@@ -340,9 +340,11 @@ def base64_to_json(data) -> Dict:
 
 # Used by non-DRF endpoins from capture.py and decide.py  (/decide, /batch, /capture, etc)
 def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
+    data_res = {"data": {}, "body": None}
     if request.method == "POST":
         if request.content_type == "application/json":
             data = request.body
+            data_res["body"] = data
         else:
             data = request.POST.get("data")
     else:
@@ -375,7 +377,8 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
         # if not, it's probably base64 encoded from other libraries
         data = base64_to_json(data)
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data
+    data_res["data"] = data
+    return data_res
 
 
 def get_token_from_personal_api_key(request, data, request_body) -> Tuple[Optional[str], bool]:

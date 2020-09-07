@@ -72,7 +72,8 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def get_event(request):
     now = timezone.now()
     try:
-        data = load_data_from_request(request)
+        request_data = load_data_from_request(request)
+        data = request_data["data"]
     except TypeError:
         return cors_response(
             request,
@@ -97,7 +98,7 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        token, is_personal_api_key = get_token_from_personal_api_key(request, data, None)
+        token, is_personal_api_key = get_token_from_personal_api_key(request, data, request_data["body"])
     if not token:
         return cors_response(
             request,
