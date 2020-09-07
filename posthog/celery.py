@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 import redis
-import statsd
+import statsd  # type: ignore
 from celery import Celery, group
 from celery.schedules import crontab
 from dateutil import parser
