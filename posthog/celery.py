@@ -67,9 +67,14 @@ def redis_heartbeat():
 
 @app.task
 def redis_celery_queue_depth():
-    g = statsd.Gauge("%s_posthog_celery" % (STATSD_PREFIX,))
-    llen = redis_instance.llen("celery")
-    g.send("queue_depth", llen)
+    try:
+        g = statsd.Gauge("%s_posthog_celery" % (STATSD_PREFIX,))
+        llen = redis_instance.llen("celery")
+        g.send("queue_depth", llen)
+    except:
+        # if we can't connect to statsd don't complain about it.
+        # not every installation will have statsd available
+        return
 
 
 @app.task
