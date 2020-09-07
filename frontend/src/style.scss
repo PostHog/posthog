@@ -449,3 +449,24 @@ label.disabled {
 .btn-action {
     background-color: #f0f0f0 !important;
 }
+
+@media screen and (max-width: 480px) {
+    h1.title {
+        line-height: 1.1em;
+        font-size: 28px;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .signup-form {
+        h1.title {
+            img {
+                display: none;
+            }
+        }
+        .main-img {
+            margin-top: 0 !important;
+            height: 200px;
+        }
+    }
+}

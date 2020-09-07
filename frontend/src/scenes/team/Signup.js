@@ -56,16 +56,21 @@ function Signup() {
     }, [account])
 
     return (
-        <>
+        <div className="signup-form">
             <Space direction="vertical" className="space-top" style={{ width: '100%', paddingLeft: 32 }}>
-                <h1 className="title" style={{ marginBottom: 0 }}>
+                <h1 className="title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center' }}>
                     <img src={posthogLogo} alt="" style={{ height: 60 }} /> Create your account
                 </h1>
                 <div className="page-caption">Understand your users. Build a better product.</div>
             </Space>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={hedgehogBlue} style={{ maxHeight: '100%', maxWidth: 300, marginTop: 64 }} alt="" />
+                    <img
+                        src={hedgehogBlue}
+                        style={{ maxHeight: '100%', maxWidth: 300, marginTop: 64 }}
+                        alt=""
+                        className="main-img"
+                    />
                 </div>
                 <div
                     style={{
@@ -74,7 +79,7 @@ function Signup() {
                         margin: '0 32px',
                         flexDirection: 'column',
                         paddingTop: 32,
-                        maxWidth: '28rem',
+                        maxWidth: '32rem',
                     }}
                 >
                     <form onSubmit={handleSubmit}>
@@ -94,7 +99,7 @@ function Signup() {
                         <div className="ph-input-group">
                             <label>Company or Project</label>
                             <Input
-                                placeholder="Rocket Rides"
+                                placeholder="Hogflix Movies"
                                 value={formState.companyName.value}
                                 onChange={(e) => updateForm('companyName', e.target)}
                                 disabled={accountLoading}
@@ -105,7 +110,7 @@ function Signup() {
                         <div className="ph-input-group">
                             <label>Email</label>
                             <Input
-                                placeholder="jane@rocket-rides.com"
+                                placeholder="jane@hogflix.io"
                                 type="email"
                                 value={formState.email.value}
                                 onChange={(e) => updateForm('email', e.target)}
@@ -168,7 +173,7 @@ function Signup() {
                     </form>
                 </div>
             </Row>
-        </>
+        </div>
     )
 }
 
