@@ -1,7 +1,7 @@
 import base64
 import json
 import secrets
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
