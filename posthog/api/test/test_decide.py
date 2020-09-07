@@ -2,7 +2,7 @@ import base64
 import json
 from unittest.mock import patch
 
-from posthog.models import FeatureFlag, Person
+from posthog.models import FeatureFlag, Person, PersonalAPIKey
 
 from .base import BaseTest
 
@@ -100,3 +100,15 @@ class TestDecide(BaseTest):
                 HTTP_ORIGIN="http://127.0.0.1:8000",
             ).json()
         self.assertEqual(len(response["featureFlags"]), 0)
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    def test_feature_flags_with_personal_api_key(self):
+        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key.save()
+        FeatureFlag.objects.create(
+            team=self.team, filters={}, rollout_percentage=100, name="Test Flag", key="test", created_by=self.user,
+        )
+        response = self.client.post(
+            "/decide/", data={"data": json.dumps({"personal_api_key": key.value, "distinct_id": "another_id"})},
+        ).json()
+        self.assertEqual(response["featureFlags"][0], "test")

@@ -126,37 +126,3 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django)
         response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key.value}")
         self.assertEqual(response.status_code, 200)
-
-    def test_capture(self):
-        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
-        key.save()
-        data = {
-            "event": "$autocapture",
-            "personal_api_key": key.value,
-            "properties": {
-                "distinct_id": 2,
-                "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
-                ],
-            },
-        }
-        response = self.client.post(
-            "/capture/", data=data, HTTP_ORIGIN="https://localhost", content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-
-    """ 
-    def test_decide(self):
-        FeatureFlag.objects.create(
-            team=self.team, filters={}, rollout_percentage=100, name="Test", key="test", created_by=self.user,
-        )
-        response = self.client.post(
-            "/decide/",
-            data={ "data": json.dumps({ "distinct_id": "1234" })},
-            content_type="application/json",
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key.value}"
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["featureFlags"][0], "test") """
