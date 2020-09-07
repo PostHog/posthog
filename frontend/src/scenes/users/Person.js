@@ -9,7 +9,7 @@ import { hot } from 'react-hot-loader/root'
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
-
+    const [personChanged, setPersonChanged] = useState(true)
     useEffect(() => {
         let url = ''
         if (distinctId) {
@@ -21,6 +21,7 @@ function _Person({ _: distinctId, id }) {
     }, [distinctId, id])
 
     function _handleChange(event) {
+        setPersonChanged(false)
         var tag = event.target.getAttribute('tag')
         var newState = {}
         if (tag == 'first' || tag == 'last') {
@@ -58,7 +59,7 @@ function _Person({ _: distinctId, id }) {
             <h1 className="page-header">
                 {person.properties.name.first} {person.properties.name.last}
             </h1>
-            <Button className="float-right" onClick={() => savePersonData(person)}>
+            <Button className="float-right" onClick={() => savePersonData(person)} disabled={personChanged}>
                 Save Person's Data
             </Button>
 
