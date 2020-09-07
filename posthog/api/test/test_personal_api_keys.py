@@ -141,7 +141,7 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         )
         response = self.client.post(
             "/decide/",
-            data={"personal_api_key": self.personal_api_key.value, "data": json.dumps({"distinct_id": "1234"})},
+            data={"personal_api_key": self.personal_api_key.value, "distinct_id": "1234"},
             content_type="application/json",
             HTTP_ORIGIN="http://127.0.0.1:8000",
         )
