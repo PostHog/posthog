@@ -23,7 +23,7 @@
     
 {% endif %}
 
-{% if request.get_host == 'app.posthog.com' %}
+{% if request.get_host == '127.0.0.1:8000' %}
       <script>
         window.Papercups = {
           config: {
@@ -32,6 +32,9 @@
             subtitle: 'Ask us anything in the chat window below 😊',
             primaryColor: '#1890ff',
             greeting: '',
+            customer: {
+                email: "{{ request.user.email }}"
+            },
             newMessagePlaceholder: 'Start typing...',
             baseUrl: 'https://app.papercups.io'
           },
