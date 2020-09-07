@@ -184,10 +184,12 @@ class EventViewSet(viewsets.ModelViewSet):
         monday = now() + timedelta(days=-now().weekday())
         events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
-        is_csv_request = "text/csv" in request.accepted_media_type
+        is_csv_request = self.request.accepted_renderer.format == "csv"
 
         if not is_csv_request and len(events) < 101:
             events = queryset[0:101]
+        elif is_csv_request:
+            events = queryset[0:100000]
 
         prefetched_events = self._prefetch_events([event for event in events])
         path = request.get_full_path()
