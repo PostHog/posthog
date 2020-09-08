@@ -10,7 +10,7 @@ def main():
     while not booted and (datetime.datetime.now() - ts).seconds < 240:
         try:
             conn = http.client.HTTPConnection("127.0.0.1", 8000)
-            conn.request("GET", "/setup_admin")
+            conn.request("GET", "/signup")
             r = conn.getresponse()
             if r.status == 200:
                 booted = True

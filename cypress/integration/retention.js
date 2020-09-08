@@ -1,4 +1,4 @@
-describe('Retentino', () => {
+describe('Retention', () => {
     beforeEach(() => {
         cy.visit('/')
         cy.get('[data-attr=insight-retention-tab]').click()

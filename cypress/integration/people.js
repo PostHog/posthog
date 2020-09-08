@@ -15,9 +15,9 @@ describe('People', () => {
     it('All tabs work', () => {
         cy.get('.form-control').type('has:email').type('{enter}').should('have.value', 'has:email')
         cy.wait(200)
-        cy.get('#tab-identified > span', { timeout: 7000 }).click()
+        cy.get('.ant-tabs-nav-list > :nth-child(2)', { timeout: 7000 }).click()
         cy.get('[data-row-key="100"] > :nth-child(2) > .ph-no-capture').should('contain', '@')
-        cy.get('#tab-anonymous > span').click()
+        cy.get('.ant-tabs-nav-list > :nth-child(3)', { timeout: 7000 }).click()
         cy.wait(200)
         cy.get('.ant-empty-img-simple', { timeout: 7000 }).should('exist')
     })
