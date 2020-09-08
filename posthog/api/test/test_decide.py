@@ -100,7 +100,6 @@ class TestDecide(BaseTest):
             ).json()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
-
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user, team=self.team)
         key.save()
