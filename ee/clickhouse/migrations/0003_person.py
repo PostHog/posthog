@@ -1,4 +1,4 @@
-from django_clickhouse import migrations
+from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.sql.person import PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_TABLE_SQL
 

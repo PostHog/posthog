@@ -91,5 +91,5 @@ def stickiness_test_factory(stickiness):
     return TestStickiness
 
 
-class TestDjangoStickiness(stickiness_test_factory(Stickiness)):
+class TestDjangoStickiness(stickiness_test_factory(Stickiness)):  # type: ignore
     pass

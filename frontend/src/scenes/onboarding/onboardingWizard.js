@@ -49,8 +49,8 @@ const ELIXIR = 'ELIXIR'
 const API = 'API'
 
 const webFrameworks = {
-    [PURE_JS]: 'Javascript',
-    [NODEJS]: 'NodeJS',
+    [PURE_JS]: 'JavaScript',
+    [NODEJS]: 'Node.js',
     [GO]: 'Go',
     [RUBY]: 'Ruby',
     [PYTHON]: 'Python',
@@ -168,9 +168,9 @@ const content = {
                     ></List>
                 </Row>
                 <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
-                    Don't see a supported framework?
+                    Don't see a language/platform/framework here?
                     <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => onApiContinue()}>
-                        Continue with API
+                        Continue with our HTTP API
                     </b>
                 </Row>
             </CardContainer>
@@ -314,21 +314,21 @@ function AutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
                     onClick={onCustomContinue}
                     className="button-border clickable"
                 >
-                    {'I also want to capture Custom Events'}
+                    I also want to capture custom events
                 </b>
             </Row>
             <p className="prompt-text">
-                {
-                    "Since you're running a web application, we suggest using our header snippet. This snippet will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>) "
-                }
+                Since you're running a web application, we suggest using our header snippet. This snippet will
+                automatically capture page views, page leaves, and interactions with specific elements (
+                {'<a>, <button>, <input>, <textarea>, <form>'}).
             </p>
             <p className="prompt-text">
-                {'Just insert this snippet into your website where you configure <head> or <meta> tags. '}
+                Just insert this snippet into your website where you configure {'<head> or <meta>'} tags.
             </p>
             <JSSnippet user={user}></JSSnippet>
             <h2>Send an Event</h2>
             <p className="prompt-text">
-                {"Once you've inserted the snippet, click on a button or form on your website to send an event!"}
+                Once you've inserted the snippet, click on a button or form on your website to send an event!
             </p>
         </CardContainer>
     )
@@ -341,7 +341,7 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
                 <h2>API</h2>
                 <p className="prompt-text">
                     {
-                        "Below is an easy format for capturing events using the api we've provided. Use this endpoint to send your first event!"
+                        "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
                     }
                 </p>
                 <APIInstructions user={user}></APIInstructions>

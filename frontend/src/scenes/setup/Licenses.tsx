@@ -4,6 +4,7 @@ import { Alert, Form, Button, Table, Input } from 'antd'
 import { licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
 
 const columns = [
     {
@@ -25,7 +26,7 @@ const columns = [
     {
         title: 'Key',
         render: function renderActive(license: any) {
-            return <pre className="code">{license.key}</pre>
+            return <CodeSnippet>{license.key}</CodeSnippet>
         },
     },
     {

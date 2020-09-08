@@ -12,7 +12,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
 
     return (
         <div>
-            <List bordered style={{ marginTop: '1rem', background: '#fff' }}>
+            <List bordered style={{ background: '#fff', overflow: 'hidden', wordBreak: 'break-all' }}>
                 {appUrls.map((url, index) => (
                     <UrlRow
                         key={`${index},${url}`}

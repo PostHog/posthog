@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 from django.db.models import Count, QuerySet
 from rest_framework import request, response, serializers, viewsets
 
+from ee.clickhouse.models.cohort import populate_cohort_person_table
 from posthog.api.user import UserSerializer
 from posthog.models import Cohort
 from posthog.tasks.calculate_cohort import calculate_cohort
