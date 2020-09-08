@@ -11,29 +11,7 @@ from posthog.constants import TRENDS_STICKINESS
 from posthog.models.filter import Filter
 
 
-class InsightInterface(ABC):
-    @abstractmethod
-    def trend(self, request: Request, *args: Any, **kwargs: Any):
-        pass
-
-    @abstractmethod
-    def session(self, request: Request, *args: Any, **kwargs: Any):
-        pass
-
-    @abstractmethod
-    def funnel(self, request: Request, *args: Any, **kwargs: Any):
-        pass
-
-    @abstractmethod
-    def retention(self, request: Request, *args: Any, **kwargs: Any):
-        pass
-
-    @abstractmethod
-    def path(self, request: Request, *args: Any, **kwargs: Any):
-        pass
-
-
-class ClickhouseInsights(InsightViewSet, InsightInterface):
+class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
