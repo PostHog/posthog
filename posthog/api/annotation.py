@@ -1,6 +1,7 @@
 from distutils.util import strtobool
 from typing import Any, Dict
 
+import posthoganalytics
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -32,7 +33,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         annotation = Annotation.objects.create(
-            team=request.user.team_set.get(), created_by=request.user, **validated_data
+            team=request.user.team_set.get(), created_by=request.user, **validated_data,
         )
         return annotation
 
@@ -71,14 +72,23 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-@receiver(post_save, dispatch_uid="hook-annotation-created")
+@receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")
 def annotation_created(sender, instance, created, raw, using, **kwargs):
     """Trigger action_defined hooks on Annotation creation."""
-    if isinstance(instance, Annotation) and created:
+
+    if created:
         raw_hook_event.send(
             sender=None,
             event_name="annotation_created",
             instance=instance,
             payload=AnnotationSerializer(instance).data,
             user=instance.team,
+        )
+
+    if instance.created_by:
+        event_name: str = "annotation created" if created else "annotation updated"
+        posthoganalytics.capture(
+            instance.created_by.distinct_id,
+            event_name,
+            {"apply_all": instance.apply_all, "date_marker": instance.date_marker},
         )
