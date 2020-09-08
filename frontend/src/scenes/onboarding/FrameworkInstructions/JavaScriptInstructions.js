@@ -1,27 +1,19 @@
 import React from 'react'
-import Snippet from './snippet'
+import { CodeSnippet } from './CodeSnippet'
 import '../onboardingWizard.scss'
 
 function JSInstallSnippet() {
-    return (
-        <Snippet>
-            <span>{'npm install posthog-js'}</span>
-            <br></br>
-            <span>{'// or'}</span>
-            <br></br>
-            <span>{'yarn add posthog-js'}</span>
-        </Snippet>
-    )
+    return <CodeSnippet language="bash">{['npm install posthog-js', '# OR', 'yarn add posthog-js']}</CodeSnippet>
 }
 
 function JSSetupSnippet({ user }) {
-    let url = window.location.origin
     return (
-        <Snippet>
-            <span>{"import posthog from 'posthog-js';"}</span>
-            <br></br>
-            <span>{'posthog.init("' + user.team.api_token + '", {api_host: "' + url + '"});'}</span>
-        </Snippet>
+        <CodeSnippet language="javascript">
+            {[
+                "import posthog from 'posthog-js'",
+                `posthog.init('${user.team.api_token}', { api_host: '${window.location.origin}' })`,
+            ]}
+        </CodeSnippet>
     )
 }
 

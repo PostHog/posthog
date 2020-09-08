@@ -3,6 +3,7 @@ import { Input, Button, Form, Switch, Slider } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
 
 const editLogic = kea({
     actions: () => ({
@@ -26,23 +27,12 @@ const editLogic = kea({
 })
 
 function Snippet({ flagKey }) {
-    // Generated highlighted code html from http://hilite.me/ using the theme monokai
-    // Converted to jsx using https://magic.reactjs.net/htmltojsx.htm
     return (
-        <pre className="code" style={{ marginTop: '0.25rem' }}>
-            <span style={{ color: '#66d9ef' }}>if</span>
-            <span style={{ color: '#f8f8f2' }}>(</span>
-            <span style={{ color: '#a6e22e' }}>posthog</span>
-            <span style={{ color: '#f8f8f2' }}>.</span>
-            <span style={{ color: '#a6e22e' }}>isFeatureEnabled</span>
-            <span style={{ color: '#f8f8f2' }}>(</span>
-            <span style={{ color: '#e6db74' }}>'{flagKey}'</span>
-            <span style={{ color: '#f8f8f2' }}>))</span> <span style={{ color: '#f8f8f2' }}>{'{'}</span>
-            <br />
-            <span style={{ color: '#75715e' }}>{'  //'} do something</span>
-            <br />
-            <span style={{ color: '#f8f8f2' }}>{'}'}</span>
-        </pre>
+        <CodeSnippet language="javascript" wrap>
+            {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+    // activate feature
+}`}
+        </CodeSnippet>
     )
 }
 

@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import dj_database_url
 import sentry_sdk
@@ -103,6 +103,29 @@ ASYNC_EVENT_ACTION_MAPPING = False
 if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
     ASYNC_EVENT_ACTION_MAPPING = True
 
+
+# Clickhouse Settings
+CLICKHOUSE_TEST_DB = "posthog_test"
+
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
+CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
+
+_clickhouse_http_protocol = "http://"
+_clickhouse_http_port = "8123"
+if CLICKHOUSE_SECURE:
+    _clickhouse_http_protocol = "https://"
+    _clickhouse_http_port = "8443"
+
+CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
 TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
@@ -148,7 +171,7 @@ MIDDLEWARE = [
     "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "posthog.middleware.CsrfOrKeyViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -159,20 +182,21 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-# Load debug_toolbar if we can (DEBUG and Dev modes)
+# Append Enterprise Edition as an app if available
 try:
-    import debug_toolbar
-
-    INSTALLED_APPS.append("debug_toolbar")
-    MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+    from ee.apps import EnterpriseConfig
 except ImportError:
     pass
-
-# Import Enterprise Edition if we can
-try:
-    import ee.apps
-
+else:
+    HOOK_EVENTS: Dict[str, str] = {}
+    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+
+# Use django-extensions if it exists
+try:
+    import django_extensions
+
+    INSTALLED_APPS.append("django_extensions")
 except ImportError:
     pass
 
@@ -282,7 +306,9 @@ if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
 
 if not REDIS_URL:
     raise ImproperlyConfigured(
-        f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
+        "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
+        "If upgrading from PostHog 1.0.10 or earlier, see here: "
+        "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
@@ -338,6 +364,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "posthog.utils.PersonalAPIKeyAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
 }
 
 # Email
@@ -366,12 +397,20 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if DEBUG and not TEST:
     print_warning(
         (
-            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT mode!",
-            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
 
@@ -394,25 +433,11 @@ DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
 
-
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
 
-CLICKHOUSE_DATABASES = {
-    "default": {"db_name": "default", "username": "default", "password": "", "migrate": True, "readonly": False},
-}
-CLICKHOUSE_REDIS_CONFIG = {"host": "localhost", "port": 6379, "db": 8}
-CLICKHOUSE_CELERY_QUEUE = "clickhouse"
-CLICKHOUSE_MODELS_MODULE = "ee.clickhouse.models"
-CLICKHOUSE_MIGRATIONS_PACKAGE = "clickhouse.migrations"
-from datetime import timedelta
-
-CELERYBEAT_SCHEDULE = {
-    "clickhouse_auto_sync": {
-        "task": "django_clickhouse.tasks.clickhouse_auto_sync",
-        "schedule": timedelta(seconds=2),  # Every 2 seconds
-        "options": {"expires": 1, "queue": CLICKHOUSE_CELERY_QUEUE},
-    }
-}
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *

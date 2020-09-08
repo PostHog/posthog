@@ -1,5 +1,7 @@
 from unittest.mock import patch
+
 from posthog.models import Team, User
+
 from .base import BaseTest
 
 

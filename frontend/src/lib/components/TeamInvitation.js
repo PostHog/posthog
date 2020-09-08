@@ -1,6 +1,6 @@
 import React from 'react'
+import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { Modal, Switch, Popconfirm } from 'antd'
-import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 import { useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -14,9 +14,10 @@ export function TeamInvitationContent({ user, confirmRevocation = true }) {
     return (
         <div>
             <p>
-                <CopyToClipboard
+                <CopyToClipboardInput
                     data-attr="copy-invite-to-clipboard-input"
-                    url={isSignupEnabled ? window.location.origin + '/signup/' + user.team.signup_token : null}
+                    value={isSignupEnabled ? window.location.origin + '/signup/' + user.team.signup_token : null}
+                    description="link"
                     placeholder="disabled and revoked – switch on to generate a new link"
                     addonBefore="Team Invite Link"
                     addonAfter={

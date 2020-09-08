@@ -12,6 +12,16 @@ export interface UserType {
     toolbar_mode: string
 }
 
+export interface PersonalAPIKeyType {
+    id: string
+    label: string
+    value?: string
+    created_at: string
+    last_used_at: string
+    team_id: number
+    user_id: string
+}
+
 export interface TeamType {
     anonymize_ips: boolean
     api_token: string
