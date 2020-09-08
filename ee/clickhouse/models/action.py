@@ -56,7 +56,7 @@ def query_action(action: Action) -> Optional[List]:
     return None
 
 
-def format_action_query(action: Action) -> Tuple[str, Dict]:
+def format_action_filter(action: Action) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -79,6 +79,12 @@ def format_action_query(action: Action) -> Tuple[str, Dict]:
 
     or_separator = "OR id IN"
     formatted_query = or_separator.join(or_queries)
+
+    return formatted_query, params
+
+
+def format_action_query(action: Action) -> Tuple[str, Dict]:
+    formatted_query, params = format_action_filter(action)
 
     final_query = ACTION_QUERY.format(action_filter=formatted_query)
 

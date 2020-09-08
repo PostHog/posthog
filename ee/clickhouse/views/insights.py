@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
+from posthog.api.insight import InsightViewSet
+from posthog.constants import TRENDS_STICKINESS
+from posthog.models.filter import Filter
 
 
 class InsightInterface(ABC):
@@ -29,37 +33,17 @@ class InsightInterface(ABC):
         pass
 
 
-class ClickhouseInsights(viewsets.ViewSet, InsightInterface):
-    # TODO: add insight serializer
-
-    def list(self, request):
-        # TODO: implement get list of insights
-        return Response([])
-
-    def create(self, request):
-        # TODO: implement create insights
-        return Response([])
-
-    def retrieve(self, request, pk=None):
-        # TODO: implement retrieve insights by id
-        return Response([])
-
+class ClickhouseInsights(InsightViewSet, InsightInterface):
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response([])
+        team = request.user.team_set.get()
+        filter = Filter(request=request)
 
-    @action(methods=["GET"], detail=False)
-    def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response([])
+        if filter.shown_as == TRENDS_STICKINESS:
+            result = []
+        else:
+            result = ClickhouseTrends().run(filter, team)
 
-    @action(methods=["GET"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response([])
+        self._refresh_dashboard(request=request)
 
-    @action(methods=["GET"], detail=False)
-    def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response([])
-
-    @action(methods=["GET"], detail=False)
-    def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response([])
+        return Response(result)

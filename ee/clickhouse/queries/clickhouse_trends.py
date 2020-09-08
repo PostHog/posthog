@@ -3,7 +3,10 @@ from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import ch_client
-from posthog.constants import TRENDS_CUMULATIVE
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.sql.actions import ACTION_QUERY
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
@@ -13,6 +16,10 @@ from posthog.utils import relative_date_parse
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
 SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {date_from} {date_to} GROUP BY {interval}({timestamp})
+"""
+
+VOLUME_ACTIONS_SQL = """
+SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {date_from} {date_to} GROUP BY {interval}({timestamp})
 """
 
 NULL_SQL = """
@@ -41,19 +48,33 @@ class ClickhouseTrends(BaseQuery):
         date_from, date_to = parse_timestamps(filter=filter)
 
         # TODO: remove hardcoded params
-        content_sql = VOLUME_SQL.format(
-            interval=inteval_annotation,
-            timestamp="timestamp",
-            team_id=team.pk,
-            event="$pageview",
-            date_from=(date_from or ""),
-            date_to=(date_to or ""),
-        )
+        params = {}
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = Action.objects.get(pk=entity.id)
+            action_query, action_params = format_action_filter(action)
+            params = {**params, **action_params}
+            content_sql = VOLUME_ACTIONS_SQL.format(
+                interval=inteval_annotation,
+                timestamp="timestamp",
+                team_id=team.pk,
+                actions_query=action_query,
+                date_from=(date_from or ""),
+                date_to=(date_to or ""),
+            )
+        else:
+            content_sql = VOLUME_SQL.format(
+                interval=inteval_annotation,
+                timestamp="timestamp",
+                team_id=team.pk,
+                event=entity.id,
+                date_from=(date_from or ""),
+                date_to=(date_to or ""),
+            )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation, seconds_in_interval=seconds_in_interval, num_intervals=num_intervals
         )
 
-        result = ch_client.execute(AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql))
+        result = ch_client.execute(AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql), params)
         counts = [item[0] for item in result]
         dates = [
             item[1].strftime("%Y-%m-%d {}".format("%H:%M" if filter.interval == "hour" else "")) for item in result

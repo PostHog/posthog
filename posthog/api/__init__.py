@@ -27,7 +27,7 @@ if check_ee_enabled():
 
         # router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
-        # router.register(r"insight", ClickhouseInsights, basename="insight")
+        router.register(r"insight", ClickhouseInsights, basename="insight")
         # router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
