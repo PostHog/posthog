@@ -114,3 +114,7 @@ WHERE id IN
     WHERE {filters} AND team_id = %(team_id)s
 ) {conditions} {limit}
 """
+
+GET_EARLIEST_TIMESTAMP_SQL = """
+SELECT timestamp from events order by timestamp limit 1
+"""

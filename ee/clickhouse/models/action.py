@@ -104,7 +104,7 @@ def filter_event(step) -> Tuple[str, Dict]:
             operation = "like(value, '{}')".format(step.url)
             params.update({"prop_val": step.url})
         else:
-            operation = "value LIKE %(prop_val)s ".format(step.url)
+            operation = "value LIKE %(prop_val)s "
             params.update({"prop_val": "%" + step.url + "%"})
         property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
 

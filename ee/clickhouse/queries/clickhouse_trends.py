@@ -1,10 +1,11 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.actions import ACTION_QUERY
+from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -44,11 +45,12 @@ class ClickhouseTrends(BaseQuery):
 
         # get params
         inteval_annotation = get_interval_annotation(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to,)
-        date_from, date_to = parse_timestamps(filter=filter)
+        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
+
+        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
         # TODO: remove hardcoded params
-        params = {}
+        params: Dict = {}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -58,8 +60,8 @@ class ClickhouseTrends(BaseQuery):
                 timestamp="timestamp",
                 team_id=team.pk,
                 actions_query=action_query,
-                date_from=(date_from or ""),
-                date_to=(date_to or ""),
+                date_from=(parsed_date_from or ""),
+                date_to=(parsed_date_to or ""),
             )
         else:
             content_sql = VOLUME_SQL.format(
@@ -67,8 +69,8 @@ class ClickhouseTrends(BaseQuery):
                 timestamp="timestamp",
                 team_id=team.pk,
                 event=entity.id,
-                date_from=(date_from or ""),
-                date_to=(date_to or ""),
+                date_from=(parsed_date_from or ""),
+                date_to=(parsed_date_to or ""),
             )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation, seconds_in_interval=seconds_in_interval, num_intervals=num_intervals
@@ -134,17 +136,20 @@ def get_interval_annotation(interval: Optional[str]) -> str:
     if interval is None:
         return "toStartOfDay"
 
-    map: Dict[str, Any] = {
+    map: Dict[str, str] = {
         "minute": "toStartOfMinute",
         "hour": "toStartOfHour",
         "day": "toStartOfDay",
         "week": "toStartOfWeek",
         "month": "toStartOfMonth",
     }
-    return map.get(interval)
+    return map[interval]
 
 
-def get_time_diff(interval: str, start_time: datetime, end_time: datetime) -> Tuple[int, int]:
+def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:
+
+    _start_time = start_time or ch_client.execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
+    _end_time = end_time or datetime.now()
 
     time_diffs: Dict[str, Any] = {
         "minute": 60,
@@ -154,5 +159,5 @@ def get_time_diff(interval: str, start_time: datetime, end_time: datetime) -> Tu
         "month": 3600 * 24 * 30,
     }
 
-    diff = end_time - start_time
+    diff = _end_time - _start_time
     return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
