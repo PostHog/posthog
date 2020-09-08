@@ -62,14 +62,13 @@ class TestAnnotation(BaseTest):
 
 
 class TestAPIAnnotation(APIBaseTest):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()  # type: ignore
-        cls.team: Team = Team.objects.create()
-        cls.user: User = User.objects.create_user("annotations@posthog.com")
-        cls.team.users.add(cls.user)
-        cls.team.save()
-        cls.annotation = Annotation.objects.create(team=cls.team, created_by=cls.user)
+    def setUp(self):
+        super().setUp()
+        self.team: Team = Team.objects.create()
+        self.user: User = User.objects.create_user("annotations@posthog.com")
+        self.team.users.add(self.user)
+        self.team.save()
+        self.annotation = Annotation.objects.create(team=self.team, created_by=self.user)
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):
@@ -88,7 +87,7 @@ class TestAPIAnnotation(APIBaseTest):
         )
         date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=pytz.UTC)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = Annotation.objects.get(pk=response.data["id"])
+        instance = Annotation.objects.get(pk=response.data["id"])  # type: ignore
         self.assertEqual(instance.content, "Marketing campaign")
         self.assertEqual(instance.apply_all, True)
         self.assertEqual(instance.date_marker, date_marker)
