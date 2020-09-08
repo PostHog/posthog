@@ -35,6 +35,18 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team) -> Tuple[s
 def get_operator(operator: Optional[str]):
     if operator == "is_not":
         return "!="
+    elif operator == "icontains":
+        return "LIKE"
+    elif operator == "not_icontains":
+        return "NOT LIKE"
+    elif operator == "regex":
+        return "="
+    elif operator == "not_regex":
+        return "="
+    elif operator == "gt":
+        return ">"
+    elif operator == "lt":
+        return "<"
     else:
         return "="
 
