@@ -92,3 +92,14 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
             event_name,
             {"apply_all": instance.apply_all, "date_marker": instance.date_marker},
         )
+
+
+@receiver(post_delete, sender=Annotation, dispatch_uid="hook-annotation-deleted")
+def annotation_deleted(sender, instance, using, **kwargs):
+
+    if instance.created_by:
+        posthoganalytics.capture(
+            instance.created_by.distinct_id,
+            "annotation deleted",
+            {"apply_all": instance.apply_all, "date_marker": instance.date_marker},
+        )

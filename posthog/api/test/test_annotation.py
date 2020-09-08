@@ -115,3 +115,18 @@ class TestAPIAnnotation(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id, "annotation updated", {"apply_all": True, "date_marker": None},
         )
+
+    def test_deleting_annotation(self):
+        instance = Annotation.objects.create(team=self.team, created_by=self.user)
+        self.client.force_login(self.user)
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            response = self.client.delete(f"/api/annotation/{instance.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Annotation.objects.filter(pk=instance.pk).exists())
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id, "annotation deleted", {"apply_all": False, "date_marker": None},
+        )
