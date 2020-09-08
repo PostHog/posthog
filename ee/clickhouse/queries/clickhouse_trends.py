@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.property import parse_filter, parse_prop_clauses
 from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
@@ -16,11 +17,11 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {date_from} {date_to} GROUP BY {interval}({timestamp})
+SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {filters} {date_from} {date_to} GROUP BY {interval}({timestamp})
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {date_from} {date_to} GROUP BY {interval}({timestamp})
+SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {filters} {date_from} {date_to} GROUP BY {interval}({timestamp})
 """
 
 NULL_SQL = """
@@ -49,8 +50,11 @@ class ClickhouseTrends(BaseQuery):
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
+        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+
         # TODO: remove hardcoded params
-        params: Dict = {}
+        params: Dict = {"team_id": team.pk}
+        params = {**params, **prop_filter_params}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -62,6 +66,7 @@ class ClickhouseTrends(BaseQuery):
                 actions_query=action_query,
                 date_from=(parsed_date_from or ""),
                 date_to=(parsed_date_to or ""),
+                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
             )
         else:
             content_sql = VOLUME_SQL.format(
@@ -71,6 +76,7 @@ class ClickhouseTrends(BaseQuery):
                 event=entity.id,
                 date_from=(parsed_date_from or ""),
                 date_to=(parsed_date_to or ""),
+                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
             )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation, seconds_in_interval=seconds_in_interval, num_intervals=num_intervals
