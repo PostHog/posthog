@@ -16,6 +16,7 @@ class TestUser(BaseTest):
     def test_feature_available_no_ee(self):
         self.assertFalse(self.user.feature_available("whatever"))
 
+    @tag("ee")
     @patch("posthog.models.user.MULTI_TENANCY_MISSING", False)
     @patch("posthog.models.user.License.PLANS", {"price_1234567890": ["whatever"]})
     @patch("posthog.models.user.TeamBilling")
@@ -31,10 +32,13 @@ class TestUser(BaseTest):
         )
         self.assertFalse(self.user.feature_available("whatever"))
 
+    @tag("ee")
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     @patch("posthog.models.user.MULTI_TENANCY_MISSING", True)
     def test_feature_available_self_hosted_has_license(self, patch_post):
+        from ee.models import License
+
         mock = Mock()
         mock.json.return_value = {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}
         patch_post.return_value = mock
@@ -42,6 +46,7 @@ class TestUser(BaseTest):
         self.assertTrue(self.user.feature_available("whatever"))
         self.assertFalse(self.user.feature_available("feature-doesnt-exist"))
 
+    @tag("ee")
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
         self.assertFalse(self.user.feature_available("whatever"))
