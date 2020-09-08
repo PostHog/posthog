@@ -158,25 +158,11 @@ class TestCapture(BaseTest):
         # Empty GET
         response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            {
-                "code": "validation",
-                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-            },
-        )
         self.assertEqual(patch_process_event.call_count, 0)
 
         # Empty POST
         response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            {
-                "code": "validation",
-                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-            },
-        )
         self.assertEqual(patch_process_event.call_count, 0)
 
     @patch("posthog.models.team.TEAM_CACHE", {})

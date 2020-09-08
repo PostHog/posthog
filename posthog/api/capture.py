@@ -1,64 +1,16 @@
-import base64
-import gzip
-import json
 import re
 import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-import lzstring  # type: ignore
 from dateutil import parser
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from sentry_sdk import push_scope
 
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
-from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address
-
-
-def _load_data(request) -> Optional[Union[Dict, List]]:
-    if request.method == "POST":
-        if request.content_type == "application/json":
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-    if not data:
-        return None
-
-    # add the data in sentry's scope in case there's an exception
-    with push_scope() as scope:
-        scope.set_context("data", data)
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
-
-    if compression == "gzip":
-        data = gzip.decompress(data)
-
-    if compression == "lz64":
-        if isinstance(data, str):
-            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
-        else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
-
-    #  Is it plain json?
-    try:
-        data = json.loads(data)
-    except json.JSONDecodeError:
-        # if not, it's probably base64 encoded from other libraries
-        data = json.loads(
-            base64.b64decode(data.replace(" ", "+") + "===")
-            .decode("utf8", "surrogatepass")
-            .encode("utf-16", "surrogatepass")
-        )
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data
+from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address, load_data_from_request
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -114,7 +66,8 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def get_event(request):
     now = timezone.now()
     try:
-        data = _load_data(request)
+        data_from_request = load_data_from_request(request)
+        data = data_from_request["data"]
     except TypeError:
         return cors_response(
             request,
@@ -139,11 +92,9 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
-            request, data if isinstance(data, dict) else None
+        token = PersonalAPIKeyAuthentication.find_key(
+            request, data_from_request["body"], data if isinstance(data, dict) else None
         )
-        if personal_api_key_with_source:
-            token = personal_api_key_with_source[0]
         is_personal_api_key = True
     if not token:
         return cors_response(
