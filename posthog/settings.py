@@ -371,14 +371,6 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
-    # Load debug_toolbar if we can
-    try:
-        import debug_toolbar
-    except ImportError:
-        pass
-    else:
-        INSTALLED_APPS.append("debug_toolbar")
-        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if DEBUG and not TEST:
     print_warning(
@@ -387,6 +379,15 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
+
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
