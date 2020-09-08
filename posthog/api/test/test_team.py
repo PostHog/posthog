@@ -149,7 +149,7 @@ class TestTeamUser(BaseTest):
 
 
 class TestTeamSignup(APIBaseTest):
-    @patch("posthog.api.team.EE_MISSING", True)
+    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
@@ -232,7 +232,7 @@ class TestTeamSignup(APIBaseTest):
         self.assertTrue(user.check_password("notsecure"))
 
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", False)
-    @patch("posthog.api.team.EE_MISSING", False)
+    @patch("posthog.api.team.EE_AVAILABLE", False)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_sign_up_multiple_teams_multi_tenancy(self, mock_capture, mock_identify):

@@ -159,6 +159,8 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+EE_AVAILABLE = False
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig
@@ -168,6 +170,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    EE_AVAILABLE = True
 
 # Use django-extensions if it exists
 try:
