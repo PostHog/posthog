@@ -12,7 +12,7 @@ from posthog.models.user import User
 class TestUser(BaseTest):
     TESTS_API = True
 
-    @patch("posthog.models.user.settings.EE_AVAILABLE", False)
+    @patch("posthog.settings.EE_AVAILABLE", False)
     def test_feature_available_no_ee(self):
         self.assertFalse(self.user.feature_available("whatever"))
 
