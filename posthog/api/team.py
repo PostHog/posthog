@@ -46,8 +46,7 @@ class TeamSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.identify(
-            user.distinct_id,
-            properties={"email": user.email, "realm": realm, "ee_available": not settings.EE_AVAILABLE},
+            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
         )
 
         return user
