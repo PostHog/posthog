@@ -227,22 +227,22 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    def find_key(
-        self,
+    @classmethod
+    def find_key_with_source(
+        cls,
         request: Union[HttpRequest, Request],
+        request_data: Optional[Dict[str, Any]] = None,
         extra_data: Optional[Dict[str, Any]] = None,
-        request_body: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, str]]:
+        """Try to find personal API key in request and return it along with where it was found."""
         if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            authorization_match = re.match(fr"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authorization header"
-        if isinstance(request, Request):
+        if request_data is None and isinstance(request, Request):
             data = request.data
-        elif request_body:
-            data = request_body
         else:
-            data = {}
+            data = request_data or {}
         if "personal_api_key" in data:
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
@@ -252,8 +252,20 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return extra_data["personal_api_key"], "query string data"
         return None
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
-        personal_api_key_with_source = self.find_key(request)
+    @classmethod
+    def find_key(
+        cls,
+        request: Union[HttpRequest, Request],
+        request_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Try to find personal API key in request and return it."""
+        key_with_source = cls.find_key_with_source(request, request_data, extra_data)
+        return key_with_source[0] if key_with_source is not None else None
+
+    @classmethod
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        personal_api_key_with_source = cls.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
         personal_api_key, source = personal_api_key_with_source
@@ -268,8 +280,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         personal_api_key_object.save()
         return personal_api_key_object.user, None
 
-    def authenticate_header(self, request) -> str:
-        return self.keyword
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
@@ -336,7 +349,7 @@ def base64_to_json(data) -> Dict:
     )
 
 
-# Used by non-DRF endpoins from capture.py and decide.py  (/decide, /batch, /capture, etc)
+# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
 def load_data_from_request(request):
     data_res: Dict[str, Any] = {"data": {}, "body": None}
     if request.method == "POST":
@@ -380,13 +393,3 @@ def load_data_from_request(request):
     data_res["data"] = data
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data_res
-
-
-def get_token_from_personal_api_key(request, data, request_body) -> Tuple[Optional[str], bool]:
-    token = None
-    personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
-        request, data if isinstance(data, dict) else None, request_body=request_body
-    )
-    if personal_api_key_with_source:
-        token = personal_api_key_with_source[0]
-    return (token, True)

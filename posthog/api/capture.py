@@ -10,13 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
-from posthog.utils import (
-    PersonalAPIKeyAuthentication,
-    cors_response,
-    get_ip_address,
-    get_token_from_personal_api_key,
-    load_data_from_request,
-)
+from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address, load_data_from_request
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -98,7 +92,10 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        token, is_personal_api_key = get_token_from_personal_api_key(request, data, data_from_request["body"])
+        token = PersonalAPIKeyAuthentication.find_key(
+            request, data_from_request["body"], data if isinstance(data, dict) else None
+        )
+        is_personal_api_key = True
     if not token:
         return cors_response(
             request,
