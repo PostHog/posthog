@@ -243,7 +243,7 @@ export const deletePersonData = (person, callback) => {
 
 export const savePersonData = (person) => {
     window.confirm("save person's data") &&
-        api.update('api/person/' + person.id).then(() => {
+        api.update('api/person/' + person.id, person).then(() => {
             toast('Person Updated')
         })
 }
