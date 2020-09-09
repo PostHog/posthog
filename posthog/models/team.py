@@ -114,7 +114,9 @@ class Team(models.Model):
 
     # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
     # This may be brought back into use with a more robust approach (and some constraint checks)
-    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
+    users: models.ManyToManyField = models.ManyToManyField(
+        "User", blank=True, related_name="teams_deprecated_relationship"
+    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     objects = TeamManager()

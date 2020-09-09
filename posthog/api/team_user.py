@@ -23,7 +23,7 @@ class TeamUserViewSet(mixins.DestroyModelMixin, mixins.ListModelMixin, viewsets.
 
         if user_to_delete == request.user:
             raise exceptions.ValidationError({"detail": "Cannot delete yourself."})
-        user_to_delete.team_set.clear()
+        user_to_delete.clear()
         user_to_delete.is_active = False
         user_to_delete.save()
         return response.Response(status=status.HTTP_204_NO_CONTENT)

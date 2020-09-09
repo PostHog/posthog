@@ -20,7 +20,7 @@ from rest_framework import permissions
 from posthog.demo import delete_demo_data, demo
 
 from .api import capture, dashboard, decide, router, user
-from .models import Event, Team, User
+from .models import Event, Organization, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
 
@@ -139,9 +139,17 @@ def setup_admin(request):
                 request=request,
                 context={"email": email, "name": name, "invalid_input": True, "company": company_name},
             )
-        team = Team.objects.create_with_data(name=company_name)
-        user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
-        team.users.add(user)
+        organization = Organization.objects.create(name=company_name)
+        team = Team.objects.create_with_data(name="Default")
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            first_name=name,
+            email_opt_in=email_opt_in,
+            current_organization=organization,
+            current_team=team,
+        )
+        organization.users.add(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},

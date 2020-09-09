@@ -78,11 +78,8 @@ class TestTeamUser(BaseTest):
         response = self.client.get("/api/user/", content_type="application/json",)
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
-        print()
-        print(response_data)
-        print()
-        self.assertEqual(response_data["team"]["name"], "Test 111")
-        self.assertEqual(response_data["team"]["api_token"], "token_ein")
+        self.assertEqual(response_data["team"]["name"], "Test")
+        self.assertEqual(response_data["team"]["api_token"], "token")
 
         response = self.client.patch(
             "/api/user/", data={"user": {"current_team_id": team2.id}}, content_type="application/json",

@@ -40,8 +40,10 @@ def authenticate_secondarily(endpoint):
 # TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
+    organization = request.user.organization
+    organizations = list(request.user.organizations.all().values("name", "id"))
     team = request.user.team
-    teams = list(request.user.team_set.all().values("name", "id"))
+    teams = list(request.user.teams.all().values("name", "id"))
 
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -66,7 +68,7 @@ def user(request):
 
         if "user" in data:
             try:
-                request.user.current_team = request.user.team_set.get(id=int(data["user"]["current_team_id"]))
+                request.user.current_team = request.user.teams.get(id=int(data["user"]["current_team_id"]))
             except (KeyError, TypeError):
                 pass
             except ValueError:
@@ -101,8 +103,12 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
-            "team": {  # TODO: refactor this so that Team gets its own endpoint (/api/user/team/)
-                "name": request.user.team.name,
+            "organization": organization and {"id": organization.id, "name": organization.name,},
+            "organizations": organizations,
+            "team": team
+            and {
+                "id": team.id,
+                "name": team.name,
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
                 "signup_token": team.signup_token,

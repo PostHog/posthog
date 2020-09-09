@@ -31,7 +31,7 @@ class TestSignup(TestCase):
         self.assertEqual(user.email, "jane@acme.com")
         self.assertTrue(user.email_opt_in)
 
-        team = user.team_set.get()
+        team = user.team
         self.assertEqual(team.name, "ACME Inc.")
         self.assertEqual(team.users.all()[0], user)
 
