@@ -9,7 +9,7 @@ from .element import Element
 from .team import Team
 
 
-def hash_elements(self, elements: List) -> str:
+def hash_elements(elements: List) -> str:
     elements_list: List[Dict] = []
     for element in elements:
         el_dict = model_to_dict(element)
