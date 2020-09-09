@@ -151,34 +151,3 @@ class User(AbstractUser):
     @property
     def team(self) -> Team:
         return self.current_team
-
-    def _ensure_organization_and_team(self) -> None:
-        save = False
-        if self.current_organization is None:
-            try:
-                # set any first organization user belongs to as current, if there wasn't any set before for some reason
-                self.current_organization = self.organizations.first()
-                # migrate from old Team-based approach, where there's no organization yet
-                if self.current_organization is None:
-                    team = self.teams_deprecated_relationship.get()
-                    self.current_organization = Organization.objects.create(name=team.name)
-                    team.organization = self.current_organization
-                    team.save()
-                    # migrated users become admins
-                    OrganizationMembership.objects.create(
-                        organization=self.current_organization, user=self, level=MembershipLevel.ADMIN
-                    )
-            except ValueError:
-                pass  # ignoring as this happens before server has fully instantiated
-            else:
-                save = True
-        if self.current_team is None and self.current_organization is not None:
-            self.current_team = self.current_organization.teams.get()
-            save = True
-        if save:
-            self.save()
-
-
-@receiver(models.signals.post_init, sender=User)
-def ensure_organization_and_team(sender, instance: User, **kwargs):
-    instance._ensure_organization_and_team()
