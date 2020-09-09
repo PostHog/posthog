@@ -19,17 +19,3 @@ class ClickhouseInsights(InsightViewSet):
         filter = Filter(request=request)
         response = ClickhouseSessions().run(team=team, filter=filter)
         return Response({"result": response})
-
-    @action(methods=["GET"], detail=False)
-    def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team_set.get()
-        filter = Filter(request=request)
-
-        if filter.shown_as == TRENDS_STICKINESS:
-            result = []
-        else:
-            result = ClickhouseTrends().run(filter, team)
-
-        self._refresh_dashboard(request=request)
-
-        return Response(result)
