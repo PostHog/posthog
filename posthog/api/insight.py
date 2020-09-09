@@ -234,4 +234,4 @@ class InsightViewSet(viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.now())
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())

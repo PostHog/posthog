@@ -36,7 +36,7 @@ class TeamManager(models.Manager):
             name="Pageviews this week",
             type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
-            last_refresh=datetime.now(),
+            last_refresh=timezone.now(),
         )
         DashboardItem.objects.create(
             team=team,
@@ -48,7 +48,7 @@ class TeamManager(models.Manager):
                 "display": "ActionsTable",
                 "breakdown": "$browser",
             },
-            last_refresh=datetime.now(),
+            last_refresh=timezone.now(),
         )
         DashboardItem.objects.create(
             team=team,
@@ -56,7 +56,7 @@ class TeamManager(models.Manager):
             name="Daily Active Users",
             type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]},
-            last_refresh=datetime.now(),
+            last_refresh=timezone.now(),
         )
         return team
 
