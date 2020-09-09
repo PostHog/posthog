@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_filter, parse_prop_clauses
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
@@ -119,23 +120,6 @@ class ClickhouseTrends(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         return self._calculate_trends(filter, team)
-
-
-def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
-    date_from = None
-    date_to = None
-
-    if filter.date_from:
-        date_from = "and timestamp > '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
-
-    if filter.date_to:
-        _date_to = filter.date_to + timedelta(days=1)
-    else:
-        _date_to = datetime.now() + timedelta(days=1)
-
-    date_to = "and timestamp < '{}'".format(_date_to.strftime("%Y-%m-%d 00:00:00"))
-
-    return date_from, date_to
 
 
 def get_interval_annotation(interval: Optional[str]) -> str:
