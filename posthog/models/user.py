@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -8,9 +8,9 @@ from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
 from rest_framework.fields import BooleanField
 
-from .organization import MembershipLevel, Organization, OrganizationMembership
+from .organization import Organization, OrganizationMembership
 from .team import Team
-from .utils import generate_random_token
+from .utils import generate_random_token, sane_repr
 
 EE_MISSING = False
 MULTI_TENANCY_MISSING = False
@@ -91,8 +91,10 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    current_organization = models.ForeignKey("posthog.Organization", models.SET_NULL, null=True)
-    current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True)
+    current_organization = models.ForeignKey(
+        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
+    )
+    current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
@@ -142,13 +144,19 @@ class User(AbstractUser):
         return License.PLANS[user_plan]
 
     @property
-    def teams(self) -> List[Team]:
+    def teams(self):
         return Team.objects.filter(organization__in=self.organizations.all())
 
     @property
     def organization(self) -> Organization:
+        if self.current_organization is None:
+            raise Organization.DoesNotExist
         return self.current_organization
 
     @property
     def team(self) -> Team:
+        if self.current_team is None:
+            raise Team.DoesNotExist
         return self.current_team
+
+    __repr__ = sane_repr("email", "first_name", "distinct_id")

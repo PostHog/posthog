@@ -2,7 +2,7 @@ from django.db.models import QuerySet
 from rest_framework import exceptions, mixins, response, status, viewsets
 
 from posthog.api.user import UserSerializer
-from posthog.models import MembershipLevel, Organization, OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, User
 
 
 class OrganizationMemberViewSet(
@@ -20,7 +20,7 @@ class OrganizationMemberViewSet(
         try:
             if (
                 OrganizationMembership.objects.get(user=request.user, organization=request.user.organization).level
-                < MembershipLevel.ADMIN
+                < OrganizationMembership.Level.ADMIN
             ):
                 raise exceptions.PermissionDenied({"detail": "You are not permitted to delete organization members."})
         except OrganizationMembership.DoesNotExist:

@@ -96,8 +96,7 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["opt_out_capture"] = request.user.team.opt_out_capture
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.all()
-        # if there's one team on the instance, and they've set opt_out
-        # we'll opt out anonymous users too
+        # If there's one team on the instance, and they've set opt_out we'll opt out anonymous users too
         if team.count() == 1:
             context["opt_out_capture"] = (team.first().opt_out_capture,)  # type: ignore
 

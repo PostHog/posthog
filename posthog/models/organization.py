@@ -27,12 +27,11 @@ class Organization(models.Model):
     __repr__ = sane_repr("name")
 
 
-class MembershipLevel(models.IntegerChoices):
-    MEMBER = 1, "member"
-    ADMIN = 8, "administrator"
-
-
 class OrganizationMembership(models.Model):
+    class Level(models.IntegerChoices):
+        MEMBER = 1, "member"
+        ADMIN = 8, "administrator"
+
     id: models.UUIDField = models.UUIDField(primary_key=True, default=uuidlib.uuid4, editable=False)
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="memberships", related_query_name="membership"
@@ -44,7 +43,7 @@ class OrganizationMembership(models.Model):
         related_query_name="organization_membership",
     )
     level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=MembershipLevel.MEMBER, choices=MembershipLevel.choices
+        default=Level.MEMBER, choices=Level.choices
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -55,7 +54,7 @@ class OrganizationMembership(models.Model):
         ]
 
     def __str__(self):
-        return MembershipLevel(self.level).label
+        return str(self.Level(self.level))
 
     __repr__ = sane_repr("organization", "user", "is_admin")
 
@@ -84,13 +83,15 @@ class OrganizationInvite(models.Model):
         ]
 
     @property
-    def is_usable(self) -> str:
+    def is_usable(self) -> bool:
         if self.uses >= self.max_uses:
             # uses depleted
             return False
         if (
             self.target_email
-            and OrganizationMembership.filter(organization=self.organization, user__email=self.target_email).exists()
+            and OrganizationMembership.objects.filter(
+                organization=self.organization, user__email=self.target_email
+            ).exists()
         ):
             # target_email has joined organization already
             return False

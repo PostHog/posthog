@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 
 from posthog.demo import _create_anonymous_users, _create_funnel, _recalculate
-from posthog.models import MembershipLevel, Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 
 class Command(BaseCommand):
@@ -21,7 +21,9 @@ class Command(BaseCommand):
             event_properties=["$current_url", "$browser", "$os"],
         )
         user = User.objects.create_superuser(email="test@posthog.com", password="pass")
-        OrganizationMembership.objects.create(organization=organization, user=user, level=MembershipLevel.ADMIN)
+        OrganizationMembership.objects.create(
+            organization=organization, user=user, level=OrganizationMembership.Level.ADMIN
+        )
         user.current_organization = organization
         user.current_team = team
         user.save()

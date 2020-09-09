@@ -1,11 +1,15 @@
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 
 
 class Annotation(models.Model):
+    class Scope(models.TextChoices):
+        DASHBOARD_ITEM = "dashboard_item", "dashboard item"
+        TEAM = "team", "team"
+        ORGANIZATION = "organization", "organization"
+
     class CreationType(models.TextChoices):
-        USER = "USR", _("User")
-        GITHUB = "GIT", _("Github")
+        USER = "USR", "user"
+        GITHUB = "GIT", "GitHub"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     content: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -15,8 +19,10 @@ class Annotation(models.Model):
         "DashboardItem", on_delete=models.SET_NULL, null=True, blank=True
     )
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    scope = models.CharField(max_length=24, choices=Scope.choices, default=Scope.DASHBOARD_ITEM)
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER,)
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-
-    apply_all: models.BooleanField = models.BooleanField(default=False)
     deleted: models.BooleanField = models.BooleanField(default=False)
+
+    # DEPRECATED: replaced by scope
+    apply_all: models.BooleanField = models.BooleanField(default=False)

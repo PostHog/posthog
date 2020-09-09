@@ -56,7 +56,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.filter(organization__in=self.request.user.organizations)
-        return self._filter_request(self.request, queryset)
+        return self._filter_request(self.request, queryset)  # type: ignore
 
     def retrieve(self, request, pk=None):
         queryset = self.get_queryset()

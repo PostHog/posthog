@@ -149,7 +149,7 @@ def setup_admin(request):
             current_organization=organization,
             current_team=team,
         )
-        organization.users.add(user)
+        organization.members.add(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},

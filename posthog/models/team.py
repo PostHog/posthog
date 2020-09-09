@@ -80,6 +80,7 @@ class TeamManager(models.Manager):
             except PersonalAPIKey.DoesNotExist:
                 return None
             else:
+                assert personal_api_key.team is not None
                 team = personal_api_key.team
                 personal_api_key.last_used_at = timezone.now()
                 personal_api_key.save()
@@ -128,5 +129,5 @@ class Team(models.Model):
         return str(self.pk)
 
     @property
-    def deterministic_derived_uuid(self) -> str:
+    def deterministic_derived_uuid(self) -> uuidlib.UUID:
         return uuidlib.UUID(hashlib.md5(self.id.to_bytes(16, "big")).hexdigest())
