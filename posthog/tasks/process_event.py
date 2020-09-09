@@ -131,6 +131,7 @@ def _capture(
         **({"elements": elements_list} if elements_list else {})
     )
     store_names_and_properties(team=team, event=event, properties=properties)
+    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
 
 
 def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
