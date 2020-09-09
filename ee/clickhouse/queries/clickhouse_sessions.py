@@ -98,10 +98,9 @@ class ClickhouseSessions(BaseQuery):
     # TODO: handle offset
     def calculate_list(self, filter: Filter, team: Team, offset: int):
 
-        filter._date_to = datetime.now().strftime("%Y-%m-%d 00:00:00")
-        filter._date_from = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0).strftime(
-            "%Y-%m-%d 00:00:00"
-        )
+        now = datetime.now()
+        filter._date_to = now.strftime("%Y-%m-%d 00:00:00")
+        filter._date_from = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d 00:00:00")
 
         filters, params = parse_prop_clauses("id", filter.properties, team)
 
