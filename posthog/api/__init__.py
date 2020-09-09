@@ -1,5 +1,7 @@
 from rest_framework import routers
 
+from posthog.ee import check_ee_enabled
+
 from . import (
     action,
     annotation,
@@ -31,3 +33,21 @@ router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"team/user", team_user.TeamUserViewSet)
 router.register(r"insight", insight.InsightViewSet)
+
+if check_ee_enabled():
+    try:
+        # We will come back and clean up types here
+        from ee.clickhouse.views import (  # type: ignore
+            ClickhouseActions,
+            ClickhouseEvents,
+            ClickhouseInsights,
+            ClickhousePerson,
+        )
+
+        # router.register(r"action", ClickhouseActions, basename="action")
+        # router.register(r"event", ClickhouseEvents, basename="event")
+        # router.register(r"insight", ClickhouseInsights, basename="insight")
+        # router.register(r"person", ClickhousePerson, basename="person")
+
+    except ImportError:
+        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
