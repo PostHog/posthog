@@ -2,17 +2,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from dateutil.relativedelta import relativedelta
-from django.db.models import query
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
-from ee.clickhouse.sql.events import NULL_SQL
+from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models.filter import Filter
 from posthog.models.team import Team
-from posthog.queries import sessions
-from posthog.queries.base import BaseQuery
+from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, friendly_time
 
 SESSION_SQL = """
@@ -67,8 +65,8 @@ gid
 """
 
 AVERAGE_PER_PERIOD_SQL = """
-SELECT AVG(elapsed) as total, toStartOfDay(arrayReduce('min', timestamps)) as day_start FROM 
-({sessions}) GROUP BY toStartOfDay(arrayReduce('min', timestamps))
+SELECT AVG(elapsed) as total, {interval}(arrayReduce('min', timestamps)) as day_start FROM 
+({sessions}) GROUP BY {interval}(arrayReduce('min', timestamps))
 """
 
 AVERAGE_SQL = """
@@ -126,31 +124,38 @@ class ClickhouseSessions(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses("id", filter.properties, team)
+
+        interval_notation = get_interval_annotation_ch(filter.interval)
+        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
+
         avg_query = SESSION_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
             filters="AND id IN {}".format(filters) if filter.properties else "",
         )
-        per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query)
-
-        interval_notation = get_interval_annotation_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
+        per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
         null_sql = NULL_SQL.format(
-            interval=interval_notation, num_intervals=num_intervals, seconds_in_interval=seconds_in_interval
+            date_to=(filter.date_to or datetime.now()).strftime("%Y-%m-%d 00:00:00"),
+            interval=interval_notation,
+            num_intervals=num_intervals,
+            seconds_in_interval=seconds_in_interval,
         )
 
         final_query = AVERAGE_SQL.format(sessions=per_period_query, null_sql=null_sql)
+
         params = {**params, "team_id": team.pk}
-
         response = ch_client.execute(final_query, params)
-
-        values = [(item[1], item[0]) for item in response]
+        values = self.clean_values(filter, response)
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
         # calculate average
         total = sum(val[1] for val in values)
+
+        if total == 0:
+            return []
+
         valid_days = sum(1 if val[1] else 0 for val in values)
         overall_average = (total / valid_days) if valid_days else 0
 
@@ -158,6 +163,12 @@ class ClickhouseSessions(BaseQuery):
         time_series_data.update(result)
 
         return [time_series_data]
+
+    def clean_values(self, filter: Filter, values: List) -> List:
+        if filter.interval == "month":
+            return [(item[1] + relativedelta(months=1, days=-1), item[0]) for item in values]
+        else:
+            return [(item[1], item[0]) for item in values]
 
     def _format_avg(self, avg: float):
         avg_formatted = friendly_time(avg)
@@ -208,10 +219,38 @@ class ClickhouseSessions(BaseQuery):
 
         result: List = []
         if filter.session_type == SESSION_AVG:
-            result = self.calculate_avg(filter, team)
+
+            if filter.compare:
+                current_response = self.calculate_avg(filter, team)
+                parsed_response = convert_to_comparison(current_response, "current", filter)
+                result.extend(parsed_response)
+
+                compared_filter = determine_compared_filter(filter)
+                compared_result = self.calculate_avg(compared_filter, team)
+                compared_res = convert_to_comparison(compared_result, "previous", filter)
+                result.extend(compared_res)
+            else:
+                result = self.calculate_avg(filter, team)
+
         elif filter.session_type == SESSION_DIST:
             result = self.calculate_dist(filter, team)
         else:
             result = self.calculate_list(filter, team, offset)
 
         return result
+
+
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], label: str, filter: Filter) -> List[Dict[str, Any]]:
+    for entity in trend_entity:
+        days = [i for i in range(len(entity["days"]))]
+        labels = ["{} {}".format(filter.interval or "Day", i) for i in range(len(entity["labels"]))]
+        entity.update(
+            {
+                "labels": labels,
+                "days": days,
+                "chartLabel": "{} - {}".format(entity["label"], label),
+                "dates": entity["days"],
+                "compare": True,
+            }
+        )
+    return trend_entity

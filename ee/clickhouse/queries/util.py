@@ -14,6 +14,9 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
 
     if filter.date_from:
         date_from = "and timestamp > '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
+    else:
+        earliest_date = ch_client.execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
+        date_from = "and timestamp > '{}'".format(earliest_date.strftime("%Y-%m-%d 00:00:00"))
 
     if filter.date_to:
         _date_to = filter.date_to + timedelta(days=1)
@@ -37,9 +40,9 @@ def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optio
         "week": 3600 * 24 * 7,
         "month": 3600 * 24 * 30,
     }
-    print(_end_time, _start_time)
+
     diff = _end_time - _start_time
-    return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
+    return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval]
 
 
 def get_interval_annotation_ch(interval: Optional[str]) -> str:
