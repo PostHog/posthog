@@ -28,8 +28,8 @@ class Organization(models.Model):
 
 
 class MembershipLevel(models.IntegerChoices):
-    MEMBER = 0, "member"
-    ADMIN = 1, "administrator"
+    MEMBER = 1, "member"
+    ADMIN = 8, "administrator"
 
 
 class OrganizationMembership(models.Model):
