@@ -1,7 +1,6 @@
-import base64
 import json
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -9,32 +8,55 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import FeatureFlag, Team
-from posthog.utils import cors_response
+from posthog.utils import PersonalAPIKeyAuthentication, base64_to_json, cors_response, load_data_from_request
 
 
-def _load_data(data: str) -> Dict[str, Any]:
-    return json.loads(
-        base64.b64decode(data.replace(" ", "+") + "===")
-        .decode("utf8", "surrogatepass")
-        .encode("utf-16", "surrogatepass")
-    )
+def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
+    # JS Integration reloadFeatureFlags call
+    if request.content_type == "application/x-www-form-urlencoded":
+        return base64_to_json(request.POST["data"])
+
+    return load_data_from_request(request)
+
+
+def _get_token(data, request):
+    if request.POST.get("api_key"):
+        return request.POST["api_key"]
+    if request.POST.get("token"):
+        return request.POST["token"]
+    if "token" in data:
+        return data["token"]  # JS reloadFeatures call
+    if "api_key" in data:
+        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+    return None
 
 
 def feature_flags(request: HttpRequest) -> Dict[str, Any]:
     feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
-    if request.method != "POST" or not request.POST.get("data"):
-        return feature_flags_data
     try:
-        data = _load_data(request.POST["data"])
+        data_from_request = load_data_from_request(request)
+        data = data_from_request["data"]
     except (json.decoder.JSONDecodeError, TypeError):
         feature_flags_data["has_malformed_json"] = True
         return feature_flags_data
 
-    team = Team.objects.get_cached_from_token(data["token"])
-    flags_enabled = []
+    if not data:
+        return feature_flags_data
 
+    token = _get_token(data, request)
+    is_personal_api_key = False
+    if not token:
+        token = PersonalAPIKeyAuthentication.find_key(
+            request, data_from_request["body"], data if isinstance(data, dict) else None
+        )
+        is_personal_api_key = True
+    if not token:
+        return feature_flags_data
+    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+    flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
+        # distinct_id will always be a string, but data can have non-string values ("Any")
         if feature_flag.distinct_id_matches(data["distinct_id"]):
             flags_enabled.append(feature_flag.key)
     feature_flags_data["flags_enabled"] = flags_enabled

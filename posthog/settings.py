@@ -103,6 +103,35 @@ ASYNC_EVENT_ACTION_MAPPING = False
 if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
     ASYNC_EVENT_ACTION_MAPPING = True
 
+
+# Clickhouse Settings
+CLICKHOUSE_TEST_DB = "posthog_test"
+
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
+CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
+CLICKHOUSE_ASYNC = get_bool_from_env("CLICKHOUSE_ASYNC", False)
+
+_clickhouse_http_protocol = "http://"
+_clickhouse_http_port = "8123"
+if CLICKHOUSE_SECURE:
+    _clickhouse_http_protocol = "https://"
+    _clickhouse_http_port = "8443"
+
+CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+POSTGRES = "postgres"
+CLICKHOUSE = "clickhouse"
+
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
+
+
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
 TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
@@ -371,14 +400,6 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
-    # Load debug_toolbar if we can
-    try:
-        import debug_toolbar
-    except ImportError:
-        pass
-    else:
-        INSTALLED_APPS.append("debug_toolbar")
-        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if DEBUG and not TEST:
     print_warning(
@@ -387,6 +408,15 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
+
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
