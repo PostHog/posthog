@@ -135,15 +135,16 @@ def _capture(
 
 
 def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
+    person: Optional[Person]
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         # Catch race condition where in between getting and creating, another request already created this user.
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
-            pass
+            return None
         return person
     else:
-        person = Person.object.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
         return person
 
 
