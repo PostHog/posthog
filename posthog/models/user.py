@@ -47,7 +47,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: Optional[str], password: str, **extra_fields):
+    def _create_user(self, email: str, password: str, **extra_fields):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("The given email must be set")
@@ -55,6 +55,8 @@ class UserManager(BaseUserManager):
         email = self.normalize_email(email)
         if is_email_restricted_from_signup(email):
             raise ValueError("Can't sign up with this email")
+
+        extra_fields.setdefault("distinct_id", generate_random_token())
 
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
@@ -65,7 +67,6 @@ class UserManager(BaseUserManager):
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        extra_fields.setdefault("distinct_id", generate_random_token())
         return self._create_user(email, password, **extra_fields)
 
     def create_superuser(self, email, password, **extra_fields):

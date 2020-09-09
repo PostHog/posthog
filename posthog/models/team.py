@@ -1,3 +1,4 @@
+import hashlib
 import uuid as uuidlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -19,12 +20,8 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: Optional[List[Any]] = None, **kwargs):
-        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
-        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
+    def create_with_data(self, **kwargs) -> "Team":
         team = Team.objects.create(**kwargs)
-        if users:
-            team.users.set(users)
 
         action = Action.objects.create(team=team, name="Pageviews")
         ActionStep.objects.create(action=action, event="$pageview")
@@ -94,9 +91,11 @@ class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
     )
-    api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    api_token: models.CharField = models.CharField(
+        max_length=200, null=True, unique=True, default=generate_random_token
+    )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    name: models.CharField = models.CharField(max_length=200, null=True, default="Default")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
@@ -127,3 +126,7 @@ class Team(models.Model):
         if self.app_urls and self.app_urls[0]:
             return ", ".join(self.app_urls)
         return str(self.pk)
+
+    @property
+    def deterministic_derived_uuid(self) -> str:
+        return uuidlib.UUID(hashlib.md5(self.id.to_bytes(16, "big")).hexdigest())

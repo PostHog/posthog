@@ -140,7 +140,7 @@ def setup_admin(request):
                 context={"email": email, "name": name, "invalid_input": True, "company": company_name},
             )
         organization = Organization.objects.create(name=company_name)
-        team = Team.objects.create_with_data(name="Default")
+        team = Team.objects.create_with_data()
         user = User.objects.create_user(
             email=email,
             password=password,
