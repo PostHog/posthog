@@ -36,7 +36,13 @@ router.register(r"insight", insight.InsightViewSet)
 
 if check_ee_enabled():
     try:
-        from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
+        # We will come back and clean up types here
+        from ee.clickhouse.views import (  # type: ignore
+            ClickhouseActions,
+            ClickhouseEvents,
+            ClickhouseInsights,
+            ClickhousePerson,
+        )
 
         # router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
