@@ -114,3 +114,9 @@ WHERE id IN
     WHERE {filters} AND team_id = %(team_id)s
 ) {conditions} {limit}
 """
+
+EVENT_PROP_CLAUSE = """
+SELECT event_id
+FROM events_properties_view AS ep
+WHERE {filters} AND team_id = %(team_id)s
+"""
