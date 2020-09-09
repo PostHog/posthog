@@ -5,6 +5,9 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import query
 
 from ee.clickhouse.client import ch_client
+from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.util import parse_timestamps
+from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery
@@ -15,8 +18,7 @@ SELECT
     gid, 
     groupArray(event) events, 
     groupArray(timestamp) timestamps, 
-    dateDiff('second', arrayReduce('min', 
-    groupArray(timestamp)), arrayReduce('max', groupArray(timestamp))) AS elapsed,
+    dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
     arrayReduce('min', groupArray(timestamp)) as start_time
 FROM 
 (
@@ -37,14 +39,15 @@ FROM
             neighbor(distinct_id, -1) as possible_neighbor,
             neighbor(event, -1) as possible_prev_event, 
             neighbor(timestamp, -1) as possible_prev, 
-            if(possible_neighbor != distinct_id or dateDiff('minute', timestamp, possible_prev) > 30, 1, 0) as new_session
+            if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
             FROM (
                 SELECT 
                     timestamp, 
                     distinct_id, 
                     event 
                 FROM events 
-                WHERE team_id = {team_id} and timestamp >= parseDateTimeBestEffort('{date_from}') and timestamp <= parseDateTimeBestEffort('{date_to}') 
+                WHERE team_id = {team_id} {date_from} {date_to} 
+                {filters}
                 GROUP BY distinct_id, timestamp, event ORDER BY distinct_id, timestamp DESC
             )
         )
@@ -113,26 +116,47 @@ class ClickhouseSessions(BaseQuery):
         return final
 
     def calculate_avg(self, filter: Filter, team: Team):
-        result = ch_client.execute(
-            AVERAGE_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
+
+        parsed_date_from, parsed_date_to = parse_timestamps(filter)
+
+        filters, params = parse_prop_clauses("id", filter.properties, team)
+        avg_query = AVERAGE_SQL.format(
+            team_id=team.pk,
+            date_from=parsed_date_from,
+            date_to=parsed_date_to,
+            filters="AND id IN {}".format(filters) if filter.properties else "",
         )
+        params = {**params, "team_id": team.pk}
+
+        result = ch_client.execute(avg_query, params)
+
         return result
 
     def calculate_dist(self, filter: Filter, team: Team):
-        result = ch_client.execute(
-            DIST_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
+
+        parsed_date_from, parsed_date_to = parse_timestamps(filter)
+
+        filters, params = parse_prop_clauses("id", filter.properties, team)
+        dist_query = DIST_SQL.format(
+            team_id=team.pk,
+            date_from=parsed_date_from,
+            date_to=parsed_date_to,
+            filters="AND id IN {}".format(filters) if filter.properties else "",
         )
+
+        params = {**params, "team_id": team.pk}
+
+        result = ch_client.execute(dist_query, params)
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
-        session_type = kwargs.get("session_type", None)
         offset = kwargs.get("offset", 0)
 
         result: List = []
-        if session_type == "avg":
+        if filter.session_type == SESSION_AVG:
             result = self.calculate_avg(filter, team)
-        elif session_type == "dist":
+        elif filter.session_type == SESSION_DIST:
             result = self.calculate_dist(filter, team)
         else:
             result = self.calculate_list(filter, team, offset)
