@@ -19,7 +19,7 @@ from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
 
-from .api import capture, dashboard, decide, router, team, user
+from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import Event, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
@@ -199,45 +199,44 @@ else:
 
 
 urlpatterns = [
-    path("_health/", health),
-    path("_stats/", stats),
-    path("_preflight/", preflight_check),
+    # internals
+    re_path(r"^_health/?", health),
+    re_path(r"^_stats/?", stats),
+    re_path(r"^_preflight/?", preflight_check),
+    # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
+    # api
     path("api/", include(router.urls)),
-    path("api/user/", user.user),
-    path("api/user/redirect_to_site/", user.redirect_to_site),
-    path("api/user/change_password/", user.change_password),
-    path("api/user/test_slack_webhook/", user.test_slack_webhook),
-    path("api/team/signup/", team.TeamSignupViewset.as_view()),
-    path("decide/", decide.get_decide),
+    re_path(r"^api/user/redirect_to_site/?", user.redirect_to_site),
+    re_path(r"^api/user/change_password/?", user.change_password),
+    re_path(r"^api/user/test_slack_webhook/?", user.test_slack_webhook),
+    re_path(r"^api/user/?", user.user),
+    re_path(r"^api/team/signup/?", team.TeamSignupViewset.as_view()),
+    re_path(r"^api/.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
-    path("e/", capture.get_event),
-    path("e", capture.get_event),
-    path("engage/", capture.get_event),
-    path("engage", capture.get_event),
-    path("track", capture.get_event),
-    path("track/", capture.get_event),
-    path("capture", capture.get_event),
-    path("capture/", capture.get_event),
-    path("batch", capture.get_event),
-    path("batch/", capture.get_event),
-]
-
-if not settings.EMAIL_HOST:
-    urlpatterns.append(
-        path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
-    )
-
-urlpatterns = urlpatterns + [
+    # ingestion
+    re_path(r"^decide/?", decide.get_decide),
+    re_path(r"^e/?", capture.get_event),
+    re_path(r"^engage/?", capture.get_event),
+    re_path(r"^track/?", capture.get_event),
+    re_path(r"^capture/?", capture.get_event),
+    re_path(r"^batch/?", capture.get_event),
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
     path("signup/<str:token>", signup_to_team_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
+    *(
+        []
+        if settings.EMAIL_HOST
+        else [
+            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"))
+        ]
+    ),
     path(
         "accounts/reset/<uidb64>/<token>/",
         auth_views.PasswordResetConfirmView.as_view(
@@ -249,23 +248,20 @@ urlpatterns = urlpatterns + [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
+
 if settings.DEBUG:
     try:
         import debug_toolbar
-
-        urlpatterns += [
-            path("__debug__/", include(debug_toolbar.urls)),
-        ]
     except ImportError:
         pass
+    else:
+        urlpatterns.append(path("__debug__/", include(debug_toolbar.urls)))
 
     @csrf_exempt
     def debug(request):
         assert False, locals()
 
-    urlpatterns += [
-        path("debug/", debug),
-    ]
+    urlpatterns.append(path("debug/", debug))
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup"]
