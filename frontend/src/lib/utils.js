@@ -234,18 +234,16 @@ export const formatProperty = (property) => {
 }
 
 export const deletePersonData = (person, callback) => {
-    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
-        api.delete('api/person/' + person.id).then(() => {
-            toast('Person succesfully deleted.')
-            if (callback) callback()
-        })
+    api.delete('api/person/' + person.id).then(() => {
+        toast('Person succesfully deleted.')
+        if (callback) callback()
+    })
 }
 
 export const savePersonData = (person) => {
-    window.confirm("save person's data") &&
-        api.update('api/person/' + person.id, person).then(() => {
-            toast('Person Updated')
-        })
+    api.update('api/person/' + person.id, person).then(() => {
+        toast('Person Updated')
+    })
 }
 
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)

@@ -3,9 +3,10 @@ import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
-import { Button } from 'antd'
+import { Button, Modal } from 'antd'
+import { CheckCircleTwoTone, DeleteTwoTone } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
-
+const confirm = Modal.confirm
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
@@ -47,19 +48,38 @@ function _Person({ _: distinctId, id }) {
         setPerson(newState)
     }
 
+    function showConfirm(type, text) {
+        confirm({
+            centered: true,
+            title: text,
+            icon:
+                type === 'save' ? (
+                    <CheckCircleTwoTone twoToneColor="#52c41a" />
+                ) : (
+                    <DeleteTwoTone twoToneColor="red"></DeleteTwoTone>
+                ),
+            content: `Click OK to ${type} Person's Data`,
+            okType: type === 'delete' ? 'danger' : 'primary',
+            onOk() {
+                type === 'delete' ? deletePersonData(person, () => history.push('/people')) : savePersonData(person)
+            },
+            onCancel() {},
+        })
+    }
+
     return person ? (
         <div>
-            <Button
-                className="float-right"
-                danger
-                onClick={() => deletePersonData(person, () => history.push('/people'))}
-            >
+            <Button className="float-right" danger onClick={() => showConfirm('delete', "Delete Person's Data?")}>
                 Delete all data on this person
             </Button>
             <h1 className="page-header">
                 {person.properties.name.first} {person.properties.name.last}
             </h1>
-            <Button className="float-right" onClick={() => savePersonData(person)} disabled={personChanged}>
+            <Button
+                className="float-right"
+                onClick={() => showConfirm('save', "Save Person's Data?")}
+                disabled={personChanged}
+            >
                 Save Person's Data
             </Button>
 
