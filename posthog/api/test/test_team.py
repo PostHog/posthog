@@ -3,6 +3,7 @@ from typing import Dict, List
 from unittest.mock import patch
 
 from django.db.models import Q
+from django.test import tag
 from rest_framework import status
 
 from posthog.models import Team, User
@@ -149,6 +150,7 @@ class TestTeamUser(BaseTest):
 
 
 class TestTeamSignup(APIBaseTest):
+    @tag("skip_on_multitenancy")
     @patch("posthog.api.team.EE_MISSING", True)
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
     @patch("posthog.api.team.posthoganalytics.identify")
@@ -198,6 +200,7 @@ class TestTeamSignup(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
 
+    @tag("skip_on_multitenancy")
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_sign_up_minimum_attrs(self, mock_capture):
         response = self.client.post(
@@ -230,46 +233,6 @@ class TestTeamSignup(APIBaseTest):
 
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
-
-    @patch("posthog.api.team.MULTI_TENANCY_MISSING", False)
-    @patch("posthog.api.team.posthoganalytics.identify")
-    @patch("posthog.api.team.posthoganalytics.capture")
-    def test_sign_up_multiple_teams_multi_tenancy(self, mock_capture, mock_identify):
-
-        # Create a user first to make sure additional users can be created
-        User.objects.create(email="i_was_first@posthog.com")
-
-        response = self.client.post(
-            "/api/team/signup/", {"first_name": "John", "email": "multi@posthog.com", "password": "eruceston",},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        user: User = User.objects.order_by("-pk")[0]
-        self.assertEqual(
-            response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "multi@posthog.com",},
-        )
-
-        # Assert that the user was properly created
-        self.assertEqual(user.first_name, "John")
-        self.assertEqual(user.email, "multi@posthog.com")
-
-        # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_capture.assert_called_once_with(
-            user.distinct_id, "user signed up", properties={"is_first_user": False, "is_team_first_user": True},
-        )
-
-        mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "multi@posthog.com", "realm": "cloud", "ee_available": True},
-        )
-
-        # Assert that the user is logged in
-        response = self.client.get("/api/user/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], "multi@posthog.com")
-
-        # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("eruceston"))
 
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
