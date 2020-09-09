@@ -124,3 +124,7 @@ WHERE {filters} AND team_id = %(team_id)s
 GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events order by timestamp limit 1
 """
+
+NULL_SQL = """
+SELECT toUInt16(0) AS total, {interval}(now() - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
+"""

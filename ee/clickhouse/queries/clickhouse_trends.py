@@ -1,19 +1,19 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from itertools import accumulate
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_filter, parse_prop_clauses
-from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.actions import ACTION_QUERY
-from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
+from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.util import get_time_diff, parse_timestamps
+from ee.clickhouse.sql.events import NULL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.trends import get_interval_annotation
 from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
@@ -23,10 +23,6 @@ SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_star
 
 VOLUME_ACTIONS_SQL = """
 SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {filters} {date_from} {date_to} GROUP BY {interval}({timestamp})
-"""
-
-NULL_SQL = """
-SELECT toUInt16(0) AS total, {interval}(now() - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
 AGGREGATE_SQL = """
@@ -120,34 +116,3 @@ class ClickhouseTrends(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         return self._calculate_trends(filter, team)
-
-
-def get_interval_annotation(interval: Optional[str]) -> str:
-    if interval is None:
-        return "toStartOfDay"
-
-    map: Dict[str, str] = {
-        "minute": "toStartOfMinute",
-        "hour": "toStartOfHour",
-        "day": "toStartOfDay",
-        "week": "toStartOfWeek",
-        "month": "toStartOfMonth",
-    }
-    return map[interval]
-
-
-def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:
-
-    _start_time = start_time or ch_client.execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
-    _end_time = end_time or datetime.now()
-
-    time_diffs: Dict[str, Any] = {
-        "minute": 60,
-        "hour": 3600,
-        "day": 3600 * 24,
-        "week": 3600 * 24 * 7,
-        "month": 3600 * 24 * 30,
-    }
-
-    diff = _end_time - _start_time
-    return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
