@@ -18,7 +18,7 @@ class ClickhouseInsights(InsightViewSet):
         team = request.user.team_set.get()
         filter = Filter(request=request)
         response = ClickhouseSessions().run(team=team, filter=filter)
-        return Response(response)
+        return Response({"result": response})
 
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:

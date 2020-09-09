@@ -6,11 +6,14 @@ from django.db.models import query
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.sql.events import NULL_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models.filter import Filter
 from posthog.models.team import Team
+from posthog.queries import sessions
 from posthog.queries.base import BaseQuery
+from posthog.utils import append_data, friendly_time
 
 SESSION_SQL = """
 SELECT 
@@ -63,12 +66,15 @@ distinct_id,
 gid 
 """
 
+AVERAGE_PER_PERIOD_SQL = """
+SELECT AVG(elapsed) as total, toStartOfDay(arrayReduce('min', timestamps)) as day_start FROM 
+({sessions}) GROUP BY toStartOfDay(arrayReduce('min', timestamps))
+"""
+
 AVERAGE_SQL = """
-    SELECT AVG(elapsed) as avg FROM 
-    ({sessions})
-""".format(
-    sessions=SESSION_SQL
-)
+    SELECT SUM(total), day_start FROM 
+    ({null_sql} UNION ALL {sessions}) GROUP BY day_start ORDER BY day_start
+"""
 
 DIST_SQL = """
     SELECT 
@@ -120,17 +126,48 @@ class ClickhouseSessions(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses("id", filter.properties, team)
-        avg_query = AVERAGE_SQL.format(
+        avg_query = SESSION_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
             filters="AND id IN {}".format(filters) if filter.properties else "",
         )
+        per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query)
+
+        interval_notation = get_interval_annotation_ch(filter.interval)
+        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
+
+        null_sql = NULL_SQL.format(
+            interval=interval_notation, num_intervals=num_intervals, seconds_in_interval=seconds_in_interval
+        )
+
+        final_query = AVERAGE_SQL.format(sessions=per_period_query, null_sql=null_sql)
         params = {**params, "team_id": team.pk}
 
-        result = ch_client.execute(avg_query, params)
+        response = ch_client.execute(final_query, params)
 
-        return result
+        values = [(item[1], item[0]) for item in response]
+
+        time_series_data = append_data(values, interval=filter.interval, math=None)
+        # calculate average
+        total = sum(val[1] for val in values)
+        valid_days = sum(1 if val[1] else 0 for val in values)
+        overall_average = (total / valid_days) if valid_days else 0
+
+        result = self._format_avg(overall_average)
+        time_series_data.update(result)
+
+        return [time_series_data]
+
+    def _format_avg(self, avg: float):
+        avg_formatted = friendly_time(avg)
+        avg_split = avg_formatted.split(" ")
+        time_series_data = {}
+        time_series_data.update(
+            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
+        )
+        time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
+        return time_series_data
 
     def calculate_dist(self, filter: Filter, team: Team):
 

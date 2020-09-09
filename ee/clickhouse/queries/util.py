@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from django.utils import timezone
+
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filter import Filter
@@ -26,7 +28,7 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
 def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:
 
     _start_time = start_time or ch_client.execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
-    _end_time = end_time or datetime.now()
+    _end_time = end_time or timezone.now()
 
     time_diffs: Dict[str, Any] = {
         "minute": 60,
@@ -35,7 +37,7 @@ def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optio
         "week": 3600 * 24 * 7,
         "month": 3600 * 24 * 30,
     }
-
+    print(_end_time, _start_time)
     diff = _end_time - _start_time
     return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
 
