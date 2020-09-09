@@ -7,32 +7,33 @@ from posthog.queries.sessions import Sessions
 
 def sessions_test_factory(sessions, event_factory):
     class TestSessions(BaseTest):
-        # def test_sessions_list(self):
-        #     with freeze_time("2012-01-14T03:21:34.000Z"):
-        #         event_factory(team=self.team, event="1st action", distinct_id="1")
-        #         event_factory(team=self.team, event="1st action", distinct_id="2")
-        #     with freeze_time("2012-01-14T03:25:34.000Z"):
-        #         event_factory(team=self.team, event="2nd action", distinct_id="1")
-        #         event_factory(team=self.team, event="2nd action", distinct_id="2")
-        #     with freeze_time("2012-01-15T03:59:34.000Z"):
-        #         event_factory(team=self.team, event="3rd action", distinct_id="2")
-        #     with freeze_time("2012-01-15T03:59:35.000Z"):
-        #         event_factory(team=self.team, event="3rd action", distinct_id="1")
-        #     with freeze_time("2012-01-15T04:01:34.000Z"):
-        #         event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
-        #         event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
+        def test_sessions_list(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:34.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
-        #     with freeze_time("2012-01-15T04:01:34.000Z"):
-        #         response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
-        #     self.assertEqual(len(response), 2)
-        #     self.assertEqual(response[0]["global_session_id"], 1)
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
 
-        #     with freeze_time("2012-01-15T04:01:34.000Z"):
-        #         response = sessions().run(
-        #             Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
-        #             self.team,
-        #         )
-        #     self.assertEqual(len(response), 1)
+            self.assertEqual(len(response), 2)
+            self.assertEqual(response[0]["global_session_id"], 1)
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = sessions().run(
+                    Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
+                    self.team,
+                )
+            self.assertEqual(len(response), 1)
 
         def test_sessions_avg_length(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

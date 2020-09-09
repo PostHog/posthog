@@ -97,10 +97,27 @@ class ClickhouseSessions(BaseQuery):
 
     # TODO: handle offset
     def calculate_list(self, filter: Filter, team: Team, offset: int):
-        date_from = filter.date_from
-        date_to = filter.date_from + relativedelta(days=1)
 
-        query_result = ch_client.execute(SESSION_SQL.format(team_id=team.pk, date_from=date_from, date_to=date_to))
+        filter._date_to = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        filter._date_from = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0).strftime(
+            "%Y-%m-%d 00:00:00"
+        )
+
+        filters, params = parse_prop_clauses("id", filter.properties, team)
+
+        date_from, date_to = parse_timestamps(filter)
+        params = {**params, "team_id": team.pk}
+
+        query_result = ch_client.execute(
+            SESSION_SQL.format(
+                team_id=team.pk,
+                date_from=date_from,
+                date_to=date_to,
+                filters="AND id IN {}".format(filters) if filter.properties else "",
+            ),
+            params,
+        )
+
         result = self._parse_list_results(query_result)
         return result
 
@@ -175,7 +192,10 @@ class ClickhouseSessions(BaseQuery):
         avg_split = avg_formatted.split(" ")
         time_series_data = {}
         time_series_data.update(
-            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
+            {
+                "label": "Average Duration of Session ({})".format(avg_split[1]),
+                "count": int(avg_split[0]),
+            }
         )
         time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
         return time_series_data
