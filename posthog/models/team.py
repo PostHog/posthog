@@ -92,10 +92,9 @@ class TeamManager(models.Manager):
 
 class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team",
+        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
     )
-    api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -116,6 +115,7 @@ class Team(models.Model):
     # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
     # This may be brought back into use with a more robust approach (and some constraint checks)
     users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
+    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     objects = TeamManager()
 

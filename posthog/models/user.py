@@ -88,10 +88,11 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    current_team = models.ForeignKey(Team, models.SET_NULL, null=True)
+    current_organization = models.ForeignKey("posthog.Organization", models.SET_NULL, null=True)
+    current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True)
     email = models.EmailField(_("email address"), unique=True)
-    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
@@ -138,13 +139,17 @@ class User(AbstractUser):
         return License.PLANS[user_plan]
 
     @property
+    def organization(self) -> Team:
+        if self.current_organization:
+            return self.current_organization
+        self.current_organization = self.organizations.first()
+        self.save()
+        return self.current_organization
+
+    @property
     def team(self) -> Team:
         if self.current_team:
             return self.current_team
-        self.current_team = self.team_set.first()
+        self.current_team = self.organization.teams.first()
         self.save()
         return self.current_team
-
-    @property
-    def organization(self) -> Team:
-        return self.organizations.first()
