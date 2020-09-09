@@ -40,7 +40,7 @@ def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optio
     return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
 
 
-def get_interval_annotation(interval: Optional[str]) -> str:
+def get_interval_annotation_ch(interval: Optional[str]) -> str:
     if interval is None:
         return "toStartOfDay"
 
