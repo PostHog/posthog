@@ -81,9 +81,9 @@ class TestUserChangePassword(BaseTest):
         self.assertEqual(response.json()["error"], "Incorrect old password")
 
     def test_change_password_invalid_new_password(self):
-        response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123451230"})
+        response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123456"})
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "This password is entirely numeric.")
+        self.assertEqual(response.json()["error"], "This password is too short. It must contain at least 8 characters.")
 
     def test_change_password_success(self):
         response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "prettyhardpassword123456",})

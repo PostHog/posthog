@@ -24,10 +24,11 @@ export const scenes = {
     team: () => import(/* webpackChunkName: 'team' */ './team/Team'),
     licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
+    signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
-export const unauthenticatedRoutes = ['preflight']
+export const unauthenticatedRoutes = ['preflight', 'signup']
 
 export const redirects = {
     '/': '/insights',
@@ -54,6 +55,7 @@ export const routes = {
     '/team': 'team',
     '/setup/licenses': 'licenses',
     '/preflight': 'preflight',
+    '/signup': 'signup',
 }
 
 export const sceneLogic = kea({

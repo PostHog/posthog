@@ -14,6 +14,7 @@ then
   echo "⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
   echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
 else
+  rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
   ./bin/docker-worker-beat &
   ./bin/docker-worker-celery
 fi
