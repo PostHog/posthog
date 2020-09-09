@@ -31,6 +31,8 @@ class TestDecide(BaseTest):
 
         self.team.app_urls = ["https://example.com/maybesubdomain"]
         self.team.save()
+
+        # Make sure the endpoint works with and without the trailing slash
         response = self.client.get("/decide", HTTP_ORIGIN="https://example.com").json()
         self.assertEqual(response["isAuthenticated"], True)
         self.assertIsNone(response.get("toolbarVersion", None))

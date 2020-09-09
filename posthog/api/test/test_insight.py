@@ -54,6 +54,7 @@ class TestInsightApi(TransactionBaseTest):
 
     def test_create_insight_items(self):
 
+        # Make sure the endpoint works with and without the trailing slash
         self.client.post(
             "/api/insight",
             data={

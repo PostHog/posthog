@@ -200,9 +200,9 @@ else:
 
 urlpatterns = [
     # internals
-    path("_health/", health),
-    path("_stats/", stats),
-    path("_preflight/", preflight_check),
+    re_path(r"^_health/?", health),
+    re_path(r"^_stats/?", stats),
+    re_path(r"^_preflight/?", preflight_check),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),

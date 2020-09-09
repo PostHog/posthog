@@ -251,7 +251,9 @@ class TestTeamSignup(APIBaseTest):
                 "password": "notsecure",
             }
             body.pop(attribute)
-            response = self.client.post("/api/team/signup/", body)
+
+            # Make sure the endpoint works with and without the trailing slash
+            response = self.client.post("/api/team/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.data, {attribute: ["This field is required."]})
 
