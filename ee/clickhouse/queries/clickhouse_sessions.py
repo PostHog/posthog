@@ -184,7 +184,23 @@ class ClickhouseSessions(BaseQuery):
         params = {**params, "team_id": team.pk}
 
         result = ch_client.execute(dist_query, params)
-        return result
+
+        dist_labels = [
+            "0 seconds (1 event)",
+            "0-3 seconds",
+            "3-10 seconds",
+            "10-30 seconds",
+            "30-60 seconds",
+            "1-3 minutes",
+            "3-10 minutes",
+            "10-30 minutes",
+            "30-60 minutes",
+            "1+ hours",
+        ]
+
+        res = [{"label": dist_labels[index], "count": result[0][index]} for index in range(len(dist_labels))]
+
+        return res
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
