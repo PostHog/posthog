@@ -15,83 +15,76 @@ function getCookie(name) {
 }
 
 class Api {
-    get(url) {
+    async get(url) {
         if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        return fetch(url).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
-        })
+        const response = await fetch(url)
+
+        if (!response.ok) {
+            const data = await response.json()
+            throw { status: response.status, ...data }
+        }
+        return response.json()
     }
-    update(url, data) {
+    async update(url, data) {
         if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    if (Array.isArray(data)) {
-                        throw data
-                    }
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
         })
-    }
-    create(url, data) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+        if (!response.ok) {
+            const data = await response.json()
+            if (Array.isArray(data)) {
+                throw data
+            }
+            throw { status: response.status, ...data }
         }
-        return fetch(url, {
+        return response.json()
+    }
+    async create(url, data) {
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    if (Array.isArray(data)) {
-                        throw data
-                    }
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
         })
-    }
-    delete(url) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+        if (!response.ok) {
+            const data = await response.json()
+            if (Array.isArray(data)) {
+                throw data
+            }
+            throw { status: response.status, ...data }
         }
-        return fetch(url, {
+        return response.json()
+    }
+    async delete(url) {
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
+        const response = await fetch(url, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response
         })
+        if (!response.ok) {
+            const data = await response.json()
+            throw { status: response.status, ...data }
+        }
+        return response
     }
 }
 let api = new Api()
