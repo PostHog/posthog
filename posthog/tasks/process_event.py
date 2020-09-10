@@ -1,6 +1,6 @@
 import datetime
 from numbers import Number
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -131,21 +131,36 @@ def _capture(
         **({"elements": elements_list} if elements_list else {})
     )
     store_names_and_properties(team=team, event=event, properties=properties)
-    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
+    check_created_person(team_id=team_id, distinct_id=distinct_id)
 
 
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
-    person: Optional[Person]
+def check_created_person(team_id: int, distinct_id: str) -> None:
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating,
+        # another request already created this user
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            return
+    return
+
+
+def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
+    person: Person
+    created = False
+
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            created = True
         except IntegrityError:
-            return None
-        return person
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            created = False
     else:
         person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-        return person
+        created = False
+
+    return person, created
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
