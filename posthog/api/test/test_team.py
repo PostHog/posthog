@@ -229,7 +229,7 @@ class TestTeamSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team_set.all()[0]
+        team: Team = user.team
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
@@ -269,7 +269,7 @@ class TestTeamSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk").get()
-        team: Team = user.team_set.all()[0]
+        team: Team = user.team
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
