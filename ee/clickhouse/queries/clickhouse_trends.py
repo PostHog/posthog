@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import get_time_diff, parse_timestamps
+from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
@@ -13,7 +13,6 @@ from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
-from posthog.queries.trends import get_interval_annotation
 from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
@@ -42,7 +41,7 @@ class ClickhouseTrends(BaseQuery):
         }
 
         # get params
-        inteval_annotation = get_interval_annotation(filter.interval)
+        inteval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
@@ -79,7 +78,9 @@ class ClickhouseTrends(BaseQuery):
             interval=inteval_annotation, seconds_in_interval=seconds_in_interval, num_intervals=num_intervals
         )
 
-        result = ch_client.execute(AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql), params)
+        final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
+        result = ch_client.execute(final_query, params)
         counts = [item[0] for item in result]
         dates = [
             item[1].strftime("%Y-%m-%d {}".format("%H:%M" if filter.interval == "hour" else "")) for item in result
