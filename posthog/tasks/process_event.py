@@ -131,18 +131,13 @@ def _capture(
         **({"elements": elements_list} if elements_list else {})
     )
     store_names_and_properties(team=team, event=event, properties=properties)
-    check_created_person(team_id=team_id, distinct_id=distinct_id)
-
-
-def check_created_person(team_id: int, distinct_id: str) -> None:
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         # Catch race condition where in between getting and creating,
         # another request already created this user
         try:
             Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
-            return
-    return
+            pass
 
 
 def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
