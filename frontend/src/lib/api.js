@@ -14,6 +14,14 @@ function getCookie(name) {
     return cookieValue
 }
 
+async function getJSONOrThrow(response) {
+    try {
+        return await response.json()
+    } catch (e) {
+        throw new Error('Something went wrong when parsing the response from the server.')
+    }
+}
+
 class Api {
     async get(url) {
         if (url.indexOf('http') !== 0) {
@@ -22,10 +30,10 @@ class Api {
         const response = await fetch(url)
 
         if (!response.ok) {
-            const data = await response.json()
+            const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
-        return response.json()
+        return await getJSONOrThrow(response)
     }
     async update(url, data) {
         if (url.indexOf('http') !== 0) {
@@ -40,13 +48,13 @@ class Api {
             body: JSON.stringify(data),
         })
         if (!response.ok) {
-            const data = await response.json()
+            const data = await getJSONOrThrow(response)
             if (Array.isArray(data)) {
                 throw data
             }
             throw { status: response.status, ...data }
         }
-        return response.json()
+        return await getJSONOrThrow(response)
     }
     async create(url, data) {
         if (url.indexOf('http') !== 0) {
@@ -61,13 +69,13 @@ class Api {
             body: JSON.stringify(data),
         })
         if (!response.ok) {
-            const data = await response.json()
+            const data = await getJSONOrThrow(response)
             if (Array.isArray(data)) {
                 throw data
             }
             throw { status: response.status, ...data }
         }
-        return response.json()
+        return await getJSONOrThrow(response)
     }
     async delete(url) {
         if (url.indexOf('http') !== 0) {
@@ -81,7 +89,7 @@ class Api {
             },
         })
         if (!response.ok) {
-            const data = await response.json()
+            const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
         return response
