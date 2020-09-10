@@ -27,7 +27,7 @@ function Signup() {
     const calculatePasswordStrength = (password) => {
         return (
             /.{8,}/.test(password) + // at least 8 characters
-            /.{12,}/.test(password) + // bonus if longer than 12
+            /.{12,}/.test(password) + // bonus if longer than 12 chars
             /[a-z]/.test(password) + // at least one lowercase letter
             /[A-Z]/.test(password) + // at least one uppercase letter
             /\d/.test(password) + // at least one number
