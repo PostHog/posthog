@@ -6,11 +6,11 @@ from django.conf import settings
 from django.db import models
 from django.dispatch import receiver
 
-from .utils import sane_repr
+from .utils import sane_repr, uuid1_macless
 
 
 class Organization(models.Model):
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuidlib.uuid4, editable=False)
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid1_macless, editable=False)
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -32,7 +32,7 @@ class OrganizationMembership(models.Model):
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
 
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuidlib.uuid4, editable=False)
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid1_macless, editable=False)
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="memberships", related_query_name="membership"
     )
@@ -60,7 +60,7 @@ class OrganizationMembership(models.Model):
 
 
 class OrganizationInvite(models.Model):
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuidlib.uuid4, editable=False)
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid1_macless, editable=False)
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
     )

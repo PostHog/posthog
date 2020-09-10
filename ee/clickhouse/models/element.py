@@ -1,6 +1,6 @@
 import json
 from typing import List
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from rest_framework import serializers
 
@@ -15,10 +15,11 @@ from ee.clickhouse.sql.elements import (
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
+from posthog.models.utils import uuid1_macless
 
 
 def create_element_group(team: Team, element_hash: str) -> UUID:
-    id = uuid4()
+    id = uuid1_macless()
     async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
     return id
 

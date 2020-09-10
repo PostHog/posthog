@@ -106,7 +106,7 @@ class Team(models.Model):
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
-    uuid: models.UUIDField = models.UUIDField(default=uuidlib.uuid4, editable=False, unique=True)
+    uuid: models.UUIDField = models.UUIDField(default=uuid1_macless, editable=False, unique=True)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously
