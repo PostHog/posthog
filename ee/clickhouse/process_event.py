@@ -16,7 +16,7 @@ from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.tasks.process_event import check_and_create_person, handle_timestamp, store_names_and_properties
+from posthog.tasks.process_event import get_or_create_person, handle_timestamp, store_names_and_properties
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -124,8 +124,8 @@ def _capture_ee(
     )
 
     # # check/create persondistinctid
-    person = check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
-    if person:
+    person, created = get_or_create_person(team_id=team.pk, distinct_id=distinct_id)
+    if created:
         create_person_with_distinct_id(person_id=person.pk, distinct_ids=[distinct_id], team_id=team.pk)
 
 

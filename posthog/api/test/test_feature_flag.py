@@ -14,8 +14,9 @@ class TestFeatureFlagApi(TransactionBaseTest):
         ).json()
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
 
+        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/feature_flag/", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
+            "/api/feature_flag", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
         ).json()
 
         self.assertEqual(response[0], "key-exists")
