@@ -13,7 +13,7 @@ def uuid1_macless() -> uuid.UUID:
     (as they can reveal sensitive business information about usage volumes and patterns) and to UUID v4
     (as the complete randomness of v4 makes it less useful for indexing or possibly sorting).
     """
-    return uuid.uuid1(secrets.randbits(48))
+    return uuid.uuid1(secrets.randbits(48) | 0x01)  # https://tools.ietf.org/html/rfc4122#section-4.5
 
 
 class UUIDModel(models.Model):
