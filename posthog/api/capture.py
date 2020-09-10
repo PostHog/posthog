@@ -8,7 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
-from ee.clickhouse.process_event import process_event_ee
+from ee.clickhouse.process_event import process_event_ee  # type: ignore
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
