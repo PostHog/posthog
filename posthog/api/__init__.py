@@ -27,7 +27,7 @@ if check_ee_enabled():
 
         # router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
-        router.register(r"insight", ClickhouseInsights, basename="insight")
+        router.register(r"insight", ClickhouseInsights)
         # router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
@@ -47,4 +47,4 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"team/user", team_user.TeamUserViewSet)
-router.register(r"insight", insight.InsightViewSet)
+# router.register(r"insight", insight.InsightViewSet)
