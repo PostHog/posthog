@@ -95,11 +95,13 @@ class TestPropertiesToQ(BaseTest):
         Event.objects.create(
             team=self.team, event="$pageview", properties={"$current_url": "https://whatever.com"},
         )
+        event3 = Event.objects.create(team=self.team, event="$pageview", properties={"$current_url": None},)
         filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
-        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk)).order_by("id")
         self.assertEqual(events[0], event1)
         self.assertEqual(events[1], event2)
-        self.assertEqual(len(events), 2)
+        self.assertEqual(events[2], event3)
+        self.assertEqual(len(events), 3)
 
     def test_multiple(self):
         event2 = Event.objects.create(

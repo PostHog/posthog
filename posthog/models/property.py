@@ -55,6 +55,7 @@ class Property:
             return Q(
                 ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
                 | ~Q(properties__has_key=self.key)
+                | Q(**{"properties__{}".format(self.key): None})
             )
         return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
 

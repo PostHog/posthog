@@ -16,25 +16,8 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
 from posthog.models import Event, User
-from posthog.utils import PersonalAPIKeyAuthentication
+from posthog.utils import PersonalAPIKeyAuthentication, authenticate_secondarily
 from posthog.version import VERSION
-
-
-def authenticate_secondarily(endpoint):
-    @functools.wraps(endpoint)
-    def wrapper(request: HttpRequest):
-        if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and isinstance(auth_result[0], User):
-                    request.user = auth_result[0]
-                else:
-                    raise exceptions.AuthenticationFailed("Authentication credentials were not provided.")
-            except exceptions.AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
-        return endpoint(request)
-
-    return wrapper
 
 
 # TODO: remake these endpoints with DRF!
