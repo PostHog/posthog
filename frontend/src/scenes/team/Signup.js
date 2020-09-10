@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { signupLogic } from './signupLogic'
 import hedgehogBlue from './../../../public/hedgehog-blue.png'
 import posthogLogo from './../../../public/posthog-icon.svg'
-import { Row, Space, Button, Input, Checkbox, Progress } from 'antd'
+import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
+import PasswordStrength from '../../lib/components/PasswordStrength'
 
 function Signup() {
     const [state, setState] = useState({ submitted: false })
@@ -20,28 +21,12 @@ function Signup() {
     const { createAccount } = useActions(logic)
     const { account, accountLoading } = useValues(logic)
     const { plan } = queryString.parse(location.search)
-    const [passwordProgressState, setPasswordProgressState] = useState(0)
-
-    const MAX_PASSWORD_STRENGTH = 6
-
-    const calculatePasswordStrength = (password) => {
-        return (
-            /.{8,}/.test(password) + // at least 8 characters
-            /.{12,}/.test(password) + // bonus if longer than 12 chars
-            /[a-z]/.test(password) + // at least one lowercase letter
-            /[A-Z]/.test(password) + // at least one uppercase letter
-            /\d/.test(password) + // at least one number
-            /[^A-Za-z0-9]/.test(password) // at least one special character
-        )
-    }
 
     const updateForm = (name, target, valueAttr = 'value') => {
         /* Validate password (if applicable) */
         if (name === 'password') {
             let password = target[valueAttr]
             const valid = password.length >= 8
-            let passwordStrength = (calculatePasswordStrength(password) / MAX_PASSWORD_STRENGTH) * 100
-            setPasswordProgressState(passwordStrength)
             setFormState({ ...formState, password: { ...formState.password, valid, value: target[valueAttr] } })
         } else {
             setFormState({ ...formState, [name]: { ...formState[name], value: target[valueAttr] } })
@@ -151,18 +136,7 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupPassword"
                             />
-                            <Progress
-                                percent={passwordProgressState}
-                                size="small"
-                                strokeColor={
-                                    passwordProgressState < 50
-                                        ? '#e23d20'
-                                        : passwordProgressState < 80
-                                        ? '#f5c115'
-                                        : '#0fca16'
-                                }
-                                showInfo={false}
-                            />
+                            <PasswordStrength password={formState.password.value} />
                             {!formState.password.valid && (
                                 <span className="caption">Your password must have at least 8 characters.</span>
                             )}
