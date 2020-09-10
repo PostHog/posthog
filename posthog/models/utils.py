@@ -3,6 +3,24 @@ import uuid
 from collections import namedtuple
 from typing import Callable, Sequence
 
+from django.db import models
+
+
+def uuid1_macless() -> uuid.UUID:
+    """UUID v1 using random 48 bits rather than the real MAC address, for more randomness and security.
+    
+    For primary keys, use this instead of UUID v4, as the complete randomness of v4 impacts
+    crucial ordering performance in databases. v1 on the other hand uses randomness in addition to current time.
+    """
+    return uuid.uuid1(secrets.randbits(48))
+
+
+class UUIDModel(models.Model):
+    class Meta:
+        abstract = True
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid1_macless, editable=False)
+
 
 def sane_repr(*attrs: str) -> Callable[[object], str]:
     if "id" not in attrs and "pk" not in attrs:
@@ -29,12 +47,3 @@ def generate_random_token(nbytes: int = 32) -> str:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
     """
     return secrets.token_urlsafe(nbytes)
-
-
-def uuid1_macless() -> uuid.UUID:
-    """UUID v1 using random 48 bits rather than the real MAC address, for more randomness and security.
-    
-    For primary keys, use this instead of UUID v4, as the complete randomness of v4 impacts
-    crucial ordering performance in databases. v1 on the other hand uses randomness in addition to current time.
-    """
-    return uuid.uuid1(secrets.randbits(48))

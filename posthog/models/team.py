@@ -14,7 +14,7 @@ from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .personal_api_key import PersonalAPIKey
-from .utils import generate_random_token
+from .utils import generate_random_token, uuid1_macless
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
