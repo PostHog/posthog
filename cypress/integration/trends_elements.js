@@ -36,7 +36,8 @@ describe('Trends actions & events', () => {
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
-        cy.get('[data-attr=prop-filter-event-1]').click()
+        cy.get('.col > .ant-select > .ant-select-selector').click() // Will later substitute for data-attr
+        cy.get('[data-attr=prop-filter-event-1]', { timeout: 7000 }).click()
         cy.get('#rc_select_6').click()
         cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -44,6 +45,7 @@ describe('Trends actions & events', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('.col > .ant-select > .ant-select-selector > .ant-select-selection-item').click() // Will later substitute for data-attr
         cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
