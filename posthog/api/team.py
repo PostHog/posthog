@@ -1,11 +1,12 @@
 import posthoganalytics
+from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from rest_framework import generics, permissions, serializers
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
-from posthog.models.user import EE_MISSING, MULTI_TENANCY_MISSING
+from posthog.models.user import MULTI_TENANCY_MISSING
 
 
 class TeamSignupSerializer(serializers.Serializer):
@@ -45,7 +46,7 @@ class TeamSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": not EE_MISSING},
+            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
         )
 
         return user

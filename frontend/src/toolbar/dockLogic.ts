@@ -14,8 +14,7 @@ import { ToolbarAnimationState, ToolbarMode } from '~/types'
 // - shadowRef: shadowRoot ref
 export const dockLogic = kea<dockLogicType<ToolbarMode, ToolbarAnimationState>>({
     props: {
-        shadowRef: 'required',
-        padding: 'optional',
+        shadowRef: null as null | { current: { shadowRoot: ShadowRoot } | null },
     },
 
     // transition steps:
@@ -161,8 +160,12 @@ export const dockLogic = kea<dockLogicType<ToolbarMode, ToolbarAnimationState>>(
         setMode: async ({ mode, update }, breakpoint) => {
             const { padding, sidebarWidth, zoom } = values
             const bodyStyle = window.document.body.style
-            const htmlStyle = window.document.querySelector('html')!.style
+            const htmlStyle = window.document.querySelector('html')?.style
             const shadowRef = props.shadowRef
+
+            if (!htmlStyle) {
+                return
+            }
 
             // Update CSS variables (--zoom, etc) in #dock-toolbar inside the shadow root
             shadowRef?.current

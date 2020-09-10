@@ -45,8 +45,10 @@ class TestUser(BaseTest):
     @patch("secrets.token_urlsafe")
     def test_user_team_update_signup_token(self, patch_token):
         patch_token.return_value = "abcde"
+
+        # Make sure the endpoint works with and without the trailing slash
         response = self.client.patch(
-            "/api/user/", data={"team": {"signup_state": False}}, content_type="application/json",
+            "/api/user", data={"team": {"signup_state": False}}, content_type="application/json",
         ).json()
 
         self.assertEqual(response["team"]["signup_token"], None)

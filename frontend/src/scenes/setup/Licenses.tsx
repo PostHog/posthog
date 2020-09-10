@@ -48,7 +48,7 @@ function _Licenses(): JSX.Element {
             <p style={{ maxWidth: 600 }}>
                 <i>
                     Here you can add and manage your PostHog enterprise licenses. By adding a license key, you'll be
-                    able to unluck enterprise functionality in PostHog right away!
+                    able to unlock enterprise functionality in PostHog right away!
                     <br />
                     <br />
                     Contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to buy a license.

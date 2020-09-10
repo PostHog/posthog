@@ -48,8 +48,10 @@ class TestCreateAction(BaseTest):
         # test no actions with same name
         user2 = self._create_user("tim2")
         self.client.force_login(user2)
+
+        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/action/",
+            "/api/action",
             data={"name": "user signed up"},
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
