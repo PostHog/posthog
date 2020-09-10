@@ -209,7 +209,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog --keepdb -v 2
+                  python manage.py test --keepdb -v 2 --exclude-tag=skip_on_multitenancy
 
     foss:
         name: FOSS tests (ee removed)

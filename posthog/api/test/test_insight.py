@@ -54,8 +54,9 @@ class TestInsightApi(TransactionBaseTest):
 
     def test_create_insight_items(self):
 
+        # Make sure the endpoint works with and without the trailing slash
         self.client.post(
-            "/api/insight/",
+            "/api/insight",
             data={
                 "filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],},
             },
@@ -134,5 +135,5 @@ class TestInsightApi(TransactionBaseTest):
             properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
         )
 
-        response = self.client.get("/api/insight/path/",).json()
+        response = self.client.get("/api/insight/path",).json()
         self.assertEqual(len(response), 1)

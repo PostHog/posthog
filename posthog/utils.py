@@ -1,5 +1,6 @@
 import base64
 import datetime
+import functools
 import gzip
 import hashlib
 import json
@@ -18,7 +19,7 @@ from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework import authentication
@@ -178,7 +179,7 @@ def get_ip_address(request: HttpRequest) -> str:
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
     else:
-        ip = request.META.get("REMOTE_ADDR")  ### Real IP address of client Machine
+        ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
     return ip
 
 
@@ -278,6 +279,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
         personal_api_key_object.last_used_at = timezone.now()
         personal_api_key_object.save()
+        assert personal_api_key_object.user is not None
         return personal_api_key_object.user, None
 
     @classmethod
@@ -304,7 +306,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             User = apps.get_model(app_label="posthog", model_name="User")
             user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
             if not user.exists():
-                raise AuthenticationFailed(detail="User doesnt exist")
+                raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)
         return None
 
@@ -339,6 +341,25 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
+
+
+def authenticate_secondarily(endpoint):
+    """Proper authentication for function views."""
+
+    @functools.wraps(endpoint)
+    def wrapper(request: HttpRequest):
+        if not request.user.is_authenticated:
+            try:
+                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
+                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
+                    request.user = auth_result[0]
+                else:
+                    raise AuthenticationFailed("Authentication credentials were not provided.")
+            except AuthenticationFailed as e:
+                return JsonResponse({"detail": e.detail}, status=401)
+        return endpoint(request)
+
+    return wrapper
 
 
 def base64_to_json(data) -> Dict:
