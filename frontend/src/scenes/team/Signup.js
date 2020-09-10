@@ -22,7 +22,7 @@ function Signup() {
     const { plan } = queryString.parse(location.search)
     const [passwordProgressState, setPasswordProgressState] = useState(0)
 
-    const MAX_STRENGTH = 6
+    const MAX_PASSWORD_STRENGTH = 6
 
     const calculatePasswordStrength = (password) => {
         return (
@@ -31,8 +31,8 @@ function Signup() {
             /[a-z]/.test(password) + // at least one lowercase letter
             /[A-Z]/.test(password) + // at least one uppercase letter
             /\d/.test(password) + // at least one number
-            /[^A-Za-z0-9]/.test(password)
-        ) // at least one special character
+            /[^A-Za-z0-9]/.test(password) // at least one special character
+        )
     }
 
     const updateForm = (name, target, valueAttr = 'value') => {
@@ -40,7 +40,7 @@ function Signup() {
         if (name === 'password') {
             let password = target[valueAttr]
             const valid = password.length >= 8
-            let passwordStrength = (calculatePasswordStrength(password) / MAX_STRENGTH) * 100
+            let passwordStrength = (calculatePasswordStrength(password) / MAX_PASSWORD_STRENGTH) * 100
             setPasswordProgressState(passwordStrength)
             setFormState({ ...formState, password: { ...formState.password, valid, value: target[valueAttr] } })
         } else {
