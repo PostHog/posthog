@@ -28,6 +28,7 @@ beforeEach(() => {
             }
         })
     })
+    cy.wait(2000)
 })
 
 const signUp = () => {
