@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -31,7 +32,7 @@ class ProcessEvent(BaseTest):
         self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
         self.team.save()
 
-        with self.assertNumQueries(30):
+        with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
             process_event(
                 2,
                 "",

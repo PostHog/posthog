@@ -151,7 +151,7 @@ class TestTeamUser(BaseTest):
 
 class TestTeamSignup(APIBaseTest):
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.EE_MISSING", True)
+    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
