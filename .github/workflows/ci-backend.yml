@@ -143,6 +143,15 @@ jobs:
         runs-on: ubuntu-latest
 
         services:
+            redis:
+                # Docker Hub image
+                image: redis
+                # Set health checks to wait until redis has started
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
             postgres:
                 image: postgres:12
                 env:
@@ -209,4 +218,4 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog --keepdb -v 2
+                  python manage.py test posthog --keepdb -v 2 --exclude-tag=skip_on_multitenancy
