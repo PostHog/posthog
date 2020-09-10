@@ -2,6 +2,7 @@ describe('Trends actions & events', () => {
     beforeEach(() => {
         // given
         cy.visit('/')
+        cy.wait(200)
     })
 
     it('Insight History Panel Rendered', () => {

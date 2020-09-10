@@ -1,6 +1,6 @@
 describe('People', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click()
+        cy.get('[data-attr=menu-item-people]', { timeout: 7000 }).click()
     })
 
     it('People loaded', () => {

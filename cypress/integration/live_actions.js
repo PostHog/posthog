@@ -1,7 +1,7 @@
 describe('Live Actions', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-events]').click()
-        cy.get('[data-attr=menu-item-live-actions]').click()
+        cy.get('[data-attr=menu-item-events]', { timeout: 7000 }).click()
+        cy.get('[data-attr=menu-item-live-actions]', { timeout: 7000 }).click()
     })
 
     it('Live actions loaded', () => {

@@ -41,14 +41,19 @@ const signUp = () => {
 
     cy.get('button[data-attr="signup"]').click()
 
-    cy.wait(1000)
+    cy.wait(3000)
 
     cy.visit('/demo')
+
+    cy.wait(1000)
+
     cy.visit('/')
 }
 
 const logIn = () => {
-    cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+    cy.wait(1000)
+
+    cy.get('#inputEmail', { timeout: 7000 }).type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
     cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
 

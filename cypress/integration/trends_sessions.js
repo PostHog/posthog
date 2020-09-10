@@ -2,6 +2,7 @@ describe('Trends sessions', () => {
     beforeEach(() => {
         // given
         cy.visit('/')
+        cy.wait(200)
         cy.contains('Sessions').click()
     })
 

@@ -1,7 +1,7 @@
 describe('Auth', () => {
     it('Logout', () => {
         cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.get('[data-attr=user-options-logout]', { timeout: 7000 }).click()
     })
 
     it('Logout and login', () => {

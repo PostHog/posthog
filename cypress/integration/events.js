@@ -1,6 +1,7 @@
 describe('Events', () => {
     beforeEach(() => {
         cy.visit('/events')
+        cy.wait(200)
     })
 
     it('Events loaded', () => {

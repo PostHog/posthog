@@ -1,7 +1,8 @@
 describe('Funnels', () => {
     beforeEach(() => {
         cy.visit('/')
-        cy.get('[data-attr=insight-funnels-tab]').click()
+        cy.get('[data-attr=insight-funnels-tab]', { timeout: 7000 }).click()
+        cy.wait(200)
     })
 
     it('Add 1 action to funnel', () => {

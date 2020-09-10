@@ -1,7 +1,7 @@
 describe('Paths', () => {
     beforeEach(() => {
         cy.visit('/')
-        cy.get('[data-attr=insight-path-tab]').click()
+        cy.get('[data-attr=insight-path-tab]', { timeout: 7000 }).click()
     })
 
     it('Paths loaded', () => {

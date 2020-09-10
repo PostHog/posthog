@@ -1,7 +1,7 @@
 describe('Setup', () => {
     it('Setup loaded', () => {
-        cy.get('[data-attr=menu-item-settings]').click()
-        cy.get('[data-attr=layout-content]').should('exist')
+        cy.get('[data-attr=menu-item-settings]', { timeout: 7000 }).click()
+        cy.get('[data-attr=layout-content]', { timeout: 7000 }).should('exist')
     })
 
     it('See suggestion and save', () => {
