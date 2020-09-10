@@ -125,7 +125,7 @@ def _capture_ee(
 
     # # check/create persondistinctid
     person, created = get_or_create_person(team_id=team.pk, distinct_id=distinct_id)
-    if not created:
+    if created:
         create_person_with_distinct_id(person_id=person.pk, distinct_ids=[distinct_id], team_id=team.pk)
 
 
