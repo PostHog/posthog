@@ -7,10 +7,11 @@ from django.db import models
 
 
 def uuid1_macless() -> uuid.UUID:
-    """UUID v1 using random 48 bits rather than the real MAC address, for more randomness and security.
+    """Time-based UUID v1 using random 48 bits rather than the real MAC address, for more randomness and security.
     
-    For primary keys, use this instead of UUID v4, as the complete randomness of v4 impacts
-    crucial ordering performance in databases. v1 on the other hand uses randomness in addition to current time.
+    For primary keys, this is superior to incremented integers
+    (as they can reveal sensitive business information about usage volumes and patterns) and to UUID v4
+    (as the complete randomness of v4 makes it less useful for indexing or possibly sorting).
     """
     return uuid.uuid1(secrets.randbits(48))
 
