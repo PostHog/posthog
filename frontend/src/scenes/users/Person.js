@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { Button, Modal } from 'antd'
-import { CheckCircleTwoTone, DeleteTwoTone } from '@ant-design/icons'
+import { CheckCircleTwoTone } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 const confirm = Modal.confirm
 export const Person = hot(_Person)
