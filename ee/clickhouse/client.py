@@ -41,9 +41,11 @@ else:
 
         @async_to_sync
         async def async_execute(query, args=None):
+            print("~~~~~~~~~~~~~~~~~~~~~ running async query")
             loop = asyncio.get_event_loop()
+            loop.set_debug(1)
             task = loop.create_task(ch_client.execute(query, args))
-            # we return this in case we want to cancel it
+            print("~~~~~~~~~~~~~~~~~~~~~ done with async query")
             return task
 
     else:

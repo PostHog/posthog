@@ -6,8 +6,9 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.kafka.client import KafkaProducer
 from posthog.models.team import Team
 
 
@@ -29,17 +30,16 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    async_execute(
-        INSERT_EVENT_SQL,
-        {
-            "event": event,
-            "properties": json.dumps(properties),
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "team_id": team.pk,
-            "distinct_id": distinct_id,
-            "element_hash": element_hash,
-        },
-    )
+    p = KafkaProducer()
+    data = {
+        "event": event,
+        "properties": properties,
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": distinct_id,
+        "element_hash": element_hash,
+    }
+    p.produce(topic="clickhouse_events", data=json.dumps(data))
 
 
 def get_events():

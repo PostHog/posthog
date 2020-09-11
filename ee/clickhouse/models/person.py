@@ -19,6 +19,7 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
+from ee.kafka.client import KafkaProducer
 from posthog.models.person import Person
 from posthog.models.team import Team
 
@@ -29,11 +30,10 @@ def create_person(
     person_id = kwargs.get("person_id", None)  # type: Optional[str]
     if not person_id:
         person_id = generate_clickhouse_uuid()
-
-    if sync:
-        sync_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
-    else:
-        async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+    p = KafkaProducer()
+    data = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
+    p.produce(topic="clickhouse_person", data=json.dumps(data))
+    return person_id
 
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
@@ -56,6 +56,16 @@ def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: str) -
     async_execute(INSERT_PERSON_DISTINCT_ID, {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id})
 
 
+def update_person_properties(id: int, properties: Dict) -> None:
+    sync_execute(UPDATE_PERSON_PROPERTIES, {"id": id, "properties": json.dumps(properties)})
+
+
+def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
+    p = KafkaProducer()
+    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+    p.produce(topic="clickhouse_person_distinct", data=json.dumps(data))
+
+
 def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
     return bool(sync_execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][0])
 
@@ -66,9 +76,7 @@ def person_exists(id: int) -> bool:
 
 def attach_distinct_ids(person_id: str, distinct_ids: List[str], team_id: int) -> None:
     for distinct_id in distinct_ids:
-        async_execute(
-            INSERT_PERSON_DISTINCT_ID, {"person_id": person_id, "team_id": team_id, "distinct_id": str(distinct_id)}
-        )
+        create_person_distinct_id(team_id, distinct_id, person_id)
 
 
 def get_persons(team_id: int):
@@ -90,7 +98,6 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> int:
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
-    properties = {}
     # merge the properties
     properties = {**old_props, **target["properties"]}
 
@@ -103,12 +110,12 @@ def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> No
     parsed_other_person_distinct_ids = ClickhousePersonDistinctIdSerializer(other_person_distinct_ids, many=True).data
 
     for person_distinct_id in parsed_other_person_distinct_ids:
-        async_execute(
+        sync_execute(
             UPDATE_PERSON_ATTACHED_DISTINCT_ID,
             {"person_id": target["id"], "distinct_id": person_distinct_id["distinct_id"]},
         )
 
-    async_execute(DELETE_PERSON_BY_ID, {"id": old_id,})
+    sync_execute(DELETE_PERSON_BY_ID, {"id": old_id,})
 
 
 class ClickhousePersonSerializer(serializers.Serializer):
