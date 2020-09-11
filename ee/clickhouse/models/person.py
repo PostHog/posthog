@@ -3,8 +3,8 @@ from typing import Dict, List, Optional
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     GET_DISTINCT_IDS_SQL,
@@ -33,7 +33,6 @@ def create_person(
     p = KafkaProducer()
     data = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
     p.produce(topic="clickhouse_person", data=json.dumps(data))
-    return person_id
 
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
@@ -43,21 +42,13 @@ def create_person(
 
 
 def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
-    async_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
+    sync_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
 
 
 def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> None:
-    async_execute(
+    sync_execute(
         UPDATE_PERSON_IS_IDENTIFIED, {"team_id": team_id, "id": id, "is_identified": "1" if is_identified else "0"}
     )
-
-
-def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: str) -> None:
-    async_execute(INSERT_PERSON_DISTINCT_ID, {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id})
-
-
-def update_person_properties(id: int, properties: Dict) -> None:
-    sync_execute(UPDATE_PERSON_PROPERTIES, {"id": id, "properties": json.dumps(properties)})
 
 
 def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
