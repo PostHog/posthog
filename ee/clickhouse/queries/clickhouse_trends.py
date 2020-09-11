@@ -3,13 +3,17 @@ from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Any, Dict, List, Tuple
 
+from django.db.models.manager import BaseManager
+
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
@@ -51,32 +55,70 @@ BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start), groupArray(count), value FROM (
     SELECT SUM(total) as count, day_start, value FROM (
         SELECT * FROM (
-        {null_sql} as main
-        CROSS JOIN
-            (
-                SELECT value
-                FROM (
-                    SELECT %(values)s as value
-                ) ARRAY JOIN value 
-            ) as sec
-        ORDER BY value, day_start
-        UNION ALL 
-        SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
-        FROM 
-        events e INNER JOIN
-            (
-                SELECT *
-                FROM events_properties_view AS ep
-                WHERE key = %(key)s and team_id = %(team_id)s
-            ) ep 
-            ON e.id = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
-            AND value in (%(values)s) {actions_query}
-        GROUP BY day_start, value
+            {null_sql} as main
+            CROSS JOIN
+                (
+                    SELECT value
+                    FROM (
+                        SELECT %(values)s as value
+                    ) ARRAY JOIN value 
+                ) as sec
+            ORDER BY value, day_start
+            UNION ALL 
+            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
+            FROM 
+            events e {breakdown_filter}
+            GROUP BY day_start, value
         )
     ) 
     GROUP BY day_start, value
     ORDER BY value, day_start
 ) GROUP BY value
+"""
+
+BREAKDOWN_DEFAULT_SQL = """
+SELECT groupArray(day_start), groupArray(count) FROM (
+    SELECT SUM(total) as count, day_start FROM (
+        SELECT * FROM (
+            {null_sql} as main
+            ORDER BY day_start
+            UNION ALL 
+            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
+            FROM 
+            events e {conditions}
+            GROUP BY day_start
+        )
+    ) 
+    GROUP BY day_start
+    ORDER BY day_start
+) 
+"""
+
+BREAKDOWN_CONDITIONS_SQL = """
+where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to} {actions_query}
+"""
+
+BREAKDOWN_PROP_JOIN_SQL = """
+INNER JOIN (
+    SELECT *
+    FROM events_properties_view AS ep
+    WHERE key = %(key)s and team_id = %(team_id)s
+) ep 
+ON e.id = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+AND value in (%(values)s) {actions_query}
+"""
+
+BREAKDOWN_COHORT_JOIN_SQL = """
+INNER JOIN (
+    {cohort_queries}
+) ep
+ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to} {actions_query}
+"""
+
+BREAKDOWN_COHORT_FILTER_SQL = """
+SELECT distinct_id, {cohort_pk} as value
+FROM person_distinct_id
+WHERE person_id IN ({table_name})
 """
 
 
@@ -125,8 +167,50 @@ class ClickhouseTrends(BaseQuery):
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
 
+        null_sql = NULL_BREAKDOWN_SQL.format(
+            interval=inteval_annotation,
+            seconds_in_interval=seconds_in_interval,
+            num_intervals=num_intervals,
+            date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
+        )
+
         if filter.breakdown_type == "cohort":
-            pass
+            breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            if "all" in breakdown:
+                params = {
+                    **params,
+                    "event": entity.id,
+                    **action_params,
+                }
+                null_sql = NULL_SQL.format(
+                    interval=inteval_annotation,
+                    seconds_in_interval=seconds_in_interval,
+                    num_intervals=num_intervals,
+                    date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
+                )
+                conditions = BREAKDOWN_CONDITIONS_SQL.format(
+                    parsed_date_from=parsed_date_from,
+                    parsed_date_to=parsed_date_to,
+                    actions_query="and id IN ({})".format(action_query) if action_query else "",
+                    event_filter="AND event = %(event)s" if not action_query else "",
+                )
+                breakdown_query = BREAKDOWN_DEFAULT_SQL.format(null_sql=null_sql, conditions=conditions)
+            else:
+                cohort_queries, cohort_ids = self._format_breakdown_cohort_join_query(breakdown, team)
+                params = {
+                    **params,
+                    "values": cohort_ids,
+                    "event": entity.id,
+                    **action_params,
+                }
+                breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL.format(
+                    cohort_queries=cohort_queries,
+                    parsed_date_from=parsed_date_from,
+                    parsed_date_to=parsed_date_to,
+                    actions_query="and id IN ({})".format(action_query) if action_query else "",
+                    event_filter="AND event = %(event)s" if not action_query else "",
+                )
+                breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
         elif filter.breakdown_type == "person":
             pass
         else:
@@ -143,23 +227,31 @@ class ClickhouseTrends(BaseQuery):
                 "event": entity.id,
                 **action_params,
             }
-            null_sql = NULL_BREAKDOWN_SQL.format(
-                interval=inteval_annotation,
-                seconds_in_interval=seconds_in_interval,
-                num_intervals=num_intervals,
-                date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
-            )
-            breakdown_query = BREAKDOWN_QUERY_SQL.format(
+            breakdown_filter = BREAKDOWN_PROP_JOIN_SQL.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
-                null_sql=null_sql,
                 actions_query="and id IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
             )
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
 
         result = ch_client.execute(breakdown_query, params)
         parsed_results = self._parse_breakdown_response(result, filter)
         return parsed_results
+
+    def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List]:
+        cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
+        cohort_queries = self._parse_breakdown_cohorts(cohorts)
+        ids = [cohort.pk for cohort in cohorts]
+        return cohort_queries, ids
+
+    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> str:
+        queries = []
+        for cohort in cohorts:
+            table_name = format_cohort_table_name(cohort)
+            cohort_query = BREAKDOWN_COHORT_FILTER_SQL.format(table_name=table_name, cohort_pk=cohort.pk)
+            queries.append(cohort_query)
+        return " UNION ALL ".join(queries)
 
     def _parse_breakdown_response(self, res: List, filter: Filter) -> List[Dict[str, Any]]:
         parsed = []

@@ -199,7 +199,7 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 #         (
 #             SELECT value
 #             FROM (
-#                 SELECT ['Chrome','Firefox','Safari','Mobile Safari','Microsoft Edge','Android Mobile','Chrome iOS','Opera','Firefox iOS','Mozilla'] as value
+#                 SELECT [1] as value
 #             ) ARRAY JOIN value
 #         ) as sec
 #     ORDER BY value, day_start
@@ -208,11 +208,11 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 #     FROM
 #     events e INNER JOIN
 #     (
-#         SELECT *
-#         FROM events_properties_view AS ep
-#         WHERE key = '$browser') ep
-#         ON e.id = ep.event_id where timestamp > toDate('2020-08-01')
-#         AND value in (['Chrome','Firefox','Safari','Mobile Safari','Microsoft Edge','Android Mobile','Chrome iOS','Opera','Firefox iOS','Mozilla'])
+#         SELECT distinct_id, 1 as value
+#         FROM person_distinct_id
+#         WHERE person_id IN (cohort_1_1)
+#         ) ep
+#         ON e.distinct_id = ep.distinct_id where event = '$pageview' AND toDateTime(timestamp) > toDateTime('2020-08-01 00:00:00')
 #     GROUP BY day_start, value
 #     )
 # GROUP BY day_start, value
