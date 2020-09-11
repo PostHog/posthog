@@ -31,7 +31,7 @@ function scorePassword(password?: string): number {
     const distinctChars = new Set(password)
     if (distinctChars.size * 3 < passwordLength || passwordLength <= 8) score /= 2
 
-    // topScore = All symbols up to 20 characters + 2 points for length > 12 + Bonus points for length over 20
+    // topScore = All symbols up to 20 characters + 2 points for length >= 12 + Bonus points for length over 20
     const topScore = Math.min(passwordLength, 20) * 4 + 2 + lengthBonusPoints
     return (score / topScore) * 100
 }
