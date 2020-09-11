@@ -64,9 +64,9 @@ function _Person({ _: distinctId, id }) {
 
     return person ? (
         <div>
-            <Button 
+            <Button
                 className="float-right"
-                danger 
+                danger
                 onClick={() => deletePersonData(person, () => history.push('/people'))}
             >
                 Delete all data on this person
