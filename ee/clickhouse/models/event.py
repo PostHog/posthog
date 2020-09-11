@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, time, timezone
 from typing import Dict, Optional, Tuple, Union
 
@@ -30,14 +31,18 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
+    event_id = uuid.uuid4()
+
     p = KafkaProducer()
     data = {
+        "id": str(event_id),
         "event": event,
-        "properties": properties,
+        "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
         "element_hash": element_hash,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p.produce(topic="clickhouse_events", data=json.dumps(data))
 
