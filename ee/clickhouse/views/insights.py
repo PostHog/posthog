@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
@@ -17,7 +18,7 @@ class ClickhouseInsights(InsightViewSet):
         filter = Filter(request=request)
 
         if filter.shown_as == TRENDS_STICKINESS:
-            result = []
+            result = ClickhouseStickiness().run(filter, team)
         else:
             result = ClickhouseTrends().run(filter, team)
 
