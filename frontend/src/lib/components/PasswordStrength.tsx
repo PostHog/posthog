@@ -10,13 +10,14 @@ function scorePassword(password?: string): number {
 
     for (let i = 0; i < Math.min(passwordLength, 21); ++i) {
         const char = password[i]
-        if (/[a-z]/.test(char)) score += 1
         // 1 point for lowercase characters
-        else if (/[A-Z]/.test(char)) score += 2
+        if (/[a-z]/.test(char)) score += 1
         // 2 points for uppercase characters
-        else if (/\d/.test(char)) score += 3
+        else if (/[A-Z]/.test(char)) score += 2
         // 3 points for number
-        else if (/[^A-Za-z0-9]/.test(char)) score += 4 // 4 points for special characters
+        else if (/\d/.test(char)) score += 3
+        // 4 points for special characters
+        else if (/[^A-Za-z0-9]/.test(char)) score += 4
     }
 
     // 2 points for being longer than 12
