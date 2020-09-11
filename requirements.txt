@@ -12,7 +12,6 @@ certifi==2019.11.28
 cffi==1.14.0
 chardet==3.0.4
 clickhouse-driver==0.1.4
-confluent-kafka==1.5.0
 coreapi==2.3.3
 coreschema==0.0.4
 cryptography==2.9
@@ -36,6 +35,8 @@ inflection==0.3.1
 iso8601==0.1.12
 itypes==1.1.0
 Jinja2==2.11.1
+kafka-python==2.0.1
+kafka-helper==0.2
 kombu==4.6.8
 lzstring==1.0.4
 MarkupSafe==1.1.1

@@ -171,7 +171,6 @@ def get_event(request):
             now=now,
             sent_at=sent_at,
         )
-
         if check_ee_enabled():
             process_event_ee.delay(
                 distinct_id=distinct_id,

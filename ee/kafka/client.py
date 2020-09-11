@@ -1,25 +1,19 @@
-from confluent_kafka import Producer
+import kafka_helper
+from kafka import KafkaProducer as KP
 
-from posthog.settings import KAFKA_HOSTS
+from posthog.settings import IS_HEROKU, KAFKA_HOSTS
 from posthog.utils import SingletonDecorator
 
 
 class KafkaProducer:
     def __init__(self):
-        self.producer = Producer({"bootstrap.servers": KAFKA_HOSTS})
-
-    @staticmethod
-    def delivery_report(err, msg):
-        """ Called once for each message produced to indicate delivery result.
-            Triggered by poll() or flush(). """
-        if err is not None:
-            print("Message delivery failed: {}".format(err))
+        if not IS_HEROKU:
+            self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
         else:
-            print("Message delivered to {} [{}]".format(msg.topic(), msg.partition()))
+            self.producer = kafka_helper.get_kafka_producer()
 
     def produce(self, topic, data):
-        self.producer.poll(0)
-        self.producer.produce(topic, data.encode("utf-8"), callback=self.delivery_report)
+        self.producer.send(topic, data.encode("utf-8"))
 
     def close(self):
         self.producer.flush()
