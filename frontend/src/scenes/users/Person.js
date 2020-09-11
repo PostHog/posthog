@@ -52,16 +52,11 @@ function _Person({ _: distinctId, id }) {
         confirm({
             centered: true,
             title: text,
-            icon:
-                type === 'save' ? (
-                    <CheckCircleTwoTone twoToneColor="#52c41a" />
-                ) : (
-                    <DeleteTwoTone twoToneColor="red"></DeleteTwoTone>
-                ),
-            content: `Click OK to ${type} Person's Data`,
+            icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
+            content: `Click OK to Save Person's Data`,
             okType: type === 'delete' ? 'danger' : 'primary',
             onOk() {
-                type === 'delete' ? deletePersonData(person, () => history.push('/people')) : savePersonData(person)
+                savePersonData(person)
             },
             onCancel() {},
         })
@@ -69,7 +64,11 @@ function _Person({ _: distinctId, id }) {
 
     return person ? (
         <div>
-            <Button className="float-right" danger onClick={() => showConfirm('delete', "Delete Person's Data?")}>
+            <Button 
+                className="float-right"
+                danger 
+                onClick={() => deletePersonData(person, () => history.push('/people'))}
+            >
                 Delete all data on this person
             </Button>
             <h1 className="page-header">

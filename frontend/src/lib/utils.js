@@ -234,10 +234,11 @@ export const formatProperty = (property) => {
 }
 
 export const deletePersonData = (person, callback) => {
-    api.delete('api/person/' + person.id).then(() => {
-        toast('Person succesfully deleted.')
-        if (callback) callback()
-    })
+    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
+        api.delete('api/person/' + person.id).then(() => {
+            toast('Person succesfully deleted.')
+            if (callback) callback()
+        })
 }
 
 export const savePersonData = (person) => {
