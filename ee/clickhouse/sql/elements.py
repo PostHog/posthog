@@ -39,7 +39,7 @@ ORDER BY (team_id, id)
 ).format(table_name="elements", engine=table_engine("elements"), storage_policy=STORAGE_POLICY)
 
 KAFKA_ELEMENTS_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
-    table="kafka_elements", engine=kafka_engine(topic=KAFKA_ELEMENTS)
+    table_name="kafka_elements", engine=kafka_engine(topic=KAFKA_ELEMENTS)
 )
 
 INSERT_ELEMENTS_SQL = """
@@ -73,12 +73,11 @@ ELEMENT_GROUP_TABLE_SQL = (
     + """ORDER BY (team_id, id)
 {storage_policy}
 """
-).format(table_engine("elements_group"), engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY)
+).format(table_name="elements_group", engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY)
 
 KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
     table_name="kafka_elements_group", engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
 )
-
 
 INSERT_ELEMENT_GROUP_SQL = """
 INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s

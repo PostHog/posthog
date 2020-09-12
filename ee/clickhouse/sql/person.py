@@ -35,7 +35,7 @@ SELECT * FROM person WHERE team_id = %(team_id)s
 """
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE person_distinct_id
+CREATE TABLE {table_name} 
 (
     id Int32,
     distinct_id VARCHAR,
