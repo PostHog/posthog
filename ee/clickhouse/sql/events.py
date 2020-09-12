@@ -28,7 +28,7 @@ CREATE TABLE {table_name}
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime
+    created_at DateTime64(6, 'UTC')
 ) ENGINE = {engine} 
 """
 
