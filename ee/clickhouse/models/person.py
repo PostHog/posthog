@@ -34,7 +34,6 @@ def create_person(
     p = KafkaProducer()
     data = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
     p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
-
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
