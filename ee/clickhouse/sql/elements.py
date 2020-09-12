@@ -79,6 +79,10 @@ KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
     table_name="kafka_elements_group", engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
 )
 
+KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_elements_group", engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
+)
+
 INSERT_ELEMENT_GROUP_SQL = """
 INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s
 """
