@@ -20,6 +20,7 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_PROPERTIES,
 )
 from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.models.person import Person
 from posthog.models.team import Team
 
@@ -32,12 +33,10 @@ def create_person(
         person_id = generate_clickhouse_uuid()
     p = KafkaProducer()
     data = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
-    p.produce(topic="clickhouse_person", data=json.dumps(data))
-
+    p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
-
     return person_id
 
 
@@ -54,7 +53,7 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
 def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
-    p.produce(topic="clickhouse_person_distinct", data=json.dumps(data))
+    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
 
 
 def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:

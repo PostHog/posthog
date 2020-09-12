@@ -10,6 +10,7 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.team import Team
 
 
@@ -44,7 +45,7 @@ def create_event(
         "element_hash": element_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic="clickhouse_events", data=json.dumps(data))
+    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
 
 
 def get_events():

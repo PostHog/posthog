@@ -13,6 +13,7 @@ from ee.clickhouse.sql.elements import (
     INSERT_ELEMENTS_SQL,
 )
 from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
@@ -22,7 +23,7 @@ def create_element_group(team: Team, element_hash: str) -> UUID:
     id = uuid4()
     p = KafkaProducer()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    p.produce(topic="clickhouse_element_group", data=json.dumps(data))
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
     return id
 
 
@@ -41,7 +42,7 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
         "team_id": team.pk,
         "group_id": group_id,
     }
-    p.produce(topic="clickhouse_element", data=json.dumps(data))
+    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
 
 
 def create_elements(elements: List[Element], team: Team) -> str:
