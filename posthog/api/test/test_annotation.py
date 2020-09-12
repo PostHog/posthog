@@ -2,7 +2,6 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytz
-from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
@@ -69,7 +68,7 @@ class TestAPIAnnotation(APIBaseTest):
         self.user: User = User.objects.create_user("annotations@posthog.com")
         self.team.users.add(self.user)
         self.team.save()
-        self.annotation = Annotation.objects.create(team=self.team, created_by=self.user)
+        self.annotation = Annotation.objects.create(team=self.team, created_by=self.user,)
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):
@@ -117,8 +116,12 @@ class TestAPIAnnotation(APIBaseTest):
         )
 
     def test_deleting_annotation(self):
+        new_user = User.objects.create_user(email="new_annotations@posthog.com")
+        self.team.users.add(new_user)
+        self.team.save()
+
         instance = Annotation.objects.create(team=self.team, created_by=self.user)
-        self.client.force_login(self.user)
+        self.client.force_login(new_user)
 
         with patch("posthoganalytics.capture") as mock_capture:
             response = self.client.delete(f"/api/annotation/{instance.pk}/")
@@ -126,7 +129,7 @@ class TestAPIAnnotation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Annotation.objects.filter(pk=instance.pk).exists())
 
-        # Assert analytics are sent
+        # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation deleted", {"apply_all": False, "date_marker": None},
+            new_user.distinct_id, "annotation deleted", {"apply_all": False, "date_marker": None},
         )

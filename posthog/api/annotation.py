@@ -3,12 +3,13 @@ from typing import Any, Dict
 
 import posthoganalytics
 from django.db.models import QuerySet
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation
 
 
@@ -38,7 +39,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
-class AnnotationsViewSet(viewsets.ModelViewSet):
+class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
 
@@ -88,18 +89,5 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
         posthoganalytics.capture(
-            instance.created_by.distinct_id,
-            event_name,
-            {"apply_all": instance.apply_all, "date_marker": instance.date_marker},
-        )
-
-
-@receiver(post_delete, sender=Annotation, dispatch_uid="hook-annotation-deleted")
-def annotation_deleted(sender, instance, using, **kwargs):
-
-    if instance.created_by:
-        posthoganalytics.capture(
-            instance.created_by.distinct_id,
-            "annotation deleted",
-            {"apply_all": instance.apply_all, "date_marker": instance.date_marker},
+            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
         )

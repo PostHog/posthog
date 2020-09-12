@@ -20,3 +20,6 @@ class Annotation(models.Model):
 
     apply_all: models.BooleanField = models.BooleanField(default=False)
     deleted: models.BooleanField = models.BooleanField(default=False)
+
+    def get_analytics_metadata(self):
+        return {"apply_all": self.apply_all, "date_marker": self.date_marker}
