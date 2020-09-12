@@ -9,15 +9,12 @@ class AnalyticsDestroyModelMixin:
     Destroy a model instance sending analytics information.
     """
 
-    def get_object(self):
-        raise NotImplementedError("`get_object()` must be implemented.")
-
     def perform_destroy(self, instance):
         instance.delete()
 
     def destroy(self, request, *args, **kwgars):
 
-        instance = self.get_object()
+        instance = self.get_object()  # type: ignore
         self.perform_destroy(instance)
 
         metadata: Optional[Dict] = instance.get_analytics_metadata() if hasattr(
