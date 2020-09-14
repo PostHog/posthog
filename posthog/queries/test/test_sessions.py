@@ -24,6 +24,7 @@ def sessions_test_factory(sessions, event_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
+
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["global_session_id"], 1)
 
@@ -50,7 +51,6 @@ def sessions_test_factory(sessions, event_factory):
 
             response = sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
-
             # time series
             self.assertEqual(response[0]["data"][0], 240)
             self.assertEqual(response[0]["data"][1], 120)
@@ -89,6 +89,7 @@ def sessions_test_factory(sessions, event_factory):
                 ),
                 self.team,
             )
+
             self.assertEqual(month_response[0]["data"][0], 180)
             self.assertEqual(month_response[0]["data"][2], 180)
             self.assertEqual(month_response[0]["labels"][0], "Tue. 31 January")
@@ -151,6 +152,7 @@ def sessions_test_factory(sessions, event_factory):
             )
             # Run without anything to compare to
             compare_response = sessions().run(filter=filter, team=self.team)
+
             self.assertEqual(compare_response[0]["data"][5], 120.0)
             self.assertEqual(compare_response[1]["data"][4], 240.0)
 

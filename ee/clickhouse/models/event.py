@@ -15,7 +15,7 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]],
+    timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[Dict] = {},
     element_hash: Optional[str] = "",
 ) -> None:
