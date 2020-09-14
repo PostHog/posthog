@@ -8,6 +8,7 @@ from ee.clickhouse.sql.actions import (
     ELEMENT_ACTION_FILTER,
     ELEMENT_PROP_FILTER,
     EVENT_ACTION_FILTER,
+    EVENT_NO_PROP_FILTER,
     FILTER_EVENT_BY_ACTION_SQL,
     INSERT_INTO_ACTION_TABLE,
     create_action_mapping_table_sql,
@@ -96,7 +97,7 @@ def filter_event(step) -> Tuple[str, Dict]:
     event_filter = ""
     efilter = ""
     property_filter = ""
-    if step.url:
+    if step.url and step.event:
         if step.url_matching == ActionStep.EXACT:
             operation = "value = '{}'".format(step.url)
             params.update({"prop_val": step.url})
@@ -107,11 +108,12 @@ def filter_event(step) -> Tuple[str, Dict]:
             operation = "value LIKE %(prop_val)s "
             params.update({"prop_val": "%" + step.url + "%"})
         property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
-
-    if step.event:
         efilter = "AND event = '{}'".format(step.event)
 
-    event_filter = EVENT_ACTION_FILTER.format(event_filter=efilter, property_filter=property_filter)
+        event_filter = EVENT_ACTION_FILTER.format(event_filter=efilter, property_filter=property_filter)
+    elif step.event:
+        efilter = "AND event = '{}'".format(step.event)
+        event_filter = EVENT_NO_PROP_FILTER.format(event_filter=efilter)
 
     return event_filter, params
 

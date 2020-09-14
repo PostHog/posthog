@@ -1,7 +1,7 @@
 import copy
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.db.models.manager import BaseManager
 
@@ -134,9 +134,17 @@ class ClickhouseTrends(BaseQuery):
             "labels": [],
             "days": [],
         }
-
         if filter.breakdown:
-            result = self._format_breakdown_query(entity, filter, team)
+            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            if "all" in filter.breakdown:
+                filter.breakdown.remove("all")
+                result = self._format_breakdown_query(entity, filter, team)
+                filter.breakdown = ["all"]
+                all_result = self._format_breakdown_query(entity, filter, team)
+
+                result.extend(all_result)
+            else:
+                result = self._format_breakdown_query(entity, filter, team)
         else:
             result = self._format_normal_query(entity, filter, team)
 
@@ -238,7 +246,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
 
         result = ch_client.execute(breakdown_query, params)
-        parsed_results = self._parse_breakdown_response(result, filter)
+        parsed_results = self._parse_breakdown_response(result, filter, entity)
         return parsed_results
 
     def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List]:
@@ -255,9 +263,15 @@ class ClickhouseTrends(BaseQuery):
             queries.append(cohort_query)
         return " UNION ALL ".join(queries)
 
-    def _parse_breakdown_response(self, res: List, filter: Filter) -> List[Dict[str, Any]]:
+    def _parse_breakdown_response(self, res: List, filter: Filter, entity: Entity) -> List[Dict[str, Any]]:
         parsed = []
-        for stats in res:
+        for idx, stats in enumerate(res):
+            if filter.breakdown:
+                extra_label = self._determine_breakdown_label(filter.breakdown_type, filter.breakdown[idx])
+                label = "{} - {}".format(entity.name, extra_label)
+                additional_values = {"label": label, "breakdown_value": filter.breakdown[idx]}
+            else:
+                additional_values = {}
             counts = stats[1]
             dates = [
                 item.strftime(
@@ -271,8 +285,20 @@ class ClickhouseTrends(BaseQuery):
                 )
                 for item in stats[0]
             ]
-            parsed.append({"data": counts, "count": sum(counts), "dates": dates, "labels": labels})
+            parsed.append({"data": counts, "count": sum(counts), "dates": dates, "labels": labels, **additional_values})
+
         return parsed
+
+    def _determine_breakdown_label(self, breakdown_type: Optional[str], breakdown: Optional[str] = "") -> str:
+        if breakdown_type == "cohort":
+            if breakdown == "all":
+                return "all users"
+            else:
+                return Cohort.objects.get(pk=breakdown).name
+        elif filter.breakdown_type == "person":
+            return ""
+        else:
+            return breakdown or ""
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
@@ -294,7 +320,7 @@ class ClickhouseTrends(BaseQuery):
                 actions_query=action_query,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             )
         else:
             content_sql = VOLUME_SQL.format(
@@ -304,7 +330,7 @@ class ClickhouseTrends(BaseQuery):
                 event=entity.id,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation,
@@ -314,9 +340,10 @@ class ClickhouseTrends(BaseQuery):
         )
 
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
         result = ch_client.execute(final_query, params)
 
-        parsed_results = self._parse_breakdown_response(result, filter)
+        parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
         return parsed_results
 
     def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:

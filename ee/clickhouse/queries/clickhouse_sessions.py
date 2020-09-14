@@ -111,7 +111,7 @@ class ClickhouseSessions(BaseQuery):
                 team_id=team.pk,
                 date_from=date_from,
                 date_to=date_to,
-                filters="AND id IN {}".format(filters) if filter.properties else "",
+                filters="{}".format(filters) if filter.properties else "",
             ),
             params,
         )
@@ -147,7 +147,7 @@ class ClickhouseSessions(BaseQuery):
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters="AND id IN {}".format(filters) if filter.properties else "",
+            filters="{}".format(filters) if filter.properties else "",
         )
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
@@ -204,7 +204,7 @@ class ClickhouseSessions(BaseQuery):
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters="AND id IN {}".format(filters) if filter.properties else "",
+            filters="{}".format(filters) if filter.properties else "",
         )
 
         params = {**params, "team_id": team.pk}
