@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from rest_framework import serializers
 
 from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     GET_DISTINCT_IDS_SQL,
@@ -20,16 +21,26 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 
 
-def create_person(team_id: int, id: int, properties: Optional[Dict] = {}) -> int:
-    async_execute(INSERT_PERSON_SQL, {"id": id, "team_id": team_id, "properties": json.dumps(properties)})
-    return id
+def create_person(
+    *person_id: Optional[str], team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}
+) -> int:
+    if not person_id:
+        person_id = generate_clickhouse_uuid()
+
+    async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+
+    for distinct_id in distinct_ids:
+        if not distinct_ids_exist(team_id, [distinct_id]):
+            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
+
+    return person_id
 
 
 def update_person_properties(id: int, properties: Dict) -> None:
     async_execute(UPDATE_PERSON_PROPERTIES, {"id": id, "properties": json.dumps(properties)})
 
 
-def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
+def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: str) -> None:
     async_execute(INSERT_PERSON_DISTINCT_ID, {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id})
 
 
@@ -41,16 +52,7 @@ def person_exists(id: int) -> bool:
     return bool(sync_execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
 
 
-def create_person_with_distinct_id(
-    person_id: int, distinct_ids: List[str], team_id: int, properties: Optional[Dict] = {}
-) -> None:
-    if not person_exists(person_id):
-        create_person(id=person_id, team_id=team_id, properties=properties)
-    if not distinct_ids_exist(team_id, distinct_ids):
-        attach_distinct_ids(person_id, distinct_ids, team_id)
-
-
-def attach_distinct_ids(person_id: int, distinct_ids: List[str], team_id: int) -> None:
+def attach_distinct_ids(person_id: str, distinct_ids: List[str], team_id: int) -> None:
     for distinct_id in distinct_ids:
         async_execute(
             INSERT_PERSON_DISTINCT_ID, {"person_id": person_id, "team_id": team_id, "distinct_id": str(distinct_id)}
