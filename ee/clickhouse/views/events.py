@@ -5,9 +5,10 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
+from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL
 from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
@@ -25,12 +26,12 @@ class ClickhouseEvents(viewsets.ViewSet):
         prop_filters, prop_filter_params = parse_filter(filter.properties)
 
         if prop_filters:
-            query_result = ch_client.execute(
+            query_result = sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
                 {"team_id": team.pk, **condition_params, **prop_filter_params},
             )
         else:
-            query_result = ch_client.execute(
+            query_result = sync_execute(
                 SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
                 {"team_id": team.pk, **condition_params},
             )
@@ -38,6 +39,17 @@ class ClickhouseEvents(viewsets.ViewSet):
         result = ClickhouseEventSerializer(query_result, many=True, context={"elements": None, "people": None}).data
 
         return Response({"next": None, "results": result})
+
+    def retrieve(self, request, pk=None):
+        # TODO: implement retrieve event by id
+        return Response([])
+
+    @action(methods=["GET"], detail=False)
+    def sessions(self, request: Request) -> Response:
+        team = self.request.user.team_set.get()
+        session_type = request.GET.get("session", None)
+        result = ClickhouseSessions().run(Filter(request=request), team, session_type=session_type)
+        return Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:

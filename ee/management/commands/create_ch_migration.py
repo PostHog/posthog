@@ -7,7 +7,6 @@ MIGRATION_PATH = "ee/clickhouse/migrations"
 
 FILE_DEFAULT = """
 from infi.clickhouse_orm import migrations
-
 class Migration(migrations.Migration):
     operations = [
     ]

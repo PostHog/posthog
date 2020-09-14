@@ -2,7 +2,7 @@ import base64
 import json
 from unittest.mock import patch
 
-from posthog.models import FeatureFlag, Person
+from posthog.models import FeatureFlag, Person, PersonalAPIKey
 
 from .base import BaseTest
 
@@ -31,7 +31,9 @@ class TestDecide(BaseTest):
 
         self.team.app_urls = ["https://example.com/maybesubdomain"]
         self.team.save()
-        response = self.client.get("/decide/", HTTP_ORIGIN="https://example.com").json()
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.get("/decide", HTTP_ORIGIN="https://example.com").json()
         self.assertEqual(response["isAuthenticated"], True)
         self.assertIsNone(response.get("toolbarVersion", None))
 
@@ -53,7 +55,7 @@ class TestDecide(BaseTest):
 
         self.team.app_urls = ["https://example.com"]
         self.team.save()
-        response = self.client.get("/decide/", HTTP_ORIGIN="http://127.0.0.1:8000").json()
+        response = self.client.get("/decide", HTTP_ORIGIN="http://127.0.0.1:8000").json()
         self.assertEqual(response["isAuthenticated"], True)
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
@@ -99,3 +101,17 @@ class TestDecide(BaseTest):
                 HTTP_ORIGIN="http://127.0.0.1:8000",
             ).json()
         self.assertEqual(len(response["featureFlags"]), 0)
+
+    def test_feature_flags_with_personal_api_key(self):
+        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key.save()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
+        )
+        response = self.client.post(
+            "/decide/",
+            {"data": json.dumps({"distinct_id": "example_id", "personal_api_key": key.value})},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+        ).json()
+        self.assertEqual(len(response["featureFlags"]), 1)

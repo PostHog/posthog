@@ -161,6 +161,7 @@ class InsightViewSet(viewsets.ModelViewSet):
                 date_from = result["result"][0]["start_time"].isoformat()
                 result.update({OFFSET: offset})
                 result.update({DATE_FROM: date_from})
+
         return Response(result)
 
     # ******************************************

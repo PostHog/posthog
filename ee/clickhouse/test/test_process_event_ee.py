@@ -18,7 +18,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         user = self._create_user("tim")
         team_id = self.team.pk
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             process_event_ee(
                 2,
                 "",

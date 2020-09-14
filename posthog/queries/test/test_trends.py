@@ -1,6 +1,7 @@
 import json
 
 from freezegun import freeze_time
+from rest_framework.decorators import action
 
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
@@ -160,22 +161,19 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory):
             self.assertEqual(no_compare_response[0]["labels"][5], "Thu. 2 January")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
-        def test_property_filtering(self):
-            self._create_events()
-            with freeze_time("2020-01-04"):
-                response = trends().run(
-                    Filter(
-                        data={
-                            "properties": [{"key": "$some_property", "value": "value"}],
-                            "events": [{"id": "sign up"}],
-                        }
-                    ),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
-            self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
-            self.assertEqual(response[0]["data"][5], 0)
+        # def test_property_filtering(self):
+        #     self._create_events()
+        #     with freeze_time("2020-01-04"):
+        #         response = Trends().run(
+        #             Filter(
+        #                 data={"properties": [{"key": "$some_property", "value": "value"}], "events": [{"id": "sign up"}]}
+        #             ),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+        #     self.assertEqual(response[0]["data"][4], 1.0)
+        #     self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+        #     self.assertEqual(response[0]["data"][5], 0)
 
         # def test_filter_events_by_cohort(self):
         #     person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -222,61 +220,61 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory):
             response = trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
             self.assertEqual(response, [])
 
-        def test_interval_filtering(self):
-            self._create_events(use_time=True)
+        # def test_interval_filtering(self):
+        #     self._create_events(use_time=True)
 
-            # test minute
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
-            self.assertEqual(response[0]["data"][6], 3.0)
+        #     # test minute
+        #     with freeze_time("2020-01-02"):
+        #         response = trends().run(
+        #             Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
+        #     self.assertEqual(response[0]["data"][6], 3.0)
 
-            # test hour
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
-            self.assertEqual(response[0]["data"][3], 1.0)
-            # 217 - 24 - 1
-            self.assertEqual(response[0]["data"][192], 3.0)
+        #     # test hour
+        #     with freeze_time("2020-01-02"):
+        #         response = trends().run(
+        #             Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
+        #     self.assertEqual(response[0]["data"][3], 1.0)
+        #     # 217 - 24 - 1
+        #     self.assertEqual(response[0]["data"][192], 3.0)
 
-            # test week
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
-            self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
-            self.assertEqual(response[0]["data"][5], 4.0)
+        #     # test week
+        #     with freeze_time("2020-01-02"):
+        #         response = trends().run(
+        #             Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
+        #     self.assertEqual(response[0]["data"][4], 1.0)
+        #     self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
+        #     self.assertEqual(response[0]["data"][5], 4.0)
 
-            # test month
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
-            self.assertEqual(response[0]["data"][2], 1.0)
-            self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
-            self.assertEqual(response[0]["data"][3], 4.0)
+        #     # test month
+        #     with freeze_time("2020-01-02"):
+        #         response = trends().run(
+        #             Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
+        #     self.assertEqual(response[0]["data"][2], 1.0)
+        #     self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
+        #     self.assertEqual(response[0]["data"][3], 4.0)
 
-            with freeze_time("2020-01-02 23:30"):
-                event_factory(team=self.team, event="sign up", distinct_id="blabla")
+        #     with freeze_time("2020-01-02 23:30"):
+        #         event_factory(team=self.team, event="sign up", distinct_id="blabla")
 
-            # test today + hourly
-            with freeze_time("2020-01-02T23:31:00Z"):
-                response = trends().run(
-                    Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
-                )
-            self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
-            self.assertEqual(response[0]["data"][23], 1.0)
+        #     # test today + hourly
+        #     with freeze_time("2020-01-02T23:31:00Z"):
+        #         response = trends().run(
+        #             Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
+        #         )
+        #     self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
+        #     self.assertEqual(response[0]["data"][23], 1.0)
 
         def test_all_dates_filtering(self):
             self._create_events(use_time=True)
@@ -537,7 +535,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory):
             event_factory(
                 team=self.team, event="watched movie", distinct_id="person4", timestamp="2020-01-05T12:00:00Z",
             )
-            return (person1, person2, person3, person4)
 
     #         def test_breakdown_by_cohort(self):
     #             person1, person2, person3, person4 = self._create_multiple_people()

@@ -1,8 +1,10 @@
-from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.queries.test.test_retention import retention_test_factory
+from typing import Any, Dict, List
+
+from posthog.models.filter import Filter
+from posthog.models.team import Team
+from posthog.queries.base import BaseQuery
 
 
-# class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention)): # type: ignore
-class TestClickhouseRetention:
-    pass
+class ClickhouseTrends(BaseQuery):
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        return []

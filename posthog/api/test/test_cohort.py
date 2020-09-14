@@ -14,8 +14,10 @@ class TestCohort(BaseTest):
         self.team.save()
         person1 = Person.objects.create(team=self.team, properties={"team_id": 5})
         person2 = Person.objects.create(team=self.team, properties={"team_id": 6})
+
+        # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/cohort/",
+            "/api/cohort",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
             content_type="application/json",
         )

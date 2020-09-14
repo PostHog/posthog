@@ -14,84 +14,85 @@ function getCookie(name) {
     return cookieValue
 }
 
-class Api {
-    get(url) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
-        }
-        return fetch(url).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
-        })
+async function getJSONOrThrow(response) {
+    try {
+        return await response.json()
+    } catch (e) {
+        throw new Error('Something went wrong when parsing the response from the server.')
     }
-    update(url, data) {
+}
+
+class Api {
+    async get(url) {
         if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        return fetch(url, {
+        const response = await fetch(url)
+
+        if (!response.ok) {
+            const data = await getJSONOrThrow(response)
+            throw { status: response.status, ...data }
+        }
+        return await getJSONOrThrow(response)
+    }
+    async update(url, data) {
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
+        const response = await fetch(url, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    if (Array.isArray(data)) {
-                        throw data
-                    }
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
         })
-    }
-    create(url, data) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+        if (!response.ok) {
+            const data = await getJSONOrThrow(response)
+            if (Array.isArray(data)) {
+                throw data
+            }
+            throw { status: response.status, ...data }
         }
-        return fetch(url, {
+        return await getJSONOrThrow(response)
+    }
+    async create(url, data) {
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    if (Array.isArray(data)) {
-                        throw data
-                    }
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response.json()
         })
-    }
-    delete(url) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
+        if (!response.ok) {
+            const data = await getJSONOrThrow(response)
+            if (Array.isArray(data)) {
+                throw data
+            }
+            throw { status: response.status, ...data }
         }
-        return fetch(url, {
+        return await getJSONOrThrow(response)
+    }
+    async delete(url) {
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
+        const response = await fetch(url, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-        }).then((response) => {
-            if (!response.ok) {
-                return response.json().then((data) => {
-                    throw { status: response.status, ...data }
-                })
-            }
-            return response
         })
+        if (!response.ok) {
+            const data = await getJSONOrThrow(response)
+            throw { status: response.status, ...data }
+        }
+        return response
     }
 }
 let api = new Api()
