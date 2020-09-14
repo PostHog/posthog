@@ -10,7 +10,7 @@ const confirm = Modal.confirm
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
-    const [personChanged, setPersonChanged] = useState(true)
+    const [personChanged, setPersonChanged] = useState(false)
     useEffect(() => {
         let url = ''
         if (distinctId) {
@@ -22,7 +22,7 @@ function _Person({ _: distinctId, id }) {
     }, [distinctId, id])
 
     function _handleChange(event) {
-        setPersonChanged(false)
+        setPersonChanged(true)
         var tag = event.target.getAttribute('tag')
         var newState = {}
         if (tag == 'first' || tag == 'last') {
@@ -77,7 +77,7 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 onClick={() => showConfirm('save', "Save Person's Data?")}
-                disabled={personChanged}
+                disabled={!personChanged}
             >
                 Save Person's Data
             </Button>
