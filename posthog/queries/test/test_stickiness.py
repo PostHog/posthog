@@ -6,15 +6,15 @@ from posthog.queries.stickiness import Stickiness
 
 
 # parameterize tests to reuse in EE
-def stickiness_test_factory(stickiness, event_factory):
+def stickiness_test_factory(stickiness, event_factory, person_factory):
     class TestStickiness(BaseTest):
         def _create_multiple_people(self):
-            person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"name": "person1"})
+            person1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
                 team=self.team, event="watched movie", distinct_id="person1", timestamp="2020-01-01T12:00:00Z",
             )
 
-            person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"name": "person2"})
+            person2 = person_factory(team_id=self.team.id, distinct_ids=["person2"], properties={"name": "person2"})
             event_factory(
                 team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-01T12:00:00Z",
             )
@@ -26,18 +26,20 @@ def stickiness_test_factory(stickiness, event_factory):
                 team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-02T12:00:00Z",
             )
 
-            person3 = Person.objects.create(team=self.team, distinct_ids=["person3"], properties={"name": "person3"})
-            event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-01T12:00:00Z",
+            person3 = person_factory(
+                team_id=self.team.id, distinct_ids=["person3a", "person3b"], properties={"name": "person3"}
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-02T12:00:00Z",
+                team=self.team, event="watched movie", distinct_id="person3a", timestamp="2020-01-01T12:00:00Z",
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-03T12:00:00Z",
+                team=self.team, event="watched movie", distinct_id="person3b", timestamp="2020-01-02T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="watched movie", distinct_id="person3a", timestamp="2020-01-03T12:00:00Z",
             )
 
-            person4 = Person.objects.create(team=self.team, distinct_ids=["person4"], properties={"name": "person4"})
+            person4 = person_factory(team_id=self.team.id, distinct_ids=["person4"], properties={"name": "person4"})
             event_factory(
                 team=self.team, event="watched movie", distinct_id="person4", timestamp="2020-01-05T12:00:00Z",
             )
@@ -91,5 +93,5 @@ def stickiness_test_factory(stickiness, event_factory):
     return TestStickiness
 
 
-class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create)):  # type: ignore
+class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create)):  # type: ignore
     pass
