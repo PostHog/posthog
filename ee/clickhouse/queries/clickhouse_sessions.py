@@ -99,14 +99,13 @@ class ClickhouseSessions(BaseQuery):
     def calculate_list(self, filter: Filter, team: Team, offset: int):
 
         now = datetime.now()
-        filter._date_to = now.strftime("%Y-%m-%d 00:00:00")
+        filter._date_to = (now + relativedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         filter._date_from = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d 00:00:00")
 
         filters, params = parse_prop_clauses("id", filter.properties, team)
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
-
         query_result = ch_client.execute(
             SESSION_SQL.format(
                 team_id=team.pk,
