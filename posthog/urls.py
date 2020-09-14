@@ -1,5 +1,3 @@
-import json
-import os
 from typing import Optional, cast
 from urllib.parse import urlparse
 
@@ -20,7 +18,7 @@ from rest_framework import permissions
 from posthog.demo import delete_demo_data, demo
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
-from .models import Event, Organization, Team, User
+from .models import Event, Organization, OrganizationInvite, OrganizationMembership, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
 
@@ -51,17 +49,17 @@ def login_view(request):
     return render_template("login.html", request)
 
 
-def signup_to_team_view(request, token):
-    if request.user.is_authenticated:
-        return redirect("/")
-    if not token:
+def signup_to_organization_view(request, invite_id):
+    if request.user.is_authenticated or not invite_id:
         return redirect("/")
     if not User.objects.exists():
         return redirect("/preflight")
     try:
-        team = Team.objects.get(signup_token=token)
-    except Team.DoesNotExist:
+        invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except OrganizationInvite.DoesNotExist:
         return redirect("/")
+
+    organization = invite.organization
 
     if request.method == "POST":
         email = request.POST["email"]
@@ -73,26 +71,32 @@ def signup_to_team_view(request, token):
             and is_input_valid("email", email)
             and is_input_valid("password", password)
         )
-        email_exists = User.objects.filter(email=email).exists()
-        if email_exists or not valid_inputs:
+        already_exists = User.objects.filter(email=email).exists()
+        custom_error = None
+        try:
+            invite.validate()
+        except ValueError as e:
+            custom_error = str(e)
+        if already_exists or not valid_inputs:
             return render_template(
-                "signup_to_team.html",
+                "signup_to_organization.html",
                 request=request,
                 context={
                     "email": email,
                     "name": first_name,
-                    "error": email_exists,
+                    "already_exists": already_exists,
+                    "custom_error": custom_error,
                     "invalid_input": not valid_inputs,
-                    "team": team,
-                    "signup_token": token,
+                    "organization": organization,
+                    "invite_id": invite_id,
                 },
             )
+
         user = User.objects.create_user(
             email=email, password=password, first_name=first_name, email_opt_in=email_opt_in,
         )
+        invite.use(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        team.users.add(user)
-        team.save()
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
         )
@@ -100,25 +104,27 @@ def signup_to_team_view(request, token):
             user.distinct_id,
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
-                "company_name": team.name,
-                "team_id": team.pk,  # TO-DO: handle multiple teams
-                "is_team_first_user": False,
+                "company_name": organization.name,
+                "organization_id": organization.id,  # TO-DO: handle multiple teams
+                "is_organization_first_user": False,
             },
         )
         return redirect("/")
-    return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
+    return render_template(
+        "signup_to_organization.html", request, context={"organization": organization, "invite_id": invite_id}
+    )
 
 
 def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
 
-    signup_token = strategy.session_get("signup_token")
-    if signup_token is None:
+    invite_id = strategy.session_get("invite_id")
+    if invite_id is None:
         processed = render_to_string(
             "auth_error.html",
             {
-                "message": "There is no team associated with this account! Please use an invite link from a team to create an account!"
+                "message": "There is no organization associated with this account! Please use an invite link from an organization to create an account!"
             },
         )
         return HttpResponse(processed, status=401)
@@ -129,14 +135,15 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         return
 
     try:
-        team = Team.objects.get(signup_token=signup_token)
-    except Team.DoesNotExist:
-        processed = render_to_string(
-            "auth_error.html",
-            {
-                "message": "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"
-            },
-        )
+        invite = OrganizationInvite.objects.get(invite_id)
+    except OrganizationInvite.DoesNotExist:
+        processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
+        return HttpResponse(processed, status=401)
+
+    try:
+        invite.validate()
+    except ValueError as e:
+        processed = render_to_string("auth_error.html", {"message": str(e)},)
         return HttpResponse(processed, status=401)
 
     try:
@@ -149,9 +156,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             },
         )
         return HttpResponse(processed, status=401)
-
-    team.users.add(user)
-    team.save()
+    invite.use(user)
     posthoganalytics.capture(
         user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
     )
@@ -228,7 +233,7 @@ urlpatterns = [
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
-    path("signup/<str:token>", signup_to_team_view, name="signup"),
+    path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []

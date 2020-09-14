@@ -110,7 +110,9 @@ class TeamSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": is_first_user, "is_team_first_user": True},
+            user.distinct_id,
+            "user signed up",
+            properties={"is_first_user": is_first_user, "is_organization_first_user": True},
         )
 
         posthoganalytics.identify(

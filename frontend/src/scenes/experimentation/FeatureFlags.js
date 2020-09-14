@@ -50,7 +50,7 @@ function _FeatureFlags() {
     ]
 
     return (
-        <div className="feature-flags">
+        <div className="feature_flags">
             <h1 className="page-header">Feature Flags</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>Feature flags are a way of turning functionality in your app on or off, based on user properties.</i>

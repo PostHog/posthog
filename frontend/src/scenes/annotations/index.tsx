@@ -1,3 +1,4 @@
+import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin } from 'antd'
@@ -5,19 +6,16 @@ import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
+import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined } from '@ant-design/icons'
 
 const { TextArea } = Input
 
-interface Props {
-    logic: any
-}
-
-export function AnnotationsTable(props: Props): JSX.Element {
-    const { logic } = props
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(logic)
+export const Annotations = hot(_Annotations)
+function _Annotations(): JSX.Element {
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
     const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
-        logic
+        annotationsTableLogic
     )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
@@ -93,12 +91,15 @@ export function AnnotationsTable(props: Props): JSX.Element {
             <h1 className="page-header">Annotations</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>
-                    Edit an annotation by clicking on one below. You can add global annotations here. Dashboard specific
-                    annotations can be added directly on the dashboard.
+                    Here you can add organization- and team-wide annotations.
+                    <br />
+                    Dashboard-specific ones can be added directly in the dashboard.
+                    <br />
+                    Edit any annotation by clicking on it below.
                 </i>
             </p>
             <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
-                + Create Global Annotation
+                + Create Annotation
             </Button>
             <Table
                 data-attr="annotations-table"

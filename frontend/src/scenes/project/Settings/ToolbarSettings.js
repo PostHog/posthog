@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { userLogic } from '../userLogic'
 import { Switch } from 'antd'
+import { userLogic } from 'scenes/userLogic'
 
 export function ToolbarSettings() {
     const { user } = useValues(userLogic)
@@ -26,7 +26,7 @@ export function ToolbarSettings() {
                     marginLeft: '10px',
                 }}
             >
-                Try the new PostHog Toolbar
+                Enable PostHog Toolbar
             </label>
             {saved && (
                 <p className="text-success" style={{ marginTop: 10 }}>
@@ -46,8 +46,6 @@ export function ToolbarSettings() {
                 </a>
                 !
             </p>
-            <br />
-            <br />
         </div>
     )
 }

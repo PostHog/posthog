@@ -20,6 +20,12 @@ from posthog.utils import PersonalAPIKeyAuthentication, authenticate_secondarily
 from posthog.version import VERSION
 
 
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "distinct_id", "first_name", "email"]
+
+
 # TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
@@ -51,13 +57,21 @@ def user(request):
 
         if "user" in data:
             try:
-                request.user.current_team = request.user.teams.get(id=int(data["user"]["current_team_id"]))
+                request.user.current_team = request.user.organization.teams.get(id=int(data["user"]["current_team_id"]))
             except (KeyError, TypeError):
                 pass
             except ValueError:
                 return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
             except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Team not found for user."}, status=404)
+                return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
+            try:
+                request.user.current_organization = request.user.organizations.get(
+                    id=data["user"]["current_organization_id"]
+                )
+            except KeyError:
+                pass
+            except ObjectDoesNotExist:
+                return JsonResponse({"detail": "Organization not found for user."}, status=404)
             request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
             request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
             request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
@@ -86,7 +100,13 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
-            "organization": organization and {"id": organization.id, "name": organization.name,},
+            "organization": {
+                "id": organization.id,
+                "name": organization.name,
+                "created_at": organization.created_at,
+                "updated_at": organization.updated_at,
+                "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
+            },
             "organizations": organizations,
             "team": team
             and {
@@ -206,9 +226,3 @@ def test_slack_webhook(request):
             return JsonResponse({"error": response.text})
     except:
         return JsonResponse({"error": "invalid webhook URL"})
-
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["id", "distinct_id", "first_name", "email"]

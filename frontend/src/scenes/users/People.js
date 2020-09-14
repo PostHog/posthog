@@ -64,7 +64,7 @@ function _People() {
     }, [cohortId])
 
     useEffect(() => {
-        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people', { category, cohort: cohortId })
+        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people/individuals', { category, cohort: cohortId })
     }, [categoryRaw])
 
     const exampleEmail =
@@ -72,10 +72,10 @@ function _People() {
 
     return (
         <div>
-            <h1 className="page-header">Users</h1>
+            <h1 className="page-header">Individuals</h1>
             <Cohort
                 onChange={(cohortId) => {
-                    push('/people', { category, cohort: cohortId })
+                    push('/people/individuals', { category, cohort: cohortId })
                 }}
             />
             <Button
@@ -100,23 +100,23 @@ function _People() {
             <Tabs
                 defaultActiveKey={category}
                 onChange={(category) => {
-                    push('/people', { category, cohort: cohortId })
+                    push('/people/individuals', { category, cohort: cohortId })
                     fetchPeople(undefined, undefined, category)
                 }}
                 type="card"
             >
                 <TabPane
-                    tab={<span data-attr="people-types-tab">All Users</span>}
+                    tab={<span data-attr="people-types-tab">All</span>}
                     key="all"
                     data-attr="people-types-tab"
                 ></TabPane>
                 <TabPane
-                    tab={<span data-attr="people-types-tab">Identified Users</span>}
+                    tab={<span data-attr="people-types-tab">Identified</span>}
                     key="identified"
                     data-attr="people-types-tab"
                 ></TabPane>
                 <TabPane
-                    tab={<span data-attr="people-types-tab">Anonymous Users</span>}
+                    tab={<span data-attr="people-types-tab">Anonymous</span>}
                     key="anonymous"
                     data-attr="people-types-tab"
                 ></TabPane>

@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import api from '../../lib/api'
-import { userLogic } from '../userLogic'
 import { Switch } from 'antd'
+import api from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 export function OptOutCapture() {
     const { user } = useValues(userLogic)
@@ -10,15 +10,16 @@ export function OptOutCapture() {
 
     return (
         <div>
-            PostHog uses PostHog (unsurprisingly!) to capture information about how people are using the product. We
-            believe that product analytics are the best way to make PostHog more useful for everyone.
-            <br />
-            <br />
-            We also understand there are many reasons why people don't want to or aren't allowed to send this usage
-            data. If you would like to anonymize your personal usage data, just tick the box below.
-            <br />
-            <br />
+            <p>
+                PostHog uses PostHog (unsurprisingly!) to capture information about how people are using the product. We
+                believe that product analytics is crucial to making PostHog the most useful it can be, for everyone.
+            </p>
+            <p>
+                We also understand there are many reasons why people don't want to or aren't allowed to send this usage
+                data. If you would like to anonymize your personal usage data, just tick the box below.
+            </p>
             <Switch
+                id="anonymize-data-collection"
                 onChange={(checked) => {
                     api.update('api/user', {
                         user: {
@@ -29,11 +30,12 @@ export function OptOutCapture() {
                 defaultChecked={user.anonymize_data}
             />
             <label
+                htmlFor="anonymize-data-collection"
                 style={{
                     marginLeft: '10px',
                 }}
             >
-                Anonymize my data
+                Anonymize my data.
             </label>
             {saved && (
                 <p className="text-success">

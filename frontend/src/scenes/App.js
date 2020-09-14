@@ -86,7 +86,7 @@ function App() {
                 <div className="content py-3 layout-top-content">
                     <TopContent user={user} />
                 </div>
-                <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
+                <Layout.Content className="pl-5 pr-5 pb-5 pt-3" data-attr="layout-content">
                     {user.billing?.should_setup_billing && (
                         <BillingToolbar billingUrl={user.billing.subscription_url} />
                     )}

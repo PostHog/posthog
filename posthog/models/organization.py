@@ -1,6 +1,7 @@
 import uuid as uuidlib
 from enum import IntEnum
-from typing import Tuple
+from multiprocessing import Value
+from typing import Any, Optional, Tuple
 
 from django.conf import settings
 from django.db import models
@@ -43,7 +44,7 @@ class OrganizationMembership(UUIDModel):
     level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=Level.MEMBER, choices=Level.choices
     )
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -54,7 +55,7 @@ class OrganizationMembership(UUIDModel):
     def __str__(self):
         return str(self.Level(self.level))
 
-    __repr__ = sane_repr("organization", "user", "is_admin")
+    __repr__ = sane_repr("organization", "user", "level")
 
 
 class OrganizationInvite(UUIDModel):
@@ -64,6 +65,9 @@ class OrganizationInvite(UUIDModel):
     uses: models.PositiveIntegerField = models.PositiveIntegerField(default=0)
     max_uses: models.PositiveIntegerField = models.PositiveIntegerField(null=True, blank=True, default=None)
     target_email: models.EmailField = models.EmailField(null=True, blank=True, default=None, db_index=True)
+    last_used_by: models.ForeignKey = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, related_name="+", null=True,
+    )
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -79,20 +83,38 @@ class OrganizationInvite(UUIDModel):
             models.CheckConstraint(check=models.Q(uses__lte=models.F("max_uses")), name="max_uses_respected")
         ]
 
-    @property
-    def is_usable(self) -> bool:
-        if self.uses >= self.max_uses:
-            # uses depleted
-            return False
+    def validate(self, user: Optional[Any] = None) -> None:
+        if self.max_uses is not None and self.uses >= self.max_uses:
+            raise ValueError("Uses limit used up.")
         if (
-            self.target_email
-            and OrganizationMembership.objects.filter(
-                organization=self.organization, user__email=self.target_email
-            ).exists()
+            user is not None
+            and OrganizationMembership.objects.filter(organization=self.organization, user=user).exists()
         ):
-            # target_email has joined organization already
-            return False
-        return True
+            raise ValueError("User already is a member of the organization.")
+        if self.target_email:
+            if user is not None and self.target_email != user.email:
+                raise ValueError("User's email differs from the one the invite is for.")
+            if OrganizationMembership.objects.filter(
+                organization=self.organization, user__email=self.target_email
+            ).exists():
+                raise ValueError("Target email already is a member of the organization.")
+
+    def use(self, user: Any, *, validate: bool = False):
+        if validate:
+            self.validate(user)
+        self.organization.members.add(user)
+        save_user = False
+        if user.current_organization is None:
+            user.current_organization = self.organization
+            save_user = True
+        if user.current_team is None:
+            user.current_team = user.current_organization.teams.first()
+            save_user = True
+        if save_user:
+            user.save()
+        self.last_used_by = user
+        self.uses += 1
+        self.save()
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}/"
@@ -100,17 +122,16 @@ class OrganizationInvite(UUIDModel):
     __repr__ = sane_repr("organization", "target_email", "created_by")
 
 
-@receiver(models.signals.m2m_changed, sender=Organization.members.through)
-def ensure_organization_membership_consistency(sender, instance: OrganizationMembership, action: str, **kwargs):
-    if action == "pre_remove":
-        save_user = False
-        if instance.user.current_organization == instance.organization:
-            # reset current_organization if it's the removed organization
-            instance.user.current_organization = None
-            save_user = True
-        if instance.user.current_team is not None and instance.user.current_team.organization == instance.organization:
-            # reset current_team if it belongs to the removed organization
-            instance.user.current_team = None
-            save_user = True
-        if save_user:
-            instance.user.save()
+@receiver(models.signals.pre_delete, sender=OrganizationMembership)
+def ensure_organization_membership_consistency(sender, instance: OrganizationMembership, **kwargs):
+    save_user = False
+    if instance.user.current_organization == instance.organization:
+        # reset current_organization if it's the removed organization
+        instance.user.current_organization = None
+        save_user = True
+    if instance.user.current_team is not None and instance.user.current_team.organization == instance.organization:
+        # reset current_team if it belongs to the removed organization
+        instance.user.current_team = None
+        save_user = True
+    if save_user:
+        instance.user.save()

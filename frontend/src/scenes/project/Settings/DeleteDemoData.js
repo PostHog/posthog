@@ -1,6 +1,6 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
-import api from '../../lib/api'
+import api from 'lib/api'
 import { Button } from 'antd'
 
 const deleteDemoDataLogic = kea({

@@ -12,3 +12,13 @@ export const LINEAR_CHART_LABEL = 'Linear'
 export const CUMULATIVE_CHART_LABEL = 'Cumulative'
 export const TABLE_LABEL = 'Table'
 export const PIE_CHART_LABEL = 'Pie'
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+}
+
+export const OrganizationMembershipLevelToName = new Map<number, string>([
+    [OrganizationMembershipLevel.Member, 'member'],
+    [OrganizationMembershipLevel.Admin, 'administrator'],
+])

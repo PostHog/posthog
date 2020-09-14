@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { userLogic } from '../userLogic'
 import { Switch } from 'antd'
+import { userLogic } from 'scenes/userLogic'
 
 export function IPCapture() {
     const { userUpdateRequest } = useActions(userLogic)

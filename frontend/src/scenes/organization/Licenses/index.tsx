@@ -1,7 +1,7 @@
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { Alert, Form, Button, Table, Input } from 'antd'
-import { licenseLogic } from './licenseLogic'
+import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
@@ -44,29 +44,32 @@ function _Licenses(): JSX.Element {
     const { createLicense } = useActions(licenseLogic)
     return (
         <div>
-            <h1 className="page-header">Licenses</h1>
-            <p style={{ maxWidth: 600 }}>
-                <i>
-                    Here you can add and manage your PostHog enterprise licenses. By adding a license key, you'll be
-                    able to unlock enterprise functionality in PostHog right away!
+            <h1 className="page-header">Organization Licenses</h1>
+            <i>
+                <p>
+                    Here you can add and manage your PostHog enterprise licenses.
                     <br />
-                    <br />
+                    Activate a license key and enterprise functionality will be enabled immediately.
+                </p>
+                <p>
                     Contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to buy a license.
-                </i>
-            </p>
-            <br />
+                </p>
+            </i>
             {error && (
                 <Alert
-                    message={error.detail || <span>Something went wrong. Please try again or contact us.</span>}
+                    message={
+                        error.detail || <span>Could not validate license key. Please try again or contact us.</span>
+                    }
                     type="error"
+                    style={{ marginBottom: '1em' }}
                 />
             )}
-            <br />
             <Form
                 form={form}
                 name="horizontal_login"
                 layout="inline"
                 onFinish={(values) => createLicense({ key: values.key })}
+                style={{ marginBottom: '1rem' }}
             >
                 <Form.Item name="key" rules={[{ required: true, message: 'Please input a license key!' }]}>
                     <Input placeholder="License key" style={{ minWidth: 400 }} />
@@ -78,7 +81,7 @@ function _Licenses(): JSX.Element {
                             htmlType="submit"
                             disabled={
                                 !form.isFieldsTouched(true) ||
-                                form.getFieldsError().filter(({ errors }) => errors.length).length
+                                !!form.getFieldsError().filter(({ errors }) => errors.length).length
                             }
                         >
                             Activate License Key
@@ -86,7 +89,6 @@ function _Licenses(): JSX.Element {
                     )}
                 </Form.Item>
             </Form>
-            <br />
             <Table
                 data-attr="license-table"
                 size="small"

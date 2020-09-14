@@ -1,8 +1,8 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
-import { userLogic } from '../userLogic'
 import api from 'lib/api'
 import { Input, Button } from 'antd'
+import { userLogic } from 'scenes/userLogic'
 
 const logic = kea({
     actions: () => ({

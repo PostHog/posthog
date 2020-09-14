@@ -256,7 +256,7 @@ SOCIAL_AUTH_PIPELINE = (
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
 SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "signup_token",
+    "invite_id",
 ]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]

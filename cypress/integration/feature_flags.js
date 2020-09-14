@@ -1,6 +1,6 @@
 describe('Feature Flags', () => {
     beforeEach(() => {
-        cy.visit('/experiments/feature_flags')
+        cy.visit('/feature_flags')
     })
 
     it('Create feature flag', () => {

@@ -143,7 +143,7 @@ class TestTeamUser(BaseTest):
 
         response = self.client.delete(f"/api/team/user/{user2.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"detail": "Not found."})
+        self.assertEqual(response.json(), {"detail": "Endpoint not found."})
 
         self.assertEqual(
             User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,

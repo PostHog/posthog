@@ -12,7 +12,8 @@ from . import (
     feature_flag,
     funnel,
     insight,
-    organization_member,
+    organization_invites,
+    organization_members,
     paths,
     person,
     personal_api_key,
@@ -45,5 +46,10 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
-router.register(r"organization/member", organization_member.OrganizationMemberViewSet, basename="organization_member")
+router.register(
+    r"organization/members", organization_members.OrganizationMemberViewSet, basename="organization_members"
+)
+router.register(
+    r"organization/invites", organization_invites.OrganizationInviteViewSet, basename="organization_invites"
+)
 router.register(r"insight", insight.InsightViewSet)

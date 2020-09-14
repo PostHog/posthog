@@ -8,6 +8,7 @@ export interface UserType {
     name: string
     opt_out_capture: null
     posthog_version: string
+    organization: OrganizationType
     team: TeamType
     toolbar_mode: string
 }
@@ -20,6 +21,13 @@ export interface PersonalAPIKeyType {
     last_used_at: string
     team_id: number
     user_id: string
+}
+
+export interface OrganizationType {
+    id: string
+    name: string
+    created_at: string
+    updated_at: boolean
 }
 
 export interface TeamType {

@@ -35,7 +35,7 @@ function CreateKeyModal({
                 const label = inputRef.current?.state.value?.trim()
                 if (label) {
                     setErrorMessage(null)
-                    createKey(inputRef.current?.state.value.trim())
+                    createKey(label)
                     closeModal()
                 } else {
                     setErrorMessage('Your key needs a label!')

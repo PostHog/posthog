@@ -324,6 +324,7 @@ export function humanFriendlyDetailedTime(date, withSeconds = false) {
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
+    if (moment(date).isSame(moment(), 'm')) return 'Just now'
     if (moment(date).isSame(today, 'd')) {
         formatString = '[Today] h:mm'
     } else if (moment(date).isSame(yesterday, 'd')) {

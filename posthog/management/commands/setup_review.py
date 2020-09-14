@@ -15,7 +15,7 @@ class Command(BaseCommand):
         organization = Organization.objects.create(name="Hogflix")
         team = Team.objects.create_with_data(
             organization=organization,
-            name="PostHog",
+            name="Hogflix App",
             completed_snippet_onboarding=True,
             event_names=["$pageview", "$autocapture"],
             event_properties=["$current_url", "$browser", "$os"],

@@ -3,9 +3,12 @@
 {% block content %}
     <form class="form-signin" method="post">
         {% csrf_token %}
-        <h1 class="h3 mb-3 font-weight-normal">Join {{team.name}} on PostHog</h1>
-        {% if error %}
-        <p>That account already exists. <a href='/login'>Try logging in?</a>.</p>
+        <h1 class="h3 mb-3 font-weight-normal">Join {{organization.name}} on PostHog</h1>
+        {% if already_exists %}
+        <p>That account already exists. <a href='/login'>Try logging in?</a></p>
+        {% endif %}
+        {% if custom_error %}
+        <p>{{ custom_error }}</p>
         {% endif %}
         {% if invalid_input %}
         <p>Please make sure no fields are empty and that the email entered is valid.</p>
@@ -13,7 +16,7 @@
         <div class='form-signin-inputs'>
             <div class='field'>
                 <input type="name" name='name' id="inputName" placeholder="" value="{{ name }}" required>
-                <label for="inputName" >Name</label>
+                <label for="inputName">Name</label>
             </div>
             <div class='field'>
                 <input type="email" name='email' id="inputEmail" value="{{ email }}" placeholder="" required>
@@ -41,10 +44,10 @@
         {% if github_auth or gitlab_auth %}
         <div class="btn-toolbar mt-3 d-flex justify-content-between">
             {% if github_auth %}
-            <a href="{% url 'social:begin' 'github' %}?signup_token={{ signup_token }}" class="btn btn-outline-dark">Sign In with Github</a>
+            <a href="{% url 'social:begin' 'github' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign In With GitHub</a>
             {% endif %}
             {% if gitlab_auth %}
-            <a href="{% url 'social:begin' 'gitlab' %}?signup_token={{ signup_token }}" class="btn btn-outline-dark">Sign In with Gitlab</a>
+            <a href="{% url 'social:begin' 'gitlab' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign In With GitLab</a>
             {% endif %}
         </div>
         {% endif %}

@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import { toast } from 'react-toastify'
-import api from '../../lib/api'
+import api from 'lib/api'
 import { Input, Button } from 'antd'
 
 export class ChangePassword extends Component {
