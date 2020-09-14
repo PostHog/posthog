@@ -164,7 +164,7 @@ export const pathsLogic = kea({
                     actions.setProperties(searchParams.properties || [])
                 }
 
-                const { insight: _, properties: __, ...restParams } = searchParams
+                const { insight: _, properties: __, ...restParams } = searchParams // eslint-disable-line
 
                 if (!objectsEqual(restParams, values.filter)) {
                     actions.setFilter(restParams)

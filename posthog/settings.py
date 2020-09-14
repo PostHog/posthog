@@ -110,7 +110,7 @@ CLICKHOUSE_TEST_DB = "posthog_test"
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
@@ -188,6 +188,8 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+EE_AVAILABLE = False
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig
@@ -197,14 +199,15 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    EE_AVAILABLE = True
 
 # Use django-extensions if it exists
 try:
     import django_extensions
-
-    INSTALLED_APPS.append("django_extensions")
 except ImportError:
     pass
+else:
+    INSTALLED_APPS.append("django_extensions")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True

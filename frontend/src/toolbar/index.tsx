@@ -17,7 +17,7 @@ initKea()
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <Provider store={getContext().store!}>
+        <Provider store={getContext().store}>
             <ToolbarApp
                 {...editorParams}
                 actionId={

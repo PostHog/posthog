@@ -20,9 +20,11 @@ function newAction(element: HTMLElement | null): Partial<ActionType> {
     }
 }
 
-export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdFieldData>>({
+export const actionsTabLogic = kea<
+    actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdFieldData, ToolbarTab>
+>({
     actions: {
-        setForm: (form: FormInstance) => ({ form }),
+        setForm: (form: FormInstance<ActionForm>) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
         newAction: (element?: HTMLElement) => ({ element: element || null }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
@@ -247,7 +249,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
             }
         },
         // not sure why { tab: ToolbarTab } needs to be manually added...
-        [toolbarTabLogic.actionTypes.setTab]: ({ tab }: { tab: ToolbarTab }) => {
+        [toolbarTabLogic.actionTypes.setTab]: ({ tab }) => {
             if (tab === 'actions') {
                 actionsLogic.actions.getActions()
             }

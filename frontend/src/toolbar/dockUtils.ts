@@ -58,7 +58,7 @@ export function removeDockScrollListener(): void {
 
 // Update CSS variables (--zoom, etc) in #dock-toolbar inside the shadow root
 export function updateDockToolbarVariables(
-    shadowRef: { current?: { shadowRoot: ShadowRoot } },
+    shadowRef: { current?: { shadowRoot: ShadowRoot } | null } | null,
     zoom: number,
     padding: number,
     sidebarWidth: number
