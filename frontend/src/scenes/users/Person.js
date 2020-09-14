@@ -6,6 +6,7 @@ import { deletePersonData, savePersonData } from 'lib/utils'
 import { Button, Modal } from 'antd'
 import { CheckCircleTwoTone } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+
 const confirm = Modal.confirm
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
@@ -23,8 +24,15 @@ function _Person({ _: distinctId, id }) {
 
     function _handleChange(event) {
         setPersonChanged(true)
-        var tag = event.target.getAttribute('tag')
-        var newState = {}
+        let tag, value
+        let newState = {}
+        if (typeof event.item != 'undefined') {
+            tag = event.item.props.name
+            value = event.key === 'true' ? true : false
+        } else {
+            tag = event.target.getAttribute('tag')
+            value = event.target.value
+        }
         if (tag == 'first' || tag == 'last') {
             newState = {
                 ...person,
@@ -41,7 +49,7 @@ function _Person({ _: distinctId, id }) {
                 ...person,
                 properties: {
                     ...person.properties,
-                    [tag]: event.target.value || '',
+                    [tag]: value,
                 },
             }
         }
@@ -54,14 +62,13 @@ function _Person({ _: distinctId, id }) {
             title: text,
             icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
             content: `Click OK to Save Person's Data`,
-            okType: type === 'delete' ? 'danger' : 'primary',
+            okType: 'primary',
             onOk() {
                 savePersonData(person)
             },
             onCancel() {},
         })
     }
-
     return person ? (
         <div>
             <Button
@@ -71,9 +78,6 @@ function _Person({ _: distinctId, id }) {
             >
                 Delete all data on this person
             </Button>
-            <h1 className="page-header">
-                {person.properties.name.first} {person.properties.name.last}
-            </h1>
             <Button
                 className="float-right"
                 onClick={() => showConfirm('save', "Save Person's Data?")}
@@ -81,7 +85,10 @@ function _Person({ _: distinctId, id }) {
             >
                 Save Person's Data
             </Button>
-
+            <h1 className="page-header">
+                {'name' in person.properties ? person.properties.name.first : person.name}{' '}
+                {person.properties.name ? person.properties.name.last : ''}
+            </h1>
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{

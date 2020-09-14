@@ -2,7 +2,8 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Table, Input } from 'antd'
-
+import { Menu, Dropdown } from 'antd'
+import { DownOutlined } from '@ant-design/icons'
 export function PersonTable({ properties }) {
     const onChange = properties.onChange._handleChange
     const props = { ...properties.props, distinct_id: properties.distinct_id }
@@ -46,8 +47,26 @@ export function PersonTable({ properties }) {
                     dataSource={Object.entries(properties)}
                 />
             )
-        if (properties === true) return 'true'
-        if (properties === false) return 'false'
+        if (properties === true || properties === false) {
+            return (
+                <Dropdown
+                    overlay={
+                        <Menu onClick={onChange}>
+                            <Menu.Item key={true} name="is_demo">
+                                true
+                            </Menu.Item>
+                            <Menu.Item key={false} name="is_demo">
+                                false
+                            </Menu.Item>
+                        </Menu>
+                    }
+                >
+                    <a className="ant-dropdown-link" onClick={(e) => e.preventDefault()}>
+                        {properties.toString()} <DownOutlined />
+                    </a>
+                </Dropdown>
+            )
+        }
         if (typeof properties === 'string') {
             return (
                 <Input
