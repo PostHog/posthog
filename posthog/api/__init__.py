@@ -32,6 +32,8 @@ if check_ee_enabled():
 
     except ImportError:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
+else:
+    router.register(r"insight", insight.InsightViewSet)
 
 router.register(r"action", action.ActionViewSet)
 router.register(r"event", event.EventViewSet)
@@ -47,4 +49,3 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"team/user", team_user.TeamUserViewSet)
-# router.register(r"insight", insight.InsightViewSet)
