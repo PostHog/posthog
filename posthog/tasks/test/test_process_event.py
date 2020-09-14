@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -31,7 +32,7 @@ class ProcessEvent(BaseTest):
         self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
         self.team.save()
 
-        with self.assertNumQueries(29):
+        with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
             process_event(
                 2,
                 "",
@@ -662,3 +663,18 @@ class TestIdentify(TransactionTestCase):
         )
         person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
         self.assertTrue(person_after_event.is_identified)
+
+    def test_team_event_properties(self) -> None:
+        self.assertListEqual(self.team.event_properties_numerical, [])
+        process_event(
+            "xxx",
+            "",
+            "",
+            {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        self.team.refresh_from_db()
+        self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
+        self.assertListEqual(self.team.event_properties_numerical, ["price"])

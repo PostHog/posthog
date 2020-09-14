@@ -12,6 +12,7 @@ from posthog.models import FeatureFlag
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     created_by = UserSerializer(required=False, read_only=True)
+    is_simple_flag = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -25,7 +26,13 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "active",
             "created_by",
             "created_at",
+            "is_simple_flag",
         ]
+
+    # Simple flags are ones that only have rollout_percentage
+    #  That means server side libraries are able to gate these flags without calling to the server
+    def get_is_simple_flag(self, feature_flag: FeatureFlag):
+        return not feature_flag.filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]

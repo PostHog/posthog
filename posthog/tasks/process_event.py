@@ -1,6 +1,6 @@
 import datetime
 from numbers import Number
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from celery import shared_task
@@ -67,11 +67,11 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
     if event not in team.event_names:
         save = True
         team.event_names.append(event)
-    for key in properties.keys():
+    for key, value in properties.items():
         if key not in team.event_properties:
             team.event_properties.append(key)
             save = True
-        if isinstance(key, Number) and key not in team.event_properties_numerical:
+        if isinstance(value, Number) and key not in team.event_properties_numerical:
             team.event_properties_numerical.append(key)
             save = True
     if save:
@@ -121,8 +121,6 @@ def _capture(
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
-    store_names_and_properties(team=team, event=event, properties=properties)
-
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
@@ -132,22 +130,32 @@ def _capture(
         **({"timestamp": timestamp} if timestamp else {}),
         **({"elements": elements_list} if elements_list else {})
     )
-
-    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
-
-
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
+    store_names_and_properties(team=team, event=event, properties=properties)
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating,
+        # another request already created this user
         try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         except IntegrityError:
             pass
 
-        return person
+
+def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
+    person: Person
+    created = False
+
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        try:
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            created = True
+        except IntegrityError:
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            created = False
     else:
         person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-        return person
+        created = False
+
+    return person, created
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:

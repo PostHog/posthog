@@ -12,7 +12,9 @@ class TestAnnotation(BaseTest):
 
     def test_creating_and_retrieving_annotations(self):
         Annotation.objects.create(team=self.team, created_by=self.user, content="hello")
-        response = self.client.get("/api/annotation/").json()
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.get("/api/annotation").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello")
 

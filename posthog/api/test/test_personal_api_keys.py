@@ -10,7 +10,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
 
     def test_create_personal_api_key(self):
         label = "Test key uno"
-        response = self.client.post("/api/personal_api_keys/", {"label": label})
+        response = self.client.post("/api/personal_api_keys", {"label": label})
         self.assertEqual(response.status_code, 201)
         key: PersonalAPIKey = PersonalAPIKey.objects.get()
         response_data = response.json()
@@ -49,7 +49,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         other_key = PersonalAPIKey(label="Other test", team=self.team, user=other_user)
         other_key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 2)
-        response = self.client.get("/api/personal_api_keys/")
+        response = self.client.get("/api/personal_api_keys")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         self.assertEqual(len(response_data), 1)
@@ -129,8 +129,8 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         self.assertEqual(response.status_code, 401)
 
     def test_user_endpoint(self):
-        # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django)
+        # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django instead)
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
-        response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        response = self.client.get("/api/user", HTTP_AUTHORIZATION=f"Bearer {key.value}")
         self.assertEqual(response.status_code, 200)
