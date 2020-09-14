@@ -438,6 +438,11 @@ CLICKHOUSE = "clickhouse"
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
 
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *
