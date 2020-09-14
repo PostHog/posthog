@@ -17,7 +17,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
-from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
@@ -123,10 +123,12 @@ WHERE person_id IN ({table_name})
 
 
 class ClickhouseTrends(BaseQuery):
-    def _serialize_entity(self, entity: Entity, filter: Filter, team: Team, label_note: str = "") -> Dict[str, Any]:
+    def _serialize_entity(
+        self, entity: Entity, filter: Filter, team: Team, label_note: str = ""
+    ) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
-            "label": "{}{}".format("{} — ".format(label_note), entity.name),
+            "label": entity.name,
             "count": 0,
             "data": [],
             "labels": [],
@@ -258,10 +260,15 @@ class ClickhouseTrends(BaseQuery):
         for stats in res:
             counts = stats[1]
             dates = [
-                item.strftime("%Y-%m-%d {}".format("%H:%M" if filter.interval == "hour" else "")) for item in stats[0]
+                item.strftime(
+                    "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+                )
+                for item in stats[0]
             ]
             labels = [
-                item.strftime("%a. %-d %B {}".format("%I:%M %p" if filter.interval == "hour" else ""))
+                item.strftime(
+                    "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+                )
                 for item in stats[0]
             ]
             parsed.append({"data": counts, "count": sum(counts), "dates": dates, "labels": labels})
@@ -303,11 +310,10 @@ class ClickhouseTrends(BaseQuery):
             interval=inteval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
+            date_to=((filter.date_to or datetime.now())).strftime("%Y-%m-%d 00:00:00"),
         )
 
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-
         result = ch_client.execute(final_query, params)
 
         parsed_results = self._parse_breakdown_response(result, filter)
@@ -315,8 +321,9 @@ class ClickhouseTrends(BaseQuery):
 
     def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         # format default dates
+
         if not filter._date_from:
-            filter._date_from = relative_date_parse("-14d")
+            filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
             filter._date_to = datetime.now(timezone.utc)
 
@@ -325,12 +332,17 @@ class ClickhouseTrends(BaseQuery):
             if filter.compare:
                 compare_filter = determine_compared_filter(filter=filter)
                 entity_result = self._serialize_entity(entity, filter, team, "current")
+                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
                 result.extend(entity_result)
                 previous_entity_result = self._serialize_entity(entity, compare_filter, team, "previous")
+                previous_entity_result = convert_to_comparison(
+                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
+                )
                 result.extend(previous_entity_result)
             else:
                 entity_result = self._serialize_entity(entity, filter, team)
                 result.extend(entity_result)
+
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:

@@ -11,14 +11,14 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
     date_to = None
 
     if filter.date_from:
-        date_from = "and timestamp > '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
+        date_from = "and timestamp >= '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
 
     if filter.date_to:
-        _date_to = filter.date_to + timedelta(days=1)
+        _date_to = filter.date_to
     else:
-        _date_to = datetime.now() + timedelta(days=1)
+        _date_to = datetime.now()
 
-    date_to = "and timestamp < '{}'".format(_date_to.strftime("%Y-%m-%d 00:00:00"))
+    date_to = "and timestamp <= '{}'".format(_date_to.strftime("%Y-%m-%d 00:00:00"))
 
     return date_from, date_to
 
@@ -37,7 +37,7 @@ def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optio
     }
 
     diff = _end_time - _start_time
-    return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
+    return int(diff.total_seconds() / time_diffs[interval]) + 1, time_diffs[interval]
 
 
 def get_interval_annotation_ch(interval: Optional[str]) -> str:
