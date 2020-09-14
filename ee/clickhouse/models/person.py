@@ -16,18 +16,24 @@ from ee.clickhouse.sql.person import (
     PERSON_DISTINCT_ID_EXISTS_SQL,
     PERSON_EXISTS_SQL,
     UPDATE_PERSON_ATTACHED_DISTINCT_ID,
+    UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
 from posthog.models.person import Person
 from posthog.models.team import Team
 
 
-def create_person(team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}, **kwargs) -> int:
+def create_person(
+    team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}, sync: bool = False, **kwargs
+) -> int:
     person_id = kwargs.get("person_id", None)  # type: Optional[str]
     if not person_id:
         person_id = generate_clickhouse_uuid()
 
-    async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+    if sync:
+        sync_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+    else:
+        async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
 
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
@@ -41,7 +47,9 @@ def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
 
 
 def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> None:
-    async_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "is_identified": is_identified})
+    async_execute(
+        UPDATE_PERSON_IS_IDENTIFIED, {"team_id": team_id, "id": id, "is_identified": "1" if is_identified else "0"}
+    )
 
 
 def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: str) -> None:
@@ -108,6 +116,7 @@ class ClickhousePersonSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     team_id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
+    is_identified = serializers.SerializerMethodField()
 
     def get_id(self, person):
         return person[0]

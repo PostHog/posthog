@@ -154,9 +154,9 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
 
 
 def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
-    try:
-        person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
+    person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
+
+    if not person:
         try:
             create_person(distinct_ids=[distinct_id], team_id=team_id)
             person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
@@ -164,7 +164,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         except:
             person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
 
-    if person.is_identified != is_identified:
+    if person["is_identified"] != is_identified:
         update_person_is_identified(team_id=team_id, id=person["id"], is_identified=is_identified)
 
 
@@ -179,7 +179,7 @@ if check_ee_enabled():
                 previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
             )
         elif data["event"] == "$identify":
-            _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+            _set_is_identified(team_id=team_id, distinct_id=distinct_id, is_identified=True)
             if data.get("properties") and data["properties"].get("$anon_distinct_id"):
                 _alias(
                     previous_distinct_id=data["properties"]["$anon_distinct_id"],

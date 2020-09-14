@@ -9,7 +9,6 @@ from ee.clickhouse.models.person import create_person, get_person_by_distinct_id
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
-from posthog.models import Person
 from posthog.models.team import Team
 
 
@@ -537,10 +536,10 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = Person.objects.get()
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
     def test_distinct_with_multiple_anonymous_ids_which_were_already_created(self,) -> None:
         # logging in the first time
@@ -565,10 +564,10 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = Person.objects.get()
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
         # logging in another time
 
@@ -591,10 +590,10 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person = Person.objects.get()
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id", "anonymous_id_2"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
     def test_distinct_team_leakage(self) -> None:
         team2 = Team.objects.create()
@@ -617,21 +616,26 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         except:
             pass
 
-        people = get_persons(team_id=self.team.pk)
-
         ids = {self.team.pk: [], team2.pk: []}
+
         for pid in get_person_distinct_ids(team_id=self.team.pk):
+            ids[pid["team_id"]].append(pid["distinct_id"])
+
+        for pid in get_person_distinct_ids(team_id=team2.pk):
             ids[pid["team_id"]].append(pid["distinct_id"])
 
         self.assertEqual(sorted(ids[self.team.pk]), sorted(["1", "2"]))
         self.assertEqual(ids[team2.pk], ["2"])
 
-        self.assertEqual(people.count(), 2)
-        self.assertEqual(people[1].team, self.team)
-        self.assertEqual(people[1].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["1", "2"])
-        self.assertEqual(people[0].team, team2)
-        self.assertEqual(people[0].distinct_ids, ["2"])
+        people1 = get_persons(team_id=self.team.pk)
+        people2 = get_persons(team_id=team2.pk)
+
+        self.assertEqual(len(people1), 1)
+        self.assertEqual(len(people2), 1)
+        self.assertEqual(people1[0]["team_id"], self.team.pk)
+        self.assertEqual(people1[0]["properties"], {})
+        self.assertEqual(people2[0]["team_id"], team2.pk)
+        self.assertEqual(people2[0]["properties"], {"email": "team2@gmail.com"})
 
     def test_set_is_identified(self) -> None:
         distinct_id = "777"
