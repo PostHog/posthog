@@ -11,7 +11,7 @@ DROP TABLE person_distinct_id
 PERSONS_TABLE_SQL = """
 CREATE TABLE person
 (
-    id Int32,
+    id UUID,
     created_at datetime,
     team_id Int32,
     properties VARCHAR
@@ -31,7 +31,7 @@ CREATE TABLE person_distinct_id
 (
     id Int32,
     distinct_id VARCHAR,
-    person_id Int32,
+    person_id UUID,
     team_id Int32
 ) ENGINE = {engine} 
 Order By (team_id, id)
