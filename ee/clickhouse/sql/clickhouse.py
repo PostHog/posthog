@@ -10,3 +10,8 @@ TABLE_ENGINE = (
 
 def table_engine(table: str) -> str:
     return TABLE_ENGINE.format(table=table)
+
+
+GENERATE_UUID_SQL = """
+SELECT generateUUIDv4()
+"""
