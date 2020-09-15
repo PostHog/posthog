@@ -135,8 +135,8 @@ class ClickhouseTrends(BaseQuery):
             "days": [],
         }
         if filter.breakdown:
-            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-            if "all" in filter.breakdown:
+            if "all" in filter.breakdown and isinstance(filter.breakdown, list):
+                filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
                 filter.breakdown.remove("all")
                 result = self._format_breakdown_query(entity, filter, team)
                 filter.breakdown = ["all"]
@@ -228,6 +228,7 @@ class ClickhouseTrends(BaseQuery):
             element_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
+
             top_elements_array = ch_client.execute(element_query, element_params)
 
             params = {
@@ -274,13 +275,13 @@ class ClickhouseTrends(BaseQuery):
                 additional_values = {}
             counts = stats[1]
             dates = [
-                item.strftime(
+                ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
                     "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
                 )
                 for item in stats[0]
             ]
             labels = [
-                item.strftime(
+                ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
                     "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
                 )
                 for item in stats[0]
@@ -295,7 +296,7 @@ class ClickhouseTrends(BaseQuery):
                 return "all users"
             else:
                 return Cohort.objects.get(pk=breakdown).name
-        elif filter.breakdown_type == "person":
+        elif breakdown_type == "person":
             return ""
         else:
             return breakdown or ""
@@ -310,18 +311,21 @@ class ClickhouseTrends(BaseQuery):
         params: Dict = {"team_id": team.pk}
         params = {**params, **prop_filter_params}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
-            params = {**params, **action_params}
-            content_sql = VOLUME_ACTIONS_SQL.format(
-                interval=inteval_annotation,
-                timestamp="timestamp",
-                team_id=team.pk,
-                actions_query=action_query,
-                parsed_date_from=(parsed_date_from or ""),
-                parsed_date_to=(parsed_date_to or ""),
-                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
-            )
+            try:
+                action = Action.objects.get(pk=entity.id)
+                action_query, action_params = format_action_filter(action)
+                params = {**params, **action_params}
+                content_sql = VOLUME_ACTIONS_SQL.format(
+                    interval=inteval_annotation,
+                    timestamp="timestamp",
+                    team_id=team.pk,
+                    actions_query=action_query,
+                    parsed_date_from=(parsed_date_from or ""),
+                    parsed_date_to=(parsed_date_to or ""),
+                    filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                )
+            except:
+                return []
         else:
             content_sql = VOLUME_SQL.format(
                 interval=inteval_annotation,
@@ -336,7 +340,7 @@ class ClickhouseTrends(BaseQuery):
             interval=inteval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or datetime.now())).strftime("%Y-%m-%d 00:00:00"),
+            date_to=((filter.date_to or datetime.now())).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)

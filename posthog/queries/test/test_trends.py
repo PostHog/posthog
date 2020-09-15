@@ -222,61 +222,61 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             response = trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
             self.assertEqual(response, [])
 
-        # def test_interval_filtering(self):
-        #     self._create_events(use_time=True)
+        def test_interval_filtering(self):
+            self._create_events(use_time=True)
 
-        #     # test minute
-        #     with freeze_time("2020-01-02"):
-        #         response = trends().run(
-        #             Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
-        #     self.assertEqual(response[0]["data"][6], 3.0)
+            # test minute
+            with freeze_time("2020-01-02"):
+                response = trends().run(
+                    Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
+            self.assertEqual(response[0]["data"][6], 3.0)
 
-        #     # test hour
-        #     with freeze_time("2020-01-02"):
-        #         response = trends().run(
-        #             Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
-        #     self.assertEqual(response[0]["data"][3], 1.0)
-        #     # 217 - 24 - 1
-        #     self.assertEqual(response[0]["data"][192], 3.0)
+            # test hour
+            with freeze_time("2020-01-02"):
+                response = trends().run(
+                    Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
+            self.assertEqual(response[0]["data"][3], 1.0)
+            # 217 - 24 - 1
+            self.assertEqual(response[0]["data"][192], 3.0)
 
-        #     # test week
-        #     with freeze_time("2020-01-02"):
-        #         response = trends().run(
-        #             Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
-        #     self.assertEqual(response[0]["data"][4], 1.0)
-        #     self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
-        #     self.assertEqual(response[0]["data"][5], 4.0)
+            # test week
+            with freeze_time("2020-01-02"):
+                response = trends().run(
+                    Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
+            self.assertEqual(response[0]["data"][5], 4.0)
 
-        #     # test month
-        #     with freeze_time("2020-01-02"):
-        #         response = trends().run(
-        #             Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
-        #     self.assertEqual(response[0]["data"][2], 1.0)
-        #     self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
-        #     self.assertEqual(response[0]["data"][3], 4.0)
+            # test month
+            with freeze_time("2020-01-02"):
+                response = trends().run(
+                    Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
+            self.assertEqual(response[0]["data"][2], 1.0)
+            self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
+            self.assertEqual(response[0]["data"][3], 4.0)
 
-        #     with freeze_time("2020-01-02 23:30"):
-        #         event_factory(team=self.team, event="sign up", distinct_id="blabla")
+            with freeze_time("2020-01-02 23:30"):
+                event_factory(team=self.team, event="sign up", distinct_id="blabla")
 
-        #     # test today + hourly
-        #     with freeze_time("2020-01-02T23:31:00Z"):
-        #         response = trends().run(
-        #             Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
-        #         )
-        #     self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
-        #     self.assertEqual(response[0]["data"][23], 1.0)
+            # test today + hourly
+            with freeze_time("2020-01-02T23:31:00Z"):
+                response = trends().run(
+                    Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
+                )
+            self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
+            self.assertEqual(response[0]["data"][23], 1.0)
 
         def test_all_dates_filtering(self):
             self._create_events(use_time=True)
@@ -293,71 +293,70 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(empty[0]["data"][0], 0)
 
-        #         def test_breakdown_filtering(self):
-        #             self._create_events()
-        #             # test breakdown filtering
-        #             with freeze_time("2020-01-04T13:01:01Z"):
-        #                 response = trends().run(
-        #                     Filter(
-        #                         data={
-        #                             "date_from": "-14d",
-        #                             "breakdown": "$some_property",
-        #                             "events": [
-        #                                 {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
-        #                                 {"id": "no events"},
-        #                             ],
-        #                         }
-        #                     ),
-        #                     self.team,
-        #                 )
+        # def test_breakdown_filtering(self):
+        #     self._create_events()
+        #     # test breakdown filtering
+        #     with freeze_time("2020-01-04T13:01:01Z"):
+        #         response = trends().run(
+        #             Filter(
+        #                 data={
+        #                     "date_from": "-14d",
+        #                     "breakdown": "$some_property",
+        #                     "events": [
+        #                         {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+        #                         {"id": "no events"},
+        #                     ],
+        #                 }
+        #             ),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["label"], "sign up - Other")
+        #     self.assertEqual(response[1]["label"], "sign up - other_value")
+        #     self.assertEqual(response[2]["label"], "sign up - value")
+        #     self.assertEqual(response[3]["label"], "no events - Other")
 
-        #             self.assertEqual(response[0]["label"], "sign up - Other")
-        #             self.assertEqual(response[1]["label"], "sign up - other_value")
-        #             self.assertEqual(response[2]["label"], "sign up - value")
-        #             self.assertEqual(response[3]["label"], "no events - Other")
+        #     self.assertEqual(sum(response[0]["data"]), 2)
+        #     self.assertEqual(response[0]["data"][4 + 7], 2)
+        #     self.assertEqual(response[0]["breakdown_value"], "None")
 
-        #             self.assertEqual(sum(response[0]["data"]), 2)
-        #             self.assertEqual(response[0]["data"][4 + 7], 2)
-        #             self.assertEqual(response[0]["breakdown_value"], "None")
+        #     self.assertEqual(sum(response[1]["data"]), 1)
+        #     self.assertEqual(response[1]["data"][5 + 7], 1)
+        #     self.assertEqual(response[1]["breakdown_value"], "other_value")
 
-        #             self.assertEqual(sum(response[1]["data"]), 1)
-        #             self.assertEqual(response[1]["data"][5 + 7], 1)
-        #             self.assertEqual(response[1]["breakdown_value"], "other_value")
+        #     # check numerical breakdown
+        #     with freeze_time("2020-01-04T13:01:01Z"):
+        #         response = trends().run(
+        #             Filter(
+        #                 data={
+        #                     "date_from": "-14d",
+        #                     "breakdown": "$some_numerical_prop",
+        #                     "events": [
+        #                         {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+        #                         {"id": "no events"},
+        #                     ],
+        #                 }
+        #             ),
+        #             self.team,
+        #         )
+        #     self.assertEqual(response[0]["label"], "sign up - Other")
+        #     self.assertEqual(response[0]["count"], 4.0)
+        #     self.assertEqual(response[1]["label"], "sign up - 80.0")
+        #     self.assertEqual(response[1]["count"], 1.0)
 
-        #             # check numerical breakdown
-        #             with freeze_time("2020-01-04T13:01:01Z"):
-        #                 response = trends().run(
-        #                     Filter(
-        #                         data={
-        #                             "date_from": "-14d",
-        #                             "breakdown": "$some_numerical_prop",
-        #                             "events": [
-        #                                 {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
-        #                                 {"id": "no events"},
-        #                             ],
-        #                         }
-        #                     ),
-        #                     self.team,
-        #                 )
-        #             self.assertEqual(response[0]["label"], "sign up - Other")
-        #             self.assertEqual(response[0]["count"], 4.0)
-        #             self.assertEqual(response[1]["label"], "sign up - 80.0")
-        #             self.assertEqual(response[1]["count"], 1.0)
-
-        #         def test_breakdown_filtering_limit(self):
-        #             self._create_breakdown_events()
-        #             with freeze_time("2020-01-04T13:01:01Z"):
-        #                 response = trends().run(
-        #                     Filter(
-        #                         data={
-        #                             "date_from": "-14d",
-        #                             "breakdown": "$some_property",
-        #                             "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-        #                         }
-        #                     ),
-        #                     self.team,
-        #                 )
-        #             self.assertEqual(len(response), 20)
+        # def test_breakdown_filtering_limit(self):
+        #     self._create_breakdown_events()
+        #     with freeze_time("2020-01-04T13:01:01Z"):
+        #         response = trends().run(
+        #             Filter(
+        #                 data={
+        #                     "date_from": "-14d",
+        #                     "breakdown": "$some_property",
+        #                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+        #                 }
+        #             ),
+        #             self.team,
+        #         )
+        #     self.assertEqual(len(response), 20)
 
         def test_action_filtering(self):
             sign_up_action, person = self._create_events()
@@ -367,14 +366,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        #         def test_trends_for_non_existing_action(self):
-        #             with freeze_time("2020-01-04"):
-        #                 response = trends().run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
-        #             self.assertEqual(len(response), 0)
+        def test_trends_for_non_existing_action(self):
+            with freeze_time("2020-01-04"):
+                response = trends().run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
+            self.assertEqual(len(response), 0)
 
-        #             with freeze_time("2020-01-04"):
-        #                 response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
-        #             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+            with freeze_time("2020-01-04"):
+                response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
+            self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         #         def test_dau_filtering(self):
         #             sign_up_action, person = self._create_events()
@@ -594,50 +593,50 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertTrue(self._compare_entity_response(event_response, action_response,))
 
-            def test_breakdown_by_person_property(self):
-                person1, person2, person3, person4 = self._create_multiple_people()
-                action = action_factory(name="watched movie", team=self.team)
-                action.calculate_events()
+        # def test_breakdown_by_person_property(self):
+        #     person1, person2, person3, person4 = self._create_multiple_people()
+        #     action = action_factory(name="watched movie", team=self.team)
+        #     action.calculate_events()
 
-                with freeze_time("2020-01-04T13:01:01Z"):
-                    action_response = trends().run(
-                        Filter(
-                            data={
-                                "date_from": "-14d",
-                                "breakdown": "name",
-                                "breakdown_type": "person",
-                                "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                            }
-                        ),
-                        self.team,
-                    )
-                    event_response = trends().run(
-                        Filter(
-                            data={
-                                "date_from": "-14d",
-                                "breakdown": "name",
-                                "breakdown_type": "person",
-                                "events": [
-                                    {"id": "watched movie", "name": "watched movie", "type": "events", "order": 0,}
-                                ],
-                            }
-                        ),
-                        self.team,
-                    )
+        #     with freeze_time("2020-01-04T13:01:01Z"):
+        #         action_response = trends().run(
+        #             Filter(
+        #                 data={
+        #                     "date_from": "-14d",
+        #                     "breakdown": "name",
+        #                     "breakdown_type": "person",
+        #                     "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+        #                 }
+        #             ),
+        #             self.team,
+        #         )
+        #         event_response = trends().run(
+        #             Filter(
+        #                 data={
+        #                     "date_from": "-14d",
+        #                     "breakdown": "name",
+        #                     "breakdown_type": "person",
+        #                     "events": [
+        #                         {"id": "watched movie", "name": "watched movie", "type": "events", "order": 0,}
+        #                     ],
+        #                 }
+        #             ),
+        #             self.team,
+        #         )
 
-                self.assertEqual(event_response[0]["count"], 3)
-                self.assertEqual(event_response[0]["breakdown_value"], "person2")
+        #     self.assertEqual(event_response[0]["count"], 3)
+        #     self.assertEqual(event_response[0]["breakdown_value"], "person2")
 
-                self.assertEqual(event_response[1]["count"], 1)
-                self.assertEqual(event_response[1]["breakdown_value"], "person1")
+        #     self.assertEqual(event_response[1]["count"], 1)
+        #     self.assertEqual(event_response[1]["breakdown_value"], "person1")
 
-                self.assertEqual(event_response[2]["count"], 3)
-                self.assertEqual(event_response[2]["breakdown_value"], "person3")
+        #     self.assertEqual(event_response[2]["count"], 3)
+        #     self.assertEqual(event_response[2]["breakdown_value"], "person3")
 
-                self.assertEqual(event_response[3]["count"], 0)
-                self.assertEqual(event_response[3]["breakdown_value"], "person4")
+        #     self.assertEqual(event_response[3]["count"], 0)
+        #     self.assertEqual(event_response[3]["breakdown_value"], "person4")
 
-                self.assertTrue(self._compare_entity_response(event_response, action_response,))
+        #     self.assertTrue(self._compare_entity_response(event_response, action_response,))
 
     return TestTrends
 

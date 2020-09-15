@@ -24,7 +24,6 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
         _date_to = datetime.now()
 
     date_to = "and timestamp <= '{}'".format(_date_to.strftime("%Y-%m-%d 23:59:59"))
-
     return date_from, date_to
 
 
