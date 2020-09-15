@@ -1,8 +1,6 @@
 import json
 
-from django.forms.models import model_to_dict
 from freezegun import freeze_time
-from rest_framework.decorators import action
 
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
