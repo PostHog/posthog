@@ -50,12 +50,7 @@ router.register(r"team/user", team_user.TeamUserViewSet)
 
 if check_ee_enabled():
     try:
-        from ee.clickhouse.views import (  # type: ignore
-            ClickhouseActions,
-            ClickhouseEvents,
-            ClickhouseInsights,
-            ClickhousePerson,
-        )
+        from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
         # router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")

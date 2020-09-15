@@ -71,6 +71,12 @@ EVENT_ACTION_FILTER = """
 )
 """
 
+EVENT_NO_PROP_FILTER = """
+(
+    SELECT id FROM events_with_array_props_view where team_id = %(team_id)s {event_filter}
+)
+"""
+
 #####
 # event_filter — "event = '$pageview'" or ''
 # property_filter — "AND (ep.key = '$browser') AND (ep.value = 'Chrome')" or ''

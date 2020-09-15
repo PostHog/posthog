@@ -99,25 +99,27 @@ class ClickhouseSessions(BaseQuery):
     def calculate_list(self, filter: Filter, team: Team, offset: int):
 
         now = datetime.now()
-        filter._date_to = now.strftime("%Y-%m-%d 00:00:00")
+        filter._date_to = (now + relativedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         filter._date_from = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d 00:00:00")
 
         filters, params = parse_prop_clauses("id", filter.properties, team)
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
+        try:
+            query_result = ch_client.execute(
+                SESSION_SQL.format(
+                    team_id=team.pk,
+                    date_from=date_from,
+                    date_to=date_to,
+                    filters="{}".format(filters) if filter.properties else "",
+                ),
+                params,
+            )
+            result = self._parse_list_results(query_result)
+        except:
+            result = []
 
-        query_result = ch_client.execute(
-            SESSION_SQL.format(
-                team_id=team.pk,
-                date_from=date_from,
-                date_to=date_to,
-                filters="AND id IN {}".format(filters) if filter.properties else "",
-            ),
-            params,
-        )
-
-        result = self._parse_list_results(query_result)
         return result
 
     def _parse_list_results(self, results: List[Tuple]):
@@ -148,7 +150,7 @@ class ClickhouseSessions(BaseQuery):
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters="AND id IN {}".format(filters) if filter.properties else "",
+            filters="{}".format(filters) if filter.properties else "",
         )
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
@@ -205,7 +207,7 @@ class ClickhouseSessions(BaseQuery):
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters="AND id IN {}".format(filters) if filter.properties else "",
+            filters="{}".format(filters) if filter.properties else "",
         )
 
         params = {**params, "team_id": team.pk}
