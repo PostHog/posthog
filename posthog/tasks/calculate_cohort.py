@@ -38,7 +38,7 @@ def calculate_cohorts() -> None:
 def calculate_cohorts_ch(cohort: Cohort) -> None:
     if check_ee_enabled():
         try:
-            from ee.clickhouse.models.cohort import populate_cohort_person_table  # type: ignore
+            from ee.clickhouse.models.cohort import populate_cohort_person_table
 
             populate_cohort_person_table(cohort)
         except:

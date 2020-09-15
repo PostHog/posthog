@@ -1,7 +1,7 @@
 import copy
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
 
@@ -176,7 +176,9 @@ class ClickhouseTrends(BaseQuery):
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
-        action_query, action_params = "", {}
+        action_query = ""
+        action_params: Dict = {}
+
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -233,7 +235,10 @@ class ClickhouseTrends(BaseQuery):
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
 
-            top_elements_array = ch_client.execute(element_query, element_params)
+            try:
+                top_elements_array = ch_client.execute(element_query, element_params)
+            except:
+                top_elements_array = []
 
             params = {
                 **params,
@@ -250,7 +255,10 @@ class ClickhouseTrends(BaseQuery):
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
 
-        result = ch_client.execute(breakdown_query, params)
+        try:
+            result = ch_client.execute(breakdown_query, params)
+        except:
+            result = []
         parsed_results = self._parse_breakdown_response(result, filter, entity)
         return parsed_results
 
@@ -294,7 +302,9 @@ class ClickhouseTrends(BaseQuery):
 
         return parsed
 
-    def _determine_breakdown_label(self, breakdown_type: Optional[str], breakdown: Optional[str] = "") -> str:
+    def _determine_breakdown_label(
+        self, breakdown_type: Optional[str], breakdown: Optional[Union[str, int]] = ""
+    ) -> str:
         if breakdown_type == "cohort":
             if breakdown == "all":
                 return "all users"
@@ -303,7 +313,7 @@ class ClickhouseTrends(BaseQuery):
         elif breakdown_type == "person":
             return ""
         else:
-            return breakdown or ""
+            return str(breakdown) or ""
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
@@ -349,9 +359,13 @@ class ClickhouseTrends(BaseQuery):
 
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
 
-        result = ch_client.execute(final_query, params)
+        try:
+            result = ch_client.execute(final_query, params)
 
-        parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
+            parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
+        except:
+            parsed_results = []
+
         return parsed_results
 
     def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:

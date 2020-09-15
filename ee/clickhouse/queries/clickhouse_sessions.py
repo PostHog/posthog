@@ -106,17 +106,20 @@ class ClickhouseSessions(BaseQuery):
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
-        query_result = ch_client.execute(
-            SESSION_SQL.format(
-                team_id=team.pk,
-                date_from=date_from,
-                date_to=date_to,
-                filters="{}".format(filters) if filter.properties else "",
-            ),
-            params,
-        )
+        try:
+            query_result = ch_client.execute(
+                SESSION_SQL.format(
+                    team_id=team.pk,
+                    date_from=date_from,
+                    date_to=date_to,
+                    filters="{}".format(filters) if filter.properties else "",
+                ),
+                params,
+            )
+            result = self._parse_list_results(query_result)
+        except:
+            result = []
 
-        result = self._parse_list_results(query_result)
         return result
 
     def _parse_list_results(self, results: List[Tuple]):

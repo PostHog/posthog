@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from typing import Dict
 
 from django.utils.timezone import now
 
@@ -656,7 +657,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
 
         people = Person.objects.all()
 
-        ids = {self.team.pk: [], team2.pk: []}
+        ids: Dict = {self.team.pk: [], team2.pk: []}
         for pid in get_person_distinct_ids():
             ids[pid["team_id"]].append(pid["distinct_id"])
 
