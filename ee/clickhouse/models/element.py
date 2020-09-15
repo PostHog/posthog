@@ -40,7 +40,7 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
         "attributes": json.dumps(element.attributes or {}),
         "order": element.order,
         "team_id": team.pk,
-        "group_id": group_id,
+        "group_id": str(group_id),
     }
     p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
 
