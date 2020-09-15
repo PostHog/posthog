@@ -82,8 +82,8 @@ team_id,
 distinct_id,
 elements_hash,
 created_at,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(properties, 'varchar')) array_property_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(properties, 'varchar')) array_property_values
+arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
 FROM events
 """
 
@@ -133,6 +133,13 @@ NULL_BREAKDOWN_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, value from numbers({num_intervals})
 """
 
+EVENT_JOIN_PERSON_SQL = """
+INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+"""
+
+EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
+INNER JOIN (SELECT * FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s) as pid ON events.id = pid.event_id
+"""
 
 # SELECT value, count(*) as count
 # FROM
