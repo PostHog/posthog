@@ -3,17 +3,8 @@
   "name": "person_distinct",
   "type": "record",
   "fields" : [
-    {
-      "name" : "distinct_id",
-      "type" : "string"
-    },
-    {
-      "name" : "team_id",
-      "type" : "long"
-    },
-    {
-      "name" : "person_id",
-      "type" : "string"
-    }
+    {"name" : "distinct_id", "type" : "string"},
+    {"name" : "team_id", "type" : "long"},
+    {"name" : "person_id", "type" : "string"}
   ]
 }

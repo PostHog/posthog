@@ -3,17 +3,8 @@
   "name": "element_group",
   "type": "record",
   "fields" : [
-    {
-      "name" : "id",
-      "type" : "string"
-    },
-    {
-      "name" : "element_hash",
-      "type" : "string"
-    },
-    {
-      "name" : "team_id",
-      "type" : "long"
-    }
+    {"name" : "id", "type" : "string"},
+    {"name" : "element_hash", "type" : "string"},
+    {"name" : "team_id", "type" : "long"}
   ]
 }

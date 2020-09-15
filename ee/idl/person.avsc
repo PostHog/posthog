@@ -3,20 +3,8 @@
    "name": "person",
    "type": "record",
    "fields" : [
-     {
-       "name" : "id",
-       "type" : "string"
-     },
-     {
-       "name" : "team_id",
-       "type" : "long"
-     },
-     {
-       "name" : "properties",
-       "type" : {
-            "type": "map",
-            "values" : "string"
-       }
-     }
+     {"name" : "id", "type" : "string"},
+     {"name" : "team_id", "type" : "long"},
+     {"name" : "properties", "type" : {"type": "map", "values" : "string"}}
    ]
 }

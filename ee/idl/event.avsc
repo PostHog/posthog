@@ -3,40 +3,14 @@
    "name": "event",
    "type": "record",
    "fields" : [
-     {
-       "name" : "id",
-       "type" : "string"
-     },
-     {
-       "name" : "event",
-       "type" : "string"
-     },
-     {
-       "name" : "properties",
-       "type" : {
-           "type": "map",
-           "values": "string"
-       }
-     },
-     {
-       "name" : "team_id",
-       "type" : "long"
-     },
-     {
-       "name": "timestamp",
-       "type": "string"
-     },
-     {
-       "name": "created_at",
-       "type": "string"
-     },
-     {
-       "name": "distinct_id",
-       "type": "string"
-     },
-     {
-       "name": "element_hash",
-       "type": "string"
-     }
+     {"name" : "id", "type" : "string"},
+     {"name" : "event", "type" : "string"},
+     {"name" : "properties", "type" : {"type": "map", "values": "string"}
+},
+     {"name" : "team_id", "type" : "long"},
+     {"name": "timestamp", "type": "string"},
+     {"name": "created_at", "type": "string"},
+     {"name": "distinct_id", "type": "string"},
+     {"name": "element_hash", "type": "string"}
    ]
 }
