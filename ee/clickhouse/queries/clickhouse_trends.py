@@ -136,9 +136,13 @@ class ClickhouseTrends(BaseQuery):
         }
         if filter.breakdown:
             if "all" in filter.breakdown and isinstance(filter.breakdown, list):
+                result = []
                 filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
                 filter.breakdown.remove("all")
-                result = self._format_breakdown_query(entity, filter, team)
+
+                if filter.breakdown:
+                    result.extend(self._format_breakdown_query(entity, filter, team))
+
                 filter.breakdown = ["all"]
                 all_result = self._format_breakdown_query(entity, filter, team)
 
