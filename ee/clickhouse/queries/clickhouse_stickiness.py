@@ -36,12 +36,10 @@ STICKINESS_ACTIONS_SQL = """
 
 
 class ClickhouseStickiness(BaseQuery):
-    def _serialize_entity(
-        self, entity: Entity, filter: Filter, team: Team, label_note: str = ""
-    ) -> List[Dict[str, Any]]:
+    def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
-            "label": "{}{}".format("{} — ".format(label_note), entity.name),
+            "label": entity.name,
             "count": 0,
             "data": [],
             "labels": [],
@@ -108,25 +106,20 @@ class ClickhouseStickiness(BaseQuery):
             "count": sum(data),
         }
 
-    # TODO: this is 1:1 the same as _calculate_trends, should be consolidated
     def _calculate_stickiness(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-        # format default dates
         if not filter._date_from:
-            filter._date_from = relative_date_parse("-14d")
+            filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
             filter._date_to = datetime.now(timezone.utc)
 
         result = []
+
         for entity in filter.entities:
-            if filter.compare:
-                compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team, "current")
-                result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team, "previous")
-                result.extend(previous_entity_result)
-            else:
-                entity_result = self._serialize_entity(entity, filter, team)
-                result.extend(entity_result)
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
+            entity_result = self._serialize_entity(entity, filter, team)
+            result.extend(entity_result)
+
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
