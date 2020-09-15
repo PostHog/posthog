@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple
 
 from dateutil.relativedelta import relativedelta
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
@@ -107,7 +107,7 @@ class ClickhouseSessions(BaseQuery):
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
         try:
-            query_result = ch_client.execute(
+            query_result = sync_execute(
                 SESSION_SQL.format(
                     team_id=team.pk,
                     date_from=date_from,
@@ -164,7 +164,7 @@ class ClickhouseSessions(BaseQuery):
         final_query = AVERAGE_SQL.format(sessions=per_period_query, null_sql=null_sql)
 
         params = {**params, "team_id": team.pk}
-        response = ch_client.execute(final_query, params)
+        response = sync_execute(final_query, params)
         values = self.clean_values(filter, response)
 
         time_series_data = append_data(values, interval=filter.interval, math=None)
@@ -212,7 +212,7 @@ class ClickhouseSessions(BaseQuery):
 
         params = {**params, "team_id": team.pk}
 
-        result = ch_client.execute(dist_query, params)
+        result = sync_execute(dist_query, params)
 
         dist_labels = [
             "0 seconds (1 event)",

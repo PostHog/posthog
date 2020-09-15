@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -236,7 +236,7 @@ class ClickhouseTrends(BaseQuery):
             )
 
             try:
-                top_elements_array = ch_client.execute(element_query, element_params)
+                top_elements_array = sync_execute(element_query, element_params)
             except:
                 top_elements_array = []
 
@@ -256,7 +256,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
 
         try:
-            result = ch_client.execute(breakdown_query, params)
+            result = sync_execute(breakdown_query, params)
         except:
             result = []
         parsed_results = self._parse_breakdown_response(result, filter, entity)
@@ -360,7 +360,7 @@ class ClickhouseTrends(BaseQuery):
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
 
         try:
-            result = ch_client.execute(final_query, params)
+            result = sync_execute(final_query, params)
 
             parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
         except:

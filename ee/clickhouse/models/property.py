@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
 from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL
@@ -62,5 +62,5 @@ def get_operator(operator: Optional[str]):
 
 
 def get_property_values_for_key(key: str, team: Team):
-    result = ch_client.execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})
+    result = sync_execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})
     return result

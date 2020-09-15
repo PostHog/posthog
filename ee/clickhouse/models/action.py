@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.actions import (
     ACTION_QUERY,
     ELEMENT_ACTION_FILTER,
@@ -26,7 +26,7 @@ def format_action_table_name(action: Action) -> str:
 
 def filter_events_by_action(action: Action) -> List:
     query = format_events_by_action_query(action)
-    return ch_client.execute(query)
+    return sync_execute(query)
 
 
 def format_events_by_action_query(action: Action) -> str:
@@ -39,20 +39,20 @@ def populate_action_event_table(action: Action) -> None:
 
     table_name = format_action_table_name(action)
 
-    ch_client.execute(DROP_TABLE_IF_EXISTS_SQL.format(table_name))
+    sync_execute(DROP_TABLE_IF_EXISTS_SQL.format(table_name))
 
-    ch_client.execute(create_action_mapping_table_sql(table_name))
+    sync_execute(create_action_mapping_table_sql(table_name))
 
     final_query = INSERT_INTO_ACTION_TABLE.format(query=query, table_name=table_name)
 
-    ch_client.execute(final_query, params)
+    sync_execute(final_query, params)
 
 
 def query_action(action: Action) -> Optional[List]:
     query, params = format_action_query(action)
 
     if query:
-        return ch_client.execute(query, params)
+        return sync_execute(query, params)
 
     return None
 
