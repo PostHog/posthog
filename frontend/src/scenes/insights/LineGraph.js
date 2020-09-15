@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
-import { operatorMap } from '~/lib/utils'
-import _ from 'lodash'
+import { formatLabel } from '~/lib/utils'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
@@ -204,28 +203,11 @@ export function LineGraph({
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
-                                      if (entityData.action) {
-                                          let math = 'Total'
-                                          if (entityData.action.math === 'dau')
-                                              label += ` (${entityData.action.math.toUpperCase()}) `
-                                          else label += ` (${math}) `
-                                      }
-                                      if (
-                                          entityData.action &&
-                                          entityData.action.properties &&
-                                          !_.isEmpty(entityData.action.properties)
-                                      ) {
-                                          label += ` (${entityData.action.properties
-                                              .map(
-                                                  (property) =>
-                                                      operatorMap[property.operator || 'exact'].split(' ')[0] +
-                                                      ' ' +
-                                                      property.value
-                                              )
-                                              .join(', ')})`
-                                      }
-
-                                      return label + ' - ' + tooltipItem.yLabel.toLocaleString()
+                                      return (
+                                          formatLabel(label, entityData.action) +
+                                          ' - ' +
+                                          tooltipItem.yLabel.toLocaleString()
+                                      )
                                   },
                               },
                           },
