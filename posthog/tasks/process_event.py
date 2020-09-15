@@ -198,12 +198,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[date
                 capture_exception(e)
 
         return data["timestamp"]
-    if isinstance(now, datetime.datetime):
-        # A quick check to see if this is a datetime before we parse it
-        # if you are running this in debug mode and calling this function directly the types change
-        now_datetime = now
-    else:
-        now_datetime = parser.parse(now)
+    now_datetime = parser.parse(now)
     if data.get("offset"):
         return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
     return now_datetime
