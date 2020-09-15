@@ -12,7 +12,7 @@ class KafkaProducer:
         else:
             self.producer = kafka_helper.get_kafka_producer()
 
-    def produce(self, topic, data):
+    def produce(self, topic: str, data):
         self.producer.send(topic, data.encode("utf-8"))
 
     def close(self):
