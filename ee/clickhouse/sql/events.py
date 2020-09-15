@@ -44,6 +44,10 @@ GET_EVENTS_SQL = """
 SELECT * FROM events_with_array_props_view
 """
 
+GET_EVENTS_BY_TEAM_SQL = """
+SELECT * FROM events_with_array_props_view WHERE team_id = %(team_id)s
+"""
+
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
