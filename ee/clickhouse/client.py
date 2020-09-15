@@ -18,8 +18,8 @@ from posthog.settings import (
 )
 
 if PRIMARY_DB != CLICKHOUSE:
-    ch_client = None
-    ch_sync_client = None
+    ch_client = None  # type: Client
+    ch_sync_client = None  # type: SyncClient
 
     def async_execute(query, args=None):
         return
