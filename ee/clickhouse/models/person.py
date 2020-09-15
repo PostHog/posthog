@@ -32,7 +32,7 @@ def create_person(
     if not person_id:
         person_id = generate_clickhouse_uuid()
     p = KafkaProducer()
-    data = {"id": person_id, "team_id": team_id, "properties": properties}
+    data = {"id": person_id, "team_id": team_id, "properties": avro.string_map_values(properties)}
     avro_data = avro.encode(avro.PERSON_SCHEMA, data)
     p.produce(topic=KAFKA_PERSON, data=avro_data)
     for distinct_id in distinct_ids:
