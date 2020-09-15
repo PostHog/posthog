@@ -1,5 +1,6 @@
 import json
 
+from django.forms.models import model_to_dict
 from freezegun import freeze_time
 from rest_framework.decorators import action
 
@@ -57,6 +58,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             no_events = action_factory(team=self.team, name="no events")
             sign_up_action = action_factory(team=self.team, name="sign up")
+
             return sign_up_action, person
 
         def _create_breakdown_events(self):
@@ -388,7 +390,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(response[0]["data"][4], 1)
             self.assertEqual(response[0]["data"][5], 2)
-
             self.assertTrue(self._compare_entity_response(action_response, response))
 
         #         def test_dau_with_breakdown_filtering(self):
@@ -638,6 +639,7 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
+    action.calculate_events()
     return action
 
 
