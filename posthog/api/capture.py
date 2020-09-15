@@ -172,15 +172,15 @@ def get_event(request):
             sent_at=sent_at,
         )
 
-    if check_ee_enabled():
-        process_event_ee.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
-        )
+        if check_ee_enabled():
+            process_event_ee.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
 
     return cors_response(request, JsonResponse({"status": 1}))
