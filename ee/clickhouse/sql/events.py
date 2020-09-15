@@ -82,8 +82,8 @@ team_id,
 distinct_id,
 elements_hash,
 created_at,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(properties, 'varchar')) array_property_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(properties, 'varchar')) array_property_values
+arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
 FROM events
 """
 
