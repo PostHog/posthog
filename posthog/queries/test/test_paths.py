@@ -363,6 +363,8 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
             )
 
+            self.assertGreaterEqual(len(response), 0)
+
             for item in response:
                 self.assertEqual(item["source"], "1_/pricing")
 
