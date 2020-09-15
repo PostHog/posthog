@@ -107,7 +107,7 @@ def signup_to_organization_view(request, invite_id):
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
                 "company_name": organization.name,
-                "organization_id": organization.id,  # TO-DO: handle multiple teams
+                "organization_id": organization.id,  # TODO: handle multiple teams
                 "is_organization_first_user": False,
             },
         )
