@@ -25,7 +25,7 @@ from posthog.models.team import Team
 
 def create_person(
     team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}, sync: bool = False, **kwargs
-) -> int:
+) -> str:
     person_id = kwargs.get("person_id", None)  # type: Optional[str]
     if not person_id:
         person_id = generate_clickhouse_uuid()
@@ -52,7 +52,7 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
     )
 
 
-def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: str) -> None:
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str) -> None:
     async_execute(INSERT_PERSON_DISTINCT_ID, {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id})
 
 
@@ -81,7 +81,7 @@ def get_person_distinct_ids(team_id: int):
     return ClickhousePersonDistinctIdSerializer(result, many=True).data
 
 
-def get_person_by_distinct_id(team_id: int, distinct_id: str) -> int:
+def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Dict]:
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data

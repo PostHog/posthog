@@ -1,6 +1,6 @@
 import copy
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
@@ -48,11 +48,14 @@ class ClickhouseStickiness(BaseQuery):
 
         result = self._format_stickiness_query(entity, filter, team)
 
-        new_dict = copy.deepcopy(serialized)
-        new_dict.update(result)
-        return [new_dict]
+        if result:
+            new_dict = copy.deepcopy(serialized)
+            new_dict.update(result)
+            return [new_dict]
 
-    def _format_stickiness_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        return [serialized]
+
+    def _format_stickiness_query(self, entity: Entity, filter: Filter, team: Team) -> Optional[Dict[str, Any]]:
         if not filter.date_to or not filter.date_from:
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
@@ -66,7 +69,7 @@ class ClickhouseStickiness(BaseQuery):
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
             if action_query == "":
-                return []
+                return None
 
             params = {**params, **action_params}
             content_sql = STICKINESS_ACTIONS_SQL.format(

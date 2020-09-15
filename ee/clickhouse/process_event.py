@@ -22,8 +22,8 @@ from posthog.tasks.process_event import handle_timestamp, store_names_and_proper
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
-    old_person: Optional[Person] = None
-    new_person: Optional[Person] = None
+    old_person: Optional[Dict] = None
+    new_person: Optional[Dict] = None
 
     try:
         old_person = get_person_by_distinct_id(team_id=team_id, distinct_id=previous_distinct_id)
@@ -123,14 +123,15 @@ def _capture_ee(
     check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
 
 
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
+def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Dict]:
     person = get_person_by_distinct_id(team_id=team_id, distinct_id=distinct_id)
     if person:
         return person
 
     # Catch race condition where in between getting and creating, another request already created this user.
     try:
-        person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
+        create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
+        person = get_person_by_distinct_id(team_id=team_id, distinct_id=distinct_id)
     except IntegrityError:
         pass
 
@@ -138,17 +139,17 @@ def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
-    try:
-        person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
+    person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
+    if not person:
         try:
-            create_person(person_id=person["id"], distinct_ids=[distinct_id], team_id=team_id)
+            create_person(distinct_ids=[distinct_id], team_id=team_id)
             person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
         # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
 
-    update_person_properties(team_id=team_id, person_id=person["id"], properties=properties)
+    if person:
+        update_person_properties(team_id=team_id, id=person["id"], properties=properties)
 
     pass
 
@@ -164,7 +165,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         except:
             person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
 
-    if person["is_identified"] != is_identified:
+    if person and person["is_identified"] != is_identified:
         update_person_is_identified(team_id=team_id, id=person["id"], is_identified=is_identified)
 
 
