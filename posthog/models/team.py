@@ -127,8 +127,3 @@ class Team(models.Model):
         if self.app_urls and self.app_urls[0]:
             return ", ".join(self.app_urls)
         return str(self.pk)
-
-    @property
-    def deterministic_derived_uuid(self) -> uuidlib.UUID:
-        """Used to migrate old Team-based (organization-less) teams intact to the organization-based structure."""
-        return uuidlib.UUID(hashlib.md5(self.id.to_bytes(16, "big")).hexdigest())
