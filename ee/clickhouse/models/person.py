@@ -3,8 +3,9 @@ from typing import Dict, List, Optional
 
 from rest_framework import serializers
 
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee import avro
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     GET_DISTINCT_IDS_SQL,
@@ -21,7 +22,6 @@ from ee.clickhouse.sql.person import (
 )
 from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
-from posthog.models.person import Person
 from posthog.models.team import Team
 
 
@@ -32,8 +32,9 @@ def create_person(
     if not person_id:
         person_id = generate_clickhouse_uuid()
     p = KafkaProducer()
-    data = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
-    p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
+    data = {"id": person_id, "team_id": team_id, "properties": properties}
+    avro_data = avro.encode(avro.PERSON_SCHEMA, data)
+    p.produce(topic=KAFKA_PERSON, data=avro_data)
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
@@ -53,7 +54,8 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
 def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
-    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
+    avro_data = avro.encode(avro.PERSON_DISTINCT_SCHEMA, data)
+    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=avro_data)
 
 
 def update_person_properties(id: int, properties: Dict) -> None:

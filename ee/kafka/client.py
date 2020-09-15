@@ -14,7 +14,9 @@ class KafkaProducer:
             self.producer = kafka_helper.get_kafka_producer()
 
     def produce(self, topic: str, data):
-        self.producer.send(topic, data.encode("utf-8"))
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        self.producer.send(topic, data)
 
     def close(self):
         self.producer.flush()

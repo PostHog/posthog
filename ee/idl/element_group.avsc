@@ -1,6 +1,6 @@
 {
   "namespace": "com.posthog.ee",
-  "name": "element_hash",
+  "name": "element_group",
   "type": "record",
   "fields" : [
     {

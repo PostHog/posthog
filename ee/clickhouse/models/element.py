@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
+from ee import avro
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
@@ -23,7 +24,8 @@ def create_element_group(team: Team, element_hash: str) -> UUID:
     id = uuid4()
     p = KafkaProducer()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
+    avro_data = avro.encode(avro.ELEMENT_GROUP_SCHEMA, data)
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=avro_data)
     return id
 
 
@@ -37,12 +39,13 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
         "attr_class": element.attr_class or [],
         "nth_child": element.nth_child,
         "nth_of_type": element.nth_of_type,
-        "attributes": json.dumps(element.attributes or {}),
+        "attributes": avro.string_map_values(element.attributes),
         "order": element.order,
         "team_id": team.pk,
         "group_id": str(group_id),
     }
-    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    avro_data = avro.encode(avro.ELEMENT_SCHEMA, data)
+    p.produce(topic=KAFKA_ELEMENTS, data=avro_data)
 
 
 def create_elements(elements: List[Element], team: Team) -> str:

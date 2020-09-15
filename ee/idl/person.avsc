@@ -13,8 +13,10 @@
      },
      {
        "name" : "properties",
-       "type" : "map",
-       "values" : "string"
+       "type" : {
+            "type": "map",
+            "values" : "string"
+       }
      }
    ]
 }

@@ -33,8 +33,10 @@
     },
     {
       "name" : "attributes",
-      "type" : "map",
-      "values" : "string"
+      "type" : {
+        "type": "map",
+        "values" : "string"
+      }
     },
     {
       "name" : "order",

@@ -7,6 +7,7 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
+from ee import avro
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import KafkaProducer
@@ -38,14 +39,15 @@ def create_event(
     data = {
         "id": str(event_id),
         "event": event,
-        "properties": json.dumps(properties),
+        "properties": avro.string_map_values(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
         "element_hash": element_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+    avro_data = avro.encode(avro.EVENT_SCHEMA, data)
+    p.produce(topic=KAFKA_EVENTS, data=avro_data)
 
 
 def get_events():
