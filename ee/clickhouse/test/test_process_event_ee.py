@@ -6,11 +6,10 @@ from django.utils.timezone import now
 
 from ee.clickhouse.models.element import get_element_group_by_hash, get_elements, get_elements_by_group
 from ee.clickhouse.models.event import get_events
-from ee.clickhouse.models.person import create_person_with_distinct_id, get_person_distinct_ids, get_persons
+from ee.clickhouse.models.person import create_person, get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
-from posthog.models import Person
 from posthog.models.team import Team
 
 
@@ -19,28 +18,29 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         user = self._create_user("tim")
         team_id = self.team.pk
 
-        with self.assertNumQueries(8):
-            process_event_ee(
-                2,
-                "",
-                "",
-                {
-                    "event": "$autocapture",
-                    "properties": {
-                        "distinct_id": 2,
-                        "token": self.team.api_token,
-                        "$elements": [
-                            {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
-                            {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
-                        ],
-                    },
-                },
-                team_id,
-                now().isoformat(),
-                now().isoformat(),
-            )
+        # TODO: with self.assertNumQueries(7):
 
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        process_event_ee(
+            2,
+            "",
+            "",
+            {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": 2,
+                    "token": self.team.api_token,
+                    "$elements": [
+                        {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                        {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                    ],
+                },
+            },
+            team_id,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
         self.assertEqual(distinct_ids, ["2"])
         events = get_events()
@@ -56,8 +56,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
     def test_capture_no_element(self) -> None:
         user = self._create_user("tim")
-        person = Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person.pk, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         process_event_ee(
             "asdfasdfasdf",
@@ -69,15 +68,14 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(distinct_ids, ["asdfasdfasdf"])
         events = get_events()
         self.assertEqual(events[0]["event"], "$pageview")
 
     def test_capture_sent_at(self) -> None:
         self._create_user("tim")
-        person = Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person.pk, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         right_now = now()
         tomorrow = right_now + timedelta(days=1, hours=2)
@@ -108,7 +106,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
     def test_capture_sent_at_no_timezones(self) -> None:
         self._create_user("tim")
-        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         right_now = now()
         tomorrow = right_now + timedelta(days=1, hours=2)
@@ -144,7 +142,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
     def test_capture_no_sent_at(self) -> None:
         self._create_user("james")
-        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         right_now = now()
         tomorrow = right_now + timedelta(days=1, hours=2)
@@ -173,7 +171,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
     def test_ip_capture(self) -> None:
         user = self._create_user("tim")
-        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         process_event_ee(
             "asdfasdfasdf",
@@ -193,7 +191,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         self.team.save()
 
         user = self._create_user("tim")
-        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+        create_person(team_id=self.team.pk, distinct_ids=["asdfasdfasdf"])
 
         process_event_ee(
             "asdfasdfasdf",
@@ -209,8 +207,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         self.assertNotIn("$ip", events[0]["properties"].keys())
 
     def test_alias(self) -> None:
-        person = Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person.pk, distinct_ids=["old_distinct_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["old_distinct_id"])
 
         process_event_ee(
             "new_distinct_id",
@@ -230,14 +227,13 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
         self.assertEqual(len(events), 1)
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
     def test_alias_reverse(self) -> None:
-        person = Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person.pk, distinct_ids=["old_distinct_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["old_distinct_id"])
 
         process_event_ee(
             "old_distinct_id",
@@ -257,14 +253,13 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
         self.assertEqual(len(events), 1)
         self.assertListEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
     def test_alias_twice(self) -> None:
-        person1 = Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person1.pk, distinct_ids=["old_distinct_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["old_distinct_id"])
 
         process_event_ee(
             "new_distinct_id",
@@ -283,8 +278,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person2 = Person.objects.create(team=self.team, distinct_ids=["old_distinct_id_2"])
-        create_person_with_distinct_id(team_id=self.team.pk, person_id=person2.pk, distinct_ids=["old_distinct_id_2"])
+        create_person(team_id=self.team.pk, distinct_ids=["old_distinct_id_2"])
 
         process_event_ee(
             "new_distinct_id",
@@ -303,7 +297,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        distinct_ids = distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         events = get_events()
 
         self.assertEqual(len(events), 2)
@@ -329,22 +323,20 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person1 = Person.objects.get(team=self.team, persondistinctid__distinct_id="old_distinct_id")
-        person2 = Person.objects.get(team=self.team, persondistinctid__distinct_id="new_distinct_id")
+        person1 = get_person_by_distinct_id(team_id=self.team.pk, distinct_id="old_distinct_id")
+        person2 = get_person_by_distinct_id(team_id=self.team.pk, distinct_id="new_distinct_id")
 
         self.assertEqual(person1, person2)
 
         events = get_events()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
         self.assertEqual(len(events), 1)
         self.assertEqual(sorted(distinct_ids), sorted(["new_distinct_id", "old_distinct_id"]))
 
     def test_alias_both_existing(self) -> None:
-        person = Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
-        create_person_with_distinct_id(person_id=person.pk, distinct_ids=["old_distinct_id"], team_id=self.team.pk)
-        person2 = Person.objects.create(team=self.team, distinct_ids=["new_distinct_id"])
-        create_person_with_distinct_id(person_id=person2.pk, distinct_ids=["new_distinct_id"], team_id=self.team.pk)
+        create_person(distinct_ids=["old_distinct_id"], team_id=self.team.pk)
+        create_person(distinct_ids=["new_distinct_id"], team_id=self.team.pk)
 
         process_event_ee(
             "new_distinct_id",
@@ -364,7 +356,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
         self.assertEqual(len(events), 1)
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
@@ -400,27 +392,13 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     def test_alias_merge_properties(self) -> None:
-        person1 = Person.objects.create(
-            team=self.team,
-            distinct_ids=["old_distinct_id"],
-            properties={"key_on_both": "old value both", "key_on_old": "old value"},
-        )
-
-        create_person_with_distinct_id(
-            person_id=person1.pk,
+        create_person(
             distinct_ids=["old_distinct_id"],
             team_id=self.team.pk,
             properties={"key_on_both": "old value both", "key_on_old": "old value"},
         )
 
-        person2 = Person.objects.create(
-            team=self.team,
-            distinct_ids=["new_distinct_id"],
-            properties={"key_on_both": "new value both", "key_on_new": "new value"},
-        )
-
-        create_person_with_distinct_id(
-            person_id=person2.pk,
+        create_person(
             distinct_ids=["new_distinct_id"],
             team_id=self.team.pk,
             properties={"key_on_both": "new value both", "key_on_new": "new value"},
@@ -446,12 +424,12 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         events = get_events()
         self.assertEqual(len(events), 1)
 
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
-        persons = get_persons()
+        persons = get_persons(team_id=self.team.pk)
         self.assertEqual(
-            json.loads(persons[0]["properties"]),
+            persons[0]["properties"],
             {"key_on_both": "new value both", "key_on_new": "new value", "key_on_old": "old value",},
         )
 
@@ -490,8 +468,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
 class TestIdentify(ClickhouseTestMixin, BaseTest):
     def test_distinct_with_anonymous_id(self) -> None:
-        person = Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
-        create_person_with_distinct_id(person_id=person.pk, team_id=self.team.pk, distinct_ids=["anonymous_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["anonymous_id"])
 
         process_event_ee(
             "new_distinct_id",
@@ -511,7 +488,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(len(events), 1)
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
 
@@ -539,13 +516,8 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
     # 3. In the frontend, try to alias anonymous_id with new_distinct_id
     # Result should be that we end up with one Person with both ID's
     def test_distinct_with_anonymous_id_which_was_already_created(self) -> None:
-        person1 = Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
-        person2 = Person.objects.create(
-            team=self.team, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"},
-        )
-
-        create_person_with_distinct_id(person_id=person1.pk, team_id=self.team.pk, distinct_ids=["anonymous_id"])
-        create_person_with_distinct_id(person_id=person2.pk, team_id=self.team.pk, distinct_ids=["new_distinct_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["anonymous_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"})
 
         process_event_ee(
             "new_distinct_id",
@@ -565,20 +537,15 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = Person.objects.get()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
     def test_distinct_with_multiple_anonymous_ids_which_were_already_created(self,) -> None:
         # logging in the first time
-        person1 = Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
-        person2 = Person.objects.create(
-            team=self.team, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"},
-        )
-
-        create_person_with_distinct_id(person_id=person1.pk, team_id=self.team.pk, distinct_ids=["anonymous_id"])
-        create_person_with_distinct_id(person_id=person2.pk, team_id=self.team.pk, distinct_ids=["new_distinct_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["anonymous_id"])
+        create_person(team_id=self.team.pk, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"})
 
         process_event_ee(
             "new_distinct_id",
@@ -598,15 +565,14 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = Person.objects.get()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
         # logging in another time
 
-        person3 = Person.objects.create(team=self.team, distinct_ids=["anonymous_id_2"])
-        create_person_with_distinct_id(person_id=person3.pk, team_id=self.team.pk, distinct_ids=["anonymous_id_2"])
+        create_person(team_id=self.team.pk, distinct_ids=["anonymous_id_2"])
 
         process_event_ee(
             "new_distinct_id",
@@ -625,19 +591,15 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person = Person.objects.get()
-        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id", "anonymous_id_2"]))
-        self.assertEqual(person.properties["email"], "someone@gmail.com")
+        self.assertEqual(person["properties"]["email"], "someone@gmail.com")
 
     def test_distinct_team_leakage(self) -> None:
         team2 = Team.objects.create()
-        person1 = Person.objects.create(team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
-        person2 = Person.objects.create(team=self.team, distinct_ids=["1", "2"])
-
-        create_person_with_distinct_id(person_id=person1.pk, team_id=team2.pk, distinct_ids=["2"])
-
-        create_person_with_distinct_id(person_id=person2.pk, team_id=self.team.pk, distinct_ids=["1", "2"])
+        create_person(team_id=team2.pk, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
+        create_person(team_id=self.team.pk, distinct_ids=["1", "2"])
 
         try:
             process_event_ee(
@@ -655,30 +617,33 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         except:
             pass
 
-        people = Person.objects.all()
+        ids = {self.team.pk: [], team2.pk: []}
 
-        ids: Dict = {self.team.pk: [], team2.pk: []}
-        for pid in get_person_distinct_ids():
+        for pid in get_person_distinct_ids(team_id=self.team.pk):
+            ids[pid["team_id"]].append(pid["distinct_id"])
+
+        for pid in get_person_distinct_ids(team_id=team2.pk):
             ids[pid["team_id"]].append(pid["distinct_id"])
 
         self.assertEqual(sorted(ids[self.team.pk]), sorted(["1", "2"]))
         self.assertEqual(ids[team2.pk], ["2"])
 
-        self.assertEqual(people.count(), 2)
-        self.assertEqual(people[1].team, self.team)
-        self.assertEqual(people[1].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["1", "2"])
-        self.assertEqual(people[0].team, team2)
-        self.assertEqual(people[0].distinct_ids, ["2"])
+        people1 = get_persons(team_id=self.team.pk)
+        people2 = get_persons(team_id=team2.pk)
+
+        self.assertEqual(len(people1), 1)
+        self.assertEqual(len(people2), 1)
+        self.assertEqual(people1[0]["team_id"], self.team.pk)
+        self.assertEqual(people1[0]["properties"], {})
+        self.assertEqual(people2[0]["team_id"], team2.pk)
+        self.assertEqual(people2[0]["properties"], {"email": "team2@gmail.com"})
 
     def test_set_is_identified(self) -> None:
         distinct_id = "777"
-        person_before_event = Person.objects.create(team=self.team, distinct_ids=[distinct_id])
-        create_person_with_distinct_id(
-            person_id=person_before_event.pk, team_id=self.team.pk, distinct_ids=[distinct_id]
-        )
+        create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+        person_before_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
 
-        self.assertFalse(person_before_event.is_identified)
+        self.assertFalse(person_before_event["is_identified"])
         process_event_ee(
             distinct_id,
             "",
@@ -689,5 +654,5 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
-        self.assertTrue(person_after_event.is_identified)
+        person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
+        self.assertTrue(person_after_event["is_identified"])
