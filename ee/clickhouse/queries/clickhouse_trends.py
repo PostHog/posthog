@@ -328,20 +328,20 @@ class ClickhouseTrends(BaseQuery):
             join_condition = EVENT_JOIN_PERSON_SQL
             aggregate_operation = "count(DISTINCT person_id)"
         elif entity.math == "sum":
-            aggregate_operation = "sum(toInt64(value))"
+            aggregate_operation = "sum(value)"
             join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
             params = {"join_property_key": entity.math_property}
 
         elif entity.math == "avg":
-            aggregate_operation = "avg(toInt64(value))"
+            aggregate_operation = "avg(value)"
             join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
             params = {"join_property_key": entity.math_property}
         elif entity.math == "min":
-            aggregate_operation = "min(toInt64(value))"
+            aggregate_operation = "min(value)"
             join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
             params = {"join_property_key": entity.math_property}
         elif entity.math == "max":
-            aggregate_operation = "max(toInt64(value))"
+            aggregate_operation = "max(value)"
             join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
             params = {"join_property_key": entity.math_property}
 

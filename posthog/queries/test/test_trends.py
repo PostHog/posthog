@@ -173,7 +173,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            print(response)
             self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
             self.assertEqual(response[0]["data"][4], 1.0)
             self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
@@ -493,7 +492,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_response = trends().run(
                 Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
             )
-            print(event_response)
             self.assertEqual(action_response[0]["data"][-1], 5)
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
