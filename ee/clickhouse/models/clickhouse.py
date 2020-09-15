@@ -1,7 +1,6 @@
-from ee.clickhouse.client import ch_client
-from ee.clickhouse.sql.clickhouse import GENERATE_UUID_SQL
+import uuid
 
 
 def generate_clickhouse_uuid() -> str:
-    response = ch_client.execute(GENERATE_UUID_SQL)
-    return response[0][0]
+    id = uuid.uuid4()
+    return str(id)
