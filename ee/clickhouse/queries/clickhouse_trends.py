@@ -10,7 +10,12 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
-from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
+from ee.clickhouse.sql.events import (
+    EVENT_JOIN_PERSON_SQL,
+    EVENT_JOIN_PROPERTY_WITH_KEY_SQL,
+    NULL_BREAKDOWN_SQL,
+    NULL_SQL,
+)
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -22,11 +27,11 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and event = '{event}' {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 AGGREGATE_SQL = """
@@ -259,7 +264,7 @@ class ClickhouseTrends(BaseQuery):
             result = sync_execute(breakdown_query, params)
         except:
             result = []
-        parsed_results = self._parse_breakdown_response(result, filter, entity)
+        parsed_results = self._parse_response(result, filter, entity)
         return parsed_results
 
     def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List]:
@@ -276,7 +281,7 @@ class ClickhouseTrends(BaseQuery):
             queries.append(cohort_query)
         return " UNION ALL ".join(queries)
 
-    def _parse_breakdown_response(self, res: List, filter: Filter, entity: Entity) -> List[Dict[str, Any]]:
+    def _parse_response(self, res: List, filter: Filter, entity: Entity) -> List[Dict[str, Any]]:
         parsed = []
         for idx, stats in enumerate(res):
             if filter.breakdown:
@@ -315,6 +320,33 @@ class ClickhouseTrends(BaseQuery):
         else:
             return str(breakdown) or ""
 
+    def _process_math(self, entity):
+        join_condition = ""
+        aggregate_operation = "count(*)"
+        params = {}
+        if entity.math == "dau":
+            join_condition = EVENT_JOIN_PERSON_SQL
+            aggregate_operation = "count(DISTINCT person_id)"
+        elif entity.math == "sum":
+            aggregate_operation = "sum(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+
+        elif entity.math == "avg":
+            aggregate_operation = "avg(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+        elif entity.math == "min":
+            aggregate_operation = "min(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+        elif entity.math == "max":
+            aggregate_operation = "max(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+
+        return aggregate_operation, join_condition, params
+
     def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
         inteval_annotation = get_interval_annotation_ch(filter.interval)
@@ -322,8 +354,11 @@ class ClickhouseTrends(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
+        aggregate_operation, join_condition, math_params = self._process_math(entity)
+
         params: Dict = {"team_id": team.pk}
-        params = {**params, **prop_filter_params}
+        params = {**params, **prop_filter_params, **math_params}
+
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
@@ -337,6 +372,8 @@ class ClickhouseTrends(BaseQuery):
                     parsed_date_from=(parsed_date_from or ""),
                     parsed_date_to=(parsed_date_to or ""),
                     filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
                 )
             except:
                 return []
@@ -349,6 +386,8 @@ class ClickhouseTrends(BaseQuery):
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
             )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation,
@@ -362,7 +401,7 @@ class ClickhouseTrends(BaseQuery):
         try:
             result = sync_execute(final_query, params)
 
-            parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
+            parsed_results = self._parse_response(result, filter, entity=entity)
         except:
             parsed_results = []
 

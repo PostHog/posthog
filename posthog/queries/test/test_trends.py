@@ -1,7 +1,6 @@
 import json
 
 from freezegun import freeze_time
-from rest_framework.decorators import action
 
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
@@ -57,6 +56,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             no_events = action_factory(team=self.team, name="no events")
             sign_up_action = action_factory(team=self.team, name="sign up")
+
             return sign_up_action, person
 
         def _create_breakdown_events(self):
@@ -375,21 +375,20 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
-        #         def test_dau_filtering(self):
-        #             sign_up_action, person = self._create_events()
-        #             with freeze_time("2020-01-02"):
-        #                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
-        #                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
-        #             with freeze_time("2020-01-04"):
-        #                 action_response = trends().run(
-        #                     Filter(data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
-        #                 )
-        #                 response = trends().run(Filter(data={"events": [{"id": "sign up", "math": "dau"}]}), self.team)
+        def test_dau_filtering(self):
+            sign_up_action, person = self._create_events()
+            with freeze_time("2020-01-02"):
+                person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
+                event_factory(team=self.team, event="sign up", distinct_id="someone_else")
+            with freeze_time("2020-01-04"):
+                action_response = trends().run(
+                    Filter(data={"actions": [{"id": sign_up_action.id, "math": "dau"}]}), self.team
+                )
+                response = trends().run(Filter(data={"events": [{"id": "sign up", "math": "dau"}]}), self.team)
 
-        #             self.assertEqual(response[0]["data"][4], 1)
-        #             self.assertEqual(response[0]["data"][5], 2)
-
-        #             self.assertTrue(self._compare_entity_response(action_response, response))
+            self.assertEqual(response[0]["data"][4], 1)
+            self.assertEqual(response[0]["data"][5], 2)
+            self.assertTrue(self._compare_entity_response(action_response, response))
 
         #         def test_dau_with_breakdown_filtering(self):
         #             sign_up_action, _ = self._create_events()
@@ -428,80 +427,72 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
             return sign_up_action
 
-        #         def test_sum_filtering(self):
-        #             sign_up_action = self._create_maths_events()
+        def test_sum_filtering(self):
+            sign_up_action = self._create_maths_events()
 
-        #             action_response = trends().run(
-        #                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "sum", "math_property": "some_number"}]}),
-        #                 self.team,
-        #             )
-        #             event_response = trends().run(
-        #                 Filter(data={"events": [{"id": "sign up", "math": "sum", "math_property": "some_number"}]}), self.team
-        #             )
-        #             self.assertEqual(action_response[0]["data"][-1], 18)
-        #             self.assertTrue(self._compare_entity_response(action_response, event_response))
+            action_response = trends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id, "math": "sum", "math_property": "some_number"}]}),
+                self.team,
+            )
+            event_response = trends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "sum", "math_property": "some_number"}]}), self.team
+            )
+            self.assertEqual(action_response[0]["data"][-1], 18)
+            self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        #         def test_avg_filtering(self):
-        #             sign_up_action = self._create_maths_events()
+        def test_avg_filtering(self):
+            sign_up_action = self._create_maths_events()
 
-        #             action_response = trends().run(
-        #                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
-        #                 self.team,
-        #             )
-        #             event_response = trends().run(
-        #                 Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
-        #             )
-        #             self.assertEqual(action_response[0]["data"][-1], 4.5)
-        #             self.assertTrue(self._compare_entity_response(action_response, event_response))
+            action_response = trends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
+                self.team,
+            )
+            event_response = trends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
+            )
+            self.assertEqual(action_response[0]["data"][-1], 4.5)
+            self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        #         def test_min_filtering(self):
-        #             sign_up_action = self._create_maths_events()
-        #             action_response = trends().run(
-        #                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "min", "math_property": "some_number"}]}),
-        #                 self.team,
-        #             )
-        #             event_response = trends().run(
-        #                 Filter(data={"events": [{"id": "sign up", "math": "min", "math_property": "some_number"}]}), self.team
-        #             )
-        #             self.assertEqual(action_response[0]["data"][-1], 2)
-        #             self.assertTrue(self._compare_entity_response(action_response, event_response))
+        def test_min_filtering(self):
+            sign_up_action = self._create_maths_events()
+            action_response = trends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id, "math": "min", "math_property": "some_number"}]}),
+                self.team,
+            )
+            event_response = trends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "min", "math_property": "some_number"}]}), self.team
+            )
+            self.assertEqual(action_response[0]["data"][-1], 2)
+            self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        #         def test_max_filtering(self):
-        #             sign_up_action = self._create_maths_events()
-        #             action_response = trends().run(
-        #                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "max", "math_property": "some_number"}]}),
-        #                 self.team,
-        #             )
-        #             event_response = trends().run(
-        #                 Filter(data={"events": [{"id": "sign up", "math": "max", "math_property": "some_number"}]}), self.team
-        #             )
-        #             self.assertEqual(action_response[0]["data"][-1], 8)
-        #             self.assertTrue(self._compare_entity_response(action_response, event_response))
+        def test_max_filtering(self):
+            sign_up_action = self._create_maths_events()
+            action_response = trends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id, "math": "max", "math_property": "some_number"}]}),
+                self.team,
+            )
+            event_response = trends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "max", "math_property": "some_number"}]}), self.team
+            )
+            self.assertEqual(action_response[0]["data"][-1], 8)
+            self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        #         def test_avg_filtering_non_number_resiliency(self):
-        #             sign_up_action, person = self._create_events()
-        #             person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
-        #             event_factory(
-        #                 team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 2}
-        #             )
-        #             event_factory(
-        #                 team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"}
-        #             )
-        #             event_factory(
-        #                 team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None}
-        #             )
-        #             event_factory(
-        #                 team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8}
-        #             )
-        #             action_response = trends().run(
-        #                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
-        #                 self.team,
-        #             )
-        #             event_response = trends().run(
-        #                 Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
-        #             )
-        #             self.assertEqual(action_response[0]["data"][-1], 5)
-        #             self.assertTrue(self._compare_entity_response(action_response, event_response))
+        def test_avg_filtering_non_number_resiliency(self):
+            sign_up_action, person = self._create_events()
+            person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 2})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
+            action_response = trends().run(
+                Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
+                self.team,
+            )
+            event_response = trends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
+            )
+            self.assertEqual(action_response[0]["data"][-1], 5)
+            self.assertTrue(self._compare_entity_response(action_response, event_response))
 
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
@@ -646,6 +637,7 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
+    action.calculate_events()
     return action
 
 
