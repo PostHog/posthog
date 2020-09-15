@@ -15,3 +15,7 @@ def table_engine(table: str) -> str:
 DROP_TABLE_IF_EXISTS_SQL = """
 DROP TABLE IF EXISTS {}
 """
+
+GENERATE_UUID_SQL = """
+SELECT generateUUIDv4()
+"""

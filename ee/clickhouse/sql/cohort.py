@@ -19,7 +19,7 @@ def create_cohort_mapping_table_sql(table_name: str) -> str:
     return """
         CREATE TABLE IF NOT EXISTS {table_name}
         (
-            person_id Int32
+            person_id UUID
         )ENGINE = {engine}
         ORDER BY (person_id)
         {storage_policy}

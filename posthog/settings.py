@@ -112,7 +112,7 @@ CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
@@ -130,6 +130,11 @@ POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
 
 # IP block settings
