@@ -171,9 +171,8 @@ def get_event(request):
             now=now,
             sent_at=sent_at,
         )
-
         if check_ee_enabled():
-            process_event_ee.delay(
+            process_event_ee(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],

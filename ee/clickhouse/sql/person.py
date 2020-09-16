@@ -1,4 +1,6 @@
-from .clickhouse import STORAGE_POLICY, table_engine
+from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+
+from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -8,8 +10,8 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
-PERSONS_TABLE_SQL = """
-CREATE TABLE person
+PERSONS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     created_at datetime,
@@ -17,28 +19,40 @@ CREATE TABLE person
     properties VARCHAR,
     is_identified Boolean
 ) ENGINE = {engine} 
-Order By (team_id, id)
+"""
+
+PERSONS_TABLE_SQL = (
+    PERSONS_TABLE_BASE_SQL
+    + """Order By (team_id, id)
 {storage_policy}
-""".format(
-    engine=table_engine("person"), storage_policy=STORAGE_POLICY
-)
+"""
+).format(table_name="person", engine=table_engine("person"), storage_policy=STORAGE_POLICY)
+
+KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(table_name="kafka_person", engine=kafka_engine(KAFKA_PERSON))
 
 GET_PERSON_SQL = """
 SELECT * FROM person WHERE team_id = %(team_id)s
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = """
-CREATE TABLE person_distinct_id
+PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id Int32,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int32
 ) ENGINE = {engine} 
-Order By (team_id, id)
+"""
+
+PERSONS_DISTINCT_ID_TABLE_SQL = (
+    PERSONS_DISTINCT_ID_TABLE_BASE_SQL
+    + """Order By (team_id, id)
 {storage_policy}
-""".format(
-    engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY
+"""
+).format(table_name="person_distinct_id", engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY)
+
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
+    table_name="kafka_person_distinct_id", engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
 )
 
 GET_DISTINCT_IDS_SQL = """

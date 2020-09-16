@@ -1,4 +1,6 @@
-from .clickhouse import STORAGE_POLICY, table_engine
+from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
+
+from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_ELEMENTS_TABLE_SQL = """
 DROP TABLE elements
@@ -9,8 +11,8 @@ DROP TABLE elements_group
 """
 
 
-ELEMENTS_TABLE_SQL = """
-CREATE TABLE elements
+ELEMENTS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     text VARCHAR,
@@ -26,11 +28,18 @@ CREATE TABLE elements
     created_at DateTime,
     group_id UUID
 ) ENGINE = {engine} 
-PARTITION BY toYYYYMM(created_at)
+"""
+
+ELEMENTS_TABLE_SQL = (
+    ELEMENTS_TABLE_BASE_SQL
+    + """PARTITION BY toYYYYMM(created_at)
 ORDER BY (team_id, id)
 {storage_policy}
-""".format(
-    engine=table_engine("elements"), storage_policy=STORAGE_POLICY
+"""
+).format(table_name="elements", engine=table_engine("elements"), storage_policy=STORAGE_POLICY)
+
+KAFKA_ELEMENTS_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_elements", engine=kafka_engine(topic=KAFKA_ELEMENTS)
 )
 
 INSERT_ELEMENTS_SQL = """
@@ -50,19 +59,25 @@ INSERT INTO elements SELECT
     %(group_id)s
 """
 
-ELEMENT_GROUP_TABLE_SQL = """
-CREATE TABLE elements_group
+ELEMENT_GROUP_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     elements_hash VARCHAR,
     team_id Int32
 ) ENGINE = {engine}
-ORDER BY (team_id, id)
-{storage_policy}
-""".format(
-    engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY
-)
+"""
 
+ELEMENT_GROUP_TABLE_SQL = (
+    ELEMENTS_TABLE_BASE_SQL
+    + """ORDER BY (team_id, id)
+{storage_policy}
+"""
+).format(table_name="elements_group", engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY)
+
+KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_elements_group", engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
+)
 
 INSERT_ELEMENT_GROUP_SQL = """
 INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s

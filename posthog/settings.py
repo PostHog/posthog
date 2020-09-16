@@ -126,6 +126,9 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
+IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+KAFKA_HOSTS = os.environ.get("KAFKA_HOSTS", "")
+
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 

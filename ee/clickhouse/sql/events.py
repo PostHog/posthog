@@ -1,4 +1,6 @@
-from .clickhouse import STORAGE_POLICY, table_engine
+from ee.kafka.topics import KAFKA_EVENTS
+
+from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
@@ -16,8 +18,8 @@ DROP_MAT_EVENTS_PROP_TABLE_SQL = """
 DROP TABLE events_properties_view
 """
 
-EVENTS_TABLE_SQL = """
-CREATE TABLE events
+EVENTS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     event VARCHAR,
@@ -26,14 +28,21 @@ CREATE TABLE events
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime
+    created_at DateTime64(6, 'UTC')
 ) ENGINE = {engine} 
-PARTITION BY toYYYYMM(timestamp)
+"""
+
+EVENTS_TABLE_SQL = (
+    EVENTS_TABLE_BASE_SQL
+    + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, timestamp, distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
-""".format(
-    engine=table_engine("events"), storage_policy=STORAGE_POLICY
+"""
+).format(table_name="events", engine=table_engine("events"), storage_policy=STORAGE_POLICY)
+
+KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_events", engine=kafka_engine(topic=KAFKA_EVENTS)
 )
 
 INSERT_EVENT_SQL = """

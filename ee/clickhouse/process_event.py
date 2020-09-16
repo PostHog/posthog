@@ -190,7 +190,6 @@ if check_ee_enabled():
                 _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
         properties = data.get("properties", data.get("$set", {}))
-
         _capture_ee(
             ip=ip,
             site_url=site_url,
