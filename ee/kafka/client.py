@@ -10,7 +10,7 @@ class KafkaProducer:
         if not IS_HEROKU:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
         else:
-            self.producer = kafka_helper.get_kafka_producer()
+            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
 
     def produce(self, topic: str, data):
         self.producer.send(topic, data.encode("utf-8"))
