@@ -50,7 +50,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
 
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 7000 }).should('exist')
     })
 
     it('Apply interval filter', () => {

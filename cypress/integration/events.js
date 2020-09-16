@@ -5,7 +5,7 @@ describe('Events', () => {
     })
 
     it('Events loaded', () => {
-        cy.get('[data-attr=events-table]').should('exist')
+        cy.get('[data-attr=events-table]', { timeout: 7000 }).should('exist')
     })
 
     it('Click on an event', () => {
