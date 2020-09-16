@@ -35,7 +35,7 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
             "nth_child": element.nth_child,
             "nth_of_type": element.nth_of_type,
             "attributes": json.dumps(element.attributes or {}),
-            "order": element.order,
+            "order": element.order or 0,
             "team_id": team.pk,
             "group_id": group_id,
         },

@@ -157,11 +157,7 @@ class Funnel(BaseQuery):
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
 
-    def get_steps(self) -> List[Dict[str, Any]]:
-        with connection.cursor() as cursor:
-            qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
-            cursor.execute(qstring)
-            people = namedtuplefetchall(cursor)
+    def data_to_return(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         steps = []
 
         average_time: Dict[int, Dict[str, Any]] = {}
@@ -172,7 +168,7 @@ class Funnel(BaseQuery):
         person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(self._filter.entities):
             relevant_people = []
-            for person in people:
+            for person in results:
                 if (
                     index > 0
                     and getattr(person, "step_{}".format(index))
@@ -204,4 +200,8 @@ class Funnel(BaseQuery):
         return steps
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.get_steps()
+        with connection.cursor() as cursor:
+            qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
+            cursor.execute(qstring)
+            results = namedtuplefetchall(cursor)
+        return self.data_to_return(results)

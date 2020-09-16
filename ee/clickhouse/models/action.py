@@ -129,13 +129,15 @@ def filter_element(step: ActionStep) -> Tuple[str, Dict]:
         for index, tag in enumerate(selector.parts):
             prop_queries.append(tag.clickhouse_query(query=ELEMENT_PROP_FILTER))
 
-        for key in ["tag_name", "text", "href"]:
-            if filters.get(key):
-                prop_queries.append("{} = '{}'".format(key, filters[key]))
+    for key in ["tag_name", "text", "href"]:
+        if filters.get(key):
+            prop_queries.append("{} = '{}'".format(key, filters[key]))
     separator = " AND "
     selector_query = separator.join(prop_queries)
 
     return (
-        ELEMENT_ACTION_FILTER.format(element_filter=selector_query, event_filter="AND id IN {}".format(event_filter)),
+        ELEMENT_ACTION_FILTER.format(
+            element_filter=selector_query, event_filter="AND id IN {}".format(event_filter) if event_filter else ""
+        ),
         params,
     )
