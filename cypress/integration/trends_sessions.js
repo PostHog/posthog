@@ -3,12 +3,12 @@ describe('Trends sessions', () => {
         // given
         cy.visit('/insights')
         cy.wait(200)
-        cy.contains('Sessions').click()
+        cy.contains('Sessions', { timeout: 7000 }).click()
     })
 
     it('Sessions exists', () => {
         // then
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 7000 }).should('exist')
     })
 
     it('Apply 1 overall filter', () => {
@@ -18,7 +18,7 @@ describe('Trends sessions', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-1]').click()
 
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 7000 }).should('exist')
     })
 
     it('Apply table filter', () => {
