@@ -293,70 +293,72 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(empty[0]["data"][0], 0)
 
-        # def test_breakdown_filtering(self):
-        #     self._create_events()
-        #     # test breakdown filtering
-        #     with freeze_time("2020-01-04T13:01:01Z"):
-        #         response = trends().run(
-        #             Filter(
-        #                 data={
-        #                     "date_from": "-14d",
-        #                     "breakdown": "$some_property",
-        #                     "events": [
-        #                         {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
-        #                         {"id": "no events"},
-        #                     ],
-        #                 }
-        #             ),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["label"], "sign up - Other")
-        #     self.assertEqual(response[1]["label"], "sign up - other_value")
-        #     self.assertEqual(response[2]["label"], "sign up - value")
-        #     self.assertEqual(response[3]["label"], "no events - Other")
+        def test_breakdown_filtering(self):
+            self._create_events()
+            # test breakdown filtering
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$some_property",
+                            "events": [
+                                {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+                                {"id": "no events"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
 
-        #     self.assertEqual(sum(response[0]["data"]), 2)
-        #     self.assertEqual(response[0]["data"][4 + 7], 2)
-        #     self.assertEqual(response[0]["breakdown_value"], "None")
+            self.assertEqual(response[0]["label"], "sign up - Other")
+            self.assertEqual(response[1]["label"], "sign up - other_value")
+            self.assertEqual(response[2]["label"], "sign up - value")
+            self.assertEqual(response[3]["label"], "no events - Other")
 
-        #     self.assertEqual(sum(response[1]["data"]), 1)
-        #     self.assertEqual(response[1]["data"][5 + 7], 1)
-        #     self.assertEqual(response[1]["breakdown_value"], "other_value")
+            self.assertEqual(sum(response[0]["data"]), 2)
+            self.assertEqual(response[0]["data"][4 + 7], 2)
+            self.assertEqual(response[0]["breakdown_value"], "None")
 
-        #     # check numerical breakdown
-        #     with freeze_time("2020-01-04T13:01:01Z"):
-        #         response = trends().run(
-        #             Filter(
-        #                 data={
-        #                     "date_from": "-14d",
-        #                     "breakdown": "$some_numerical_prop",
-        #                     "events": [
-        #                         {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
-        #                         {"id": "no events"},
-        #                     ],
-        #                 }
-        #             ),
-        #             self.team,
-        #         )
-        #     self.assertEqual(response[0]["label"], "sign up - Other")
-        #     self.assertEqual(response[0]["count"], 4.0)
-        #     self.assertEqual(response[1]["label"], "sign up - 80.0")
-        #     self.assertEqual(response[1]["count"], 1.0)
+            self.assertEqual(sum(response[1]["data"]), 1)
+            self.assertEqual(response[1]["data"][5 + 7], 1)
+            self.assertEqual(response[1]["breakdown_value"], "other_value")
 
-        # def test_breakdown_filtering_limit(self):
-        #     self._create_breakdown_events()
-        #     with freeze_time("2020-01-04T13:01:01Z"):
-        #         response = trends().run(
-        #             Filter(
-        #                 data={
-        #                     "date_from": "-14d",
-        #                     "breakdown": "$some_property",
-        #                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-        #                 }
-        #             ),
-        #             self.team,
-        #         )
-        #     self.assertEqual(len(response), 20)
+            # check numerical breakdown
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$some_numerical_prop",
+                            "events": [
+                                {"id": "sign up", "name": "sign up", "type": "events", "order": 0,},
+                                {"id": "no events"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["label"], "sign up - Other")
+            self.assertEqual(response[0]["count"], 4.0)
+            self.assertEqual(response[1]["label"], "sign up - 80.0")
+            self.assertEqual(response[1]["count"], 1.0)
+
+        def test_breakdown_filtering_limit(self):
+            self._create_breakdown_events()
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(len(response), 20)
 
         def test_action_filtering(self):
             sign_up_action, person = self._create_events()
