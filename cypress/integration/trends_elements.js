@@ -1,7 +1,7 @@
 describe('Trends actions & events', () => {
     beforeEach(() => {
         // given
-        cy.visit('/')
+        cy.visit('/insights')
         cy.wait(200)
     })
 
