@@ -13,6 +13,7 @@ from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
 
 FUNNEL_SQL = """
+SELECT * FROM (
     SELECT 
         person_distinct_id.person_id as id,
         groupArray(events.timestamp) as timestamps,
@@ -21,20 +22,30 @@ FUNNEL_SQL = """
         {steps}
     FROM events 
     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-    WHERE team_id = {team_id} {date_from} {date_to} 
-    GROUP BY
-    person_distinct_id.person_id, team_id
+    WHERE team_id = {team_id}
+    GROUP BY person_distinct_id.person_id, team_id
     ORDER BY timestamps
+ ) WHERE step_0 <> toDateTime(0)
 """
 
 STEP_ACTION_SQL = """
-    arrayFilter((timestamp, event, random_event_id) -> {is_first_step} AND (team_id = {team_id}) AND random_event_id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
-        , timestamps, eventsArr, event_ids )[1] AS step_{step}
+    arrayFilter(
+        (timestamp, event, random_event_id) ->
+            {is_first_step} AND
+            (team_id = {team_id}) AND
+            random_event_id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
+        , timestamps, eventsArr, event_ids
+    )[1] AS step_{step}
 """
 
 STEP_EVENT_SQL = """
-    arrayFilter((timestamp, event, random_event_id) -> {is_first_step} AND (team_id = {team_id}) AND event = '{event}' {filters}
-        , timestamps, eventsArr, event_ids )[1] AS step_{step}
+    arrayFilter(
+        (timestamp, event, random_event_id) ->
+            {is_first_step} AND
+            (team_id = {team_id}) AND
+            event = '{event}' {filters} {parsed_date_from} {parsed_date_to}
+        , timestamps, eventsArr, event_ids
+    )[1] AS step_{step}
 """
 
 
@@ -98,15 +109,12 @@ class ClickhouseFunnel(Funnel):
         return content_sql
 
     def _exec_query(self) -> str:
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
         prop_filters, prop_filter_params = parse_prop_clauses(
             "id", self._filter.properties, self._team, prepend="global"
         )
         self.params: Dict = {"team_id": self._team.pk}
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
-        query = FUNNEL_SQL.format(
-            date_from=parsed_date_from, date_to=parsed_date_to, team_id=self._team.id, steps=", ".join(steps)
-        )
+        query = FUNNEL_SQL.format(team_id=self._team.id, steps=", ".join(steps))
         return sync_execute(query, self.params)
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
@@ -118,9 +126,6 @@ class ClickhouseFunnel(Funnel):
         for result in results:
             result = list(result)
             del result[1:4]
-            # TODO: do below filtering inside query
-            if result[1].year == 1970:
-                continue
             person = namedtuple("Person", "id")
             person.pk = result[0]
             person.id = result[0]
