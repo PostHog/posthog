@@ -1,5 +1,5 @@
 from collections import namedtuple
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -9,6 +9,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
 
@@ -58,7 +59,7 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses("id", entity.properties, self._team, prepend=index)
+        prop_filters, prop_filter_params = parse_prop_clauses("id", entity.properties, self._team, prepend=str(index))
         global_prop_filters, global_prop_filter_params = parse_prop_clauses(
             "id", self._filter.properties, self._team, prepend="global"
         )
@@ -84,7 +85,7 @@ class ClickhouseFunnel(Funnel):
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
             if action_query == "":
-                return None
+                return ""
 
             self.params.update(action_params)
             content_sql = STEP_ACTION_SQL.format(
@@ -108,7 +109,7 @@ class ClickhouseFunnel(Funnel):
             )
         return content_sql
 
-    def _exec_query(self) -> str:
+    def _exec_query(self) -> List[Tuple]:
         prop_filters, prop_filter_params = parse_prop_clauses(
             "id", self._filter.properties, self._team, prepend="global"
         )
@@ -123,12 +124,10 @@ class ClickhouseFunnel(Funnel):
             return []
         width = len(results[0]) - 3  # the three
         res = []
-        for result in results:
-            result = list(result)
+        for result_tuple in results:
+            result = list(result_tuple)
             del result[1:4]
-            person = namedtuple("Person", "id")
-            person.pk = result[0]
-            person.id = result[0]
+            person = Person(pk=result[0])
             for step in range(0, width - 1):
                 setattr(person, "step_{}".format(step), result[step + 1] if result[step + 1].year != 1970 else None)
             res.append(person)
