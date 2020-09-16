@@ -38,7 +38,6 @@ router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"event", event.EventViewSet)
 router.register(r"element", element.ElementViewSet)
 router.register(r"person", person.PersonViewSet)
-router.register(r"action", action.ActionViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
@@ -52,7 +51,7 @@ if check_ee_enabled():
     try:
         from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
-        # router.register(r"action", ClickhouseActions, basename="action")
+        router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
         router.register(r"insight", ClickhouseInsights, basename="insight")
         # router.register(r"person", ClickhousePerson, basename="person")
@@ -61,3 +60,4 @@ if check_ee_enabled():
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
 else:
     router.register(r"insight", insight.InsightViewSet)
+    router.register(r"action", action.ActionViewSet)

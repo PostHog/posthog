@@ -117,6 +117,13 @@ class ClickhousePersonSerializer(serializers.Serializer):
     team_id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     is_identified = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    distinct_ids = serializers.SerializerMethodField()
+
+    def get_name(self, person):
+        props = json.loads(person[3])
+        email = props.get("email", None)
+        return email or person[0]
 
     def get_id(self, person):
         return person[0]
@@ -132,6 +139,9 @@ class ClickhousePersonSerializer(serializers.Serializer):
 
     def get_is_identified(self, person):
         return person[4]
+
+    def get_distinct_ids(self, person):
+        return person[5]
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):
