@@ -360,25 +360,33 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
             )
 
+            person_factory(team_id=self.team.pk, distinct_ids=["person_5"])
+            event_factory(
+                properties={"$current_url": "/pricing"}, distinct_id="person_5", event="$pageview", team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/about"}, distinct_id="person_5", event="$pageview", team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/pricing"}, distinct_id="person_5", event="$pageview", team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/help"}, distinct_id="person_5", event="$pageview", team=self.team,
+            )
+
             response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
 
             response = paths().run(
                 team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
             )
 
-            self.assertEqual(len(response), 3)
+            self.assertEqual(len(response), 5)
 
-            self.assertEqual(response[0]["source"], "1_/pricing")
-            self.assertEqual(response[0]["target"], "2_/")
-            self.assertEqual(response[0]["value"], 1)
-
-            self.assertEqual(response[1]["source"], "1_/pricing")
-            self.assertEqual(response[1]["target"], "2_/about")
-            self.assertEqual(response[1]["value"], 1)
-
-            self.assertEqual(response[2]["source"], "2_/")
-            self.assertEqual(response[2]["target"], "3_/about")
-            self.assertEqual(response[2]["value"], 1)
+            self.assertTrue(response[0].items() > {"source": "1_/pricing", "target": "2_/about", "value": 2}.items())
+            self.assertTrue(response[1].items() > {"source": "1_/pricing", "target": "2_/", "value": 1}.items())
+            self.assertTrue(response[2].items() > {"source": "2_/", "target": "3_/about", "value": 1}.items())
+            self.assertTrue(response[3].items() > {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
+            self.assertTrue(response[4].items() > {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
         def test_paths_in_window(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
