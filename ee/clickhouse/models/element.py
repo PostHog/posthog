@@ -31,6 +31,7 @@ def create_element_group(team: Team, element_hash: str) -> UUID:
 
 def create_element(element: Element, team: Team, group_id: UUID) -> None:
     p = KafkaProducer()
+    attribute_keys, attribute_values = avro.dict_to_arrays(element.attributes)
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
@@ -39,7 +40,9 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
         "attr_class": element.attr_class or [],
         "nth_child": element.nth_child,
         "nth_of_type": element.nth_of_type,
-        "attributes": avro.string_map_values(element.attributes),
+        "attributes": json.dumps(element.attributes),
+        "attribute_keys": attribute_keys,
+        "attribute_values": attribute_values,
         "order": element.order,
         "team_id": team.pk,
         "group_id": str(group_id),

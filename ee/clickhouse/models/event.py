@@ -36,10 +36,13 @@ def create_event(
     event_id = uuid.uuid4()
 
     p = KafkaProducer()
+    property_keys, property_values = avro.dict_to_arrays(properties)
     data = {
         "id": str(event_id),
         "event": event,
-        "properties": avro.string_map_values(properties),
+        "properties": json.dumps(properties),
+        "property_keys": property_keys,
+        "property_values": property_values,
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,

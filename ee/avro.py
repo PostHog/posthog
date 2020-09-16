@@ -15,11 +15,13 @@ ELEMENT_GROUP_SCHEMA = "element_group"
 EVENT_SCHEMA = "event"
 
 
-def string_map_values(old_dict: dict):
-    new_dict = {}
+def dict_to_arrays(old_dict: dict):
+    key_list = []
+    value_list = []
     for k, v in old_dict.items():
-        new_dict[k] = str(v)
-    return new_dict
+        key_list.append(k)
+        value_list.append(str(v))
+    return key_list, value_list
 
 
 def get_schema(schema_name):
@@ -30,15 +32,18 @@ def get_schema(schema_name):
 
 def encode(schema_name: str, data: any) -> bytes:
     schema = get_schema(schema_name)
-    buf = io.BytesIO()
-    writer = DataFileWriter(buf, DatumWriter(), schema)
-    writer.append(data)
-    writer.flush()
-    buf.seek(0)
-    return buf.read()
+    writer = avro.io.DatumWriter(schema)
+    bytes_writer = io.BytesIO()
+    encoder = avro.io.BinaryEncoder(bytes_writer)
+    writer.write(data, encoder)
+    raw_bytes = bytes_writer.getvalue()
+    return raw_bytes
 
 
-def decode(data: bytes) -> any:
-    data_buf = io.BytesIO(data)
-    reader = DataFileReader(data_buf, DatumReader())
-    return reader
+def decode(schema_name: str, data: bytes) -> any:
+    schema = get_schema(schema_name)
+    message = data.value()
+    bytes_reader = io.BytesIO(message)
+    decoder = avro.io.BinaryDecoder(bytes_reader)
+    reader = avro.io.DatumReader(schema)
+    return reader.read(decoder)

@@ -24,6 +24,8 @@ CREATE TABLE {table_name}
     id UUID,
     event VARCHAR,
     properties VARCHAR,
+    property_keys Array(VARCHAR), 
+    property_values Array(VARCHAR), 
     timestamp DateTime64(6, 'UTC'),
     team_id Int32,
     distinct_id VARCHAR,
@@ -91,8 +93,8 @@ team_id,
 distinct_id,
 elements_hash,
 created_at,
-arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
-arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
+property_keys array_property_keys,
+property_values array_property_values
 FROM events
 """
 

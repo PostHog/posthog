@@ -10,7 +10,9 @@
     {"name" : "attr_class", "type" : {"type": "array", "items": "string"}},
     {"name" : "nth_child", "type" : "long"},
     {"name" : "nth_of_type", "type" : "long"},
-    {"name" : "attributes", "type" : {"type": "map", "values" : "string"}},
+    {"name" : "attributes", "type" : "string"},
+    {"name" : "attribute_keys", "type" : {"type": "array", "items" : "string"}},
+    {"name" : "attribute_values", "type" : {"type": "array", "items" : "string"}},
     {"name" : "order", "type" : "long"},
     {"name" : "team_id", "type" : "long"},
     {"name" : "group_id", "type" : "string"}

@@ -5,6 +5,8 @@
    "fields" : [
      {"name" : "id", "type" : "string"},
      {"name" : "team_id", "type" : "long"},
-     {"name" : "properties", "type" : {"type": "map", "values" : "string"}}
+     {"name" : "properties", "type" : "string"},
+     {"name" : "property_keys", "type" : {"type": "array", "items" : "string"}},
+     {"name" : "property_values", "type" : {"type": "array", "items" : "string"}}
    ]
 }

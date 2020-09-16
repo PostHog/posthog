@@ -17,6 +17,8 @@ CREATE TABLE {table_name}
     created_at datetime,
     team_id Int32,
     properties VARCHAR,
+    property_keys Array(VARCHAR), 
+    property_values Array(VARCHAR), 
     is_identified Boolean
 ) ENGINE = {engine} 
 """

@@ -23,6 +23,8 @@ CREATE TABLE {table_name}
     nth_child Int32,
     nth_of_type Int32,
     attributes VARCHAR,
+    attribute_keys Array(VARCHAR), 
+    attribute_values Array(VARCHAR), 
     order Int32,
     team_id Int32,
     created_at DateTime,
@@ -137,8 +139,8 @@ attributes,
 order,
 team_id,
 group_id,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_values
+attribute_keys array_attribute_keys,
+attribute_values array_attribute_values
 FROM elements
 """
 
