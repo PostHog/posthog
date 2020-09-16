@@ -26,13 +26,6 @@ FUNNEL_SQL = """
     person_distinct_id.person_id, team_id
     ORDER BY timestamps
 """
-# STEP_ACTION_SQL = """
-#     arrayFilter(time -> {is_first_step}, groupArrayIf(timestamp, team_id = {team_id} AND id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}) )[1] AS step_{step}
-# """
-
-# STEP_EVENT_SQL = """
-#     arrayFilter(time -> {is_first_step}, groupArrayIf(timestamp, team_id = {team_id} AND event = '{event}' {filters} {parsed_date_from} {parsed_date_to}) )[1] AS step_{step}
-# """
 
 STEP_ACTION_SQL = """
     arrayFilter((timestamp, event, random_event_id) -> {is_first_step} AND (team_id = {team_id}) AND random_event_id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}

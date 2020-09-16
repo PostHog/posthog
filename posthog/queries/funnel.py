@@ -9,7 +9,7 @@ from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Action, Entity, Event, Filter, Team
+from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
 
@@ -157,7 +157,7 @@ class Funnel(BaseQuery):
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
 
-    def data_to_return(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
         steps = []
 
         average_time: Dict[int, Dict[str, Any]] = {}
