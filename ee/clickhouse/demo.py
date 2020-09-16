@@ -40,6 +40,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
             create_person(
                 team_id=team.pk, distinct_ids=[distinct_id], properties={"is_demo": True, **demo_data[demo_data_index]}
             )
+            demo_data_index += 1
             elements = [
                 Element(
                     tag_name="a",
