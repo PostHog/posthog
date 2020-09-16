@@ -85,7 +85,11 @@ class Paths(BaseQuery):
         sessions = (
             Event.objects.add_person_id(team.pk)
             .filter(team=team, **(event_filter), **date_query)
-            .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
+            .filter(
+                ~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"])
+                if event is None
+                else Q()
+            )
             .filter(filter.properties_to_Q(team_id=team.pk) if filter and filter.properties else Q())
             .annotate(
                 previous_timestamp=Window(

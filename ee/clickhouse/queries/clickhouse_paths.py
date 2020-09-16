@@ -10,32 +10,28 @@ from posthog.utils import relative_date_parse, request_to_date_query
 
 
 class ClickhousePaths(BaseQuery):
-    # def _determine_path_type(self, requested_type=None):
-    #     # Default
-    #     event: Optional[str] = "$pageview"
-    #     event_filter = {"event": event}
-    #     path_type = "properties->> '$current_url'"
-    #     start_comparator = "{} ~".format(path_type)
-    #
-    #     # determine requested type
-    #     if requested_type:
-    #         if requested_type == SCREEN_EVENT:
-    #             event = SCREEN_EVENT
-    #             event_filter = {"event": event}
-    #             path_type = "properties->> '$screen_name'"
-    #             start_comparator = "{} ~".format(path_type)
-    #         elif requested_type == AUTOCAPTURE_EVENT:
-    #             event = AUTOCAPTURE_EVENT
-    #             event_filter = {"event": event}
-    #             path_type = "tag_name_source"
-    #             start_comparator = "group_id ="
-    #         elif requested_type == CUSTOM_EVENT:
-    #             event = None
-    #             event_filter = {}
-    #             path_type = "event"
-    #             start_comparator = "event ="
-    #     return event, path_type, event_filter, start_comparator
-    #
+    def _determine_path_type(self, requested_type=None):
+        # Default
+        event: Optional[str] = "$pageview"
+        path_type = "JSONExtractString(properties, '$current_url')"
+        start_comparator = "{} ~".format(path_type)
+
+        # determine requested type
+        if requested_type:
+            if requested_type == SCREEN_EVENT:
+                event = SCREEN_EVENT
+                path_type = "JSONExtractString(properties, '$screen_name')"
+                start_comparator = "{} ~".format(path_type)
+            elif requested_type == AUTOCAPTURE_EVENT:
+                event = AUTOCAPTURE_EVENT
+                path_type = "tag_name_source"
+                start_comparator = "group_id ="
+            elif requested_type == CUSTOM_EVENT:
+                event = None
+                path_type = "event"
+                start_comparator = "event ="
+        return event, path_type, start_comparator
+
     # def _apply_start_point(self, start_comparator: str, query_string: str, start_point: str) -> str:
     #     marked = "\
     #         SELECT *, CASE WHEN {} '{}' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
@@ -70,11 +66,8 @@ class ClickhousePaths(BaseQuery):
 
     def calculate_paths(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
-        # event, path_type, event_filter, start_comparator = self._determine_path_type(
-        #     filter.path_type if filter else None
-        # )
-        #
         # sessions = (
         #     Event.objects.add_person_id(team.pk)
         #     .filter(team=team, **(event_filter), **date_query)
@@ -106,17 +99,23 @@ class ClickhousePaths(BaseQuery):
                     SELECT timestamp,
                            distinct_id,
                            id AS event_id,
-                           JSONExtractString(properties, %(property)s) AS path_type
+                           {path_type} AS path_type
                     FROM events
                     WHERE team_id = %(team_id)s 
-                      AND event = %(event)s
-                      {parsed_date_from}
-                      {parsed_date_to}
-                    GROUP BY distinct_id, timestamp, event_id, properties
+                          AND {event_query}
+                          {parsed_date_from}
+                          {parsed_date_to}
+                    GROUP BY distinct_id, timestamp, event_id, properties {extra_group_by}
                     ORDER BY distinct_id, timestamp
             )
         """.format(
-            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+            event_query="event = %(event)s"
+            if event
+            else "event NOT IN ('$autocapture', '$pageview', '$identify', '$pageleave', '$screen')",
+            path_type=path_type,
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            extra_group_by=", {}".format(path_type) if path_type == "event" or path_type == "tag_name_source" else "",
         )
 
         # if event == "$autocapture":
@@ -227,7 +226,7 @@ class ClickhousePaths(BaseQuery):
         final_query = count_query.format(aggregate_query=aggregate_query.format(sessions_query=sessions_query))
 
         rows = sync_execute(
-            final_query, {"team_id": team.pk, "property": "$current_url", "event": "$pageview", "query_depth": 4}
+            final_query, {"team_id": team.pk, "property": "$current_url", "event": event, "query_depth": 4}
         )
 
         resp: List[Dict[str, str]] = []
