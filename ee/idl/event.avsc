@@ -5,8 +5,7 @@
    "fields" : [
      {"name" : "id", "type" : "string"},
      {"name" : "event", "type" : "string"},
-     {"name" : "properties", "type" : {"type": "map", "values": "string"}
-},
+     {"name" : "properties", "type" : {"type": "map", "values": "string"}},
      {"name" : "team_id", "type" : "long"},
      {"name": "timestamp", "type": "string"},
      {"name": "created_at", "type": "string"},

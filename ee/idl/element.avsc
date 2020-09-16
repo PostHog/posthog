@@ -7,13 +7,13 @@
     {"name" : "tag_name", "type" : "string"},
     {"name" : "href", "type" : "string"},
     {"name" : "attr_id", "type" : "string"},
-    {"name" : "attr_class", "type" : "string"},
-    {"name" : "nth_child", "type" : "string"},
-    {"name" : "nth_of_type", "type" : "string"},
+    {"name" : "attr_class", "type" : {"type": "array", "items": "string"}},
+    {"name" : "nth_child", "type" : "long"},
+    {"name" : "nth_of_type", "type" : "long"},
     {"name" : "attributes", "type" : {"type": "map", "values" : "string"}},
     {"name" : "order", "type" : "long"},
     {"name" : "team_id", "type" : "long"},
-    {"name" : "group_id", "type" : "long"}
+    {"name" : "group_id", "type" : "string"}
   ]
 }
 

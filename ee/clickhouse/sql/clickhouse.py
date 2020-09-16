@@ -19,5 +19,5 @@ def table_engine(table: str) -> str:
     return TABLE_ENGINE.format(table=table)
 
 
-def kafka_engine(topic: str, kafka_host=KAFKA_HOSTS, group="group1", serialization="JSONEachRow"):
+def kafka_engine(topic: str, kafka_host=KAFKA_HOSTS, group="group1", serialization="Avro"):
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)

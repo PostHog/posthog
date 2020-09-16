@@ -40,5 +40,5 @@ def encode(schema_name: str, data: any) -> bytes:
 
 def decode(data: bytes) -> any:
     data_buf = io.BytesIO(data)
-    reader = DataFileReader(data_buf, DataFileReader())
+    reader = DataFileReader(data_buf, DatumReader())
     return reader
