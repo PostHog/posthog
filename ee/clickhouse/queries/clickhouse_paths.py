@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Optional
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery
-from posthog.utils import relative_date_parse, request_to_date_query
 
 
 class ClickhousePaths(BaseQuery):
@@ -68,6 +68,8 @@ class ClickhousePaths(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
+        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+
         # sessions = (
         #     Event.objects.add_person_id(team.pk)
         #     .filter(team=team, **(event_filter), **date_query)
@@ -103,6 +105,7 @@ class ClickhousePaths(BaseQuery):
                     FROM events
                     WHERE team_id = %(team_id)s 
                           AND {event_query}
+                          {filters}
                           {parsed_date_from}
                           {parsed_date_to}
                     GROUP BY distinct_id, timestamp, event_id, properties {extra_group_by}
@@ -116,6 +119,7 @@ class ClickhousePaths(BaseQuery):
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             extra_group_by=", {}".format(path_type) if path_type == "event" or path_type == "tag_name_source" else "",
+            filters=prop_filters if filter.properties else "",
         )
 
         # if event == "$autocapture":
@@ -225,9 +229,10 @@ class ClickhousePaths(BaseQuery):
 
         final_query = count_query.format(aggregate_query=aggregate_query.format(sessions_query=sessions_query))
 
-        rows = sync_execute(
-            final_query, {"team_id": team.pk, "property": "$current_url", "event": event, "query_depth": 4}
-        )
+        params: Dict = {"team_id": team.pk, "property": "$current_url", "event": event, "query_depth": 4}
+        params = {**params, **prop_filter_params}
+
+        rows = sync_execute(final_query, params)
 
         resp: List[Dict[str, str]] = []
         for row in rows:
