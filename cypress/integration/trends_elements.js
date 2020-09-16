@@ -46,11 +46,11 @@ describe('Trends actions & events', () => {
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('.col > .ant-select > .ant-select-selector > .ant-select-selection-item').click() // Will later substitute for data-attr
-        cy.get('[data-attr=prop-filter-event-1]').click()
+        cy.get('[data-attr=prop-filter-event-1]', { timeout: 7000 }).click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
 
-        cy.get('[data-attr=trend-line-graph]', { timeout: 7000 }).should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply interval filter', () => {
