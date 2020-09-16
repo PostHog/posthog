@@ -92,7 +92,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                     !!rollout_percentage && hasKeyChanged ? (
                         <small>
                             Changing this key will
-                            <a href="https://posthog.com/docs/features/feature-flags">
+                            <a href="https://posthog.com/docs/features/feature-flags#feature-flag-persistence">
                                 {' '}
                                 affect the persistence of your flag.
                             </a>
