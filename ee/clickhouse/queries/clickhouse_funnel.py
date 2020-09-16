@@ -21,9 +21,10 @@ FUNNEL_SQL = """
         {steps}
     FROM events 
     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-    WHERE team_id = {team_id} {date_from} {date_to}
+    WHERE team_id = {team_id} {date_from} {date_to} 
     GROUP BY
     person_distinct_id.person_id, team_id
+    ORDER BY timestamps
 """
 # STEP_ACTION_SQL = """
 #     arrayFilter(time -> {is_first_step}, groupArrayIf(timestamp, team_id = {team_id} AND id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}) )[1] AS step_{step}
@@ -52,15 +53,29 @@ class ClickhouseFunnel(Funnel):
         self._filter = filter
         self._team = team
 
+    def _build_filters(self, entity: Entity, index: int) -> str:
+        prop_filters, prop_filter_params = parse_prop_clauses("id", entity.properties, self._team, prepend=index)
+        global_prop_filters, global_prop_filter_params = parse_prop_clauses(
+            "id", self._filter.properties, self._team, prepend="global"
+        )
+        self.params.update(prop_filter_params)
+        self.params.update(global_prop_filter_params)
+        filters = ""
+        if entity.properties:
+            filters += prop_filters.replace("id IN", "random_event_id IN", 1)
+
+        if self._filter.properties:
+            filters += global_prop_filters.replace("id IN", "random_event_id IN", 1)
+        return filters
+
     def _build_steps_query(self, entity: Entity, index: int) -> str:
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", entity.properties, self._team, prepend=index)
         is_first_step = (
             "timestamp <> toDateTime(0)"
             if index == 0
-            else "timestamp <> toDateTime(0) AND timestamp >= step_{prev_step}".format(prev_step=index - 1)
+            else "step_{prev_step} <> toDateTime(0) AND timestamp >= step_{prev_step}".format(prev_step=index - 1)
         )
-        self.params.update(prop_filter_params)
+        filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -73,9 +88,7 @@ class ClickhouseFunnel(Funnel):
                 actions_query=action_query,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="{filters}".format(filters=prop_filters.replace("id IN", "random_event_id IN", 1))
-                if entity.properties
-                else "",
+                filters=filters,
                 step=index,
                 is_first_step=is_first_step,
             )
@@ -85,9 +98,7 @@ class ClickhouseFunnel(Funnel):
                 event=entity.id,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="{filters}".format(filters=prop_filters.replace("id IN", "random_event_id IN", 1))
-                if entity.properties
-                else "",
+                filters=filters,
                 step=index,
                 is_first_step=is_first_step,
             )
@@ -95,16 +106,14 @@ class ClickhouseFunnel(Funnel):
 
     def _exec_query(self) -> str:
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", self._filter.properties, self._team)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            "id", self._filter.properties, self._team, prepend="global"
+        )
         self.params: Dict = {"team_id": self._team.pk}
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
             date_from=parsed_date_from, date_to=parsed_date_to, team_id=self._team.id, steps=", ".join(steps)
         )
-        print(query)
-        print("==")
-        print(self.params)
-        print("------")
         return sync_execute(query, self.params)
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
@@ -116,6 +125,7 @@ class ClickhouseFunnel(Funnel):
         for result in results:
             result = list(result)
             del result[1:4]
+            # TODO: do below filtering inside query
             if result[1].year == 1970:
                 continue
             person = namedtuple("Person", "id")
