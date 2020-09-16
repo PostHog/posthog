@@ -91,33 +91,28 @@ class ClickhousePaths(BaseQuery):
 
         # sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
 
-        SESSIONS_QUERY = """
-            -- 2
-                SELECT distinct_id,
-                         event_id,
-                         timestamp,
-                         path_type,
-                         neighbor(distinct_id, -1) as possible_prev_distinct_id,
-                         neighbor(event_id, -1)       as possible_prev_event_id,
-                         neighbor(timestamp, -1)   as possible_prev_timestamp,
-                         if(possible_prev_distinct_id != distinct_id or
-                            dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev_timestamp)) > 30, 1,
-                            0)                     as new_session
-                  FROM (
-            -- 1
-                        SELECT timestamp,
-                               distinct_id,
-                               id as event_id,
-                               JSONExtractString(properties, %(property)s) as path_type
-                        FROM events
-                        WHERE team_id = %(team_id)s
-                          and event = %(event)s
-                        GROUP BY distinct_id, timestamp, event_id, properties
-                        ORDER BY distinct_id, timestamp
-            -- /1
-
-                           )
-            -- /2
+        sessions_query = """
+            SELECT distinct_id,
+                   event_id,
+                   timestamp,
+                   path_type,
+                   IF(
+                      neighbor(distinct_id, -1) != distinct_id
+                        OR dateDiff('minute', toDateTime(timestamp), toDateTime(neighbor(timestamp, -1))) > 30, 
+                      1,
+                      0
+                   ) AS new_session
+            FROM (
+                    SELECT timestamp,
+                           distinct_id,
+                           id AS event_id,
+                           JSONExtractString(properties, %(property)s) AS path_type
+                    FROM events
+                    WHERE team_id = %(team_id)s 
+                      AND event = %(event)s
+                    GROUP BY distinct_id, timestamp, event_id, properties
+                    ORDER BY distinct_id, timestamp
+            )
         """
 
         # if event == "$autocapture":
@@ -181,64 +176,57 @@ class ClickhousePaths(BaseQuery):
         # )
         # rows = cursor.fetchall()
 
-        AGGREGATE_QUERY = """
-            -- 4
-            SELECT concat(toString(group_index), '_', path_type) as target_event,
-                   event_id as target_event_id,
-                   if(group_index > 1, neighbor(concat(toString(group_index), '_', path_type), -1), null) as source_event,
-                   if(group_index > 1, neighbor(event_id, -1), null)       as source_event_id
+        aggregate_query = """
+            SELECT concat(toString(group_index), '_', path_type)                                          AS target_event,
+                   event_id                                                                               AS target_event_id,
+                   if(group_index > 1, neighbor(concat(toString(group_index), '_', path_type), -1), null) AS source_event,
+                   if(group_index > 1, neighbor(event_id, -1), null)                                      AS source_event_id
             FROM (
-            -- 3
                   SELECT distinct_id,
                          event_id,
                          timestamp,
                          path_type,
                          arraySum(arraySlice(gids, 1, idx))                 AS gid,
-                         indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) as group_index
+                         indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) AS group_index
                   FROM (
-                        SELECT groupArray(timestamp)   as timestamps,
-                               groupArray(path_type)   as path_types,
-                               groupArray(event_id)       as event_ids,
-                               groupArray(distinct_id) as distinct_ids,
+                        SELECT groupArray(timestamp)   AS timestamps,
+                               groupArray(path_type)   AS path_types,
+                               groupArray(event_id)    AS event_ids,
+                               groupArray(distinct_id) AS distinct_ids,
                                groupArray(new_session) AS gids
-                        FROM ({sessions_query})
+                         FROM ({sessions_query})
                        )
-                      ARRAY JOIN
-                       distinct_ids as distinct_id,
-                       event_ids as event_id,
-                       timestamps as timestamp,
-                       path_types as path_type,
+                  ARRAY JOIN
+                       distinct_ids AS distinct_id,
+                       event_ids AS event_id,
+                       timestamps AS timestamp,
+                       path_types AS path_type,
                        arrayEnumerate(gids) AS idx
-            -- /3
-                )
-            -- /4
+            )
+            WHERE group_index <= %(query_depth)s
         """
 
-        COUNT_QUERY = """
-            -- 5
+        count_query = """
             SELECT 
-                source_event, 
-                any(source_event_id) as source_event_id, 
-                target_event, 
-                any(target_event_id) as target_event_id, 
-                count(*) as event_count
-            from (
-                {aggregate_query}
-            ) 
-            where source_event is not null and target_event is not null
-            group by source_event, target_event
-            order by event_count desc, source_event, target_event
-            -- /5
+                source_event         AS source_event, 
+                any(source_event_id) AS source_event_id, 
+                target_event         AS target_event, 
+                any(target_event_id) AS target_event_id, 
+                COUNT(*)             AS event_count
+            FROM ({aggregate_query}) 
+            WHERE source_event IS NOT NULL 
+              AND target_event IS NOT NULL
+            GROUP BY source_event, target_event
+            ORDER BY event_count DESC, source_event, target_event
         """
 
-        FINAL_QUERY = COUNT_QUERY.format(aggregate_query=AGGREGATE_QUERY.format(sessions_query=SESSIONS_QUERY))
+        final_query = count_query.format(aggregate_query=aggregate_query.format(sessions_query=sessions_query))
 
-        params = {"team_id": team.pk, "property": "$current_url", "event": "$pageview"}
+        rows = sync_execute(
+            final_query, {"team_id": team.pk, "property": "$current_url", "event": "$pageview", "query_depth": 4}
+        )
 
         resp: List[Dict[str, str]] = []
-
-        rows = sync_execute(FINAL_QUERY, params)
-
         for row in rows:
             resp.append(
                 {"source": row[0], "target": row[2], "target_id": row[3], "source_id": row[1], "value": row[4],}
