@@ -348,6 +348,9 @@ def paths_test_factory(paths, event_factory, person_factory):
             event_factory(
                 properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
             )
+            event_factory(
+                properties={"$current_url": "/about"}, distinct_id="person_3", event="$pageview", team=self.team,
+            )
 
             person_factory(team_id=self.team.pk, distinct_ids=["person_4"])
             event_factory(
@@ -363,10 +366,19 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
             )
 
-            self.assertGreaterEqual(len(response), 0)
+            self.assertEqual(len(response), 3)
 
-            for item in response:
-                self.assertEqual(item["source"], "1_/pricing")
+            self.assertEqual(response[0]["source"], "1_/pricing")
+            self.assertEqual(response[0]["target"], "2_/")
+            self.assertEqual(response[0]["value"], 1)
+
+            self.assertEqual(response[1]["source"], "1_/pricing")
+            self.assertEqual(response[1]["target"], "2_/about")
+            self.assertEqual(response[1]["value"], 1)
+
+            self.assertEqual(response[2]["source"], "2_/")
+            self.assertEqual(response[2]["target"], "3_/about")
+            self.assertEqual(response[2]["value"], 1)
 
         def test_paths_in_window(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
