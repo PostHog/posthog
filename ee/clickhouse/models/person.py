@@ -72,7 +72,7 @@ def update_person_properties(id: int, properties: Dict) -> None:
 def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
-    p.produce(topic="clickhouse_person_distinct", data=json.dumps(data))
+    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
 
 
 def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
