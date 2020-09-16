@@ -41,9 +41,11 @@ export function PropertiesTable({ properties }) {
                 dataSource={Object.entries(properties)}
             />
         )
-    if (properties === true) return 'true'
-    if (properties === false) return 'false'
-    return properties ? properties : null
+    return (
+        <>
+            {properties.toString()} <i>({typeof properties})</i>
+        </>
+    )
 }
 PropertiesTable.propTypes = {
     properties: PropTypes.any.isRequired,
