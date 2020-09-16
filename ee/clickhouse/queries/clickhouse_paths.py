@@ -14,47 +14,22 @@ class ClickhousePaths(BaseQuery):
         # Default
         event: Optional[str] = "$pageview"
         path_type = "JSONExtractString(properties, '$current_url')"
-        start_comparator = "{} ~".format(path_type)
+        start_comparator = "path_type"
 
         # determine requested type
         if requested_type:
             if requested_type == SCREEN_EVENT:
                 event = SCREEN_EVENT
                 path_type = "JSONExtractString(properties, '$screen_name')"
-                start_comparator = "{} ~".format(path_type)
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 path_type = "tag_name_source"
-                start_comparator = "group_id ="
+                start_comparator = "group_id"
             elif requested_type == CUSTOM_EVENT:
                 event = None
                 path_type = "event"
-                start_comparator = "event ="
         return event, path_type, start_comparator
 
-    # def _apply_start_point(self, start_comparator: str, query_string: str, start_point: str) -> str:
-    #     marked = "\
-    #         SELECT *, CASE WHEN {} '{}' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
-    #     ".format(
-    #         start_comparator, start_point, query_string
-    #     )
-    #
-    #     marked_plus = "\
-    #         SELECT *, MIN(mark) OVER (\
-    #                 PARTITION BY distinct_id\
-    #                 , session ORDER BY timestamp\
-    #                 ) AS max from ({}) as marked order by session\
-    #     ".format(
-    #         marked
-    #     )
-    #
-    #     sessionified = "\
-    #         SELECT * FROM ({}) as something where timestamp >= max \
-    #     ".format(
-    #         marked_plus
-    #     )
-    #     return sessionified
-    #
     # def _add_elements(self, query_string: str) -> str:
     #     element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
     #                 ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
@@ -70,22 +45,6 @@ class ClickhousePaths(BaseQuery):
 
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
-        # sessions = (
-        #     Event.objects.add_person_id(team.pk)
-        #     .filter(team=team, **(event_filter), **date_query)
-        #     .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
-        #     .filter(filter.properties_to_Q(team_id=team.pk) if filter and filter.properties else Q())
-        #     .annotate(
-        #         previous_timestamp=Window(
-        #             expression=Lag("timestamp", default=None),
-        #             partition_by=F("distinct_id"),
-        #             order_by=F("timestamp").asc(),
-        #         )
-        #     )
-        # )
-
-        # sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-
         sessions_query = """
             SELECT distinct_id,
                    event_id,
@@ -96,7 +55,8 @@ class ClickhousePaths(BaseQuery):
                         OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30, 
                       1,
                       0
-                   ) AS new_session
+                   ) AS new_session,
+                   (new_session = 1 AND {marked_session}) as marked_session
             FROM (
                     SELECT timestamp,
                            distinct_id,
@@ -120,68 +80,11 @@ class ClickhousePaths(BaseQuery):
             parsed_date_to=parsed_date_to,
             extra_group_by=", {}".format(path_type) if path_type == "event" or path_type == "tag_name_source" else "",
             filters=prop_filters if filter.properties else "",
+            marked_session="{} = %(start_point)s".format(start_comparator) if filter and filter.start_point else "1",
         )
 
         # if event == "$autocapture":
         #     sessions_sql = self._add_elements(query_string=sessions_sql)
-
-        # events_notated = "\
-        # SELECT *, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
-        # FROM ({}) AS inner_sessions\
-        # ".format(
-        #     sessions_sql
-        # )
-
-        # sessionified = "\
-        # SELECT events_notated.*, SUM(new_session) OVER (\
-        #     ORDER BY distinct_id\
-        #             ,timestamp\
-        #     ) AS session\
-        # FROM ({}) as events_notated\
-        # ".format(
-        #     events_notated
-        # )
-        #
-        # if filter and filter.start_point:
-        #     sessionified = self._apply_start_point(
-        #         start_comparator=start_comparator, query_string=sessionified, start_point=filter.start_point,
-        #     )
-        #
-        # final = "\
-        # SELECT {} as path_type, id, sessionified.session\
-        #     ,ROW_NUMBER() OVER (\
-        #             PARTITION BY distinct_id\
-        #             ,session ORDER BY timestamp\
-        #             ) AS event_number\
-        # FROM ({}) as sessionified\
-        # ".format(
-        #     path_type, sessionified
-        # )
-        #
-        # counts = "\
-        # SELECT event_number || '_' || path_type as target_event, id as target_id, LAG(event_number || '_' || path_type, 1) OVER (\
-        #     PARTITION BY session\
-        #     ) AS source_event , LAG(id, 1) OVER (\
-        #     PARTITION BY session\
-        #     ) AS source_id from \
-        # ({}) as final\
-        # where event_number <= 4\
-        # ".format(
-        #     final
-        # )
-
-        # cursor = connection.cursor()
-        # cursor.execute(
-        #     "\
-        # SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from ({}) as counts\
-        # where source_event is not null and target_event is not null\
-        # group by source_event, target_event order by count desc limit 20\
-        # ".format(
-        #         counts
-        #     ),
-        #     sessions_sql_params,
-        # )
-        # rows = cursor.fetchall()
 
         aggregate_query = """
             SELECT concat(toString(group_index), '_', path_type)                                          AS target_event,
@@ -193,14 +96,16 @@ class ClickhousePaths(BaseQuery):
                          event_id,
                          timestamp,
                          path_type,
-                         arraySum(arraySlice(gids, 1, idx))                 AS gid,
-                         indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) AS group_index
+                         indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) AS group_index,
+                         marked_session,
+                         neighbor(marked_session, -group_index + 1) as marked_group
                   FROM (
-                        SELECT groupArray(timestamp)   AS timestamps,
-                               groupArray(path_type)   AS path_types,
-                               groupArray(event_id)    AS event_ids,
-                               groupArray(distinct_id) AS distinct_ids,
-                               groupArray(new_session) AS gids
+                        SELECT groupArray(timestamp)      AS timestamps,
+                               groupArray(path_type)      AS path_types,
+                               groupArray(event_id)       AS event_ids,
+                               groupArray(distinct_id)    AS distinct_ids,
+                               groupArray(new_session)    AS gids,
+                               groupArray(marked_session) AS marked_sessions
                          FROM ({sessions_query})
                        )
                   ARRAY JOIN
@@ -208,9 +113,10 @@ class ClickhousePaths(BaseQuery):
                        event_ids AS event_id,
                        timestamps AS timestamp,
                        path_types AS path_type,
+                       marked_sessions AS marked_session,
                        arrayEnumerate(gids) AS idx
             )
-            WHERE group_index <= %(query_depth)s
+            WHERE group_index <= %(query_depth)s AND marked_group = 1
         """
 
         count_query = """
@@ -229,7 +135,13 @@ class ClickhousePaths(BaseQuery):
 
         final_query = count_query.format(aggregate_query=aggregate_query.format(sessions_query=sessions_query))
 
-        params: Dict = {"team_id": team.pk, "property": "$current_url", "event": event, "query_depth": 4}
+        params: Dict = {
+            "team_id": team.pk,
+            "property": "$current_url",
+            "event": event,
+            "query_depth": 4,
+            "start_point": filter.start_point,
+        }
         params = {**params, **prop_filter_params}
 
         rows = sync_execute(final_query, params)
