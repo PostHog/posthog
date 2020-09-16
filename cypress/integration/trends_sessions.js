@@ -16,7 +16,7 @@ describe('Trends sessions', () => {
         cy.get('.col > .ant-select > .ant-select-selector > .ant-select-selection-item').click() // Will later substitute for data-attr
         cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click()
+        cy.get('[data-attr=prop-val-1]').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
