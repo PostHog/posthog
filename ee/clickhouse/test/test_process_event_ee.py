@@ -184,7 +184,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        self.assertEqual(events[0]["properties"]["$ip"], "11.12.13.14")
+        self.assertEqual(events[0]["properties"]["$ip"], '"11.12.13.14"')
 
     def test_anonymized_ip_capture(self) -> None:
         self.team.anonymize_ips = True

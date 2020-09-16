@@ -1,4 +1,5 @@
 import copy
+from ast import parse
 from datetime import datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -10,7 +11,12 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
-from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
+from ee.clickhouse.sql.events import (
+    EVENT_JOIN_PERSON_SQL,
+    EVENT_JOIN_PROPERTY_WITH_KEY_SQL,
+    NULL_BREAKDOWN_SQL,
+    NULL_SQL,
+)
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -22,11 +28,11 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and event = '{event}' {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 AGGREGATE_SQL = """
@@ -123,9 +129,7 @@ WHERE person_id IN ({table_name})
 
 
 class ClickhouseTrends(BaseQuery):
-    def _serialize_entity(
-        self, entity: Entity, filter: Filter, team: Team, label_note: str = ""
-    ) -> List[Dict[str, Any]]:
+    def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -179,6 +183,8 @@ class ClickhouseTrends(BaseQuery):
         action_query = ""
         action_params: Dict = {}
 
+        top_elements_array = []
+
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -230,19 +236,20 @@ class ClickhouseTrends(BaseQuery):
         elif filter.breakdown_type == "person":
             pass
         else:
-            element_params = {**params, "key": filter.breakdown, "limit": 10}
+            element_params = {**params, "key": filter.breakdown, "limit": 20}
             element_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
 
             try:
-                top_elements_array = sync_execute(element_query, element_params)
+                top_elements_array_result = sync_execute(element_query, element_params)
+                top_elements_array = top_elements_array_result[0][0]
             except:
                 top_elements_array = []
 
             params = {
                 **params,
-                "values": top_elements_array[0][0],
+                "values": top_elements_array,
                 "key": filter.breakdown,
                 "event": entity.id,
                 **action_params,
@@ -259,7 +266,23 @@ class ClickhouseTrends(BaseQuery):
             result = sync_execute(breakdown_query, params)
         except:
             result = []
-        parsed_results = self._parse_breakdown_response(result, filter, entity)
+
+        parsed_results = []
+
+        for idx, stats in enumerate(result):
+            extra_label = self._determine_breakdown_label(
+                idx, filter.breakdown_type, filter.breakdown, top_elements_array
+            )
+            label = "{} - {}".format(entity.name, extra_label)
+            additional_values = {
+                "label": label,
+                "breakdown_value": filter.breakdown[idx]
+                if filter.breakdown_type == "cohort"
+                else top_elements_array[idx],
+            }
+            parsed_result = self._parse_response(stats, filter, additional_values)
+            parsed_results.append(parsed_result)
+
         return parsed_results
 
     def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List]:
@@ -276,44 +299,61 @@ class ClickhouseTrends(BaseQuery):
             queries.append(cohort_query)
         return " UNION ALL ".join(queries)
 
-    def _parse_breakdown_response(self, res: List, filter: Filter, entity: Entity) -> List[Dict[str, Any]]:
-        parsed = []
-        for idx, stats in enumerate(res):
-            if filter.breakdown:
-                extra_label = self._determine_breakdown_label(filter.breakdown_type, filter.breakdown[idx])
-                label = "{} - {}".format(entity.name, extra_label)
-                additional_values = {"label": label, "breakdown_value": filter.breakdown[idx]}
-            else:
-                additional_values = {}
-            counts = stats[1]
-            dates = [
-                ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-                    "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-                )
-                for item in stats[0]
-            ]
-            labels = [
-                ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-                    "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-                )
-                for item in stats[0]
-            ]
-            parsed.append({"data": counts, "count": sum(counts), "dates": dates, "labels": labels, **additional_values})
-
-        return parsed
+    def _parse_response(self, stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
+        counts = stats[1]
+        dates = [
+            ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+                "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            )
+            for item in stats[0]
+        ]
+        labels = [
+            ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+                "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            )
+            for item in stats[0]
+        ]
+        return {"data": counts, "count": sum(counts), "dates": dates, "labels": labels, **additional_values}
 
     def _determine_breakdown_label(
-        self, breakdown_type: Optional[str], breakdown: Optional[Union[str, int]] = ""
+        self, index: int, breakdown_type: Optional[str], breakdown: List, elements: List
     ) -> str:
         if breakdown_type == "cohort":
-            if breakdown == "all":
+            if breakdown[index] == "all":
                 return "all users"
             else:
-                return Cohort.objects.get(pk=breakdown).name
+                return Cohort.objects.get(pk=breakdown[index]).name
         elif breakdown_type == "person":
             return ""
         else:
-            return str(breakdown) or ""
+            return str(elements[index]) or ""
+
+    def _process_math(self, entity):
+        join_condition = ""
+        aggregate_operation = "count(*)"
+        params = {}
+        if entity.math == "dau":
+            join_condition = EVENT_JOIN_PERSON_SQL
+            aggregate_operation = "count(DISTINCT person_id)"
+        elif entity.math == "sum":
+            aggregate_operation = "sum(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+
+        elif entity.math == "avg":
+            aggregate_operation = "avg(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+        elif entity.math == "min":
+            aggregate_operation = "min(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+        elif entity.math == "max":
+            aggregate_operation = "max(value)"
+            join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+            params = {"join_property_key": entity.math_property}
+
+        return aggregate_operation, join_condition, params
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
@@ -322,8 +362,11 @@ class ClickhouseTrends(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
+        aggregate_operation, join_condition, math_params = self._process_math(entity)
+
         params: Dict = {"team_id": team.pk}
-        params = {**params, **prop_filter_params}
+        params = {**params, **prop_filter_params, **math_params}
+
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
@@ -337,6 +380,8 @@ class ClickhouseTrends(BaseQuery):
                     parsed_date_from=(parsed_date_from or ""),
                     parsed_date_to=(parsed_date_to or ""),
                     filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
                 )
             except:
                 return []
@@ -349,6 +394,8 @@ class ClickhouseTrends(BaseQuery):
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
             )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation,
@@ -362,9 +409,13 @@ class ClickhouseTrends(BaseQuery):
         try:
             result = sync_execute(final_query, params)
 
-            parsed_results = self._parse_breakdown_response(result, filter, entity=entity)
         except:
-            parsed_results = []
+            result = []
+
+        parsed_results = []
+        for _, stats in enumerate(result):
+            parsed_result = self._parse_response(stats, filter)
+            parsed_results.append(parsed_result)
 
         return parsed_results
 
@@ -380,10 +431,10 @@ class ClickhouseTrends(BaseQuery):
         for entity in filter.entities:
             if filter.compare:
                 compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team, "current")
+                entity_result = self._serialize_entity(entity, filter, team)
                 entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
                 result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team, "previous")
+                previous_entity_result = self._serialize_entity(entity, compare_filter, team)
                 previous_entity_result = convert_to_comparison(
                     previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
                 )

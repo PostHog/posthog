@@ -44,6 +44,10 @@ GET_EVENTS_SQL = """
 SELECT * FROM events_with_array_props_view
 """
 
+GET_EVENTS_BY_TEAM_SQL = """
+SELECT * FROM events_with_array_props_view WHERE team_id = %(team_id)s
+"""
+
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
@@ -82,8 +86,8 @@ team_id,
 distinct_id,
 elements_hash,
 created_at,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(properties, 'varchar')) array_property_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(properties, 'varchar')) array_property_values
+arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
 FROM events
 """
 
@@ -133,96 +137,10 @@ NULL_BREAKDOWN_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, value from numbers({num_intervals})
 """
 
+EVENT_JOIN_PERSON_SQL = """
+INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+"""
 
-# SELECT value, count(*) as count
-# FROM
-# events e INNER JOIN
-# (SELECT *
-# FROM events_properties_view AS ep
-# WHERE key = '$browser' and team_id = 2) ep ON e.id = ep.event_id where timestamp > toDate('2020-08-01')
-# GROUP BY value
-# ORDER BY count DESC
-# LIMIT 10
-
-# SELECT groupArray(total) AS totals, groupArray(day_start) AS dates, value as prop_val FROM (
-#     SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
-#     FROM
-#     events e INNER JOIN
-#     (SELECT *
-#     FROM events_properties_view AS ep
-#     WHERE key = '$browser' and team_id = 2) ep
-#     ON e.id = ep.event_id where timestamp > toDate('2020-08-01')
-#     AND value in (
-#         SELECT value from (
-#             SELECT value, count(*) as count
-#             FROM
-#             events e INNER JOIN
-#             (SELECT *
-#             FROM events_properties_view AS ep
-#             WHERE key = '$browser' and team_id = 2) ep ON e.id = ep.event_id where timestamp > toDate('2020-08-01')
-#             GROUP BY value
-#             ORDER BY count DESC
-#             LIMIT 10
-#         )
-#     )
-#     GROUP BY day_start, value
-#     ORDER BY value, day_start
-# ) GROUP BY value
-
-# SELECT toDateTime(toStartOfDay(timestamp), 'UTC') as day_start FROM events GROUP BY day_start
-
-# SELECT groupArray(value) FROM (
-#     SELECT value, count(*) as count
-#     FROM events_properties_view AS ep
-#     WHERE key = '$browser' and team_id = 2
-#     GROUP BY value
-#     ORDER BY count DESC
-#     LIMIT 10
-# )
-
-# SELECT SUM(total), day_start from (
-# SELECT toUInt16(0) AS total, toStartOfDay(now() - number * 86400) as day_start from numbers(14)
-#  UNION ALL
-# SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start from events where team_id = 2 and event = '$pageview'  and timestamp > '2020-08-01 00:00:00' and timestamp < '2020-08-10 00:00:00' GROUP BY toStartOfDay(timestamp)
-# ) group by day_start order by day_start
-
-# SELECT SUM(total), day_start from (
-# SELECT toUInt16(0) AS total, toStartOfDay(toDateTime('2020-08-11 00:00:00') - number * 86400) as day_start from numbers(14)
-#  UNION ALL
-# SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start from events where team_id = 2 and event = '$pageview'  and timestamp > '2020-07-29 00:00:00' and timestamp < '2020-08-10 00:00:00' GROUP BY toStartOfDay(timestamp)
-# ) group by day_start order by day_start
-
-# SELECT SUM(total), day_start, value FROM (
-#     SELECT * FROM (
-#     SELECT toUInt16(0) AS total, toStartOfDay(toDateTime('2020-08-11 00:00:00') - number * 86400) as day_start from numbers(14)) as main
-#     CROSS JOIN
-#         (
-#             SELECT value
-#             FROM (
-#                 SELECT [1] as value
-#             ) ARRAY JOIN value
-#         ) as sec
-#     ORDER BY value, day_start
-#     UNION ALL
-#     SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
-#     FROM
-#     events e INNER JOIN
-#     (
-#         SELECT distinct_id, 1 as value
-#         FROM person_distinct_id
-#         WHERE person_id IN (cohort_1_1)
-#         ) ep
-#         ON e.distinct_id = ep.distinct_id where event = '$pageview' AND toDateTime(timestamp) > toDateTime('2020-08-01 00:00:00')
-#     GROUP BY day_start, value
-#     )
-# GROUP BY day_start, value
-# ORDER BY value, day_start
-
-# SELECT groupArray(value) FROM (
-#     SELECT value, count(*) as count
-#     FROM events_properties_view AS ep
-#     WHERE key = '$browser' and team_id = 2
-#     GROUP BY value
-#     ORDER BY count DESC
-#     LIMIT 10
-# )
+EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
+INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.id = pid.event_id
+"""

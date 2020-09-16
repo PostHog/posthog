@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.clickhouse.models.element import create_elements
-from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from posthog.models.element import Element
 from posthog.models.team import Team
 
@@ -51,6 +51,11 @@ def create_event(
 
 def get_events():
     events = sync_execute(GET_EVENTS_SQL)
+    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
+
+
+def get_events_by_team(team_id: Union[str, int]):
+    events = sync_execute(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 

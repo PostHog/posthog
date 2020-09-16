@@ -37,7 +37,9 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             )
             clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
             final += "{cond} ({clause}) ".format(cond="AND {key} IN".format(key=key), clause=clause)
-            params.update({"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value})
+            params.update(
+                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): '"' + prop.value + '"'}
+            )
     return final, params
 
 

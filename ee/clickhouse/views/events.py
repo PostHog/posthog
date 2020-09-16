@@ -1,6 +1,4 @@
-from datetime import datetime, timezone
-
-from rest_framework import serializers, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -8,7 +6,6 @@ from rest_framework.response import Response
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
-from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL
 from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
@@ -43,13 +40,6 @@ class ClickhouseEvents(viewsets.ViewSet):
     def retrieve(self, request, pk=None):
         # TODO: implement retrieve event by id
         return Response([])
-
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: Request) -> Response:
-        team = self.request.user.team_set.get()
-        session_type = request.GET.get("session", None)
-        result = ClickhouseSessions().run(Filter(request=request), team, session_type=session_type)
-        return Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
