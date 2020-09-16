@@ -69,8 +69,8 @@ class ClickhousePaths(BaseQuery):
     #     return sessions_sql
 
     def calculate_paths(self, filter: Filter, team: Team):
-        # date_query = request_to_date_query({"date_from": filter._date_from, "date_to": filter._date_to}, exact=False)
-        # resp = []
+        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+
         # event, path_type, event_filter, start_comparator = self._determine_path_type(
         #     filter.path_type if filter else None
         # )
@@ -98,7 +98,7 @@ class ClickhousePaths(BaseQuery):
                    path_type,
                    IF(
                       neighbor(distinct_id, -1) != distinct_id
-                        OR dateDiff('minute', toDateTime(timestamp), toDateTime(neighbor(timestamp, -1))) > 30, 
+                        OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30, 
                       1,
                       0
                    ) AS new_session
@@ -110,10 +110,14 @@ class ClickhousePaths(BaseQuery):
                     FROM events
                     WHERE team_id = %(team_id)s 
                       AND event = %(event)s
+                      {parsed_date_from}
+                      {parsed_date_to}
                     GROUP BY distinct_id, timestamp, event_id, properties
                     ORDER BY distinct_id, timestamp
             )
-        """
+        """.format(
+            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+        )
 
         # if event == "$autocapture":
         #     sessions_sql = self._add_elements(query_string=sessions_sql)
