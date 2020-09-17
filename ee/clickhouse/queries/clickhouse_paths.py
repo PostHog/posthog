@@ -45,6 +45,10 @@ class ClickhousePaths(BaseQuery):
 
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
+        # new_session = this is 1 when the event is from a new session or
+        #                       0 if it's less than 30min after and for the same distinct_id as the previous event
+        # marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
+        #                        the current event is the start point or 0 otherwise
         sessions_query = """
             SELECT distinct_id,
                    event_id,
@@ -56,7 +60,7 @@ class ClickhousePaths(BaseQuery):
                       1,
                       0
                    ) AS new_session,
-                   (new_session = 1 AND {marked_session}) as marked_session
+                   {marked_session_start} as marked_session_start
             FROM (
                     SELECT timestamp,
                            distinct_id,
@@ -80,32 +84,44 @@ class ClickhousePaths(BaseQuery):
             parsed_date_to=parsed_date_to,
             extra_group_by=", {}".format(path_type) if path_type == "event" or path_type == "tag_name_source" else "",
             filters=prop_filters if filter.properties else "",
-            marked_session="{} = %(start_point)s".format(start_comparator) if filter and filter.start_point else "1",
+            marked_session_start="{} = %(start_point)s".format(start_comparator)
+            if filter and filter.start_point
+            else "new_session",
         )
 
         # if event == "$autocapture":
         #     sessions_sql = self._add_elements(query_string=sessions_sql)
 
+        if filter and filter.start_point:
+            # find the first "marked_session_start" in the group and restart counting from it
+            marked_group_index_variable = """
+                indexOf(arraySlice(marked_session_starts, idx - group_index + 1, group_index), 1) as index_from_marked,
+                index_from_marked > 0 ? toUInt64(group_index - index_from_marked + 1) : group_index as marked_group_index
+            """
+        else:
+            # otherwise just use the group index
+            marked_group_index_variable = "group_index as marked_group_index"
+
         aggregate_query = """
-            SELECT concat(toString(group_index), '_', path_type)                                          AS target_event,
-                   event_id                                                                               AS target_event_id,
-                   if(group_index > 1, neighbor(concat(toString(group_index), '_', path_type), -1), null) AS source_event,
-                   if(group_index > 1, neighbor(event_id, -1), null)                                      AS source_event_id
+            SELECT concat(toString(marked_group_index), '_', path_type)                                                 AS target_event,
+                   event_id                                                                                             AS target_event_id,
+                   if(marked_group_index > 1, neighbor(concat(toString(marked_group_index), '_', path_type), -1), null) AS source_event,
+                   if(marked_group_index > 1, neighbor(event_id, -1), null)                                             AS source_event_id
             FROM (
                   SELECT distinct_id,
                          event_id,
                          timestamp,
                          path_type,
                          indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) AS group_index,
-                         marked_session,
-                         neighbor(marked_session, -group_index + 1) as marked_group
+                         {marked_group_index_variable},
+                         neighbor(marked_session_start, -marked_group_index + 1) as marked_group
                   FROM (
-                        SELECT groupArray(timestamp)      AS timestamps,
-                               groupArray(path_type)      AS path_types,
-                               groupArray(event_id)       AS event_ids,
-                               groupArray(distinct_id)    AS distinct_ids,
-                               groupArray(new_session)    AS gids,
-                               groupArray(marked_session) AS marked_sessions
+                        SELECT groupArray(timestamp)            AS timestamps,
+                               groupArray(path_type)            AS path_types,
+                               groupArray(event_id)             AS event_ids,
+                               groupArray(distinct_id)          AS distinct_ids,
+                               groupArray(new_session)          AS gids,
+                               groupArray(marked_session_start) AS marked_session_starts
                          FROM ({sessions_query})
                        )
                   ARRAY JOIN
@@ -113,7 +129,7 @@ class ClickhousePaths(BaseQuery):
                        event_ids AS event_id,
                        timestamps AS timestamp,
                        path_types AS path_type,
-                       marked_sessions AS marked_session,
+                       marked_session_starts AS marked_session_start,
                        arrayEnumerate(gids) AS idx
             )
             WHERE group_index <= %(query_depth)s AND marked_group = 1
@@ -133,7 +149,11 @@ class ClickhousePaths(BaseQuery):
             ORDER BY event_count DESC, source_event, target_event
         """
 
-        final_query = count_query.format(aggregate_query=aggregate_query.format(sessions_query=sessions_query))
+        final_query = count_query.format(
+            aggregate_query=aggregate_query.format(
+                sessions_query=sessions_query, marked_group_index_variable=marked_group_index_variable
+            )
+        )
 
         params: Dict = {
             "team_id": team.pk,
