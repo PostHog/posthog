@@ -20,12 +20,12 @@ describe('Trends sessions', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Apply table filter', () => {
+    /*     it('Apply table filter', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
 
         cy.get('[data-attr=trend-table-graph]').should('exist')
-    })
+    }) */
 
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
