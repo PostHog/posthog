@@ -1,7 +1,7 @@
 describe('Retention', () => {
     beforeEach(() => {
         cy.visit('/')
-        cy.get('[data-attr=insight-retention-tab]', { timeout: 7000 }).click()
+        cy.get('[data-attr=insight-retention-tab]').click()
     })
 
     it('Apply 1 overall filter', () => {

@@ -1,7 +1,7 @@
 describe('Annotations', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-settings]', { timeout: 7000 }).click()
-        cy.get('[data-attr=menu-item-annotations]', { timeout: 7000 }).click()
+        cy.get('[data-attr=menu-item-settings]').click()
+        cy.get('[data-attr=menu-item-annotations]').click()
     })
 
     it('Annotations loaded', () => {

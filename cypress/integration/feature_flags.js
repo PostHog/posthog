@@ -4,7 +4,7 @@ describe('Feature Flags', () => {
     })
 
     it('Create feature flag', () => {
-        cy.get('h1', { timeout: 7000 }).should('contain', 'Feature Flags')
+        cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-name').type('beta feature').should('have.value', 'beta feature')
         cy.get('[data-attr=feature-flag-key').should('have.value', 'beta-feature')

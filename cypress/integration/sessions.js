@@ -1,7 +1,7 @@
 describe('Sessions', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-events]', { timeout: 7000 }).click()
-        cy.get('[data-attr=menu-item-sessions]', { timeout: 7000 }).click()
+        cy.get('[data-attr=menu-item-events]').click()
+        cy.get('[data-attr=menu-item-sessions]').click()
     })
 
     it('Sessions Table loaded', () => {

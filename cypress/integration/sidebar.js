@@ -1,8 +1,8 @@
 describe('Sidebar', () => {
     it('Invite Team loads modal', () => {
-        cy.get('[data-attr=menu-item-invite-team]', { timeout: 7000 }).click()
+        cy.get('[data-attr=menu-item-invite-team]').click()
 
-        cy.get('[data-attr=invite-team-modal]', { timeout: 7000 }).should('be.visible')
+        cy.get('[data-attr=invite-team-modal]').should('be.visible')
     })
 
     it('A pinned dashboard should exist', () => {
