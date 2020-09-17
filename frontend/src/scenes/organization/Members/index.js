@@ -7,7 +7,7 @@ import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { CreateOrgInviteModal } from '../Invites/CreateOrgInviteModal'
-import { OrganizationMembershipLevelToName } from 'lib/constants'
+import { organizationMembershipLevelToName } from 'lib/constants'
 
 export const Members = hot(_Members)
 function _Members({ user }) {
@@ -60,7 +60,7 @@ function _Members({ user }) {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: (level) => OrganizationMembershipLevelToName.get(level) ?? 'unknown',
+            render: (level) => organizationMembershipLevelToName.get(level) ?? 'unknown',
         },
         {
             title: 'Joined At',

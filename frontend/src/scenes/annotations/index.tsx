@@ -8,7 +8,7 @@ import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
-import { AnnotationScope, AnnotationScopeToName } from 'lib/constants'
+import { AnnotationScope, annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 const { TextArea } = Input
@@ -232,7 +232,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                         key={AnnotationScope.Project}
                                         icon={<ProjectOutlined />}
                                     >
-                                        Project {user?.project.name}
+                                        Project {user?.team.name}
                                     </Menu.Item>
                                 ) : (
                                     <Menu.Item
@@ -249,7 +249,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                         }
                     >
                         <Button>
-                            {AnnotationScopeToName.get(scope)} <DownOutlined />
+                            {annotationScopeToName.get(scope)} <DownOutlined />
                         </Button>
                     </Dropdown>{' '}
                     charts

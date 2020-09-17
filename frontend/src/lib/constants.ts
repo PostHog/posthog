@@ -18,7 +18,7 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
 }
 
-export const OrganizationMembershipLevelToName = new Map<number, string>([
+export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'administrator'],
 ])
@@ -29,7 +29,7 @@ export enum AnnotationScope {
     Organization = 'organization',
 }
 
-export const AnnotationScopeToName = new Map<string, string>([
+export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],

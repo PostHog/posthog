@@ -17,7 +17,7 @@ class Annotation(models.Model):
     dashboard_item: models.ForeignKey = models.ForeignKey(
         "posthog.DashboardItem", on_delete=models.SET_NULL, null=True, blank=True
     )
-    team: models.ForeignKey = models.ForeignKey("posthog.Project", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     organization: models.ForeignKey = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope.choices, default=Scope.DASHBOARD_ITEM)

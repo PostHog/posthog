@@ -69,14 +69,14 @@ export function Projects() {
         <Dropdown
             overlay={
                 <Menu>
-                    {user.organization.projects.map((team) => (
+                    {user.organization.teams.map((team) => (
                         <Menu.Item key={team.id}>
                             <a
                                 href=""
-                                onClick={() => userUpdateRequest({ user: { current_project_id: team.id } })}
+                                onClick={() => userUpdateRequest({ user: { current_team_id: team.id } })}
                                 data-attr=""
                             >
-                                {team.id === user.current_project_id ? team.name : <b>→ {team.name}</b>}
+                                {team.id === user.current_team_id ? team.name : <b>→ {team.name}</b>}
                             </a>
                         </Menu.Item>
                     ))}
@@ -84,7 +84,7 @@ export function Projects() {
             }
         >
             <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" style={{ marginRight: '0.75rem' }}>
-                Project: <b>{user.project.name}</b>
+                Project: <b>{user.team.name}</b>
             </div>
         </Dropdown>
     )

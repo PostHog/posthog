@@ -27,12 +27,13 @@ def forwards_func(apps, schema_editor):
             team.organization = user.current_organization
             team.save()
             for annotation in Annotation.objects.filter(team=team):
+                # attach annotations to the new organization
                 annotation.organization = user.current_organization
                 annotation.scope = "organization" if annotation.apply_all else "dashboard_item"
                 annotation.save()
         # migrated users become admins (level 8)
         OrganizationMembership.objects.create(organization=user.current_organization, user=user, level=8)
-        user.current_project = user.current_organization.projects.get()
+        user.current_team = user.current_organization.teams.get()
         user.save()
 
 
@@ -257,6 +258,5 @@ class Migration(migrations.Migration):
                 check=models.Q(uses__lte=django.db.models.expressions.F("max_uses")), name="max_uses_respected"
             ),
         ),
-        migrations.RenameModel(old_name="Team", new_name="Project",),
         migrations.RunPython(forwards_func, reverse_func),
     ]
