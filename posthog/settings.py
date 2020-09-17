@@ -16,6 +16,7 @@ import shutil
 import sys
 from distutils.util import strtobool
 from typing import Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
@@ -127,7 +128,15 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
-KAFKA_HOSTS = os.environ.get("KAFKA_HOSTS", "")
+KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+
+_kafka_hosts = KAFKA_URL.split(",")
+
+KAFKA_HOSTS_LIST = []
+for host in _kafka_hosts:
+    url = urlparse(host)
+    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
