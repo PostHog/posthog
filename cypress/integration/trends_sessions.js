@@ -2,7 +2,7 @@ describe('Trends sessions', () => {
     beforeEach(() => {
         // given
         cy.visit('/insights')
-        cy.contains('Sessions').click()
+        cy.get('[id="rc-tabs-0-tab-SESSIONS"]').click()
     })
 
     it('Sessions exists', () => {
