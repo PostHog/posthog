@@ -5,22 +5,23 @@ import { PropertyKeyInfo } from './PropertyKeyInfo'
 import { Table, Tooltip } from 'antd'
 import { EditOutlined, NumberOutlined, CalendarOutlined, QuestionCircleOutlined, StopOutlined } from '@ant-design/icons'
 
-type HandledType = 'string' | 'string parsed as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
+type HandledType = 'string' | 'string, parsed as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
 
 const typeToIcon: Record<string, JSX.Element> = {
     string: <EditOutlined />,
-    'string parsed as datetime': <CalendarOutlined />,
+    'string, parsed as datetime': <CalendarOutlined />,
     number: <NumberOutlined />,
     bigint: <NumberOutlined />,
     boolean: <QuestionCircleOutlined />,
     undefined: <StopOutlined />,
+    null: <StopOutlined />,
 }
 
 function PropertyDisplay({ properties }: { properties: any }): JSX.Element {
     let propertiesType: Type = typeof properties
-    if (properties === null) propertiesType = 'undefined'
-    else if (propertiesType === 'string' && moment(properties).isValid()) propertiesType = 'string parsed as datetime'
+    if (properties === null) propertiesType = 'null'
+    else if (propertiesType === 'string' && moment(properties).isValid()) propertiesType = 'string, parsed as datetime'
     return typeToIcon[propertiesType] ? (
         <>
             <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>{' '}
