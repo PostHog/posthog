@@ -17,9 +17,9 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element_group(team: Team, element_hash: str) -> UUID:
+def create_element_group(team: Team, elements_hash: str) -> UUID:
     id = uuid4()
-    async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
+    async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "elements_hash": elements_hash, "team_id": team.pk})
     return id
 
 
@@ -47,14 +47,14 @@ def create_elements(elements: List[Element], team: Team) -> str:
     for index, element in enumerate(elements):
         element.order = index
 
-    element_hash = hash_elements(elements)
-    group_id = create_element_group(element_hash=element_hash, team=team)
+    elements_hash = hash_elements(elements)
+    group_id = create_element_group(elements_hash=elements_hash, team=team)
 
     # create elements
     for index, element in enumerate(elements):
         create_element(element=element, team=team, group_id=group_id)
 
-    return element_hash
+    return elements_hash
 
 
 def get_element_group_by_hash(elements_hash: str):

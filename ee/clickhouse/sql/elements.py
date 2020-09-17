@@ -65,7 +65,7 @@ ORDER BY (team_id, id)
 
 
 INSERT_ELEMENT_GROUP_SQL = """
-INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s
+INSERT INTO elements_group SELECT %(id)s, %(elements_hash)s, %(team_id)s
 """
 
 GET_ELEMENT_GROUP_BY_HASH_SQL = """

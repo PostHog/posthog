@@ -19,7 +19,7 @@ def create_event(
     distinct_id: str,
     timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[Dict] = {},
-    element_hash: Optional[str] = "",
+    elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
 ) -> None:
 
@@ -33,8 +33,8 @@ def create_event(
         timestamp = timestamp.astimezone(pytz.utc)
 
     # TODO: don't create same group twice?
-    if elements and not element_hash:
-        element_hash = create_elements(elements=elements, team=team)
+    if elements and not elements_hash:
+        elements_hash = create_elements(elements=elements, team=team)
 
     async_execute(
         INSERT_EVENT_SQL,
@@ -44,7 +44,7 @@ def create_event(
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "team_id": team.pk,
             "distinct_id": distinct_id,
-            "element_hash": element_hash,
+            "elements_hash": elements_hash,
         },
     )
 
