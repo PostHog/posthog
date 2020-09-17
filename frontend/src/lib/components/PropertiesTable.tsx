@@ -3,7 +3,7 @@ import moment from 'moment'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 import { Table, Tooltip } from 'antd'
-import { EditOutlined, NumberOutlined, CalendarOutlined, QuestionCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { EditOutlined, NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
 
 type HandledType = 'string' | 'string, parsed as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -13,7 +13,7 @@ const typeToIcon: Record<string, JSX.Element> = {
     'string, parsed as datetime': <CalendarOutlined />,
     number: <NumberOutlined />,
     bigint: <NumberOutlined />,
-    boolean: <QuestionCircleOutlined />,
+    boolean: <BulbOutlined />,
     undefined: <StopOutlined />,
     null: <StopOutlined />,
 }
