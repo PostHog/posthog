@@ -1,7 +1,10 @@
 import hashlib
+from typing import Dict
 
+import posthoganalytics
 from django.contrib.postgres.fields import JSONField
 from django.db import models
+from django.dispatch import receiver
 from django.utils import timezone
 
 from .filter import Filter
@@ -51,3 +54,23 @@ class FeatureFlag(models.Model):
         hash_key = "%s.%s" % (key, distinct_id)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
+
+    def get_analytics_metadata(self) -> Dict:
+        filter_count: int = len(self.filters.get("properties", []),) if self.filters else 0
+
+        return {
+            "rollout_percentage": self.rollout_percentage,
+            "has_filters": True if self.filters and self.filters.get("properties") else False,
+            "filter_count": filter_count,
+            "created_at": self.created_at,
+        }
+
+
+@receiver(models.signals.post_save, sender=FeatureFlag)
+def feature_flag_created(sender, instance, created, raw, using, **kwargs):
+
+    if instance.created_by:
+        event_name: str = "feature flag created" if created else "feature flag updated"
+        posthoganalytics.capture(
+            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
+        )

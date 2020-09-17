@@ -53,7 +53,8 @@ class TestTeamUser(BaseTest):
 
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
 
-    def test_user_can_delete_another_team_user(self):
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_user_can_delete_another_team_user(self, mock_capture):
         team, user = self.create_team_and_user()
         user2: User = self.create_user_for_team(team)
         self.client.force_login(user)
@@ -64,7 +65,14 @@ class TestTeamUser(BaseTest):
         self.assertFalse(User.objects.get(id=user2.id).is_active)
         self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
 
-    def test_cannot_delete_yourself(self):
+        # Assert that the event is reported to PH
+        mock_capture.assert_any_call(
+            user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
+        )
+        mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
+
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_cannot_delete_yourself(self, mock_capture):
         team, user = self.create_team_and_user()
         self.client.force_login(user)
 
@@ -75,6 +83,9 @@ class TestTeamUser(BaseTest):
         self.assertEqual(
             User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
         )  # User still exists
+
+        # Assert no event was repoted to PH
+        mock_capture.assert_not_called()
 
     def test_cannot_delete_user_using_their_primary_key(self):
         team, user = self.create_team_and_user()
