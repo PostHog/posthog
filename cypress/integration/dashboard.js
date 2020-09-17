@@ -1,6 +1,6 @@
 describe('Dashboards', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-dashboards]', { timeout: 8000 }).click()
+        cy.get('[data-attr=menu-item-dashboards]').click()
         cy.location('pathname').should('include', '/dashboard')
     })
 
