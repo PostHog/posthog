@@ -140,6 +140,7 @@ class ClickhousePaths(BaseQuery):
               AND target_event IS NOT NULL
             GROUP BY source_event, target_event
             ORDER BY event_count DESC, source_event, target_event
+            LIMIT 20
         """
 
         final_query = count_query.format(
