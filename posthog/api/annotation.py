@@ -1,13 +1,15 @@
 from distutils.util import strtobool
 from typing import Any, Dict
 
+import posthoganalytics
 from django.db.models import QuerySet
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation
 
 
@@ -32,12 +34,12 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         annotation = Annotation.objects.create(
-            team=request.user.team_set.get(), created_by=request.user, **validated_data
+            team=request.user.team_set.get(), created_by=request.user, **validated_data,
         )
         return annotation
 
 
-class AnnotationsViewSet(viewsets.ModelViewSet):
+class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
 
@@ -71,14 +73,21 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-@receiver(post_save, dispatch_uid="hook-annotation-created")
+@receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")
 def annotation_created(sender, instance, created, raw, using, **kwargs):
     """Trigger action_defined hooks on Annotation creation."""
-    if isinstance(instance, Annotation) and created:
+
+    if created:
         raw_hook_event.send(
             sender=None,
             event_name="annotation_created",
             instance=instance,
             payload=AnnotationSerializer(instance).data,
             user=instance.team,
+        )
+
+    if instance.created_by:
+        event_name: str = "annotation created" if created else "annotation updated"
+        posthoganalytics.capture(
+            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
         )

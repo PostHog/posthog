@@ -1,9 +1,13 @@
-from posthog.models import FeatureFlag
+from unittest.mock import patch
 
-from .base import BaseTest, TransactionBaseTest
+from rest_framework import status
+
+from posthog.models import FeatureFlag, Team, User
+
+from .base import APIBaseTest, TransactionBaseTest
 
 
-class TestFeatureFlagApi(TransactionBaseTest):
+class TestFeatureFlag(TransactionBaseTest):
     TESTS_API = True
 
     def test_key_exists(self):
@@ -54,3 +58,97 @@ class TestFeatureFlagApi(TransactionBaseTest):
             content_type="application/json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
+
+
+class TestAPIFeatureFlag(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team: Team = Team.objects.create()
+        self.user: User = User.objects.create_user("ff@posthog.com")
+        self.team.users.add(self.user)
+        self.team.save()
+        self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button",)
+
+    @patch("posthoganalytics.capture")
+    def test_creating_feature_flag(self, mock_capture):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        self.assertEqual(instance.key, "alpha-feature")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {"rollout_percentage": 50, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_updating_feature_flag(self, mock_capture):
+        instance = self.feature_flag
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/feature_flag/{instance.pk}",
+            {
+                "name": "Updated name",
+                "rollout_percentage": 65,
+                "filters": {
+                    "properties": [
+                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        instance.refresh_from_db()
+        self.assertEqual(instance.name, "Updated name")
+        self.assertEqual(instance.rollout_percentage, 65)
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag updated",
+            {"rollout_percentage": 65, "has_filters": True, "filter_count": 1, "created_at": instance.created_at,},
+        )
+
+    def test_deleting_feature_flag(self):
+        new_user = User.objects.create_user(email="new_annotations@posthog.com")
+        self.team.users.add(new_user)
+        self.team.save()
+
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        self.client.force_login(new_user)
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            response = self.client.delete(f"/api/feature_flag/{instance.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FeatureFlag.objects.filter(pk=instance.pk).exists())
+
+        # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
+        mock_capture.assert_called_once_with(
+            new_user.distinct_id,
+            "feature flag deleted",
+            {"rollout_percentage": None, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
+        user = User.objects.create_user(email="team2@posthog.com")
+        team = Team.objects.create()
+        team.users.add(user)
+        team.save()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/feature_flag/{self.feature_flag.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(FeatureFlag.objects.filter(pk=self.feature_flag.pk).exists())
+
+        mock_capture.assert_not_called()
