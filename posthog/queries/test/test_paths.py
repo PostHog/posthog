@@ -196,10 +196,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_1",
                 elements=[
-                    Element(tag_name="a", text="hello", href="/a-url", nth_child=1, nth_of_type=0, order=1,),
-                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=2),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=4, attr_id="nested",),
+                    Element(tag_name="a", text="hello", href="/a-url", nth_child=1, nth_of_type=0, order=0,),
+                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=1),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3, attr_id="nested",),
                 ],
             )
 
@@ -221,10 +221,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_2",
                 elements=[
-                    Element(tag_name="a", text="hello1", href="/a-url", nth_child=1, nth_of_type=0, order=1,),
-                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=2),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=4, attr_id="nested",),
+                    Element(tag_name="a", text="hello1", href="/a-url", nth_child=1, nth_of_type=0, order=0,),
+                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=1),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3, attr_id="nested",),
                 ],
             )
 
