@@ -191,6 +191,7 @@ def paths_test_factory(paths, event_factory, person_factory):
 
         def test_autocapture_paths(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
+
             event_factory(
                 event="$autocapture",
                 team=self.team,
@@ -239,6 +240,19 @@ def paths_test_factory(paths, event_factory, person_factory):
                     Element(href="/a-url-2", nth_child=0, nth_of_type=0),
                 ],
             )
+
+            event_factory(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="person_2",
+                elements=[
+                    Element(tag_name="a", text="goodbye1", nth_child=2, nth_of_type=0, attr_id="someId",),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(href="/a-url-2", nth_child=0, nth_of_type=0),
+                ],
+            )
+
             response = paths().run(team=self.team, filter=Filter(data={"path_type": "$autocapture"}))
 
             self.assertEqual(response[0]["source"], "1_<a> hello")
@@ -249,9 +263,15 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertEqual(response[1]["target"], "2_<a> goodbye1")
             self.assertEqual(response[1]["value"], 1)
 
+            self.assertEqual(response[2]["source"], "2_<a> goodbye1")
+            self.assertEqual(response[2]["target"], "3_<a> goodbye1")
+            self.assertEqual(response[2]["value"], 1)
+
             elements = self.client.get("/api/paths/elements/").json()
-            self.assertEqual(elements[0]["name"], "<a> hello")
+            self.assertEqual(elements[0]["name"], "<a> goodbye1")  # first since captured twice
             self.assertEqual(elements[1]["name"], "<a> goodbye")
+            self.assertEqual(elements[2]["name"], "<a> hello")
+            self.assertEqual(elements[3]["name"], "<a> hello1")
             self.assertEqual(len(elements), 4)
 
         def test_paths_properties_filter(self):

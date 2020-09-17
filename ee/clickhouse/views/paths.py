@@ -3,28 +3,29 @@ from rest_framework import request, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+from ee.clickhouse.sql.elements import ELEMENT_TAG_COUNT
 from posthog.api.paths import PathsViewSet
-from posthog.models import Filter
-from posthog.utils import request_to_date_query
+from posthog.models import Event, Filter
 
 
-# At the moment, paths don't support users changing distinct_ids midway through.
-# See: https://github.com/PostHog/posthog/issues/185
 class ClickhousePathsViewSet(PathsViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
-        return []
+        team = request.user.team_set.get()
+        response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
+
+        resp = []
+        for row in response:
+            resp.append({"name": row[0], "id": row[1], "count": row[2]})
+
+        return Response(resp)
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request):
         team = request.user.team_set.get()
-        date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
-        start_point = request.GET.get("start")
-        request_type = request.GET.get("type", None)
-        resp = ClickhousePaths().run(
-            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
-        )
+        resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

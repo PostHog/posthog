@@ -8,8 +8,6 @@ from posthog.queries import paths
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
-# At the moment, paths don't support users changing distinct_ids midway through.
-# See: https://github.com/PostHog/posthog/issues/185
 class PathsViewSet(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
@@ -21,7 +19,7 @@ class PathsViewSet(viewsets.ViewSet):
         elements_readble = '\
             SELECT tag_name_source as name, group_id as id FROM (SELECT \'<\' || e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source, e.group_id FROM "posthog_element" e\
                 JOIN ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id) as element\
-                JOIN (SELECT id, hash, count FROM posthog_elementgroup  as g JOIN (SELECT count(*), elements_hash from ({}) as a group by elements_hash) as e on g.hash = e.elements_hash) as outer_group ON element.group_id = outer_group.id  where text_source <> \'\' order by count DESC limit 20\
+                JOIN (SELECT id, hash, count FROM posthog_elementgroup  as g JOIN (SELECT count(*), elements_hash from ({}) as a group by elements_hash) as e on g.hash = e.elements_hash) as outer_group ON element.group_id = outer_group.id  where text_source <> \'\' order by count DESC, name limit 20\
         '.format(
             all_events_SQL
         )
