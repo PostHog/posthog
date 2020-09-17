@@ -3,8 +3,8 @@ from typing import Dict, List, Optional
 
 from rest_framework import serializers
 
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     GET_DISTINCT_IDS_SQL,
@@ -128,7 +128,9 @@ class ClickhousePersonSerializer(serializers.Serializer):
         return json.loads(person[3])
 
     def get_is_identified(self, person):
-        return person[4]
+        if person and len(person) >= 5:
+            return person[4]
+        return False
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):
