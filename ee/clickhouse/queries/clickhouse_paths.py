@@ -46,16 +46,16 @@ class ClickhousePaths(BaseQuery):
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
         # new_session = this is 1 when the event is from a new session or
-        #                       0 if it's less than 30min after and for the same distinct_id as the previous event
+        #                       0 if it's less than 30min after and for the same person_id as the previous event
         # marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
         #                        the current event is the start point or 0 otherwise
         sessions_query = """
-            SELECT distinct_id,
+            SELECT person_id,
                    event_id,
                    timestamp,
                    path_type,
                    IF(
-                      neighbor(distinct_id, -1) != distinct_id
+                      neighbor(person_id, -1) != person_id
                         OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30, 
                       1,
                       0
@@ -63,17 +63,18 @@ class ClickhousePaths(BaseQuery):
                    {marked_session_start} as marked_session_start
             FROM (
                     SELECT timestamp,
-                           distinct_id,
+                           person_id,
                            id AS event_id,
                            {path_type} AS path_type
                     FROM events
+                    JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
                     WHERE team_id = %(team_id)s 
                           AND {event_query}
                           {filters}
                           {parsed_date_from}
                           {parsed_date_to}
-                    GROUP BY distinct_id, timestamp, event_id, properties {extra_group_by}
-                    ORDER BY distinct_id, timestamp
+                    GROUP BY person_id, timestamp, event_id, properties {extra_group_by}
+                    ORDER BY person_id, timestamp
             )
         """.format(
             event_query="event = %(event)s"
@@ -108,7 +109,7 @@ class ClickhousePaths(BaseQuery):
                    if(marked_group_index > 1, neighbor(concat(toString(marked_group_index), '_', path_type), -1), null) AS source_event,
                    if(marked_group_index > 1, neighbor(event_id, -1), null)                                             AS source_event_id
             FROM (
-                  SELECT distinct_id,
+                  SELECT person_id,
                          event_id,
                          timestamp,
                          path_type,
@@ -119,13 +120,13 @@ class ClickhousePaths(BaseQuery):
                         SELECT groupArray(timestamp)            AS timestamps,
                                groupArray(path_type)            AS path_types,
                                groupArray(event_id)             AS event_ids,
-                               groupArray(distinct_id)          AS distinct_ids,
+                               groupArray(person_id)          AS person_ids,
                                groupArray(new_session)          AS gids,
                                groupArray(marked_session_start) AS marked_session_starts
                          FROM ({sessions_query})
                        )
                   ARRAY JOIN
-                       distinct_ids AS distinct_id,
+                       person_ids AS person_id,
                        event_ids AS event_id,
                        timestamps AS timestamp,
                        path_types AS path_type,
