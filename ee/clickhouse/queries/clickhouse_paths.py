@@ -57,7 +57,7 @@ class ClickhousePaths(BaseQuery):
                            person_id,
                            events.id AS event_id,
                            {path_type} AS path_type
-                    FROM events
+                    FROM events_with_array_props_view AS events
                     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
                     {element_joins}
                     WHERE events.team_id = %(team_id)s 
