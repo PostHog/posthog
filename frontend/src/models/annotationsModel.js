@@ -21,7 +21,7 @@ export const annotationsModel = kea({
                 const response = await api.get(
                     'api/annotation/?' +
                         toParams({
-                            apply_all: true,
+                            scope: 'organization',
                             deleted: false,
                         })
                 )
@@ -33,7 +33,7 @@ export const annotationsModel = kea({
         globalAnnotations: {
             createGlobalAnnotation: (state, { content, date_marker, created_at }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all: true },
+                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', scope: 'organization' },
             ],
             deleteGlobalAnnotation: (state, { id }) => {
                 return state.filter((a) => a.id !== id)
@@ -55,7 +55,7 @@ export const annotationsModel = kea({
                 date_marker: moment.isMoment(date_marker) ? date_marker : moment(date_marker),
                 created_at,
                 dashboard_item,
-                apply_all: true,
+                scope: 'organization',
             })
             actions.loadGlobalAnnotations()
         },

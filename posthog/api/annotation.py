@@ -28,7 +28,14 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "deleted",
-            "apply_all",
+            "scope",
+        ]
+        read_only_fields = [
+            "id",
+            "creation_type",
+            "created_by",
+            "created_at",
+            "updated_at",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
@@ -65,8 +72,13 @@ class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(created_at__lt=request.GET["before"])
             elif key == "dashboardItemId":
                 queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
+            elif key == "scope":
+                queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
-                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["apply_all"]))))
+                queryset_method = (
+                    queryset.exclude if bool(strtobool(str(request.GET["apply_all"]))) else queryset.filter
+                )
+                queryset = queryset_method(scope="dashboard_item")
             elif key == "deleted":
                 queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 

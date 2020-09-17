@@ -54,7 +54,7 @@ export const Annotations = function Annotations({
                     }}
                     onDelete={(data) => {
                         annotations.length === 1 && onClose?.()
-                        if (data.apply_all) deleteGlobalAnnotation(data.id)
+                        if (data.scope !== 'dashboard_item') deleteGlobalAnnotation(data.id)
                         else deleteAnnotation(data.id)
                     }}
                     onClick={onClick}

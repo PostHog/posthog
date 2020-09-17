@@ -96,9 +96,7 @@ class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
     )
-    api_token: models.CharField = models.CharField(
-        max_length=200, null=True, unique=True, default=generate_random_token
-    )
+    api_token: models.CharField = models.CharField(max_length=200, null=True, default=generate_random_token)
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(max_length=200, null=True, default="Default")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)

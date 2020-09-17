@@ -13,7 +13,7 @@ class TestTeam(TestCase):
 
         # Team has one app_url
         team = Team.objects.create(app_urls=["app.posthog.com"])
-        self.assertEqual(str(team), "app.posthog.com")
+        self.assertEqual(str(team), "Default")
 
         # Team has multiple app_urls
         team = Team.objects.create(app_urls=["app.posthog.com", "custom.posthog.com"])
