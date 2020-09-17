@@ -15,16 +15,16 @@ const typeToIcon: Record<string, JSX.Element> = {
     bigint: <NumberOutlined />,
     boolean: <QuestionCircleOutlined />,
     undefined: <StopOutlined />,
-    null: <StopOutlined />,
 }
 
 function PropertyDisplay({ properties }: { properties: any }): JSX.Element {
     let propertiesType: Type = typeof properties
-    if (propertiesType === null) propertiesType = 'null'
-    if (propertiesType === 'string' && moment(properties).isValid()) propertiesType = 'string parsed as datetime'
+    if (properties === null) propertiesType = 'undefined'
+    else if (propertiesType === 'string' && moment(properties).isValid()) propertiesType = 'string parsed as datetime'
     return typeToIcon[propertiesType] ? (
         <>
-            <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip> {properties}
+            <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>{' '}
+            {String(properties)}
         </>
     ) : (
         properties
@@ -65,7 +65,7 @@ export function PropertiesTable({ properties }: { properties: any }): JSX.Elemen
                 showHeader={false}
                 rowKey={(item) => item[0]}
                 size="small"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={false}
                 dataSource={Object.entries(properties)}
             />
         )
@@ -73,5 +73,5 @@ export function PropertiesTable({ properties }: { properties: any }): JSX.Elemen
 }
 
 PropertiesTable.propTypes = {
-    properties: PropTypes.any.isRequired,
+    properties: PropTypes.any,
 }
