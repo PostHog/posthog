@@ -14,10 +14,10 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, order=1),
-                Element(tag_name="button", nth_child=0, nth_of_type=0, order=2),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, order=4, attr_id="nested",),
+                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, order=0),
+                Element(tag_name="button", nth_child=0, nth_of_type=0, order=1),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=3, attr_id="nested",),
             ],
         )
 
@@ -230,7 +230,7 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             properties={"$current_url": "https://posthog.com/feedback/123"},
-            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,)],
+            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=0,)],
         )
 
         events = Event.objects.filter_by_action(action1)
@@ -286,8 +286,8 @@ class TestFilterByActions(BaseTest):
 class TestElementGroup(BaseTest):
     def test_create_elements(self):
         elements = [
-            Element(tag_name="button", text="Sign up!"),
-            Element(tag_name="div"),
+            Element(tag_name="button", text="Sign up!", order=0,),
+            Element(tag_name="div", order=1,),
         ]
         group1 = ElementGroup.objects.create(team=self.team, elements=elements)
         elements = list(Element.objects.all())
@@ -295,9 +295,9 @@ class TestElementGroup(BaseTest):
         self.assertEqual(elements[1].tag_name, "div")
 
         elements = [
-            Element(tag_name="button", text="Sign up!"),
+            Element(tag_name="button", text="Sign up!", order=0,),
             # make sure we remove events if we can
-            Element(tag_name="div", event=Event.objects.create(team=self.team)),
+            Element(tag_name="div", event=Event.objects.create(team=self.team), order=1,),
         ]
         group2 = ElementGroup.objects.create(team=self.team, elements=elements)
         self.assertEqual(Element.objects.count(), 2)
