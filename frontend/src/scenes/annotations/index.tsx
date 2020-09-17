@@ -1,13 +1,15 @@
 import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
-import { DeleteOutlined, RedoOutlined } from '@ant-design/icons'
+import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
+import { AnnotationScope, AnnotationScopeToName } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 const { TextArea } = Input
 
@@ -178,9 +180,11 @@ enum ModalMode {
 }
 
 function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
+    const [scope, setScope] = useState<AnnotationScope>(AnnotationScope.Project)
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<moment.Moment>(moment())
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (props.annotation) {
@@ -215,7 +219,41 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             title={modalMode === ModalMode.CREATE ? 'Create Global Annotation' : 'Edit Annotation'}
         >
             {modalMode === ModalMode.CREATE ? (
-                <span>This annotation will appear on all charts</span>
+                <span>
+                    This annotation will appear on all
+                    <Dropdown
+                        overlay={
+                            <Menu>
+                                {scope === AnnotationScope.Project ? (
+                                    <Menu.Item
+                                        onClick={() => {
+                                            setScope(AnnotationScope.Project)
+                                        }}
+                                        key={AnnotationScope.Project}
+                                        icon={<ProjectOutlined />}
+                                    >
+                                        Project {user?.project.name}
+                                    </Menu.Item>
+                                ) : (
+                                    <Menu.Item
+                                        onClick={() => {
+                                            setScope(AnnotationScope.Organization)
+                                        }}
+                                        key={AnnotationScope.Organization}
+                                        icon={<DeploymentUnitOutlined />}
+                                    >
+                                        Organization {user?.organization.name}
+                                    </Menu.Item>
+                                )}
+                            </Menu>
+                        }
+                    >
+                        <Button>
+                            {AnnotationScopeToName.get(scope)} <DownOutlined />
+                        </Button>
+                    </Dropdown>{' '}
+                    charts
+                </span>
             ) : (
                 <Row justify="space-between">
                     <span>Change existing annotation text</span>

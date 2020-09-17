@@ -14,6 +14,7 @@ def forwards_func(apps, schema_editor):
     User = apps.get_model("posthog", "User")
     Organization = apps.get_model("posthog", "Organization")
     OrganizationMembership = apps.get_model("posthog", "OrganizationMembership")
+    Annotation = apps.get_model("posthog", "Annotation")
     for user in User.objects.all():
         team = user.teams_deprecated_relationship.get()
         deterministic_derived_uuid = uuid.UUID(hashlib.md5(team.id.to_bytes(16, "big")).hexdigest())
@@ -25,9 +26,13 @@ def forwards_func(apps, schema_editor):
             user.current_organization = Organization.objects.create(id=deterministic_derived_uuid, name=team.name)
             team.organization = user.current_organization
             team.save()
-        # migrated users become admins (level 1)
-        OrganizationMembership.objects.create(organization=user.current_organization, user=user, level=1)
-        user.current_team = user.current_organization.teams.get()
+            for annotation in Annotation.objects.filter(team=team):
+                annotation.organization = user.current_organization
+                annotation.scope = "organization" if annotation.apply_all else "dashboard_item"
+                annotation.save()
+        # migrated users become admins (level 8)
+        OrganizationMembership.objects.create(organization=user.current_organization, user=user, level=8)
+        user.current_project = user.current_organization.projects.get()
         user.save()
 
 
@@ -61,18 +66,22 @@ class Migration(migrations.Migration):
             model_name="annotation",
             name="scope",
             field=models.CharField(
-                choices=[("dashboard_item", "dashboard item"), ("team", "team"), ("organization", "organization")],
+                choices=[
+                    ("dashboard_item", "dashboard item"),
+                    ("project", "project"),
+                    ("organization", "organization"),
+                ],
                 default="dashboard_item",
                 max_length=24,
             ),
         ),
         migrations.AddField(
             model_name="user",
-            name="current_team",
+            name="current_project",
             field=models.ForeignKey(
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
-                related_name="teams_currently+",
+                related_name="projects_currently+",
                 to="posthog.Team",
             ),
         ),
@@ -106,7 +115,7 @@ class Migration(migrations.Migration):
             model_name="team",
             name="users",
             field=models.ManyToManyField(
-                blank=True, related_name="teams_deprecated_relationship", to=settings.AUTH_USER_MODEL
+                blank=True, related_name="projects_deprecated_relationship", to=settings.AUTH_USER_MODEL
             ),
         ),
         migrations.AlterField(
@@ -211,12 +220,17 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
+            model_name="annotation",
+            name="organization",
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.Organization"),
+        ),
+        migrations.AddField(
             model_name="team",
             name="organization",
             field=models.ForeignKey(
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
-                related_name="teams",
+                related_name="projects",
                 related_query_name="team",
                 to="posthog.Organization",
             ),
@@ -243,5 +257,6 @@ class Migration(migrations.Migration):
                 check=models.Q(uses__lte=django.db.models.expressions.F("max_uses")), name="max_uses_respected"
             ),
         ),
+        migrations.RenameModel(old_name="Team", new_name="Project",),
         migrations.RunPython(forwards_func, reverse_func),
     ]

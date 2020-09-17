@@ -2,7 +2,7 @@ import './TopContent.scss'
 
 import React from 'react'
 import { LatestVersion } from '~/layout/LatestVersion'
-import { User, Teams, Organization } from '~/layout/TopSelectors'
+import { User, Projects, Organization } from '~/layout/TopSelectors'
 import { WorkerStats } from '~/layout/WorkerStats'
 
 export function TopContent() {
@@ -21,7 +21,7 @@ export function TopContent() {
                 <LatestVersion />
                 <WorkerStats />
                 <Organization />
-                <Teams />
+                <Projects />
                 <User />
             </div>
         </div>

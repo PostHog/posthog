@@ -4,11 +4,10 @@ import { router } from 'kea-router'
 import { Menu, Layout, Modal } from 'antd'
 import {
     SmileOutlined,
-    ProjectOutlined,
+    TeamOutlined,
     SendOutlined,
     DeploymentUnitOutlined,
     UserOutlined,
-    SettingOutlined,
     RiseOutlined,
     SyncOutlined,
     AimOutlined,
@@ -19,7 +18,7 @@ import {
     ExperimentOutlined,
     ClockCircleOutlined,
     MessageOutlined,
-    TeamOutlined,
+    ProjectOutlined,
     LockOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -237,18 +236,9 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            if (location.pathname !== '/organization/settings') push('/organization/settings')
+                            if (location.pathname !== '/organization/members') push('/organization/members')
                         }}
                     >
-                        <Menu.Item
-                            key="organizationSettings"
-                            style={itemStyle}
-                            data-attr="menu-item-organization-settings"
-                        >
-                            <SettingOutlined />
-                            <span className="sidebar-label">Settings</span>
-                            <Link to={'/organization/settings'} onClick={collapseSidebar} />
-                        </Menu.Item>
                         <Menu.Item
                             key="organizationMembers"
                             style={itemStyle}
