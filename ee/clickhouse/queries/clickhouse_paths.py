@@ -23,21 +23,12 @@ class ClickhousePaths(BaseQuery):
                 path_type = "JSONExtractString(properties, '$screen_name')"
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
-                path_type = "tag_name_source"
+                path_type = "concat('<', elements.tag_name, '> ', elements.text)"
                 start_comparator = "group_id"
             elif requested_type == CUSTOM_EVENT:
                 event = None
                 path_type = "event"
         return event, path_type, start_comparator
-
-    # def _add_elements(self, query_string: str) -> str:
-    #     element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
-    #                 ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
-    #     element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
-    #     sessions_sql = "SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true".format(
-    #         query_string, element_group, element
-    #     )
-    #     return sessions_sql
 
     def calculate_paths(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
@@ -48,7 +39,7 @@ class ClickhousePaths(BaseQuery):
         # new_session = this is 1 when the event is from a new session or
         #                       0 if it's less than 30min after and for the same person_id as the previous event
         # marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
-        #                        the current event is the start point or 0 otherwise
+        #                        the current event is the start point (e.g. path_start=/about) or 0 otherwise
         sessions_query = """
             SELECT person_id,
                    event_id,
@@ -64,16 +55,17 @@ class ClickhousePaths(BaseQuery):
             FROM (
                     SELECT timestamp,
                            person_id,
-                           id AS event_id,
+                           events.id AS event_id,
                            {path_type} AS path_type
                     FROM events
                     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-                    WHERE team_id = %(team_id)s 
+                    {element_joins}
+                    WHERE events.team_id = %(team_id)s 
                           AND {event_query}
                           {filters}
                           {parsed_date_from}
                           {parsed_date_to}
-                    GROUP BY person_id, timestamp, event_id, properties {extra_group_by}
+                    GROUP BY person_id, timestamp, event_id, path_type
                     ORDER BY person_id, timestamp
             )
         """.format(
@@ -83,15 +75,15 @@ class ClickhousePaths(BaseQuery):
             path_type=path_type,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
-            extra_group_by=", {}".format(path_type) if path_type == "event" or path_type == "tag_name_source" else "",
             filters=prop_filters if filter.properties else "",
             marked_session_start="{} = %(start_point)s".format(start_comparator)
             if filter and filter.start_point
             else "new_session",
+            element_joins="JOIN elements_group ON elements_group.elements_hash = events.elements_hash\
+            JOIN elements ON (elements.group_id = elements_group.id AND elements.order = toInt32(0))"
+            if event == AUTOCAPTURE_EVENT
+            else "",
         )
-
-        # if event == "$autocapture":
-        #     sessions_sql = self._add_elements(query_string=sessions_sql)
 
         if filter and filter.start_point:
             # find the first "marked_session_start" in the group and restart counting from it
