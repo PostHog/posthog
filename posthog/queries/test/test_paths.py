@@ -21,15 +21,15 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
             )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
             event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_2", event="$pageview", team=self.team,
+                properties={"$current_url": "/"}, distinct_id="person_2a", event="$pageview", team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_2", event="$pageview", team=self.team,
+                properties={"$current_url": "/pricing"}, distinct_id="person_2b", event="$pageview", team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_2", event="$pageview", team=self.team,
+                properties={"$current_url": "/about"}, distinct_id="person_2a", event="$pageview", team=self.team,
             )
 
             person_factory(team_id=self.team.pk, distinct_ids=["person_3"])
@@ -145,15 +145,15 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$screen_name": "/about"}, distinct_id="person_1", event="$screen", team=self.team,
             )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
             event_factory(
-                properties={"$screen_name": "/"}, distinct_id="person_2", event="$screen", team=self.team,
+                properties={"$screen_name": "/"}, distinct_id="person_2b", event="$screen", team=self.team,
             )
             event_factory(
-                properties={"$screen_name": "/pricing"}, distinct_id="person_2", event="$screen", team=self.team,
+                properties={"$screen_name": "/pricing"}, distinct_id="person_2a", event="$screen", team=self.team,
             )
             event_factory(
-                properties={"$screen_name": "/about"}, distinct_id="person_2", event="$screen", team=self.team,
+                properties={"$screen_name": "/about"}, distinct_id="person_2b", event="$screen", team=self.team,
             )
 
             person_factory(team_id=self.team.pk, distinct_ids=["person_3"])
@@ -360,18 +360,18 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
             )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_5"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person_5a", "person_5b"])
             event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_5", event="$pageview", team=self.team,
+                properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_5", event="$pageview", team=self.team,
+                properties={"$current_url": "/about"}, distinct_id="person_5b", event="$pageview", team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_5", event="$pageview", team=self.team,
+                properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/help"}, distinct_id="person_5", event="$pageview", team=self.team,
+                properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
             )
 
             response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
