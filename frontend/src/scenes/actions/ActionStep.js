@@ -20,6 +20,14 @@ let getSafeText = (el) => {
 }
 
 export class ActionStep extends Component {
+    isUrlChecked = (step) => {
+        return step?.selection?.indexOf('url') !== -1 ? true : false
+    }
+    ckbContainer = {
+        display: 'flex',
+        minHeight: '31px',
+        alignItems: 'center',
+    }
     constructor(props) {
         super(props)
         this.state = {
@@ -138,8 +146,9 @@ export class ActionStep extends Component {
                         {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
                     </small>
                 )}
-                <label>
+                <label style={this.ckbContainer}>
                     <input
+                        style={{ marginRight: '4px' }}
                         type="checkbox"
                         name="selection"
                         checked={this.state.selection.indexOf(props.item) > -1}
@@ -271,7 +280,13 @@ export class ActionStep extends Component {
     }
     URLMatching = ({ step, isEditor }) => {
         return (
-            <div className="btn-group" style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}>
+            <div
+                className="btn-group"
+                style={{
+                    margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px',
+                    display: this.isUrlChecked(step) ? 'block' : 'none',
+                }}
+            >
                 <button
                     onClick={() => this.sendStep({ ...step, url_matching: 'contains' })}
                     type="button"
