@@ -52,7 +52,7 @@ class Paths(BaseQuery):
 
         marked_plus = "\
             SELECT *, MIN(mark) OVER (\
-                    PARTITION BY distinct_id\
+                    PARTITION BY person_id\
                     , session ORDER BY timestamp\
                     ) AS max from ({}) as marked order by session\
         ".format(
@@ -94,7 +94,7 @@ class Paths(BaseQuery):
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),
-                    partition_by=F("distinct_id"),
+                    partition_by=F("person_id"),
                     order_by=F("timestamp").asc(),
                 )
             )
@@ -114,7 +114,7 @@ class Paths(BaseQuery):
 
         sessionified = "\
         SELECT events_notated.*, SUM(new_session) OVER (\
-            ORDER BY distinct_id\
+            ORDER BY person_id\
                     ,timestamp\
             ) AS session\
         FROM ({}) as events_notated\
@@ -130,7 +130,7 @@ class Paths(BaseQuery):
         final = "\
         SELECT {} as path_type, id, sessionified.session\
             ,ROW_NUMBER() OVER (\
-                    PARTITION BY distinct_id\
+                    PARTITION BY person_id\
                     ,session ORDER BY timestamp\
                     ) AS event_number\
         FROM ({}) as sessionified\
