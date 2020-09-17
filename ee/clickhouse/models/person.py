@@ -128,7 +128,7 @@ class ClickhousePersonSerializer(serializers.Serializer):
         return json.loads(person[3])
 
     def get_is_identified(self, person):
-        if person and person[4]:
+        if person and len(person) >= 5:
             return person[4]
         return False
 
