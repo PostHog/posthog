@@ -3,16 +3,17 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined, PlusOutlined, GlobalOutlined, CloseOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
+import { AnnotationScope } from 'lib/constants'
 
 const { TextArea } = Input
 
-function coordinateContains(e, element) {
+function coordinateContains(e, element): boolean {
     if (
         e.clientX >= element.x &&
         e.clientX <= element.x + element.width &&
@@ -42,7 +43,7 @@ export function AnnotationMarker({
     onCreateAnnotation,
     graphColor,
     index,
-}) {
+}: Record<string, any>): JSX.Element | null {
     const popupRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
@@ -50,7 +51,7 @@ export function AnnotationMarker({
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const [hovered, setHovered] = useState(false)
     const {
-        user: { id, name, email },
+        user: { id, name, email, organization, project },
     } = useValues(userLogic)
 
     const { diffType, groupedAnnotations } = useValues(
@@ -59,7 +60,7 @@ export function AnnotationMarker({
         })
     )
 
-    function closePopup() {
+    function closePopup(): void {
         setFocused(false)
         onClose?.()
     }
@@ -69,7 +70,7 @@ export function AnnotationMarker({
     const _color = color || '#1890ff'
     const _accessoryColor = accessoryColor || 'white'
 
-    const deselect = (e) => {
+    function deselect(e): void {
         if (popupRef.current && coordinateContains(e, popupRef.current.getBoundingClientRect())) {
             return
         }
@@ -151,11 +152,19 @@ export function AnnotationMarker({
                                         <i style={{ color: 'gray', marginRight: 6 }}>
                                             {humanFriendlyDetailedTime(data.created_at)}
                                         </i>
-                                        {data.apply_all && (
-                                            <Tooltip title="This note is shown on all charts">
-                                                <GlobalOutlined></GlobalOutlined>
+                                        {data.scope === AnnotationScope.Project ? (
+                                            <Tooltip
+                                                title={`This annotation is shown on all charts in project ${project.name}`}
+                                            >
+                                                <ProjectOutlined />
                                             </Tooltip>
-                                        )}
+                                        ) : data.scope === AnnotationScope.Organization ? (
+                                            <Tooltip
+                                                title={`This annotation is shown on all charts in organization ${organization.name}`}
+                                            >
+                                                <DeploymentUnitOutlined />
+                                            </Tooltip>
+                                        ) : null}
                                     </div>
                                     {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined

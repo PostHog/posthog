@@ -3,6 +3,7 @@ import moment from 'moment'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
+import { AnnotationScope } from 'lib/constants'
 
 export const Annotations = function Annotations({
     dates,
@@ -16,7 +17,7 @@ export const Annotations = function Annotations({
     onClose,
     graphColor,
     currentDateMarker,
-}) {
+}: Record<string, any>): JSX.Element[] {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
             pageKey: dashboardItemId ? dashboardItemId : null,
@@ -35,8 +36,8 @@ export const Annotations = function Annotations({
         })
     )
 
-    const markers = []
-    dates.forEach((date, index) => {
+    const markers: JSX.Element[] = []
+    dates.forEach((date: string, index: number) => {
         const annotations = groupedAnnotations[moment(date).startOf(diffType)]
         if (annotations) {
             markers.push(
@@ -54,7 +55,8 @@ export const Annotations = function Annotations({
                     }}
                     onDelete={(data) => {
                         annotations.length === 1 && onClose?.()
-                        if (data.apply_all) deleteGlobalAnnotation(data.id)
+                        if ([AnnotationScope.Organization, AnnotationScope.Project].includes(data.scope))
+                            deleteGlobalAnnotation(data.id)
                         else deleteAnnotation(data.id)
                     }}
                     onClick={onClick}
