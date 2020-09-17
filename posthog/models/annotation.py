@@ -27,3 +27,6 @@ class Annotation(models.Model):
 
     # DEPRECATED: replaced by scope
     apply_all: models.BooleanField = models.BooleanField(default=False)
+
+    def get_analytics_metadata(self):
+        return {"scope": self.scope, "date_marker": self.date_marker}
