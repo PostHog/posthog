@@ -35,6 +35,8 @@ inflection==0.3.1
 iso8601==0.1.12
 itypes==1.1.0
 Jinja2==2.11.1
+kafka-python==2.0.1
+kafka-helper==0.2
 kombu==4.6.8
 lzstring==1.0.4
 MarkupSafe==1.1.1

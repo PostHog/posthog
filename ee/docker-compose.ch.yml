@@ -30,6 +30,7 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'False'
             CLICKHOUSE_VERIFY: 'False'
+            KAFKA_HOSTS: 'kafka'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 'true'
@@ -54,6 +55,7 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'False'
             CLICKHOUSE_VERIFY: 'False'
+            KAFKA_HOSTS: 'kafka'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 'true'
@@ -71,3 +73,12 @@ services:
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
+    zookeeper:
+        image: wurstmeister/zookeeper
+    kafka:
+        image: wurstmeister/kafka
+        ports:
+            - '9092:9092'
+        environment:
+            KAFKA_ADVERTISED_HOST_NAME: kafka
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181

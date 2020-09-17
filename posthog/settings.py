@@ -110,9 +110,9 @@ CLICKHOUSE_TEST_DB = "posthog_test"
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
@@ -125,6 +125,9 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+KAFKA_HOSTS = os.environ.get("KAFKA_HOSTS", "")
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
@@ -188,6 +191,8 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+EE_AVAILABLE = False
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig
@@ -197,14 +202,15 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    EE_AVAILABLE = True
 
 # Use django-extensions if it exists
 try:
     import django_extensions
-
-    INSTALLED_APPS.append("django_extensions")
 except ImportError:
     pass
+else:
+    INSTALLED_APPS.append("django_extensions")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True

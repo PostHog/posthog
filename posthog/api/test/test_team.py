@@ -110,7 +110,7 @@ class TestTeamUser(BaseTest):
         # Cannot partially update users
         email: str = user.email
         response = self.client.patch(
-            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
+            f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
@@ -151,7 +151,7 @@ class TestTeamUser(BaseTest):
 
 class TestTeamSignup(APIBaseTest):
     @tag("skip_on_multitenancy")
-    @patch("posthog.api.team.EE_MISSING", True)
+    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
@@ -251,7 +251,9 @@ class TestTeamSignup(APIBaseTest):
                 "password": "notsecure",
             }
             body.pop(attribute)
-            response = self.client.post("/api/team/signup/", body)
+
+            # Make sure the endpoint works with and without the trailing slash
+            response = self.client.post("/api/team/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.data, {attribute: ["This field is required."]})
 

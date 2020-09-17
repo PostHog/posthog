@@ -97,7 +97,9 @@ class TestPerson(BaseTest):
         person_identified_using_event = Person.objects.create(team=self.team, distinct_ids=["klm"],)
 
         # all
-        response = self.client.get("/api/person/").json()
+        response = self.client.get(
+            "/api/person"
+        ).json()  # Make sure the endpoint works with and without the trailing slash
         self.assertEqual(len(response["results"]), 3)
         response_all = self.client.get("/api/person/?category=all").json()
         self.assertListEqual(response["results"], response_all["results"])

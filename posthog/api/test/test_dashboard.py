@@ -132,8 +132,9 @@ class TestDashboard(TransactionBaseTest):
 
         item = DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
 
+        # Make sure the endpoint works with and without the trailing slash
         self.client.post(
-            "/api/dashboard_item/", data={"filters": {"hello": "test"}}, content_type="application/json",
+            "/api/dashboard_item", data={"filters": {"hello": "test"}}, content_type="application/json",
         ).json()
 
         response = self.client.get("/api/dashboard_item/?user=true").json()

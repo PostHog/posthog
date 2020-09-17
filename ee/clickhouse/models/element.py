@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
     GET_ELEMENT_GROUP_BY_HASH_SQL,
@@ -12,6 +12,8 @@ from ee.clickhouse.sql.elements import (
     INSERT_ELEMENT_GROUP_SQL,
     INSERT_ELEMENTS_SQL,
 )
+from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
@@ -19,27 +21,28 @@ from posthog.models.team import Team
 
 def create_element_group(team: Team, element_hash: str) -> UUID:
     id = uuid4()
-    async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
+    p = KafkaProducer()
+    data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
     return id
 
 
 def create_element(element: Element, team: Team, group_id: UUID) -> None:
-    async_execute(
-        INSERT_ELEMENTS_SQL,
-        {
-            "text": element.text or "",
-            "tag_name": element.tag_name or "",
-            "href": element.href or "",
-            "attr_id": element.attr_id or "",
-            "attr_class": element.attr_class or [],
-            "nth_child": element.nth_child,
-            "nth_of_type": element.nth_of_type,
-            "attributes": json.dumps(element.attributes or {}),
-            "order": element.order,
-            "team_id": team.pk,
-            "group_id": group_id,
-        },
-    )
+    p = KafkaProducer()
+    data = {
+        "text": element.text or "",
+        "tag_name": element.tag_name or "",
+        "href": element.href or "",
+        "attr_id": element.attr_id or "",
+        "attr_class": element.attr_class or [],
+        "nth_child": element.nth_child,
+        "nth_of_type": element.nth_of_type,
+        "attributes": json.dumps(element.attributes or {}),
+        "order": element.order,
+        "team_id": team.pk,
+        "group_id": str(group_id),
+    }
+    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
 
 
 def create_elements(elements: List[Element], team: Team) -> str:
