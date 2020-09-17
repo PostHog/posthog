@@ -10,7 +10,7 @@ type Type = HandledType | 'symbol' | 'object' | 'function'
 
 const typeToIcon: Record<string, JSX.Element> = {
     string: <EditOutlined />,
-    'string, parsed as datetime': <CalendarOutlined />,
+    'string, parsable as datetime': <CalendarOutlined />,
     number: <NumberOutlined />,
     bigint: <NumberOutlined />,
     boolean: <BulbOutlined />,
