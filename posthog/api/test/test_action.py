@@ -28,7 +28,7 @@ class TestCreateAction(BaseTest):
         Event.objects.create(
             team=self.team,
             event="$autocapture",
-            elements=[Element(tag_name="button", order=0, text="sign up NOW"), Element(tag_name="div", order=1),],
+            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
         )
         response = self.client.post(
             "/api/action/",
@@ -63,7 +63,7 @@ class TestCreateAction(BaseTest):
             team=self.team,
             event="$autocapture",
             properties={"$browser": "Chrome"},
-            elements=[Element(tag_name="button", order=0, text="sign up NOW"), Element(tag_name="div", order=1),],
+            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
         )
         response = self.client.patch(
             "/api/action/%s/" % action.pk,

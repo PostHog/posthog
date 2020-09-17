@@ -196,10 +196,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_1",
                 elements=[
-                    Element(tag_name="a", text="hello", href="/a-url", nth_child=1, nth_of_type=0, order=0,),
-                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=1),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3, attr_id="nested",),
+                    Element(tag_name="a", text="hello", href="/a-url", nth_child=1, nth_of_type=0),
+                    Element(tag_name="button", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
                 ],
             )
 
@@ -208,10 +208,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_1",
                 elements=[
-                    Element(tag_name="a", text="goodbye", nth_child=2, nth_of_type=0, order=0, attr_id="someId",),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=1),
+                    Element(tag_name="a", text="goodbye", nth_child=2, nth_of_type=0, attr_id="someId",),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
                     # make sure elements don't get double counted if they're part of the same event
-                    Element(href="/a-url-2", nth_child=0, nth_of_type=0, order=2),
+                    Element(href="/a-url-2", nth_child=0, nth_of_type=0),
                 ],
             )
 
@@ -221,10 +221,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_2",
                 elements=[
-                    Element(tag_name="a", text="hello1", href="/a-url", nth_child=1, nth_of_type=0, order=0,),
-                    Element(tag_name="button", nth_child=0, nth_of_type=0, order=1),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=3, attr_id="nested",),
+                    Element(tag_name="a", text="hello1", href="/a-url", nth_child=1, nth_of_type=0,),
+                    Element(tag_name="button", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
                 ],
             )
 
@@ -233,10 +233,10 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_2",
                 elements=[
-                    Element(tag_name="a", text="goodbye1", nth_child=2, nth_of_type=0, order=0, attr_id="someId",),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, order=1),
+                    Element(tag_name="a", text="goodbye1", nth_child=2, nth_of_type=0, attr_id="someId",),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
                     # make sure elements don't get double counted if they're part of the same event
-                    Element(href="/a-url-2", nth_child=0, nth_of_type=0, order=2),
+                    Element(href="/a-url-2", nth_child=0, nth_of_type=0),
                 ],
             )
             response = paths().run(team=self.team, filter=Filter(data={"path_type": "$autocapture"}))

@@ -67,7 +67,7 @@ class TestElement(BaseTest):
             team=self.team,
             event="$autocapture",
             properties={"$current_url": "http://example.com/something_else"},
-            elements=[Element(tag_name="img", order=0)],
+            elements=[Element(tag_name="img")],
         )
 
         with self.assertNumQueries(6):
