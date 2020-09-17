@@ -10,6 +10,8 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
+PERSONS_TABLE = "person"
+
 PERSONS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
@@ -26,13 +28,31 @@ PERSONS_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name="person", engine=table_engine("person"), storage_policy=STORAGE_POLICY)
+).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE), storage_policy=STORAGE_POLICY)
 
-KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(table_name="kafka_person", engine=kafka_engine(KAFKA_PERSON))
+KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
+)
+
+PERSONS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+created_at,
+team_id,
+properties,
+is_identified
+FROM kafka_{table_name} 
+""".format(
+    table_name=PERSONS_TABLE
+)
 
 GET_PERSON_SQL = """
 SELECT * FROM person WHERE team_id = %(team_id)s
 """
+
+PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
@@ -49,10 +69,25 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name="person_distinct_id", engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=PERSONS_DISTINCT_ID_TABLE, engine=table_engine(PERSONS_DISTINCT_ID_TABLE), storage_policy=STORAGE_POLICY
+)
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_person_distinct_id", engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
+)
+
+PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+distinct_id,
+person_id,
+team_id
+FROM kafka_{table_name} 
+""".format(
+    table_name=PERSONS_DISTINCT_ID_TABLE
 )
 
 GET_DISTINCT_IDS_SQL = """
