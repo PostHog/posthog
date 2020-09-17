@@ -43,13 +43,15 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
 
 
 def create_elements(elements: List[Element], team: Team) -> str:
-
     # create group
+    for index, element in enumerate(elements):
+        element.order = index
+
     element_hash = hash_elements(elements)
     group_id = create_element_group(element_hash=element_hash, team=team)
 
     # create elements
-    for element in elements:
+    for index, element in enumerate(elements):
         create_element(element=element, team=team, group_id=group_id)
 
     return element_hash
