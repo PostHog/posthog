@@ -2,7 +2,6 @@ describe('Trends sessions', () => {
     beforeEach(() => {
         // given
         cy.visit('/insights')
-        cy.wait(200)
         cy.contains('Sessions', { timeout: 7000 }).click()
     })
 
@@ -25,7 +24,7 @@ describe('Trends sessions', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
 
-        cy.get('[data-attr=trend-table-graph]').should('exist')
+        cy.get('[data-attr=trend-table-graph]', { timeout: 7000 }).should('exist')
     })
 
     it('Apply date filter', () => {
