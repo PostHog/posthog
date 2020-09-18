@@ -37,8 +37,18 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team) -> Tuple[s
             )
             clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
             final += "{cond} ({clause}) ".format(cond="AND {key} IN".format(key=key), clause=clause)
-            params.update({"k{}".format(idx): prop.key, "v{}".format(idx): '"' + prop.value + '"'})
+            params.update({"k{}".format(idx): prop.key, "v{}".format(idx): _pad_value(prop.value)})
     return final, params
+
+
+def _pad_value(val: str):
+    if not val.startswith('"'):
+        val = '"' + val
+
+    if not val.endswith('"'):
+        val = val + '"'
+
+    return val
 
 
 # TODO: handle all operators

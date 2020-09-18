@@ -17,6 +17,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
+from posthog.models.property import Property
 from posthog.models.team import Team
 
 PERSON_TREND_SQL = """
@@ -55,6 +56,7 @@ class ClickhouseActions(ActionViewSet):
         if shown_as is not None and shown_as == "Stickiness":
             stickiness_day = int(request.GET["stickiness_days"])
             serialized_people = self._calculate_stickiness_entity_people(team, entity, filter, stickiness_day)
+
         else:
             serialized_people = self._calculate_entity_people(team, entity, filter)
 
@@ -112,6 +114,7 @@ class ClickhouseActions(ActionViewSet):
                     parsed_date_from=(parsed_date_from or ""),
                     parsed_date_to=(parsed_date_to or ""),
                     filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                    breakdown_filter="",
                 )
             except:
                 people = []
@@ -120,6 +123,7 @@ class ClickhouseActions(ActionViewSet):
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                breakdown_filter="",
             )
             params = {**params, "event": entity.id}
         people = ch_client.execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=content_sql), params)

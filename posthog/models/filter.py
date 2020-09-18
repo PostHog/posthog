@@ -12,6 +12,7 @@ from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
     BREAKDOWN_TYPE,
+    BREAKDOWN_VALUE,
     COMPARE,
     DATE_FROM,
     DATE_TO,
@@ -54,6 +55,7 @@ class Filter(PropertyMixin):
     shown_as: Optional[str] = None
     breakdown: Optional[Union[str, List[Union[str, int]]]] = None
     breakdown_type: Optional[str] = None
+    breakdown_value: Optional[str] = None
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
     insight: Optional[str] = None
@@ -84,6 +86,7 @@ class Filter(PropertyMixin):
         self.shown_as = data.get(SHOWN_AS)
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get(BREAKDOWN_TYPE)
+        self.breakdown_value = data.get(BREAKDOWN_VALUE)
         self._compare = data.get(COMPARE, "false")
         self.insight = data.get(INSIGHT)
         self.session_type = data.get(SESSION)
