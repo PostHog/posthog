@@ -1,30 +1,34 @@
-import React from 'react'
+import React, { CSSProperties } from 'react'
 import moment from 'moment'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 import { Table, Tooltip } from 'antd'
 import { EditOutlined, NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
 
-type HandledType = 'string' | 'string, parsed as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
+type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
 
+const iconStyle: CSSProperties = { marginRight: '0.5rem', opacity: 0.75 }
+
 const typeToIcon: Record<string, JSX.Element> = {
-    string: <EditOutlined />,
-    'string, parsable as datetime': <CalendarOutlined />,
-    number: <NumberOutlined />,
-    bigint: <NumberOutlined />,
-    boolean: <BulbOutlined />,
-    undefined: <StopOutlined />,
-    null: <StopOutlined />,
+    string: <EditOutlined style={iconStyle} />,
+    'string, parsable as datetime': <CalendarOutlined style={iconStyle} />,
+    number: <NumberOutlined style={iconStyle} />,
+    bigint: <NumberOutlined style={iconStyle} />,
+    boolean: <BulbOutlined style={iconStyle} />,
+    undefined: <StopOutlined style={iconStyle} />,
+    null: <StopOutlined style={iconStyle} />,
 }
 
 function PropertyDisplay({ properties }: { properties: any }): JSX.Element {
     let propertiesType: Type = typeof properties
     if (properties === null) propertiesType = 'null'
-    else if (propertiesType === 'string' && moment(properties).isValid()) propertiesType = 'string, parsed as datetime'
+    else if (propertiesType === 'string' && moment(properties).isValid())
+        propertiesType = 'string, parsable as datetime'
+    console.log(propertiesType)
     return typeToIcon[propertiesType] ? (
         <>
-            <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>{' '}
+            <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>
             {String(properties)}
         </>
     ) : (
