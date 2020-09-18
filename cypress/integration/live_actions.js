@@ -10,7 +10,7 @@ describe('Live Actions', () => {
  */
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-LiveActionsTable]').click()
-        cy.get('.col > .ant-select > .ant-select-selector > .ant-select-selection-item').click() // Will later substitute for data-attr
+        cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-1]').click()
