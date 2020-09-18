@@ -122,7 +122,7 @@ ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {pa
 """
 
 BREAKDOWN_COHORT_FILTER_SQL = """
-SELECT distinct_id, {cohort_pk} as breakdown_value
+SELECT distinct_id, {cohort_pk} as value
 FROM person_distinct_id
 WHERE person_id IN ({table_name})
 """
@@ -219,7 +219,12 @@ class ClickhouseTrends(BaseQuery):
                     actions_query="and id IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
-                breakdown_query = BREAKDOWN_DEFAULT_SQL.format(null_sql=null_sql, conditions=conditions)
+                breakdown_query = BREAKDOWN_DEFAULT_SQL.format(
+                    null_sql=null_sql,
+                    conditions=conditions,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                )
             else:
                 cohort_queries, cohort_ids = self._format_breakdown_cohort_join_query(breakdown, team)
                 params = {

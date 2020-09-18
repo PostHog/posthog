@@ -140,8 +140,9 @@ class ClickhousePersonSerializer(serializers.Serializer):
     def get_is_identified(self, person):
         return person[4]
 
+    # all queries might not retrieve distinct_ids
     def get_distinct_ids(self, person):
-        return person[5]
+        return person[5] if len(person) > 5 else []
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):
