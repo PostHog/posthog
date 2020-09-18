@@ -70,7 +70,7 @@ export function PersonTable({ properties }) {
         if (typeof properties === 'string') {
             return (
                 <Input
-                    disabled={_key === 'distinct_id'}
+                    disabled={_key === 'distinct_id' || _key === 'phone'}
                     placeholder={_key}
                     defaultValue={properties}
                     onChange={onChange}
