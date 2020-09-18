@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlsplit
 
@@ -425,3 +426,10 @@ class SingletonDecorator:
         if self.instance == None:
             self.instance = self.klass(*args, **kwds)
         return self.instance
+
+
+def get_machine_id() -> str:
+    """A MAC address-dependent ID. Useful for PostHog instance analytics."""
+    # MAC addresses are 6 bits long, so overflow shouldn't happen
+    # hashing here as we don't care about the actual address, just it being rather consistent
+    return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
