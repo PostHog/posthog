@@ -1,26 +1,29 @@
+from typing import Optional
+
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
-from posthog.models import Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User, organization
 
 
 class TestMixin:
     TESTS_API: bool = False
-    TESTS_PASSWORD: str = "testpassword12345"
+    TESTS_COMPANY_NAME: str = "Test"
+    TESTS_EMAIL: str = "user1"
+    TESTS_PASSWORD: Optional[str] = "testpassword12345"
+    TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
 
-    def _create_user(self, email, **kwargs) -> User:
-        user = User.objects.create_user(email, **kwargs)
-        self.team.users.add(user)
-        self.team.save()
-        return user
+    def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
+        return User.objects.join(self.organization, self.team, email, password, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore
-        self.team: Team = Team.objects.create(api_token="token123")
+        self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
+        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
+        self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
         if self.TESTS_API:
             self.client = Client()
-            self.user = self._create_user("user1", password=self.TESTS_PASSWORD)
             if self.TESTS_FORCE_LOGIN:
                 self.client.force_login(self.user)
 
@@ -38,4 +41,19 @@ class APIBaseTest(APITestCase):
     Test API using Django REST Framework test suite.
     """
 
-    pass
+    TESTS_COMPANY_NAME: str = "Test"
+    TESTS_EMAIL: str = "user1"
+    TESTS_PASSWORD: Optional[str] = "testpassword12345"
+    TESTS_API_TOKEN: str = "token123"
+    TESTS_FORCE_LOGIN: bool = True
+
+    def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
+        return User.objects.join(self.organization, self.team, email, password, **kwargs)
+
+    def setUp(self):
+        super().setUp()
+        self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
+        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
+        self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+        if self.TESTS_FORCE_LOGIN:
+            self.client.force_login(self.user)

@@ -97,7 +97,7 @@ def user(request):
 
 @authenticate_secondarily
 def redirect_to_site(request):
-    team = request.user.team_set.get()
+    team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
     use_new_toolbar = request.user.toolbar_mode == "toolbar"
 

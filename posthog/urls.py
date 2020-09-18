@@ -87,12 +87,10 @@ def signup_to_team_view(request, token):
                     "signup_token": token,
                 },
             )
-        user = User.objects.create_user(
-            email=email, password=password, first_name=first_name, email_opt_in=email_opt_in,
+        user = User.objects.join(
+            team.organization, team, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        team.users.add(user)
-        team.save()
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
         )

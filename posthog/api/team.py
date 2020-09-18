@@ -23,7 +23,6 @@ class TeamSignupSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data):
-        company_name = validated_data.pop("company_name", "")
         is_first_user: bool = not User.objects.exists()
         realm: str = "cloud" if not MULTI_TENANCY_MISSING else "hosted"
 
@@ -33,9 +32,7 @@ class TeamSignupSerializer(serializers.Serializer):
         if not is_first_user and MULTI_TENANCY_MISSING:
             raise serializers.ValidationError("This instance does not support multiple teams.")
 
-        with transaction.atomic():
-            user = User.objects.create_user(**validated_data)
-            self._team = Team.objects.create_with_data(users=[user], name=company_name)
+        organization, team, user = User.objects.bootstrap(**validated_data)
 
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",

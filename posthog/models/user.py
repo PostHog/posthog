@@ -1,12 +1,10 @@
-from typing import List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.db import models
-from django.dispatch import receiver
+from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
-from rest_framework.fields import BooleanField
 
 from .organization import Organization, OrganizationMembership
 from .team import Team
@@ -78,6 +76,38 @@ class UserManager(BaseUserManager):
 
         return self._create_user(email, password, **extra_fields)
 
+    def bootstrap(
+        self,
+        company_name: str,
+        email: str,
+        password: Optional[str],
+        organization_fields: Optional[Dict[str, Any]] = None,
+        team_fields: Optional[Dict[str, Any]] = None,
+        **user_fields
+    ) -> Tuple["Organization", "Team", "User"]:
+        with transaction.atomic():
+            organization = Organization.objects.create(name=company_name, **(organization_fields or {}))
+            team = Team.objects.create_with_data(organization=organization, name=company_name, **(team_fields or {}))
+            user = self.create_user(email, password, **user_fields)
+            organization.members.add(user)
+            team.users.add(user)
+            user.current_organization = organization
+            user.current_team = team
+            user.save()
+            return organization, team, user
+
+    def join(
+        self, organization: Organization, team: Team, email: str, password: Optional[str], **extra_fields
+    ) -> "User":
+        with transaction.atomic():
+            user = self.create_user(email, password, **extra_fields)
+            organization.members.add(user)
+            team.users.add(user)
+            user.current_organization = organization
+            user.current_team = team
+            user.save()
+            return user
+
 
 class User(AbstractUser):
     DEFAULT = "default"
@@ -147,13 +177,15 @@ class User(AbstractUser):
     @property
     def organization(self) -> Organization:
         if self.current_organization is None:
-            raise Organization.DoesNotExist
+            self.current_organization = self.organizations.get()
+            self.save()
         return self.current_organization
 
     @property
     def team(self) -> Team:
         if self.current_team is None:
-            raise Team.DoesNotExist
+            self.current_team = self.organization.teams.get()
+            self.save()
         return self.current_team
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

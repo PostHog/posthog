@@ -1,40 +1,38 @@
 import random
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from unittest.mock import patch
 
 from django.db.models import Q
 from django.test import tag
 from rest_framework import status
+from rest_framework.exceptions import ErrorDetail
 
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 
-from .base import APIBaseTest, BaseTest
+from .base import APIBaseTest, BaseTest, TransactionBaseTest
 
 
-class TestTeamUser(BaseTest):
-    TESTS_API = True
-
-    def create_user_for_team(self, team):
+class TestTeamUser(APIBaseTest):
+    def create_user_for_team(self, team: Team, organization: Organization) -> User:
         suffix = random.randint(100000, 999999)
-        user = User.objects.create_user(
-            f"user{suffix}@posthog.com", password=self.TESTS_PASSWORD, first_name=f"User #{suffix}",
+        user = User.objects.join(
+            organization, team, f"user{suffix}@posthog.com", self.TESTS_PASSWORD, first_name=f"User #{suffix}",
         )
-        team.users.add(user)
-        team.save()
         return user
 
-    def create_team_and_user(self):
-        team: Team = Team.objects.create(api_token="token123")
-        return (team, self.create_user_for_team(team))
+    def create_team_and_user(self) -> Tuple[Organization, Team, User]:
+        organization: Organization = Organization.objects.create(name="Test")
+        team: Team = Team.objects.create(organization=organization, api_token="token123")
+        return (organization, team, self.create_user_for_team(team, organization))
 
     def test_user_can_list_their_team_users(self):
 
         # Create a team with a list of multiple users first
         users: List = []
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_team_and_user()
         users.append(user)
         for i in range(0, 3):
-            users.append(self.create_user_for_team(team))
+            users.append(self.create_user_for_team(team, organization))
 
         self.client.force_login(random.choice(users))  # Log in as any of the users
 
@@ -55,8 +53,8 @@ class TestTeamUser(BaseTest):
 
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_user_can_delete_another_team_user(self, mock_capture):
-        team, user = self.create_team_and_user()
-        user2: User = self.create_user_for_team(team)
+        organization, team, user = self.create_team_and_user()
+        user2: User = self.create_user_for_team(team, organization)
         self.client.force_login(user)
 
         response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
@@ -73,7 +71,7 @@ class TestTeamUser(BaseTest):
 
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_cannot_delete_yourself(self, mock_capture):
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_team_and_user()
         self.client.force_login(user)
 
         response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
@@ -88,8 +86,8 @@ class TestTeamUser(BaseTest):
         mock_capture.assert_not_called()
 
     def test_cannot_delete_user_using_their_primary_key(self):
-        team, user = self.create_team_and_user()
-        user2: User = self.create_user_for_team(team)
+        organization, team, user = self.create_team_and_user()
+        user2: User = self.create_user_for_team(team, organization)
         self.client.force_login(user)
 
         response = self.client.delete(f"/api/team/user/{user2.pk}/")
@@ -101,10 +99,10 @@ class TestTeamUser(BaseTest):
         )  # User still exists
 
     def test_user_cannot_delete_user_from_another_team(self):
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_team_and_user()
         self.client.force_login(user)
 
-        team2, user2 = self.create_team_and_user()
+        organization2, team2, user2 = self.create_team_and_user()
 
         response = self.client.delete(f"/api/team/user/{user2.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -115,21 +113,17 @@ class TestTeamUser(BaseTest):
         )  # User still exists
 
     def test_creating_or_updating_users_is_currently_not_allowed(self):
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_team_and_user()
         self.client.force_login(user)
 
         # Cannot partially update users
         email: str = user.email
-        response = self.client.patch(
-            f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "application/json"
-        )
+        response = self.client.patch(f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
 
         # Cannot update users
-        response = self.client.put(
-            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
-        )
+        response = self.client.put(f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PUT" not allowed.'})
 
@@ -138,15 +132,13 @@ class TestTeamUser(BaseTest):
 
         # Cannot create users
         count: int = User.objects.count()
-        response = self.client.post(
-            f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "application/json"
-        )
+        response = self.client.post(f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "POST" not allowed.'})
         self.assertEqual(User.objects.count(), count)
 
     def test_unauthenticated_user_cannot_list_or_delete_team_users(self):
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_team_and_user()
         self.client.logout()
 
         response = self.client.get("/api/team/user/")
@@ -160,7 +152,7 @@ class TestTeamUser(BaseTest):
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
 
-class TestTeamSignup(APIBaseTest):
+class TestTeamSignup(TransactionBaseTest):
     @tag("skip_on_multitenancy")
     @patch("posthog.api.team.settings.EE_AVAILABLE", False)
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
@@ -180,7 +172,7 @@ class TestTeamSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team_set.all()[0]
+        team: Team = user.team
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
@@ -220,7 +212,7 @@ class TestTeamSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk").get()
-        team: Team = user.team_set.all()[0]
+        team: Team = user.team
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},

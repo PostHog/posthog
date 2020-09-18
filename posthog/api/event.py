@@ -104,7 +104,7 @@ class EventViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
 
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         queryset = queryset.add_person_id(team.pk)  # type: ignore
 
         if self.action == "list" or self.action == "sessions" or self.action == "actions":  # type: ignore
@@ -150,7 +150,7 @@ class EventViewSet(viewsets.ModelViewSet):
         }
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         distinct_ids = []
         hash_ids = []
         for event in events:
@@ -244,7 +244,7 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             where = ""
 
-        params.append(request.user.team_set.get().pk)
+        params.append(request.user.team.pk)
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(
@@ -274,7 +274,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
