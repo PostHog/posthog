@@ -19,7 +19,6 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import get_template
 from django.utils import timezone
@@ -314,6 +313,8 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Request):
+        from django.contrib.auth.models import AnonymousUser
+
         if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(
