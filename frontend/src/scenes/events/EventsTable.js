@@ -5,7 +5,7 @@ import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
-import { SearchOutlined } from '@ant-design/icons'
+import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Spin, Table, Tooltip } from 'antd'
 import { router } from 'kea-router'
@@ -13,10 +13,19 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 
-import { eventToName } from 'lib/utils'
+import { eventToName, toParams } from 'lib/utils'
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
-    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents, eventFilter } = useValues(logic)
+    const {
+        properties,
+        eventsFormatted,
+        orderBy,
+        isLoading,
+        hasNext,
+        isLoadingNext,
+        newEvents,
+        eventFilter,
+    } = useValues(logic)
     const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
     const {
         location: { search },
@@ -138,6 +147,21 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Events</h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
+            <Tooltip title="Up to 100,000 latest events.">
+                <Button
+                    type="default"
+                    icon={<ExportOutlined />}
+                    href={`/api/event.csv?${toParams({
+                        properties,
+                        ...(fixedFilters || {}),
+                        ...(eventFilter ? { event: eventFilter } : {}),
+                        orderBy: [orderBy],
+                    })}`}
+                    style={{ marginBottom: '1rem' }}
+                >
+                    Export
+                </Button>
+            </Tooltip>
             <Table
                 dataSource={eventsFormatted}
                 loading={isLoading}
