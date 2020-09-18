@@ -4,12 +4,15 @@ import api from 'lib/api'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { Button, Modal } from 'antd'
-import { CheckCircleTwoTone } from '@ant-design/icons'
+import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
+    const { innerWidth } = window
+    const isScreenSmall = innerWidth < 700
+
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     useEffect(() => {
@@ -61,8 +64,9 @@ function _Person({ _: distinctId, id }) {
             centered: true,
             title: text,
             icon: <CheckCircleTwoTone twoToneColor="#52c41a" />,
-            content: `Click OK to Save Person's Data`,
+            content: '',
             okType: 'primary',
+            okText: 'Yes',
             onOk() {
                 savePersonData(person)
             },
@@ -76,14 +80,15 @@ function _Person({ _: distinctId, id }) {
                 danger
                 onClick={() => deletePersonData(person, () => history.push('/people'))}
             >
-                Delete all data on this person
+                {isScreenSmall ? <DeleteOutlined></DeleteOutlined> : 'Delete all data on this person'}
             </Button>
             <Button
                 className="float-right"
-                onClick={() => showConfirm('save', "Save Person's Data?")}
+                onClick={() => showConfirm('save', "Are you sure you want to update this person's properties?")}
                 disabled={!personChanged}
+                style={{ marginRight: '10px' }}
             >
-                Save Person's Data
+                Save updated data
             </Button>
             <h1 className="page-header">
                 {'name' in person.properties ? person.properties.name.first : person.name}{' '}
