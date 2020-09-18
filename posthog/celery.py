@@ -1,11 +1,6 @@
-import hashlib
 import os
 import time
-import uuid
-from datetime import datetime
-from typing import Optional
 
-import posthoganalytics
 import redis
 import statsd  # type: ignore
 from celery import Celery, group
@@ -15,9 +10,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from posthog.models import Event
 from posthog.settings import STATSD_HOST, STATSD_PORT, STATSD_PREFIX
-from posthog.utils import get_machine_id
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -55,7 +48,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
     sender.add_periodic_task(
-        crontab(day_of_week="mon"), status_report.s(),
+        10, status_report.s(),
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
@@ -96,13 +89,9 @@ def update_event_partitions():
 
 @app.task
 def status_report():
-    period_end = (timezone.now() - timezone.timedelta(timezone.now().weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )  # very start of the current Monday
-    period_start = period_end - timezone.timedelta(7)  # very start of the Monday preceding the current one
-    events_considered = Event.objects.filter(created_at__gte=period_start, created_at_lt=period_end)
-    report = {"period": [period_start.isoformat(), period_end.isoformat()], "event_count": events_considered.count()}
-    posthoganalytics.capture(get_machine_id(), "instance status report", report)
+    from posthog.tasks.status_report import status_report
+
+    status_report()
 
 
 @app.task
