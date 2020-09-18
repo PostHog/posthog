@@ -32,12 +32,14 @@ PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql})
 ) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 100
 """
 
 PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql})
 ) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 100
 """
 
 
