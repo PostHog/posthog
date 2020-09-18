@@ -43,18 +43,10 @@ class ClickhousePaths(BaseQuery):
         for i in range(query_depth):
             if i > 0:
                 use_row += " or "
-            use_row += "(neighbor(new_session, {}, 0) = 1 and neighbor(person_id, {}) == person_id)".format(-i, -i)
+            use_row += "neighbor(new_session, {}, 0) = 1".format(-i)
+            if filter and filter.start_point:
+                use_row += " or neighbor(marked_session_start, {}, 0) = 1".format(-i)
         use_row += ")"
-
-        if filter and filter.start_point:
-            use_row += " or ("
-            for i in range(query_depth):
-                if i > 0:
-                    use_row += " or "
-                use_row += "(neighbor(marked_session_start, {}, 0) = 1 and neighbor(person_id, {}) == person_id)".format(
-                    -i, -i
-                )
-            use_row += ")"
 
         # new_session = this is 1 when the event is from a new session or
         #                       0 if it's less than 30min after and for the same person_id as the previous event
