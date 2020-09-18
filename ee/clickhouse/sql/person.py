@@ -28,7 +28,7 @@ PERSONS_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE), storage_policy=STORAGE_POLICY)
+).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "created_at"), storage_policy=STORAGE_POLICY)
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
@@ -60,7 +60,8 @@ CREATE TABLE {table_name}
     id VARCHAR,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int64
+    team_id Int64,
+    timestamp Datetime64 
 ) ENGINE = {engine} 
 """
 
@@ -70,7 +71,9 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 {storage_policy}
 """
 ).format(
-    table_name=PERSONS_DISTINCT_ID_TABLE, engine=table_engine(PERSONS_DISTINCT_ID_TABLE), storage_policy=STORAGE_POLICY
+    table_name=PERSONS_DISTINCT_ID_TABLE,
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "timestamp"),
+    storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
@@ -84,7 +87,8 @@ AS SELECT
 id,
 distinct_id,
 person_id,
-team_id
+team_id,
+_timestamp as timestamp
 FROM kafka_{table_name} 
 """.format(
     table_name=PERSONS_DISTINCT_ID_TABLE

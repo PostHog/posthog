@@ -41,7 +41,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
 """
-).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE), storage_policy=STORAGE_POLICY)
+).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "timestamp"), storage_policy=STORAGE_POLICY)
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS)
@@ -91,7 +91,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id
 {storage_policy}
 """.format(
-    engine=table_engine("events_with_array_props_view"), storage_policy=STORAGE_POLICY
+    engine=table_engine("events_with_array_props_view", "timestamp"), storage_policy=STORAGE_POLICY
 )
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """

@@ -37,7 +37,7 @@ ELEMENTS_TABLE_SQL = (
 ORDER BY (team_id, group_id, id)
 {storage_policy}
 """
-).format(table_name=ELEMENTS_TABLE, engine=table_engine(ELEMENTS_TABLE), storage_policy=STORAGE_POLICY)
+).format(table_name=ELEMENTS_TABLE, engine=table_engine(ELEMENTS_TABLE, "created_at"), storage_policy=STORAGE_POLICY)
 
 KAFKA_ELEMENTS_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + ELEMENTS_TABLE, engine=kafka_engine(topic=KAFKA_ELEMENTS)
@@ -89,7 +89,8 @@ CREATE TABLE {table_name}
 (
     id UUID,
     elements_hash VARCHAR,
-    team_id Int64
+    team_id Int64,
+    timestamp Datetime64
 ) ENGINE = {engine}
 """
 
@@ -99,7 +100,11 @@ ELEMENTS_GROUP_TABLE_SQL = (
     ORDER BY (team_id, elements_hash, id)
 {storage_policy}
 """
-).format(table_name=ELEMENTS_GROUP_TABLE, engine=table_engine(ELEMENTS_GROUP_TABLE), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=ELEMENTS_GROUP_TABLE,
+    engine=table_engine(ELEMENTS_GROUP_TABLE, "timestamp"),
+    storage_policy=STORAGE_POLICY,
+)
 
 KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_GROUP_TABLE_BASE_SQL.format(
     table_name="kafka_" + ELEMENTS_GROUP_TABLE, engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
@@ -111,7 +116,8 @@ TO {table_name}
 AS SELECT
 id,
 elements_hash,
-team_id
+team_id,
+_timestamp as timestamp
 FROM kafka_{table_name} 
 """.format(
     table_name=ELEMENTS_GROUP_TABLE
@@ -156,7 +162,7 @@ PARTITION BY toYYYYMM(created_at)
 ORDER BY (team_id, elements_hash, id)
 {storage_policy}
 """.format(
-    engine=table_engine("elements_with_array_props_view"), storage_policy=STORAGE_POLICY
+    engine=table_engine("elements_with_array_props_view", "created_at"), storage_policy=STORAGE_POLICY
 )
 
 ELEMENTS_WITH_ARRAY_PROPS_MAT = """
