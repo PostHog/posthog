@@ -147,19 +147,21 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Events</h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
-            <Button
-                type="default"
-                icon={<ExportOutlined />}
-                href={`/api/event.csv?${toParams({
-                    properties,
-                    ...(fixedFilters || {}),
-                    ...(eventFilter ? { event: eventFilter } : {}),
-                    orderBy: [orderBy],
-                })}`}
-                style={{ marginBottom: '1rem' }}
-            >
-                Export
-            </Button>
+            <Tooltip title="Up to 100,000 latest events.">
+                <Button
+                    type="default"
+                    icon={<ExportOutlined />}
+                    href={`/api/event.csv?${toParams({
+                        properties,
+                        ...(fixedFilters || {}),
+                        ...(eventFilter ? { event: eventFilter } : {}),
+                        orderBy: [orderBy],
+                    })}`}
+                    style={{ marginBottom: '1rem' }}
+                >
+                    Export
+                </Button>
+            </Tooltip>
             <Table
                 dataSource={eventsFormatted}
                 loading={isLoading}
