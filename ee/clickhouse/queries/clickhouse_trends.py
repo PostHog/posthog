@@ -58,28 +58,28 @@ SELECT groupArray(value) FROM (
 """
 
 BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start), groupArray(count), value FROM (
-    SELECT SUM(total) as count, day_start, value FROM (
+SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
+    SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
             {null_sql} as main
             CROSS JOIN
                 (
-                    SELECT value
+                    SELECT breakdown_value
                     FROM (
-                        SELECT %(values)s as value
-                    ) ARRAY JOIN value 
+                        SELECT %(values)s as breakdown_value
+                    ) ARRAY JOIN breakdown_value 
                 ) as sec
-            ORDER BY value, day_start
+            ORDER BY breakdown_value, day_start
             UNION ALL 
-            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
+            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value as breakdown_value
             FROM 
-            events e {breakdown_filter}
-            GROUP BY day_start, value
+            events e {event_join} {breakdown_filter}
+            GROUP BY day_start, breakdown_value
         )
     ) 
-    GROUP BY day_start, value
-    ORDER BY value, day_start
-) GROUP BY value
+    GROUP BY day_start, breakdown_value
+    ORDER BY breakdown_value, day_start
+) GROUP BY breakdown_value
 """
 
 BREAKDOWN_DEFAULT_SQL = """
@@ -89,9 +89,9 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             {null_sql} as main
             ORDER BY day_start
             UNION ALL 
-            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
+            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
             FROM 
-            events e {conditions}
+            events e {event_join} {conditions}
             GROUP BY day_start
         )
     ) 
@@ -111,7 +111,7 @@ INNER JOIN (
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
 ON e.id = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
-AND value in (%(values)s) {actions_query}
+AND breakdown_value in (%(values)s) {actions_query}
 """
 
 BREAKDOWN_COHORT_JOIN_SQL = """
@@ -122,7 +122,7 @@ ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {pa
 """
 
 BREAKDOWN_COHORT_FILTER_SQL = """
-SELECT distinct_id, {cohort_pk} as value
+SELECT distinct_id, {cohort_pk} as breakdown_value
 FROM person_distinct_id
 WHERE person_id IN ({table_name})
 """
@@ -196,6 +196,9 @@ class ClickhouseTrends(BaseQuery):
             date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
         )
 
+        aggregate_operation, join_condition, math_params = self._process_math(entity)
+        params = {**params, **math_params}
+
         if filter.breakdown_type == "cohort":
             breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             if "all" in breakdown:
@@ -232,7 +235,12 @@ class ClickhouseTrends(BaseQuery):
                     actions_query="and id IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
-                breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
+                breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                    null_sql=null_sql,
+                    breakdown_filter=breakdown_filter,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                )
         elif filter.breakdown_type == "person":
             pass
         else:
@@ -260,7 +268,12 @@ class ClickhouseTrends(BaseQuery):
                 actions_query="and id IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
             )
-            breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                null_sql=null_sql,
+                breakdown_filter=breakdown_filter,
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
+            )
 
         try:
             result = sync_execute(breakdown_query, params)
