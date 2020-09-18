@@ -31,56 +31,65 @@ class ClickhousePaths(BaseQuery):
         return event, path_type, start_comparator
 
     def calculate_paths(self, filter: Filter, team: Team):
-        query_depth = 4
-
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
 
-        # make an expression that removes rows deep in a session (e.g. the 10th visited link)
-        use_row = "("
-        for i in range(query_depth):
+        # Step 0. Event culling subexpression for step 1.
+        # Make an expression that removes events in a session that are definitely unused.
+        # For example the 4th, 5th, etc row after a "new_session = 1" or "marked_session_start = 1" row gets removed
+        excess_row_filter = "("
+        for i in range(4):
             if i > 0:
-                use_row += " or "
-            use_row += "neighbor(new_session, {}, 0) = 1".format(-i)
+                excess_row_filter += " or "
+            excess_row_filter += "neighbor(new_session, {}, 0) = 1".format(-i)
             if filter and filter.start_point:
-                use_row += " or neighbor(marked_session_start, {}, 0) = 1".format(-i)
-        use_row += ")"
+                excess_row_filter += " or neighbor(marked_session_start, {}, 0) = 1".format(-i)
+        excess_row_filter += ")"
 
-        # new_session = this is 1 when the event is from a new session or
-        #                       0 if it's less than 30min after and for the same person_id as the previous event
-        # marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
-        #                        the current event is the start point (e.g. path_start=/about) or 0 otherwise
-        sessions_query = """
-            SELECT person_id,
-                   event_id,
-                   timestamp,
-                   path_type,
-                   IF(
-                      neighbor(person_id, -1) != person_id
-                        OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30, 
-                      1,
-                      0
-                   ) AS new_session,
-                   {marked_session_start} as marked_session_start
+        # Step 1. Make a table with the following fields from events:
+        #
+        # - person_id = dedupe event distinct_ids into person_id
+        # - timestamp
+        # - path_type = either name of event or $current_url or ...
+        # - new_session = this is 1 when the event is from a new session
+        #                 or 0 if it's less than 30min after and for the same person_id as the previous event
+        # - marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
+        #                          the current event is the start point (e.g. path_start=/about) or 0 otherwise
+        paths_query = """
+            SELECT 
+                person_id,
+                timestamp,
+                event_id,
+                path_type,
+                neighbor(person_id, -1) != person_id OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30 AS new_session,
+                {marked_session_start} as marked_session_start
             FROM (
-                    SELECT timestamp,
-                           person_id,
-                           events.id AS event_id,
-                           {path_type} AS path_type
-                    FROM events_with_array_props_view AS events
-                    JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-                    {element_joins}
-                    WHERE events.team_id = %(team_id)s 
-                          AND {event_query}
-                          {filters}
-                          {parsed_date_from}
-                          {parsed_date_to}
-                    GROUP BY person_id, timestamp, event_id, path_type
-                    ORDER BY person_id, timestamp
+                SELECT 
+                    timestamp,
+                    person_id,
+                    events.id AS event_id,
+                    {path_type} AS path_type
+                FROM events_with_array_props_view AS events
+                JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
+                {element_joins}
+                WHERE 
+                    events.team_id = %(team_id)s 
+                    AND {event_query}
+                    {filters}
+                    {parsed_date_from}
+                    {parsed_date_to}
+                GROUP BY 
+                    person_id, 
+                    timestamp, 
+                    event_id, 
+                    path_type
+                ORDER BY 
+                    person_id, 
+                    timestamp
             )
-            WHERE {use_row}
+            WHERE {excess_row_filter}
         """.format(
             event_query="event = %(event)s"
             if event
@@ -96,88 +105,107 @@ class ClickhousePaths(BaseQuery):
             JOIN elements ON (elements.group_id = elements_group.id AND elements.order = toInt32(0))"
             if event == AUTOCAPTURE_EVENT
             else "",
-            use_row=use_row,
+            excess_row_filter=excess_row_filter,
         )
 
-        if filter and filter.start_point:
-            # find the first "marked_session_start" in the group and restart counting from it
-            marked_group_index_variable = """
-                indexOf(arraySlice(marked_session_starts, idx - group_index + 1, group_index), 1) as index_from_marked,
-                index_from_marked > 0 ? toUInt64(group_index - index_from_marked + 1) : group_index as marked_group_index
-            """
-        else:
-            # otherwise just use the group index
-            marked_group_index_variable = "group_index as marked_group_index"
-
-        aggregate_query = """
-            SELECT concat(toString(marked_group_index), '_', path_type)                                                 AS target_event,
-                   event_id                                                                                             AS target_event_id,
-                   if(marked_group_index > 1, neighbor(concat(toString(marked_group_index), '_', path_type), -1), null) AS source_event,
-                   if(marked_group_index > 1, neighbor(event_id, -1), null)                                             AS source_event_id
-            FROM (
-                  SELECT person_id,
-                         event_id,
-                         timestamp,
-                         path_type,
-                         indexOf(arrayReverse(arraySlice(gids, 1, idx)), 1) AS group_index,
-                         {marked_group_index_variable},
-                         neighbor(marked_session_start, -marked_group_index + 1) as marked_group
-                  FROM (
-                        SELECT groupArray(timestamp)            AS timestamps,
-                               groupArray(path_type)            AS path_types,
-                               groupArray(event_id)             AS event_ids,
-                               groupArray(person_id)            AS person_ids,
-                               groupArray(new_session)          AS gids,
-                               groupArray(marked_session_start) AS marked_session_starts
-                         FROM ({sessions_query})
-                       )
-                  ARRAY JOIN
-                       person_ids AS person_id,
-                       event_ids AS event_id,
-                       timestamps AS timestamp,
-                       path_types AS path_type,
-                       marked_session_starts AS marked_session_start,
-                       arrayEnumerate(gids) AS idx
-            )
-            WHERE group_index <= %(query_depth)s AND marked_group = 1
-        """
-
-        count_query = """
+        # Step 2.
+        # - Convert new_session = {1 or 0} into
+        #      ---> session_id = {1, 2, 3...}
+        # - Remove all "marked_session_start = 0" rows at the start of a session
+        paths_query = """
             SELECT 
-                source_event         AS source_event, 
-                any(source_event_id) AS source_event_id, 
-                target_event         AS target_event, 
-                any(target_event_id) AS target_event_id, 
-                COUNT(*)             AS event_count
-            FROM ({aggregate_query}) 
-            WHERE source_event IS NOT NULL 
-              AND target_event IS NOT NULL
-            GROUP BY source_event, target_event
-            ORDER BY event_count DESC, source_event, target_event
-            LIMIT 20
-        """
-
-        final_query = count_query.format(
-            aggregate_query=aggregate_query.format(
-                sessions_query=sessions_query, marked_group_index_variable=marked_group_index_variable
+                person_id,
+                timestamp,
+                path_type,
+                runningAccumulate(session_id_sumstate) as session_id
+            FROM (
+                SELECT 
+                    *,
+                    sumState(new_session) AS session_id_sumstate
+                FROM 
+                    ({paths_query})
+                GROUP BY
+                    person_id,
+                    timestamp,
+                    event_id,
+                    path_type,
+                    new_session,
+                    marked_session_start
+                ORDER BY 
+                    person_id, 
+                    timestamp
             )
+            WHERE
+                marked_session_start = 1 or
+                (neighbor(marked_session_start, -1) = 1 and neighbor(session_id, -1) = session_id) or
+                (neighbor(marked_session_start, -2) = 1 and neighbor(session_id, -2) = session_id) or
+                (neighbor(marked_session_start, -3) = 1 and neighbor(session_id, -3) = session_id)
+        """.format(
+            paths_query=paths_query
+        )
+
+        # Step 3.
+        # - Add event index per session
+        # - Use the index and path_type to create a path key (e.g. "1_/pricing", "2_/help")
+        # - Remove every unused row per session (5th and later rows)
+        #   Those rows will only be there if many filter.start_point rows are in a query.
+        #   For example start_point=/pricing and the user clicked back and forth between pricing and other pages.
+        paths_query = """
+            SELECT
+                person_id,
+                timestamp,
+                path_type,
+                session_id,
+                (neighbor(session_id, -4) = session_id ? 5 :
+                (neighbor(session_id, -3) = session_id ? 4 :
+                (neighbor(session_id, -2) = session_id ? 3 :
+                (neighbor(session_id, -1) = session_id ? 2 : 1)))) as session_index,
+                concat(toString(session_index), '_', path_type) as path_key
+            FROM ({paths_query})
+            WHERE
+                session_index <= 4
+        """.format(
+            paths_query=paths_query
+        )
+
+        # Step 4.
+        # - Aggregate and get counts for unique pairs
+        # - Filter out the entry rows that come from "null"
+        paths_query = """
+            SELECT
+                if(session_index > 1, neighbor(path_key, -1), null) AS source_event,
+                path_key AS target_event,
+                COUNT(*) AS event_count
+            FROM ({paths_query}) 
+            WHERE 
+                source_event IS NOT NULL 
+                AND target_event IS NOT NULL
+            GROUP BY 
+                source_event, 
+                target_event
+            ORDER BY 
+                event_count DESC, 
+                source_event, 
+                target_event
+            LIMIT 20
+        """.format(
+            paths_query=paths_query
         )
 
         params: Dict = {
             "team_id": team.pk,
             "property": "$current_url",
             "event": event,
-            "query_depth": query_depth,
             "start_point": filter.start_point,
         }
         params = {**params, **prop_filter_params}
 
-        rows = sync_execute(final_query, params)
+        rows = sync_execute(paths_query, params)
 
         resp: List[Dict[str, str]] = []
         for row in rows:
             resp.append(
-                {"source": row[0], "target": row[2], "target_id": row[3], "source_id": row[1], "value": row[4],}
+                {"source": row[0], "target": row[1], "value": row[2],}
             )
 
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
