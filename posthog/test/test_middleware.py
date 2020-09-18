@@ -29,13 +29,6 @@ class TestSignup(TestCase):
             response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
 
             self.assertEqual(
-                response.json(),
-                {
-                    "code": "validation",
-                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                },
-            )
-            self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST
             )  # Check for a bad request exception because it means the middleware didn't block the request
 

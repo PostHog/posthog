@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Input, Button, Form, Switch, Slider } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
@@ -36,6 +36,8 @@ function Snippet({ flagKey }) {
     )
 }
 
+const noop = () => {}
+
 export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const [form] = Form.useForm()
     const { updateFeatureFlag, createFeatureFlag } = useActions(logic)
@@ -43,6 +45,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const _editLogic = editLogic({ featureFlag })
     const { filters, rollout_percentage } = useValues(_editLogic)
     const { setFilters, setRolloutPercentage } = useActions(_editLogic)
+    const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     let submitDisabled = rollout_percentage === null && (!filters?.properties || filters.properties.length === 0)
     return (
@@ -50,6 +53,13 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             layout="vertical"
             form={form}
             initialValues={featureFlag}
+            onValuesChange={
+                !isNew
+                    ? (changedValues) => {
+                          if (changedValues.key) setHasKeyChanged(changedValues.key !== featureFlag.key)
+                      }
+                    : noop
+            }
             onFinish={(values) => {
                 const updatedFlag = { ...featureFlag, ...values, rollout_percentage, filters }
                 if (isNew) {
@@ -73,7 +83,25 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 />
             </Form.Item>
 
-            <Form.Item name="key" label="Key" rules={[{ required: true }]}>
+            <Form.Item
+                name="key"
+                label="Key"
+                rules={[{ required: true }]}
+                validateStatus={!!rollout_percentage && hasKeyChanged ? 'warning' : ''}
+                help={
+                    !!rollout_percentage && hasKeyChanged ? (
+                        <small>
+                            Changing this key will
+                            <a href="https://posthog.com/docs/features/feature-flags#feature-flag-persistence">
+                                {' '}
+                                affect the persistence of your flag.
+                            </a>
+                        </small>
+                    ) : (
+                        ' '
+                    )
+                }
+            >
                 <Input data-attr="feature-flag-key" />
             </Form.Item>
 

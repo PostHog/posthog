@@ -1,19 +1,21 @@
 import random
 from typing import Dict, List
+from unittest.mock import patch
 
 from django.db.models import Q
+from django.test import tag
 from rest_framework import status
 
 from posthog.models import Team, User
 
-from .base import BaseTest
+from .base import APIBaseTest, BaseTest
 
 
 class TestTeamUser(BaseTest):
     TESTS_API = True
 
     def create_user_for_team(self, team):
-        suffix = random.randint(100, 999)
+        suffix = random.randint(100000, 999999)
         user = User.objects.create_user(
             f"user{suffix}@posthog.com", password=self.TESTS_PASSWORD, first_name=f"User #{suffix}",
         )
@@ -51,7 +53,8 @@ class TestTeamUser(BaseTest):
 
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
 
-    def test_user_can_delete_another_team_user(self):
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_user_can_delete_another_team_user(self, mock_capture):
         team, user = self.create_team_and_user()
         user2: User = self.create_user_for_team(team)
         self.client.force_login(user)
@@ -62,7 +65,14 @@ class TestTeamUser(BaseTest):
         self.assertFalse(User.objects.get(id=user2.id).is_active)
         self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
 
-    def test_cannot_delete_yourself(self):
+        # Assert that the event is reported to PH
+        mock_capture.assert_any_call(
+            user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
+        )
+        mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
+
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_cannot_delete_yourself(self, mock_capture):
         team, user = self.create_team_and_user()
         self.client.force_login(user)
 
@@ -73,6 +83,9 @@ class TestTeamUser(BaseTest):
         self.assertEqual(
             User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
         )  # User still exists
+
+        # Assert no event was repoted to PH
+        mock_capture.assert_not_called()
 
     def test_cannot_delete_user_using_their_primary_key(self):
         team, user = self.create_team_and_user()
@@ -108,7 +121,7 @@ class TestTeamUser(BaseTest):
         # Cannot partially update users
         email: str = user.email
         response = self.client.patch(
-            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
+            f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
@@ -145,3 +158,165 @@ class TestTeamUser(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
+
+
+class TestTeamSignup(APIBaseTest):
+    @tag("skip_on_multitenancy")
+    @patch("posthog.api.team.settings.EE_AVAILABLE", False)
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
+    @patch("posthog.api.team.posthoganalytics.identify")
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_api_sign_up(self, mock_capture, mock_identify):
+        response = self.client.post(
+            "/api/team/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": "notsecure",
+                "company_name": "Hedgehogs United, LLC",
+                "email_opt_in": False,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user: User = User.objects.order_by("-pk")[0]
+        team: Team = user.team_set.all()[0]
+        self.assertEqual(
+            response.data,
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
+        )
+
+        # Assert that the user was properly created
+        self.assertEqual(user.first_name, "John")
+        self.assertEqual(user.email, "hedgehog@posthog.com")
+        self.assertEqual(user.email_opt_in, False)
+
+        # Assert that the team was properly created
+        self.assertEqual(team.name, "Hedgehogs United, LLC")
+
+        # Assert that the sign up event & identify calls were sent to PostHog analytics
+        mock_capture.assert_called_once_with(
+            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_team_first_user": True},
+        )
+
+        mock_identify.assert_called_once_with(
+            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "hosted", "ee_available": False},
+        )
+
+        # Assert that the user is logged in
+        response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
+
+        # Assert that the password was correctly saved
+        self.assertTrue(user.check_password("notsecure"))
+
+    @tag("skip_on_multitenancy")
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_sign_up_minimum_attrs(self, mock_capture):
+        response = self.client.post(
+            "/api/team/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user: User = User.objects.order_by("-pk").get()
+        team: Team = user.team_set.all()[0]
+        self.assertEqual(
+            response.data,
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
+        )
+
+        # Assert that the user was properly created
+        self.assertEqual(user.first_name, "Jane")
+        self.assertEqual(user.email, "hedgehog2@posthog.com")
+        self.assertEqual(user.email_opt_in, True)  # Defaults to True
+        self.assertEqual(team.name, "")
+
+        # Assert that the sign up event & identify calls were sent to PostHog analytics
+        mock_capture.assert_called_once_with(
+            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_team_first_user": True},
+        )
+
+        # Assert that the user is logged in
+        response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
+
+        # Assert that the password was correctly saved
+        self.assertTrue(user.check_password("notsecure"))
+
+    def test_cant_sign_up_without_required_attributes(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        required_attributes = [
+            "first_name",
+            "email",
+            "password",
+        ]
+
+        for attribute in required_attributes:
+            body = {
+                "first_name": "Jane",
+                "email": "invalid@posthog.com",
+                "password": "notsecure",
+            }
+            body.pop(attribute)
+
+            # Make sure the endpoint works with and without the trailing slash
+            response = self.client.post("/api/team/signup", body)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.data, {attribute: ["This field is required."]})
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+
+    def test_cant_sign_up_with_short_password(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        response = self.client.post(
+            "/api/team/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", False)
+    def test_authenticated_user_cannot_signup_team(self):
+        user = User.objects.create(email="i_was_first@posthog.com")
+        self.client.force_login(user)
+
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        response = self.client.post(
+            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
+    def test_cant_create_multiple_teams_without_multitenancy(self):
+
+        # Create a user first to make sure additional users CANT be created
+        User.objects.create(email="i_was_first@posthog.com")
+
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        response = self.client.post(
+            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, ["This instance does not support multiple teams."])
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)

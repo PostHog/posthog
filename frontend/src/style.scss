@@ -422,6 +422,51 @@ label.disabled {
     }
 }
 
+.ph-input-group {
+    padding-bottom: 16px;
+    color: #000000;
+
+    label {
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    .caption {
+        color: #666666;
+        font-size: 10px;
+    }
+
+    &.errored {
+        .caption {
+            color: $red;
+        }
+        .ant-input-password {
+            border-color: $red;
+        }
+    }
+}
+
 .btn-action {
     background-color: #f0f0f0 !important;
+}
+
+@media screen and (max-width: 480px) {
+    h1.title {
+        line-height: 1.1em;
+        font-size: 28px;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .signup-form {
+        h1.title {
+            img {
+                display: none;
+            }
+        }
+        .main-img {
+            margin-top: 0 !important;
+            height: 200px;
+        }
+    }
 }
