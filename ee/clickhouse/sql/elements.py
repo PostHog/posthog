@@ -10,6 +10,7 @@ DROP_ELEMENTS_GROUP_TABLE_SQL = """
 DROP TABLE elements_group
 """
 
+ELEMENTS_TABLE = "elements"
 
 ELEMENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
@@ -36,10 +37,32 @@ ELEMENTS_TABLE_SQL = (
 ORDER BY (team_id, id)
 {storage_policy}
 """
-).format(table_name="elements", engine=table_engine("elements"), storage_policy=STORAGE_POLICY)
+).format(table_name=ELEMENTS_TABLE, engine=table_engine(ELEMENTS_TABLE), storage_policy=STORAGE_POLICY)
 
 KAFKA_ELEMENTS_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_elements", engine=kafka_engine(topic=KAFKA_ELEMENTS)
+    table_name="kafka_" + ELEMENTS_TABLE, engine=kafka_engine(topic=KAFKA_ELEMENTS)
+)
+
+ELEMENTS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+text,
+tag_name,
+href,
+attr_id,
+attr_class,
+nth_child,
+nth_of_type,
+attributes,
+order,
+team_id,
+created_at,
+group_id
+FROM kafka_{table_name} 
+""".format(
+    table_name=ELEMENTS_TABLE
 )
 
 INSERT_ELEMENTS_SQL = """
@@ -59,7 +82,9 @@ INSERT INTO elements SELECT
     %(group_id)s
 """
 
-ELEMENT_GROUP_TABLE_BASE_SQL = """
+ELEMENTS_GROUP_TABLE = "elements_group"
+
+ELEMENTS_GROUP_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
     id UUID,
@@ -68,15 +93,27 @@ CREATE TABLE {table_name}
 ) ENGINE = {engine}
 """
 
-ELEMENT_GROUP_TABLE_SQL = (
-    ELEMENTS_TABLE_BASE_SQL
+ELEMENTS_GROUP_TABLE_SQL = (
+    ELEMENTS_GROUP_TABLE_BASE_SQL
     + """ORDER BY (team_id, id)
 {storage_policy}
 """
-).format(table_name="elements_group", engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY)
+).format(table_name=ELEMENTS_GROUP_TABLE, engine=table_engine(ELEMENTS_GROUP_TABLE), storage_policy=STORAGE_POLICY)
 
-KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_elements_group", engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
+KAFKA_ELEMENTS_GROUP_TABLE_SQL = ELEMENTS_GROUP_TABLE_BASE_SQL.format(
+    table_name="kafka_" + ELEMENTS_GROUP_TABLE, engine=kafka_engine(KAFKA_ELEMENTS_GROUP)
+)
+
+ELEMENTS_GROUP_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+elements_hash,
+team_id
+FROM kafka_{table_name} 
+""".format(
+    table_name=ELEMENTS_GROUP_TABLE
 )
 
 INSERT_ELEMENT_GROUP_SQL = """

@@ -214,14 +214,16 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
             }
             content={
                 <span>
-                    {data.description}
-                    {data.examples && (
-                        <span>
-                            <br />
-                            <br />
-                            <i>Example: </i>
-                            {data.examples.join(', ')}
-                        </span>
+                    {data.examples ? (
+                        <>
+                            <p>{data.description}</p>
+                            <span>
+                                <i>Example: </i>
+                                {data.examples.join(', ')}
+                            </span>
+                        </>
+                    ) : (
+                        data.description
                     )}
                 </span>
             }

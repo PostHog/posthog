@@ -18,6 +18,8 @@ DROP_MAT_EVENTS_PROP_TABLE_SQL = """
 DROP TABLE events_properties_view
 """
 
+EVENTS_TABLE = "events"
+
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
@@ -39,10 +41,27 @@ ORDER BY (team_id, timestamp, distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
 """
-).format(table_name="events", engine=table_engine("events"), storage_policy=STORAGE_POLICY)
+).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE), storage_policy=STORAGE_POLICY)
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_events", engine=kafka_engine(topic=KAFKA_EVENTS)
+    table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS)
+)
+
+EVENTS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_hash,
+created_at
+FROM kafka_{table_name} 
+""".format(
+    table_name=EVENTS_TABLE
 )
 
 INSERT_EVENT_SQL = """
