@@ -26,12 +26,12 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     new_person: Optional[Person] = None
 
     try:
-        old_person = get_person_by_distinct_id(team_id=team_id, distinct_id=previous_distinct_id)
+        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
     except Person.DoesNotExist:
         pass
 
     try:
-        new_person = get_person_by_distinct_id(team_id=team_id, distinct_id=distinct_id)
+        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
     except Person.DoesNotExist:
         pass
 
@@ -64,9 +64,11 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         return
 
     if old_person and new_person and old_person != new_person:
-        old_person_id = old_person["id"]
-        old_person_props = old_person["properties"]
-        merge_people(team_id, new_person, old_person_id, old_person_props)
+        # Disabled for now, will bring back very soon
+        # old_person_id = old_person["id"]
+        # old_person_props = old_person["properties"]
+        # merge_people(team_id, new_person, old_person_id, old_person_props)
+        return
 
 
 def _capture_ee(
@@ -124,16 +126,10 @@ def _capture_ee(
 
 
 def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
-    person = get_person_by_distinct_id(team_id=team_id, distinct_id=distinct_id)
+    person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
     if person:
         return person
-
-    # Catch race condition where in between getting and creating, another request already created this user.
-    try:
-        person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
-    except IntegrityError:
-        pass
-
+    person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
     return person
 
 

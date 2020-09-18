@@ -30,7 +30,9 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    created_at DateTime64(6, 'UTC'),
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
 """
 
@@ -41,7 +43,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
 """
-).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "timestamp"), storage_policy=STORAGE_POLICY)
+).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS)
@@ -58,7 +60,9 @@ timestamp,
 team_id,
 distinct_id,
 elements_hash,
-created_at
+created_at,
+_timestamp,
+_offset
 FROM kafka_{table_name} 
 """.format(
     table_name=EVENTS_TABLE
@@ -84,14 +88,16 @@ CREATE TABLE events_with_array_props_view
     elements_hash VARCHAR,
     created_at DateTime,
     array_property_keys Array(VARCHAR),
-    array_property_values Array(VARCHAR)
+    array_property_values Array(VARCHAR),
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id
 {storage_policy}
 """.format(
-    engine=table_engine("events_with_array_props_view", "timestamp"), storage_policy=STORAGE_POLICY
+    engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
 )
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
@@ -111,7 +117,9 @@ distinct_id,
 elements_hash,
 created_at,
 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
-arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
+_timestamp,
+_offset
 FROM events
 """
 

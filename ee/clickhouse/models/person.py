@@ -104,7 +104,6 @@ def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> No
             UPDATE_PERSON_ATTACHED_DISTINCT_ID,
             {"person_id": target["id"], "distinct_id": person_distinct_id["distinct_id"]},
         )
-
     sync_execute(DELETE_PERSON_BY_ID, {"id": old_id,})
 
 
