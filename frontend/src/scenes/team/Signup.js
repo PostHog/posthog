@@ -1,11 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './signupLogic'
 import hedgehogBlue from './../../../public/hedgehog-blue.png'
 import posthogLogo from './../../../public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
-import PasswordStrength from '../../lib/components/PasswordStrength'
+const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 function Signup() {
     const [state, setState] = useState({ submitted: false })
@@ -136,7 +136,9 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupPassword"
                             />
-                            <PasswordStrength password={formState.password.value} />
+                            <Suspense fallback={<span></span>}>
+                                <PasswordStrength password={formState.password.value} />
+                            </Suspense>
                             {!formState.password.valid && (
                                 <span className="caption">Your password must have at least 8 characters.</span>
                             )}
