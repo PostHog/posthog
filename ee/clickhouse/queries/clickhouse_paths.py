@@ -31,10 +31,30 @@ class ClickhousePaths(BaseQuery):
         return event, path_type, start_comparator
 
     def calculate_paths(self, filter: Filter, team: Team):
+        query_depth = 4
+
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+
+        # make an expression that removes rows deep in a session (e.g. the 10th visited link)
+        use_row = "("
+        for i in range(query_depth):
+            if i > 0:
+                use_row += " or "
+            use_row += "(neighbor(new_session, {}, 0) = 1 and neighbor(person_id, {}) == person_id)".format(-i, -i)
+        use_row += ")"
+
+        if filter and filter.start_point:
+            use_row += " or ("
+            for i in range(query_depth):
+                if i > 0:
+                    use_row += " or "
+                use_row += "(neighbor(marked_session_start, {}, 0) = 1 and neighbor(person_id, {}) == person_id)".format(
+                    -i, -i
+                )
+            use_row += ")"
 
         # new_session = this is 1 when the event is from a new session or
         #                       0 if it's less than 30min after and for the same person_id as the previous event
@@ -68,6 +88,7 @@ class ClickhousePaths(BaseQuery):
                     GROUP BY person_id, timestamp, event_id, path_type
                     ORDER BY person_id, timestamp
             )
+            WHERE {use_row}
         """.format(
             event_query="event = %(event)s"
             if event
@@ -83,6 +104,7 @@ class ClickhousePaths(BaseQuery):
             JOIN elements ON (elements.group_id = elements_group.id AND elements.order = toInt32(0))"
             if event == AUTOCAPTURE_EVENT
             else "",
+            use_row=use_row,
         )
 
         if filter and filter.start_point:
@@ -112,7 +134,7 @@ class ClickhousePaths(BaseQuery):
                         SELECT groupArray(timestamp)            AS timestamps,
                                groupArray(path_type)            AS path_types,
                                groupArray(event_id)             AS event_ids,
-                               groupArray(person_id)          AS person_ids,
+                               groupArray(person_id)            AS person_ids,
                                groupArray(new_session)          AS gids,
                                groupArray(marked_session_start) AS marked_session_starts
                          FROM ({sessions_query})
@@ -153,7 +175,7 @@ class ClickhousePaths(BaseQuery):
             "team_id": team.pk,
             "property": "$current_url",
             "event": event,
-            "query_depth": 4,
+            "query_depth": query_depth,
             "start_point": filter.start_point,
         }
         params = {**params, **prop_filter_params}
