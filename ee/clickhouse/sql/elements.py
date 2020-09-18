@@ -167,7 +167,7 @@ CREATE TABLE elements_with_array_props_view
     _offset UInt64
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (team_id, elements_hash, id)
+ORDER BY (team_id, group_id, id)
 {storage_policy}
 """.format(
     engine=table_engine("elements_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
