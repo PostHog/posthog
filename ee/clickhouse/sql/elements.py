@@ -21,11 +21,11 @@ CREATE TABLE {table_name}
     href VARCHAR,
     attr_id VARCHAR,
     attr_class Array(VARCHAR),
-    nth_child Int32,
-    nth_of_type Int32,
+    nth_child Int64,
+    nth_of_type Int64,
     attributes VARCHAR,
-    order Int32,
-    team_id Int32,
+    order Int64,
+    team_id Int64,
     created_at DateTime,
     group_id UUID
 ) ENGINE = {engine} 
@@ -34,7 +34,7 @@ CREATE TABLE {table_name}
 ELEMENTS_TABLE_SQL = (
     ELEMENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(created_at)
-ORDER BY (team_id, id)
+ORDER BY (team_id, group_id, id)
 {storage_policy}
 """
 ).format(table_name=ELEMENTS_TABLE, engine=table_engine(ELEMENTS_TABLE), storage_policy=STORAGE_POLICY)
@@ -89,13 +89,14 @@ CREATE TABLE {table_name}
 (
     id UUID,
     elements_hash VARCHAR,
-    team_id Int32
+    team_id Int64
 ) ENGINE = {engine}
 """
 
 ELEMENTS_GROUP_TABLE_SQL = (
     ELEMENTS_GROUP_TABLE_BASE_SQL
-    + """ORDER BY (team_id, id)
+    + """
+    ORDER BY (team_id, elements_hash, id)
 {storage_policy}
 """
 ).format(table_name=ELEMENTS_GROUP_TABLE, engine=table_engine(ELEMENTS_GROUP_TABLE), storage_policy=STORAGE_POLICY)
@@ -141,18 +142,18 @@ CREATE TABLE elements_with_array_props_view
     href VARCHAR,
     attr_id VARCHAR,
     attr_class Array(VARCHAR),
-    nth_child Int32,
-    nth_of_type Int32,
+    nth_child Int64,
+    nth_of_type Int64,
     attributes VARCHAR,
-    order Int32,
-    team_id Int32,
+    order Int64,
+    team_id Int64,
     created_at DateTime,
     group_id UUID,
     array_attribute_keys Array(VARCHAR),
     array_attribute_values Array(VARCHAR)
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (id, team_id)
+ORDER BY (team_id, elements_hash, id)
 {storage_policy}
 """.format(
     engine=table_engine("elements_with_array_props_view"), storage_policy=STORAGE_POLICY

@@ -27,7 +27,7 @@ CREATE TABLE {table_name}
     event VARCHAR,
     properties VARCHAR,
     timestamp DateTime64(6, 'UTC'),
-    team_id Int32,
+    team_id Int64,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
     created_at DateTime64(6, 'UTC')
@@ -37,7 +37,7 @@ CREATE TABLE {table_name}
 EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, timestamp, distinct_id, id)
+ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
 """
@@ -79,7 +79,7 @@ CREATE TABLE events_with_array_props_view
     event VARCHAR,
     properties VARCHAR,
     timestamp DateTime64(6, 'UTC'),
-    team_id Int32,
+    team_id Int64,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
     created_at DateTime,
@@ -87,7 +87,7 @@ CREATE TABLE events_with_array_props_view
     array_property_values Array(VARCHAR)
 ) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, created_at, id)
+ORDER BY (team_id, toDate(timestamp), distinct_id, id)
 SAMPLE BY id
 {storage_policy}
 """.format(

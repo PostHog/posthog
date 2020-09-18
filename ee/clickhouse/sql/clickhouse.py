@@ -4,7 +4,7 @@ STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_
 TABLE_ENGINE = (
     "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
     if CLICKHOUSE_REPLICATION
-    else "MergeTree()"
+    else "ReplacingMergeTree()"
 )
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
