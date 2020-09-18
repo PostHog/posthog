@@ -153,9 +153,11 @@ class TestTeamUser(APIBaseTest):
 
 
 class TestTeamSignup(TransactionBaseTest):
+    TESTS_EMAIL = None
+
     @tag("skip_on_multitenancy")
     @patch("posthog.api.team.settings.EE_AVAILABLE", False)
-    @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", False)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture, mock_identify):
@@ -174,7 +176,7 @@ class TestTeamSignup(TransactionBaseTest):
         user: User = User.objects.order_by("-pk")[0]
         team: Team = user.team
         self.assertEqual(
-            response.data,
+            response.data,  # type: ignore
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
         )
 
@@ -192,7 +194,7 @@ class TestTeamSignup(TransactionBaseTest):
         )
 
         mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "hosted", "ee_available": False},
+            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "cloud", "ee_available": False},
         )
 
         # Assert that the user is logged in
@@ -214,7 +216,7 @@ class TestTeamSignup(TransactionBaseTest):
         user: User = User.objects.order_by("-pk").get()
         team: Team = user.team
         self.assertEqual(
-            response.data,
+            response.data,  # type: ignore
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
         )
 
@@ -222,7 +224,7 @@ class TestTeamSignup(TransactionBaseTest):
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(user.email_opt_in, True)  # Defaults to True
-        self.assertEqual(team.name, "")
+        self.assertEqual(team.name, "Jane")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -258,7 +260,7 @@ class TestTeamSignup(TransactionBaseTest):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/team/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.data, {attribute: ["This field is required."]})
+            self.assertEqual(response.data, {attribute: ["This field is required."]})  # type: ignore
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -272,7 +274,7 @@ class TestTeamSignup(TransactionBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}
+            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}  # type: ignore
         )
 
         self.assertEqual(User.objects.count(), count)
@@ -290,7 +292,7 @@ class TestTeamSignup(TransactionBaseTest):
             "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])
+        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])  # type: ignore
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -308,7 +310,7 @@ class TestTeamSignup(TransactionBaseTest):
             "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["This instance does not support multiple teams."])
+        self.assertEqual(response.data, ["This instance does not support multiple teams."])  # type: ignore
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)

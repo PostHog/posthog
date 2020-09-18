@@ -9,7 +9,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User, org
 class TestMixin:
     TESTS_API: bool = False
     TESTS_COMPANY_NAME: str = "Test"
-    TESTS_EMAIL: str = "user1"
+    TESTS_EMAIL: Optional[str] = "user1"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
@@ -21,7 +21,8 @@ class TestMixin:
         super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
-        self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+        if self.TESTS_EMAIL:
+            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
         if self.TESTS_API:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN:
