@@ -1,14 +1,13 @@
 import os
 import time
 
+import posthoganalytics
 import redis
 import statsd  # type: ignore
-from celery import Celery, group
+from celery import Celery
 from celery.schedules import crontab
-from dateutil import parser
 from django.conf import settings
 from django.db import connection
-from django.utils import timezone
 
 from posthog.settings import STATSD_HOST, STATSD_PORT, STATSD_PREFIX
 
@@ -48,7 +47,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
     sender.add_periodic_task(
-        10, status_report.s(),
+        crontab(day_of_week="mon"), status_report.s(),
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
