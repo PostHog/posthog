@@ -21,7 +21,7 @@ let getSafeText = (el) => {
 
 export class ActionStep extends Component {
     isUrlChecked = (step) => {
-        return step?.selection?.indexOf('url') !== -1 ? true : false
+        return step?.selection?.indexOf('url') !== -1
     }
     ckbContainer = {
         display: 'flex',
