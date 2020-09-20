@@ -28,7 +28,7 @@ def status_report() -> None:
         {"id": user.id}
         if user.anonymize_data
         else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-        for user in User.objects.filter(last_login__gte=period_start, last_login__lt=period_end)
+        for user in User.objects.filter(last_login__gte=period_start)
     ]
     events_considered = Event.objects.filter(created_at__gte=period_start, created_at__lt=period_end)
     report["events_count_total"] = events_considered.count()
