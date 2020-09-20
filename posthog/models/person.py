@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, List
 
 from django.apps import apps
@@ -62,6 +63,7 @@ class Person(models.Model):
     properties: JSONField = JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
+    uuid = models.UUIDField(default=uuid.uuid4)
 
 
 class PersonDistinctId(models.Model):
