@@ -20,13 +20,12 @@ let getSafeText = (el) => {
 }
 
 export class ActionStep extends Component {
-    isUrlChecked = (step) => {
-        return step?.selection?.indexOf('url') !== -1
-    }
+    isUrlChecked = (step) => step?.selection?.indexOf('url') !== -1
     ckbContainer = {
         display: 'flex',
         minHeight: '31px',
         alignItems: 'center',
+        marginBottom: '8px',
     }
     constructor(props) {
         super(props)
@@ -146,34 +145,39 @@ export class ActionStep extends Component {
                         {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
                     </small>
                 )}
-                <label style={this.ckbContainer}>
-                    <input
-                        style={{ marginRight: '4px' }}
-                        type="checkbox"
-                        name="selection"
-                        checked={this.state.selection.indexOf(props.item) > -1}
-                        value={props.item}
-                        onChange={(e) => {
-                            let { selection } = this.state
-                            if (e.target.checked) {
-                                selection.push(props.item)
-                            } else {
-                                selection = selection.filter((i) => i !== props.item)
-                            }
-                            this.setState({ selection }, () => this.sendStep(this.props.step))
-                        }}
-                    />{' '}
-                    {props.label} {props.extra_options}
-                </label>
+                <div style={this.ckbContainer}>
+                    <label style={{ marginTop: '8px' }}>
+                        <input
+                            style={{ marginRight: '4px' }}
+                            type="checkbox"
+                            name="selection"
+                            checked={this.state.selection.indexOf(props.item) > -1}
+                            value={props.item}
+                            onChange={(e) => {
+                                let { selection } = this.state
+                                if (e.target.checked) {
+                                    selection.push(props.item)
+                                } else {
+                                    selection = selection.filter((i) => i !== props.item)
+                                }
+                                this.setState({ selection }, () => this.sendStep(this.props.step))
+                            }}
+                        />{' '}
+                        {props.label}
+                    </label>
+                    {this.isUrlChecked(this.props.step) && props.extra_options}
+                </div>
                 {props.item === 'selector' ? (
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
-                        data-attr="edit-action-url-input"
-                        className="form-control"
-                        onChange={onChange}
-                        value={this.props.step[props.item] || ''}
-                    />
+                    ((props.item === 'url' && this.isUrlChecked(this.props.step)) || props.item !== 'url') && (
+                        <input
+                            data-attr="edit-action-url-input"
+                            className="form-control"
+                            onChange={onChange}
+                            value={this.props.step[props.item] || ''}
+                        />
+                    )
                 )}
             </div>
         )
@@ -272,19 +276,26 @@ export class ActionStep extends Component {
                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
-                {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                    <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
-                )}
+                {this.isUrlChecked(step) && <this.URLMatchingHints step={step} />}
             </div>
         )
     }
+
+    URLMatchingHints = ({ step }) => {
+        return (
+            step?.url_matching &&
+            step.url_matching in URL_MATCHING_HINTS && (
+                <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
+            )
+        )
+    }
+
     URLMatching = ({ step, isEditor }) => {
         return (
             <div
                 className="btn-group"
                 style={{
                     margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px',
-                    display: this.isUrlChecked(step) ? 'block' : 'none',
                 }}
             >
                 <button
@@ -388,11 +399,7 @@ export class ActionStep extends Component {
                                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                     label="URL"
                                 />
-                                {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                                    <small style={{ display: 'block', marginTop: -12 }}>
-                                        {URL_MATCHING_HINTS[step.url_matching]}
-                                    </small>
-                                )}
+                                {this.isUrlChecked(step) && <this.URLMatchingHints step={step} />}
                             </div>
                         )}
                         {!isEditor && (
