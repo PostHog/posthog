@@ -1,10 +1,11 @@
 import logging
 from datetime import datetime, timedelta
+from typing import Any, Dict
 
 import posthoganalytics
 from celery.utils.functional import first
 from django.db import connection
-from psycopg2 import sql
+from psycopg2 import sql  # type: ignore
 
 from posthog.models import Event, User
 from posthog.models.utils import namedtuplefetchall
@@ -19,7 +20,9 @@ def status_report() -> None:
         hour=0, minute=0, second=0, microsecond=0
     )  # very start of the current Monday
     period_start = period_end - timedelta(7)  # very start of the Monday preceding the current one
-    report = {"period": {"start_inclusive": period_start.isoformat(), "start_exclusive": period_end.isoformat()}}
+    report: Dict[str, Any] = {
+        "period": {"start_inclusive": period_start.isoformat(), "start_exclusive": period_end.isoformat()}
+    }
     report["posthog_version"] = VERSION
     report["users_who_logged_in"] = [
         {"id": user.id}
