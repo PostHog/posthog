@@ -25,21 +25,22 @@ from posthog.models.team import Team
 
 def create_person(
     team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}, sync: bool = False, **kwargs
-) -> str:
+) -> Person:
     person_id = kwargs.get("person_id", None)  # type: Optional[str]
     if not person_id:
         person_id = generate_clickhouse_uuid()
+    insert = {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
 
     if sync:
-        sync_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+        sync_execute(INSERT_PERSON_SQL, insert)
     else:
-        async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+        async_execute(INSERT_PERSON_SQL, insert)
 
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
 
-    return str(person_id)
+    return Person(**insert)
 
 
 def update_person_properties(team_id: int, id: Union[str, int], properties: Dict) -> None:

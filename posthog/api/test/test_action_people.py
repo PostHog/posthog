@@ -108,7 +108,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={"date_from": "2020-01-04", "date_to": "2020-01-04", "type": "events", "entityId": "sign up",},
             ).json()
 
-            self.assertEqual(action_response["results"][0]["people"][0]["id"], person1)
+            self.assertEqual(action_response["results"][0]["people"][0]["id"], str(person1.pk))
             self.assertTrue(
                 self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
             )
@@ -195,7 +195,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
 
-            self.assertEqual(action_response["results"][0]["people"][0]["id"], person1)
+            self.assertEqual(action_response["results"][0]["people"][0]["id"], str(person1.pk))
             self.assertEqual(len(action_response["results"][0]["people"]), 1)
             self.assertTrue(
                 self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
@@ -223,7 +223,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
             all_people_ids = [person["id"] for person in hour_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([person2, person3]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person2.pk), str(person3.pk)]))
             self.assertEqual(len(all_people_ids), 2)
             self.assertTrue(
                 self._compare_entity_response(
@@ -254,7 +254,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [person["id"] for person in min_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([person4, person5]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person4.pk), str(person5.pk)]))
             self.assertEqual(len(all_people_ids), 2)
             self.assertTrue(
                 self._compare_entity_response(
@@ -285,7 +285,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [person["id"] for person in week_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([person6, person7]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
             self.assertEqual(len(all_people_ids), 2)
 
             self.assertTrue(
@@ -317,7 +317,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [person["id"] for person in month_group_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([person6, person7]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
             self.assertEqual(len(all_people_ids), 2)
 
             self.assertTrue(
@@ -391,7 +391,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [person["id"] for person in action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([person1, person4]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
 
             self.assertTrue(
                 self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
@@ -483,10 +483,5 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return person.pk
-
-
-class TestActionPeople(action_people_test_factory(Event.objects.create, _create_person, _create_action, _create_cohort)):  # type: ignore
+class TestActionPeople(action_people_test_factory(Event.objects.create, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
     pass
