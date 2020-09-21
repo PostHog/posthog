@@ -35,7 +35,6 @@ def api_not_found(request):
 
 router = OptionalTrailingSlashRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
-router.register(r"event", event.EventViewSet)
 router.register(r"element", element.ElementViewSet)
 router.register(r"person", person.PersonViewSet)
 router.register(r"action", action.ActionViewSet)
@@ -58,7 +57,7 @@ if check_ee_enabled():
         )
 
         # router.register(r"action", ClickhouseActions, basename="action")
-        # router.register(r"event", ClickhouseEvents, basename="event")
+        router.register(r"event", ClickhouseEvents, basename="event")
         router.register(r"insight", ClickhouseInsights, basename="insight")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         # router.register(r"person", ClickhousePerson, basename="person")
@@ -67,4 +66,5 @@ if check_ee_enabled():
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
 else:
     router.register(r"insight", insight.InsightViewSet)
+    router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")

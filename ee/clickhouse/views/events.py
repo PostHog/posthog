@@ -1,3 +1,5 @@
+import json
+
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -15,7 +17,6 @@ class ClickhouseEvents(viewsets.ViewSet):
     serializer_class = ClickhouseEventSerializer
 
     def list(self, request):
-
         team = request.user.team_set.get()
         filter = Filter(request=request)
         limit = "LIMIT 100" if not filter._date_from and not filter._date_to else ""
@@ -48,4 +49,4 @@ class ClickhouseEvents(viewsets.ViewSet):
         result = []
         if key:
             result = get_property_values_for_key(key, team)
-        return Response([{"name": convert_property_value(value[0])} for value in result])
+        return Response([{"name": json.loads(convert_property_value(value[0]))} for value in result])
