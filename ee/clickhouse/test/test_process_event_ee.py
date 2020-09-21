@@ -46,8 +46,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         events = get_events()
 
         self.assertEqual(events[0]["event"], "$autocapture")
-        group = get_element_group_by_hash(elements_hash=events[0]["elements_hash"])
-        elements = get_elements_by_group(group_id=group[0]["id"])
+        group = get_element_group_by_hash(elements_hash=events[0]["elements_hash"], team_id=team_id)
+        elements = get_elements_by_group(group_id=group[0]["id"], team_id=team_id)
         self.assertEqual(elements[0]["tag_name"], "a")
         self.assertEqual(elements[0]["attr_class"], ["btn", "btn-sm"])
         self.assertEqual(elements[1]["order"], 1)

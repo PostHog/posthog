@@ -57,14 +57,22 @@ def create_elements(elements: List[Element], team: Team) -> str:
     return elements_hash
 
 
-def get_element_group_by_hash(elements_hash: str):
-    result = sync_execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
+def get_element_group_by_hash(elements_hash: str, team_id: int):
+    result = sync_execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
     return ClickhouseElementGroupSerializer(result, many=True).data
 
 
-def get_elements_by_group(group_id: UUID):
-    result = sync_execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
+def get_elements_by_group(group_id: UUID, team_id: int):
+    result = sync_execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id, "team_id": team_id})
     return ClickhouseElementSerializer(result, many=True).data
+
+
+def get_elements_by_elements_hash(elements_hash: str, team_id: int):
+    elements_group = get_element_group_by_hash(elements_hash, team_id)
+    if len(elements_group) > 0:
+        return get_elements_by_group(elements_group[0]["id"], team_id)
+
+    return []
 
 
 def get_elements():
@@ -112,7 +120,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
         return element[7]
 
     def get_attributes(self, element):
-        return element[8]
+        return json.loads(element[8])
 
     def get_order(self, element):
         return element[9]

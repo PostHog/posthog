@@ -69,11 +69,11 @@ INSERT INTO elements_group SELECT %(id)s, %(elements_hash)s, %(team_id)s
 """
 
 GET_ELEMENT_GROUP_BY_HASH_SQL = """
-SELECT * FROM elements_group where elements_hash = %(elements_hash)s
+SELECT * FROM elements_group where elements_hash = %(elements_hash)s and team_id=%(team_id)s
 """
 
 GET_ELEMENT_BY_GROUP_SQL = """
-SELECT * FROM elements where group_id = %(group_id)s order by order ASC
+SELECT * FROM elements where group_id = %(group_id)s and team_id=%(team_id)s order by order ASC
 """
 
 GET_ELEMENTS_SQL = """

@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.element import get_elements_by_elements_hash
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
@@ -43,6 +44,10 @@ class ClickhouseEvents(viewsets.ViewSet):
         team = request.user.team_set.get()
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
+
+        if result["elements_hash"]:
+            result["elements"] = get_elements_by_elements_hash(result["elements_hash"], team.pk)
+
         return Response(result)
 
     @action(methods=["GET"], detail=False)
