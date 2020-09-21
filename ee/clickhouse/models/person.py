@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from rest_framework import serializers
 
@@ -43,11 +43,11 @@ def create_person(
     return Person(**insert)
 
 
-def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
+def update_person_properties(team_id: int, id: Union[str, int], properties: Dict) -> None:
     async_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
 
 
-def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> None:
+def update_person_is_identified(team_id: int, id: Union[str, int], is_identified: bool) -> None:
     async_execute(
         UPDATE_PERSON_IS_IDENTIFIED, {"team_id": team_id, "id": id, "is_identified": "1" if is_identified else "0"}
     )
