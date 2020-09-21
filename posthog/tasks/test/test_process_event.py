@@ -32,7 +32,7 @@ class ProcessEvent(BaseTest):
         self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
         self.team.save()
 
-        with self.assertNumQueries(31 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
+        with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
             process_event(
                 2,
                 "",
