@@ -21,7 +21,7 @@ def status_report() -> None:
     )  # very start of the current Monday
     period_start = period_end - timedelta(7)  # very start of the Monday preceding the current one
     report: Dict[str, Any] = {
-        "period": {"start_inclusive": period_start.isoformat(), "start_exclusive": period_end.isoformat()}
+        "period": {"start_inclusive": period_start.isoformat(), "end_exclusive": period_end.isoformat()}
     }
     report["posthog_version"] = VERSION
     report["users_who_logged_in"] = [
