@@ -39,7 +39,7 @@ def create_person(
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
 
-    return person_id
+    return str(person_id)
 
 
 def update_person_properties(team_id: int, id: Union[str, int], properties: Dict) -> None:
@@ -117,6 +117,13 @@ class ClickhousePersonSerializer(serializers.Serializer):
     team_id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     is_identified = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    distinct_ids = serializers.SerializerMethodField()
+
+    def get_name(self, person):
+        props = json.loads(person[3])
+        email = props.get("email", None)
+        return email or person[0]
 
     def get_id(self, person):
         return person[0]
@@ -132,6 +139,10 @@ class ClickhousePersonSerializer(serializers.Serializer):
 
     def get_is_identified(self, person):
         return person[4]
+
+    # all queries might not retrieve distinct_ids
+    def get_distinct_ids(self, person):
+        return person[5] if len(person) > 5 else []
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):

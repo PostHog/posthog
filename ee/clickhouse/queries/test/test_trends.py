@@ -1,12 +1,10 @@
 from freezegun import freeze_time
 
-from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.cohort import populate_cohort_person_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.sql.events import GET_EVENTS_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
