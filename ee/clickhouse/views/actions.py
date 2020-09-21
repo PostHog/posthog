@@ -3,6 +3,8 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -54,10 +56,13 @@ class ClickhouseActions(ActionViewSet):
 
         # adhoc date handling. parsed differently with django orm
         if filter.interval == "month":
-            filter._date_to = (filter.date_from + timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
+            filter._date_to = (
+                timezone.now()
+                if not filter.date_from
+                else (filter.date_from + timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
+            )
 
         current_url = request.get_full_path()
-        next_url: Optional[str] = None
 
         if shown_as is not None and shown_as == "Stickiness":
             stickiness_day = int(request.GET["stickiness_days"])
