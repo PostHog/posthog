@@ -25,14 +25,6 @@ export const pathOptionsToProperty = {
     [`${CUSTOM_EVENT}`]: 'custom_event',
 }
 
-function checkRoot(nodeToVerify, paths, start) {
-    let tempSource = paths.find((node) => node.target === nodeToVerify.source)
-    while (tempSource !== undefined && !(tempSource.source.includes('1_') && tempSource.source.includes(start))) {
-        tempSource = paths.find((node) => node.target === tempSource.source)
-    }
-    return tempSource
-}
-
 function cleanPathParams(filters, properties) {
     return {
         start_point: filters.start_point,
@@ -53,15 +45,8 @@ export const pathsLogic = kea({
             },
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
-                let paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
-                if (values.filter.start_point) {
-                    paths = paths.filter((checkingNode) => {
-                        return (
-                            checkingNode.source.includes(values.filter.start_point) ||
-                            checkRoot(checkingNode, paths, values.filter.start_point)
-                        )
-                    })
-                }
+                const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+
                 const response = {
                     nodes: [
                         ...paths.map((path) => ({ name: path.source, id: path.source_id })),
@@ -105,12 +90,7 @@ export const pathsLogic = kea({
             actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
         setFilter: () => {
-            if (
-                values.filter.path_type !== AUTOCAPTURE ||
-                (values.filter.path_type === AUTOCAPTURE && !isNaN(values.filter.start_point))
-            )
-                actions.loadPaths()
-
+            actions.loadPaths()
             actions.setAllFilters(cleanPathParams(values.filter, values.properties))
             actions.createInsight(cleanPathParams(values.filter, values.properties))
         },

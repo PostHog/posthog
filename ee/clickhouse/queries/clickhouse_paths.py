@@ -24,7 +24,7 @@ class ClickhousePaths(BaseQuery):
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 path_type = "concat('<', elements.tag_name, '> ', elements.text)"
-                start_comparator = "group_id"
+                start_comparator = "elements_hash"
             elif requested_type == CUSTOM_EVENT:
                 event = None
                 path_type = "event"
@@ -71,6 +71,7 @@ class ClickhousePaths(BaseQuery):
                     person_id,
                     events.id AS event_id,
                     {path_type} AS path_type
+                    {select_elements_hash}
                 FROM events_with_array_props_view AS events
                 JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
                 {element_joins}
@@ -85,6 +86,7 @@ class ClickhousePaths(BaseQuery):
                     timestamp, 
                     event_id, 
                     path_type
+                    {group_by_elements_hash}
                 ORDER BY 
                     person_id, 
                     timestamp
@@ -106,6 +108,8 @@ class ClickhousePaths(BaseQuery):
             if event == AUTOCAPTURE_EVENT
             else "",
             excess_row_filter=excess_row_filter,
+            select_elements_hash=", events.elements_hash as elements_hash" if event == AUTOCAPTURE_EVENT else "",
+            group_by_elements_hash=", events.elements_hash" if event == AUTOCAPTURE_EVENT else "",
         )
 
         # Step 2.
@@ -115,6 +119,7 @@ class ClickhousePaths(BaseQuery):
         paths_query = """
             SELECT 
                 person_id,
+                event_id,
                 timestamp,
                 path_type,
                 runningAccumulate(session_id_sumstate) as session_id
@@ -153,6 +158,7 @@ class ClickhousePaths(BaseQuery):
         paths_query = """
             SELECT
                 person_id,
+                event_id,
                 timestamp,
                 path_type,
                 session_id,
@@ -160,7 +166,9 @@ class ClickhousePaths(BaseQuery):
                 (neighbor(session_id, -3) = session_id ? 4 :
                 (neighbor(session_id, -2) = session_id ? 3 :
                 (neighbor(session_id, -1) = session_id ? 2 : 1)))) as session_index,
-                concat(toString(session_index), '_', path_type) as path_key
+                concat(toString(session_index), '_', path_type) as path_key,
+                if(session_index > 1, neighbor(path_key, -1), null) AS last_path_key,
+                if(session_index > 1, neighbor(event_id, -1), null) AS last_event_id
             FROM ({paths_query})
             WHERE
                 session_index <= 4
@@ -172,20 +180,24 @@ class ClickhousePaths(BaseQuery):
         # - Aggregate and get counts for unique pairs
         # - Filter out the entry rows that come from "null"
         paths_query = """
-            SELECT
-                if(session_index > 1, neighbor(path_key, -1), null) AS source_event,
-                path_key AS target_event,
+            SELECT 
+                last_path_key as source_event,
+                any(last_event_id) as source_event_id,
+                path_key as target_event,
+                any(event_id) target_event_id, 
                 COUNT(*) AS event_count
-            FROM ({paths_query}) 
+            FROM (
+                {paths_query}
+            )
             WHERE 
-                source_event IS NOT NULL 
+                source_event IS NOT NULL
                 AND target_event IS NOT NULL
-            GROUP BY 
-                source_event, 
+            GROUP BY
+                source_event,
                 target_event
-            ORDER BY 
-                event_count DESC, 
-                source_event, 
+            ORDER BY
+                event_count DESC,
+                source_event,
                 target_event
             LIMIT 20
         """.format(
@@ -205,7 +217,7 @@ class ClickhousePaths(BaseQuery):
         resp: List[Dict[str, str]] = []
         for row in rows:
             resp.append(
-                {"source": row[0], "target": row[1], "value": row[2],}
+                {"source": row[0], "source_id": row[1], "target": row[2], "target_id": row[3], "value": row[4],}
             )
 
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
