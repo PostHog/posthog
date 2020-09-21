@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import lo from 'lodash'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
@@ -102,19 +101,18 @@ export const pathsLogic = kea({
                 let result = {
                     insight: ViewType.PATHS,
                 }
-                if (!lo.isEmpty(properties)) {
+                if (properties && properties.length > 0) {
                     result['properties'] = properties
                 }
 
-                if (!lo.isEmpty(filter)) {
+                if (filter && Object.keys(filter).length > 0) {
                     result = {
                         ...result,
                         ...filter,
                     }
                 }
 
-                if (lo.isEmpty(result)) return ''
-                return result
+                return Object.keys(result).length === 0 ? '' : result
             },
         ],
     }),
