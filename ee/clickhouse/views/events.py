@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
-from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL
+from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
 
@@ -39,8 +39,11 @@ class ClickhouseEvents(viewsets.ViewSet):
         return Response({"next": None, "results": result})
 
     def retrieve(self, request, pk=None):
-        # TODO: implement retrieve event by id
-        return Response([])
+        # TODO: implement getting elements
+        team = request.user.team_set.get()
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
+        result = ClickhouseEventSerializer(query_result[0], many=False).data
+        return Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
