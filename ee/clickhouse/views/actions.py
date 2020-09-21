@@ -1,5 +1,6 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
 import json
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from rest_framework.decorators import action
@@ -50,6 +51,10 @@ class ClickhouseActions(ActionViewSet):
             entity = filter.entities[0]
         else:
             entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
+
+        # adhoc date handling. parsed differently with django orm
+        if filter.interval == "month":
+            filter._date_to = (filter.date_from + timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
 
         current_url = request.get_full_path()
         next_url: Optional[str] = None

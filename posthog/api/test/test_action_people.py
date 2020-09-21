@@ -300,7 +300,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "interval": "month",
                     "date_from": "2019-11-01",
-                    "date_to": "2019-12-01",
+                    "date_to": "2019-11-01",
                     "type": "actions",
                     "entityId": sign_up_action.id,
                 },
@@ -310,7 +310,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "interval": "month",
                     "date_from": "2019-11-01",
-                    "date_to": "2019-12-01",
+                    "date_to": "2019-11-01",
                     "type": "events",
                     "entityId": "sign up",
                 },
