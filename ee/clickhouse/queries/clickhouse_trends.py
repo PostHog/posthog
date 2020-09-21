@@ -28,7 +28,7 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and event = '{event}' {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and event = %(event)s {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 VOLUME_ACTIONS_SQL = """
@@ -58,28 +58,28 @@ SELECT groupArray(value) FROM (
 """
 
 BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start), groupArray(count), value FROM (
-    SELECT SUM(total) as count, day_start, value FROM (
+SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
+    SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
             {null_sql} as main
             CROSS JOIN
                 (
-                    SELECT value
+                    SELECT breakdown_value
                     FROM (
-                        SELECT %(values)s as value
-                    ) ARRAY JOIN value 
+                        SELECT %(values)s as breakdown_value
+                    ) ARRAY JOIN breakdown_value 
                 ) as sec
-            ORDER BY value, day_start
+            ORDER BY breakdown_value, day_start
             UNION ALL 
-            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value
+            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value as breakdown_value
             FROM 
-            events e {breakdown_filter}
-            GROUP BY day_start, value
+            events e {event_join} {breakdown_filter}
+            GROUP BY day_start, breakdown_value
         )
     ) 
-    GROUP BY day_start, value
-    ORDER BY value, day_start
-) GROUP BY value
+    GROUP BY day_start, breakdown_value
+    ORDER BY breakdown_value, day_start
+) GROUP BY breakdown_value
 """
 
 BREAKDOWN_DEFAULT_SQL = """
@@ -89,9 +89,9 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             {null_sql} as main
             ORDER BY day_start
             UNION ALL 
-            SELECT count(*) as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
+            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
             FROM 
-            events e {conditions}
+            events e {event_join} {conditions}
             GROUP BY day_start
         )
     ) 
@@ -111,7 +111,7 @@ INNER JOIN (
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
 ON e.id = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
-AND value in (%(values)s) {actions_query}
+AND breakdown_value in (%(values)s) {actions_query}
 """
 
 BREAKDOWN_COHORT_JOIN_SQL = """
@@ -196,6 +196,9 @@ class ClickhouseTrends(BaseQuery):
             date_to=((filter.date_to or datetime.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
         )
 
+        aggregate_operation, join_condition, math_params = self._process_math(entity)
+        params = {**params, **math_params}
+
         if filter.breakdown_type == "cohort":
             breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             if "all" in breakdown:
@@ -216,7 +219,12 @@ class ClickhouseTrends(BaseQuery):
                     actions_query="and id IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
-                breakdown_query = BREAKDOWN_DEFAULT_SQL.format(null_sql=null_sql, conditions=conditions)
+                breakdown_query = BREAKDOWN_DEFAULT_SQL.format(
+                    null_sql=null_sql,
+                    conditions=conditions,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                )
             else:
                 cohort_queries, cohort_ids = self._format_breakdown_cohort_join_query(breakdown, team)
                 params = {
@@ -232,7 +240,12 @@ class ClickhouseTrends(BaseQuery):
                     actions_query="and id IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
-                breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
+                breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                    null_sql=null_sql,
+                    breakdown_filter=breakdown_filter,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                )
         elif filter.breakdown_type == "person":
             pass
         else:
@@ -260,7 +273,12 @@ class ClickhouseTrends(BaseQuery):
                 actions_query="and id IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
             )
-            breakdown_query = BREAKDOWN_QUERY_SQL.format(null_sql=null_sql, breakdown_filter=breakdown_filter)
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                null_sql=null_sql,
+                breakdown_filter=breakdown_filter,
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
+            )
 
         try:
             result = sync_execute(breakdown_query, params)
@@ -313,7 +331,20 @@ class ClickhouseTrends(BaseQuery):
             )
             for item in stats[0]
         ]
-        return {"data": counts, "count": sum(counts), "dates": dates, "labels": labels, **additional_values}
+        days = [
+            ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
+            )
+            for item in stats[0]
+        ]
+        return {
+            "data": counts,
+            "count": sum(counts),
+            "dates": dates,
+            "labels": labels,
+            "days": days,
+            **additional_values,
+        }
 
     def _determine_breakdown_label(
         self, index: int, breakdown_type: Optional[str], breakdown: List, elements: List
@@ -390,13 +421,13 @@ class ClickhouseTrends(BaseQuery):
                 interval=inteval_annotation,
                 timestamp="timestamp",
                 team_id=team.pk,
-                event=entity.id,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
             )
+            params = {**params, "event": entity.id}
         null_sql = NULL_SQL.format(
             interval=inteval_annotation,
             seconds_in_interval=seconds_in_interval,
