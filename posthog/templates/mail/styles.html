@@ -99,10 +99,36 @@
         text-align: left;
         border-bottom: #f7a501 5px solid;
     }
+
+    .mainTitle div,
+    .mainTitle span {
+        font-weight: 600;
+    }
+
+    .mainTitle .secondary {
+        color: #989a9b;
+    }
+
+    .mainTitle td:first-child {
+        text-align: left;
+    }
+
+    .mainTitle td:last-child {
+        text-align: right;
+    }
+
     @media only screen and (max-width: 480px) {
         .header {
             text-align: center;
             margin: 0 8px;
+        }
+
+        .mainTitle td {
+            text-align: left !important;
+        }
+
+        .mainTitle {
+            margin-bottom: 16px;
         }
     }
 
@@ -128,5 +154,10 @@
 
     .footer .socialLinks span {
         padding: 0 8px;
+    }
+
+    /* Temporary */
+    .beta {
+        color: #f7a501;
     }
 </style>

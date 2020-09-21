@@ -1,4 +1,4 @@
-{% extends "mail/base.html" %} {% load posthog_assets %}{% block main %}
+{% extends "mail/base.html" %} {% load posthog_assets %} {% block head %}
 
 <style type="text/css">
     .number-group .big {
@@ -81,6 +81,21 @@
         }
     }
 </style>
+
+{% endblock %} {% block header %}
+<div class="mainTitle">
+    <table cellpadding="0" cellspacing="0" class="grid">
+        <tr>
+            <td align="left" valign="middle" width="50%" class="column">{{ block.super }}</td>
+            <td align="center" valign="middle" width="50%" class="column">
+                <div>Weekly report - Rocket Rides <span class="beta">BETA</span></div>
+                <div class="secondary">Sep 7 - Sep 14, 2020</div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+{% endblock %} {% block main %}
 
 <div class="container">
     <div class="section">
