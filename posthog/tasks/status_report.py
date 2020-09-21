@@ -40,7 +40,7 @@ def status_report() -> None:
             FROM posthog_event WHERE created_at >= %s AND created_at < %s GROUP BY lib
         """
             ),
-            (report["period"]["start_inclusive"], report["period"]["start_exclusive"]),
+            (report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
         )
         report["events_count_by_lib"] = {result.lib: result.count for result in namedtuplefetchall(cursor)}
         cursor.execute(
@@ -50,7 +50,7 @@ def status_report() -> None:
             FROM posthog_event WHERE created_at >= %s AND created_at < %s GROUP BY name
         """
             ),
-            (report["period"]["start_inclusive"], report["period"]["start_exclusive"]),
+            (report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
         )
         report["events_count_by_name"] = {result.name: result.count for result in namedtuplefetchall(cursor)}
     posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
