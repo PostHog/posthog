@@ -21,56 +21,6 @@ from posthog.models.team import Team
 from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
 
 
-def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
-    old_person: Optional[Person] = None
-    new_person: Optional[Person] = None
-
-    try:
-        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
-    except Person.DoesNotExist:
-        pass
-
-    try:
-        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-    except Person.DoesNotExist:
-        pass
-
-    if old_person and not new_person:
-        try:
-            attach_distinct_ids(old_person["id"], [distinct_id], team_id)
-        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
-        except IntegrityError:
-            if retry_if_failed:  # run everything again to merge the users if needed
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if not old_person and new_person:
-        try:
-            attach_distinct_ids(new_person["id"], [previous_distinct_id], team_id)
-        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
-        except IntegrityError:
-            if retry_if_failed:  # run everything again to merge the users if needed
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if not old_person and not new_person:
-        try:
-            create_person(team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
-        except IntegrityError:
-            if retry_if_failed:
-                # try once more, probably one of the two persons exists now
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if old_person and new_person and old_person != new_person:
-        # Disabled for now, will bring back very soon
-        # old_person_id = old_person["id"]
-        # old_person_props = old_person["properties"]
-        # merge_people(team_id, new_person, old_person_id, old_person_props)
-        return
-
-
 def _capture_ee(
     ip: str,
     site_url: str,
@@ -122,14 +72,17 @@ def _capture_ee(
     )
 
     # # check/create persondistinctid
-    check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
+    # check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
 
 
 def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
-    person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+    try:
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+    except Exception:
+        person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
+        return person
     if person:
         return person
-    person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
     return person
 
 
@@ -170,20 +123,20 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
-        if data["event"] == "$create_alias":
-            _alias(
-                previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
-            )
-        elif data["event"] == "$identify":
-            _set_is_identified(team_id=team_id, distinct_id=distinct_id, is_identified=True)
-            if data.get("properties") and data["properties"].get("$anon_distinct_id"):
-                _alias(
-                    previous_distinct_id=data["properties"]["$anon_distinct_id"],
-                    distinct_id=distinct_id,
-                    team_id=team_id,
-                )
-            if data.get("$set"):
-                _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+        # if data["event"] == "$create_alias":
+        #     _alias(
+        #         previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
+        #     )
+        # elif data["event"] == "$identify":
+        #     _set_is_identified(team_id=team_id, distinct_id=distinct_id, is_identified=True)
+        #     if data.get("properties") and data["properties"].get("$anon_distinct_id"):
+        #         _alias(
+        #             previous_distinct_id=data["properties"]["$anon_distinct_id"],
+        #             distinct_id=distinct_id,
+        #             team_id=team_id,
+        #         )
+        #     if data.get("$set"):
+        #         _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
         properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
