@@ -1,4 +1,6 @@
-from .clickhouse import STORAGE_POLICY, table_engine
+from ee.kafka.topics import KAFKA_EVENTS
+
+from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
@@ -16,8 +18,10 @@ DROP_MAT_EVENTS_PROP_TABLE_SQL = """
 DROP TABLE events_properties_view
 """
 
-EVENTS_TABLE_SQL = """
-CREATE TABLE events
+EVENTS_TABLE = "events"
+
+EVENTS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     event VARCHAR,
@@ -26,14 +30,38 @@ CREATE TABLE events
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime
+    created_at DateTime64(6, 'UTC')
 ) ENGINE = {engine} 
-PARTITION BY toYYYYMM(timestamp)
+"""
+
+EVENTS_TABLE_SQL = (
+    EVENTS_TABLE_BASE_SQL
+    + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, timestamp, distinct_id, id)
 SAMPLE BY id 
 {storage_policy}
+"""
+).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE), storage_policy=STORAGE_POLICY)
+
+KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS)
+)
+
+EVENTS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_hash,
+created_at
+FROM kafka_{table_name} 
 """.format(
-    engine=table_engine("events"), storage_policy=STORAGE_POLICY
+    table_name=EVENTS_TABLE
 )
 
 INSERT_EVENT_SQL = """
@@ -82,8 +110,8 @@ team_id,
 distinct_id,
 elements_hash,
 created_at,
-arrayMap(k -> k.1, JSONExtractKeysAndValues(properties, 'varchar')) array_property_keys,
-arrayMap(k -> k.2, JSONExtractKeysAndValues(properties, 'varchar')) array_property_values
+arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values
 FROM events
 """
 

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Optional, cast
+from typing import Callable, Optional, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -198,33 +198,38 @@ else:
     extend_api_router(router)
 
 
+def opt_slash_path(route: str, view: Callable) -> str:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    return re_path(fr"^{route}/?(?:[?#].*)?$", view)
+
+
 urlpatterns = [
     # internals
-    re_path(r"^_health/?", health),
-    re_path(r"^_stats/?", stats),
-    re_path(r"^_preflight/?", preflight_check),
+    opt_slash_path("_health", health),
+    opt_slash_path("_stats", stats),
+    opt_slash_path("_preflight", preflight_check),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     # api
     path("api/", include(router.urls)),
-    re_path(r"^api/user/redirect_to_site/?", user.redirect_to_site),
-    re_path(r"^api/user/change_password/?", user.change_password),
-    re_path(r"^api/user/test_slack_webhook/?", user.test_slack_webhook),
-    re_path(r"^api/user/?", user.user),
-    re_path(r"^api/team/signup/?", team.TeamSignupViewset.as_view()),
-    re_path(r"^api/.+", api_not_found),
+    opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+    opt_slash_path("api/user/change_password", user.change_password),
+    opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+    opt_slash_path("api/user", user.user),
+    opt_slash_path("api/team/signup", team.TeamSignupViewset.as_view()),
+    re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
     # ingestion
-    re_path(r"^decide/?", decide.get_decide),
-    re_path(r"^e/?", capture.get_event),
-    re_path(r"^engage/?", capture.get_event),
-    re_path(r"^track/?", capture.get_event),
-    re_path(r"^capture/?", capture.get_event),
-    re_path(r"^batch/?", capture.get_event),
+    opt_slash_path("decide", decide.get_decide),
+    opt_slash_path("e", capture.get_event),
+    opt_slash_path("engage", capture.get_event),
+    opt_slash_path("track", capture.get_event),
+    opt_slash_path("capture", capture.get_event),
+    opt_slash_path("batch", capture.get_event),
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),

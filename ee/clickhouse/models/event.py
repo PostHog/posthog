@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, time, timezone
 from typing import Dict, Optional, Tuple, Union
 
@@ -6,8 +7,10 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.team import Team
 
 
@@ -29,17 +32,20 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    async_execute(
-        INSERT_EVENT_SQL,
-        {
-            "event": event,
-            "properties": json.dumps(properties),
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "team_id": team.pk,
-            "distinct_id": distinct_id,
-            "element_hash": element_hash,
-        },
-    )
+    event_id = uuid.uuid4()
+
+    p = KafkaProducer()
+    data = {
+        "id": str(event_id),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": distinct_id,
+        "element_hash": element_hash,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    }
+    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
 
 
 def get_events():

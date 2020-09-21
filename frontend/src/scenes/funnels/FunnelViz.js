@@ -5,10 +5,10 @@ import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
-export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId }) {
+export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cachedResults }) {
     const container = useRef()
     const [steps, setSteps] = useState(stepsParam)
-    const logic = funnelVizLogic({ funnelId, dashboardItemId })
+    const logic = funnelVizLogic({ funnelId, dashboardItemId, cachedResults })
     const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
 

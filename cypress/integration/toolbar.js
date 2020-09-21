@@ -1,6 +1,7 @@
 describe('Toolbar', () => {
     beforeEach(() => {
         cy.visit('/demo')
+        cy.wait(200)
     })
 
     it('Toolbar loads', () => {

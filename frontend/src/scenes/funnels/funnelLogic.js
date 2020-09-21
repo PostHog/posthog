@@ -16,7 +16,7 @@ export async function pollFunnel(params = {}) {
     let count = 0
     while (result.loading && count < SECONDS_TO_POLL) {
         await wait()
-        const { refresh: _, ...restParams } = params
+        const { refresh: _, ...restParams } = params // eslint-disable-line
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
         count += 1
     }

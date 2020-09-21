@@ -10,12 +10,9 @@ from rest_framework.fields import BooleanField
 from .team import Team
 from .utils import generate_random_token
 
-EE_MISSING = False
 MULTI_TENANCY_MISSING = False
-try:
+if settings.EE_AVAILABLE:
     from ee.models.license import License
-except ImportError:
-    EE_MISSING = True
 
 try:
     from multi_tenancy.models import TeamBilling  # type: ignore
@@ -107,12 +104,12 @@ class User(AbstractUser):
 
     @property
     def ee_available(self) -> bool:
-        return not EE_MISSING
+        return settings.EE_AVAILABLE
 
     @property
     def billing_plan(self) -> Optional[str]:
         # If the EE folder is missing no features are available
-        if EE_MISSING:
+        if not settings.EE_AVAILABLE:
             return None
 
         # If we're on multi-tenancy grab the team's price
