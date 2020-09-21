@@ -152,7 +152,7 @@ class User(AbstractUser):
         # If we're on multi-tenancy grab the team's price
         if not MULTI_TENANCY_MISSING:
             try:
-                return TeamBilling.objects.get(team=self.team).price_id
+                return TeamBilling.objects.get(team=self.team).get_price_id()
             except TeamBilling.DoesNotExist:
                 return None
         # Otherwise, try to find a valid license on this instance
