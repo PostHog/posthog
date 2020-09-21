@@ -24,28 +24,29 @@ from ee.clickhouse.sql.person import (
 )
 from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from posthog import settings
+from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 
+if settings.EE_AVAILABLE and check_ee_enabled():
 
-@receiver(post_save, sender=Person)
-def person_created(sender, instance: Person, created, **kwargs):
-    create_person(
-        team_id=instance.team_id,
-        distinct_ids=instance.distinct_ids,
-        properties=instance.properties,
-        uid=str(instance.uuid),
-    )
+    @receiver(post_save, sender=Person)
+    def person_created(sender, instance: Person, created, **kwargs):
+        create_person(
+            team_id=instance.team_id,
+            distinct_ids=instance.distinct_ids,
+            properties=instance.properties,
+            uid=str(instance.uuid),
+        )
 
+    @receiver(post_save, sender=PersonDistinctId)
+    def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
+        create_person_distinct_id(instance.team_id, instance.distinct_id, instance.person_id)
 
-@receiver(post_save, sender=PersonDistinctId)
-def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-    create_person_distinct_id(instance.team_id, instance.distinct_id, instance.person_id)
-
-
-@receiver(post_delete, sender=Person)
-def person_deleted(sender, instance: Person, **kwargs):
-    delete_person(instance.id)
+    @receiver(post_delete, sender=Person)
+    def person_deleted(sender, instance: Person, **kwargs):
+        delete_person(instance.id)
 
 
 def create_person(
