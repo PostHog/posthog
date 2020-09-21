@@ -78,21 +78,6 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
-        # if data["event"] == "$create_alias":
-        #     _alias(
-        #         previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
-        #     )
-        # elif data["event"] == "$identify":
-        #     _set_is_identified(team_id=team_id, distinct_id=distinct_id, is_identified=True)
-        #     if data.get("properties") and data["properties"].get("$anon_distinct_id"):
-        #         _alias(
-        #             previous_distinct_id=data["properties"]["$anon_distinct_id"],
-        #             distinct_id=distinct_id,
-        #             team_id=team_id,
-        #         )
-        #     if data.get("$set"):
-        #         _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
-
         properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
             ip=ip,
