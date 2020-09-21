@@ -1,0 +1,157 @@
+{% extends "mail/base.html" %} {% load posthog_assets %}{% block main %}
+
+<style type="text/css">
+    .number-group .big {
+        font-size: 48px;
+        font-weight: 600;
+    }
+
+    .number-group .caption {
+        color: #666666;
+    }
+
+    .feedback {
+        text-align: center;
+        font-weight: 600;
+    }
+
+    .feedback a {
+        font-weight: 600;
+    }
+
+    .distributionBar {
+        border-radius: 10px;
+        width: 100%;
+        height: 26px;
+        margin-top: 32px;
+    }
+
+    .distributionBar div {
+        height: 100%;
+        display: inline-block;
+        float: left;
+    }
+
+    .distributionBar div:first-child {
+        border-radius: 10px 0 0 10px;
+    }
+
+    .distributionBar div:last-child {
+        border-radius: 0 10px 10px 0;
+    }
+
+    .graphDetails {
+        margin-top: 32px;
+    }
+
+    .graphDetails .sample {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+
+    .graphDetails .sampleCaption {
+        vertical-align: top;
+        padding-left: 8px;
+    }
+
+    .newUsers {
+        background-color: #3547fd;
+    }
+
+    .retainedUsers {
+        background-color: #8f98ff;
+    }
+
+    .resurrectedUsers {
+        background-color: #ced2ff;
+    }
+</style>
+
+<div class="container">
+    <div class="section">
+        <h2>Active Users</h2>
+        <span>Summary of all the active users for your organization.</span>
+
+        <table cellpadding="0" cellspacing="0" width="600" class="grid spacingTop">
+            <tr>
+                <td align="center" valign="top" width="50%" class="column">
+                    <div class="number-group">
+                        <div class="big">5395</div>
+                        <div class="caption">total users</div>
+                    </div>
+                </td>
+                <td align="center" valign="top" width="50%" class="column">
+                    <div class="number-group">
+                        <div class="big">{% delta_indicator "up" "gree" %} 2.8%</div>
+                        <div class="caption">from last week</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+        <div class="distributionBar">
+            <div class="newUsers" style="width: 20%"></div>
+            <div class="retainedUsers" style="width: 60%"></div>
+            <div class="resurrectedUsers" style="width: 20%"></div>
+        </div>
+
+        <div class="graphDetails">
+            <table cellpadding="0" cellspacing="0" width="600" class="grid">
+                <tr>
+                    <td align="center" valign="top" width="33%" class="column">
+                        <div class="newUsers sample"></div>
+                        <span class="sampleCaption">new users (20%)</span>
+                    </td>
+                    <td align="center" valign="top" width="33%" class="column">
+                        <div class="retainedUsers sample"></div>
+                        <span class="sampleCaption">retained users (60%)</span>
+                    </td>
+                    <td align="center" valign="top" width="33%" class="column">
+                        <div class="resurrectedUsers sample"></div>
+                        <span class="sampleCaption">resurrected users (20%)</span>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Churned Users</h2>
+        <span>Information from users that were seen last week but were not seen again this week.</span>
+
+        <table cellpadding="0" cellspacing="0" width="600" class="grid spacingTop">
+            <tr>
+                <td align="center" valign="top" width="33%" class="column">
+                    <div class="number-group">
+                        <div class="big">321</div>
+                        <div class="caption">churned users</div>
+                    </div>
+                </td>
+                <td align="center" valign="top" width="33%" class="column">
+                    <div class="number-group">
+                        <div class="big">4.8%</div>
+                        <div class="caption">of last week's active users</div>
+                    </div>
+                </td>
+                <td align="center" valign="top" width="33%" class="column">
+                    <div class="number-group">
+                        <div class="big">{% delta_indicator %} 1.8%</div>
+                        <div class="caption">from last week</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Project metrics</h2>
+        <span>This section is coming soon.</span>
+    </div>
+
+    <div class="feedback">
+        This is a new feature on PostHog. Have any feedback?
+        <a href="mailto:hey@posthog.com?subject=Feedback%20on%20weekly%20report">Reach out</a>
+    </div>
+</div>
+{% endblock %}

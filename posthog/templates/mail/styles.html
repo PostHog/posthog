@@ -3,7 +3,7 @@
     body,
     .main {
         width: 100%;
-        font-size: 16px;
+        font-size: 14px;
         font-family: 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
@@ -27,6 +27,7 @@
     table {
         width: 100%;
         border-collapse: collapse;
+        border: 0;
     }
 
     td {
@@ -43,7 +44,7 @@
     }
 
     .container {
-        max-width: 600px;
+        max-width: 700px;
         margin: 0 auto;
         text-align: left;
         padding: 0 20px;
@@ -51,6 +52,10 @@
 
     .inner {
         padding: 30px 0 20px;
+    }
+
+    .section {
+        margin-bottom: 96px;
     }
 
     .preheader {
@@ -61,18 +66,47 @@
         mso-hide: all; /* hide elements in Outlook 2007-2013 */
     }
 
+    h1,
+    h2 {
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    a {
+        color: #1890ff;
+        text-decoration: none;
+    }
+
+    @media only screen and (max-width: 480px) {
+        .grid {
+            width: 100% !important;
+        }
+
+        .grid .column {
+            display: block !important;
+            width: 100% !important;
+            margin-top: 32px;
+        }
+    }
+
     /* Header & Footer */
 
     .header {
         text-align: left;
         border-bottom: #f7a501 5px solid;
     }
+    @media only screen and (max-width: 480px) {
+        .header {
+            text-align: center;
+            margin: 0 8px;
+        }
+    }
 
     .footer {
         border-top: #a7b7be 1px solid;
         padding-top: 32px;
         color: #a5a5a5;
-        font-size: 13px;
+        font-size: 12px;
         text-align: center;
     }
 
@@ -80,8 +114,11 @@
         color: #a5a5a5;
     }
 
+    .footer div:not(.socialLinks) a {
+        text-decoration: underline;
+    }
+
     .footer .socialLinks a {
-        text-decoration: none;
         font-weight: 600;
     }
 

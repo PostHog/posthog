@@ -153,7 +153,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     team.users.add(user)
     team.save()
     posthoganalytics.capture(
-        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
+        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False},
     )
 
     return {"is_new": True, "user": user}
@@ -203,8 +203,13 @@ def opt_slash_path(route: str, view: Callable) -> str:
     return re_path(fr"^{route}/?(?:[?#].*)?$", view)
 
 
+def tmp_email(request):
+    return render_template("mail/weekly_report.html", request=request, context={"preheader": "Hello!",},)
+
+
 urlpatterns = [
     # internals
+    path("tmp_email", tmp_email),
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -239,7 +244,7 @@ urlpatterns = [
         []
         if settings.EMAIL_HOST
         else [
-            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"))
+            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
         ]
     ),
     path(
