@@ -57,7 +57,7 @@ export function Paths() {
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
-    const [eventelements, setEventelements] = useState(null)
+    const [event, setEvent] = useState(null)
 
     useEffect(() => {
         renderPaths()
@@ -191,9 +191,9 @@ export function Paths() {
             .on('click', async (node) => {
                 if (filter.path_type == AUTOCAPTURE) {
                     setModalVisible(true)
-                    setEventelements(null)
+                    setEvent(null)
                     let result = await api.get('api/event/' + node.id)
-                    setEventelements(result)
+                    setEvent(result)
                 }
             })
             .style('cursor', filter.path_type == AUTOCAPTURE ? 'pointer' : 'auto')
@@ -238,7 +238,7 @@ export function Paths() {
                     </Button>,
                 ]}
                 bodyStyle={
-                    !eventelements
+                    !event
                         ? {
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -246,7 +246,7 @@ export function Paths() {
                         : {}
                 }
             >
-                {eventelements ? <EventElements event={eventelements}></EventElements> : <Spin />}
+                {event ? <EventElements event={event}></EventElements> : <Spin />}
             </Modal>
         </div>
     )
