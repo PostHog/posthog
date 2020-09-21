@@ -69,7 +69,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
+def request_to_date_query(
+    filters: Dict[str, Any], exact: Optional[bool]
+) -> Dict[str, datetime.datetime]:
     if filters.get("date_from"):
         date_from = relative_date_parse(filters["date_from"])
         if filters["date_from"] == "all":
@@ -87,11 +89,15 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
         resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
     if date_to:
         days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
+        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(
+            tzinfo=pytz.UTC
+        )
     return resp
 
 
-def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
+def render_template(
+    template_name: str, request: HttpRequest, context=None
+) -> HttpResponse:
     from posthog.models import Team
 
     if context is None:
@@ -109,10 +115,14 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
     if os.environ.get("OPT_OUT_CAPTURE"):
         context["opt_out_capture"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get(
+        "SOCIAL_AUTH_GITHUB_SECRET"
+    ):
         context["github_auth"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get(
+        "SOCIAL_AUTH_GITLAB_SECRET"
+    ):
         context["gitlab_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
@@ -122,13 +132,17 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["debug"] = True
         try:
             context["git_rev"] = (
-                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()
+                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+                .decode("ascii")
+                .strip()
             )
         except:
             context["git_rev"] = None
         try:
             context["git_branch"] = (
-                subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+                subprocess.check_output(
+                    ["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"]
+                )
                 .decode("ascii")
                 .strip()
             )
@@ -145,7 +159,9 @@ def friendly_time(seconds: float):
     return "{hours}{minutes}{seconds}".format(
         hours="{h} hours ".format(h=int(hours)) if hours > 0 else "",
         minutes="{m} minutes ".format(m=int(minutes)) if minutes > 0 else "",
-        seconds="{s} seconds".format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else "",
+        seconds="{s} seconds".format(s=int(seconds))
+        if seconds > 0 or (minutes == 0 and hours == 0)
+        else "",
     ).strip()
 
 
@@ -237,7 +253,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[Tuple[str, str]]:
         """Try to find personal API key in request and return it along with where it was found."""
         if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(fr"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            authorization_match = re.match(
+                fr"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"]
+            )
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authorization header"
         if request_data is None and isinstance(request, Request):
@@ -265,18 +283,26 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+    def authenticate(
+        cls, request: Union[HttpRequest, Request]
+    ) -> Optional[Tuple[Any, None]]:
         personal_api_key_with_source = cls.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
         personal_api_key, source = personal_api_key_with_source
-        PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
+        PersonalAPIKey = apps.get_model(
+            app_label="posthog", model_name="PersonalAPIKey"
+        )
         try:
             personal_api_key_object = (
-                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=personal_api_key)
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(value=personal_api_key)
             )
         except PersonalAPIKey.DoesNotExist:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+            raise AuthenticationFailed(
+                detail=f"Personal API key found in request {source} is invalid."
+            )
         personal_api_key_object.last_used_at = timezone.now()
         personal_api_key_object.save()
         assert personal_api_key_object.user is not None
@@ -293,7 +319,8 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         # This happens when someone is trying to create actions from the editor on their own website
         if (
             request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
+            and urlsplit(request.headers["Origin"]).netloc
+            not in urlsplit(request.build_absolute_uri("/")).netloc
         ):
             if not request.GET.get("temporary_token"):
                 raise AuthenticationFailed(
@@ -304,7 +331,9 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 )
         if request.GET.get("temporary_token"):
             User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
+            user = User.objects.filter(
+                temporary_token=request.GET.get("temporary_token")
+            )
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)
@@ -313,10 +342,15 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Request):
-        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
+        if (
+            request.GET.get("share_token")
+            and request.parser_context
+            and request.parser_context.get("kwargs")
+        ):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
+                share_token=request.GET.get("share_token"),
+                pk=request.parser_context["kwargs"].get("pk"),
             )
             if not dashboard.exists():
                 raise AuthenticationFailed(detail="Dashboard doesn't exist")
@@ -336,7 +370,9 @@ def get_redis_heartbeat() -> Union[str, int]:
         return "offline"
 
     last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
-    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
+    worker_heartbeat = (
+        int(time.time()) - int(last_heartbeat) if last_heartbeat else None
+    )
 
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
@@ -351,10 +387,15 @@ def authenticate_secondarily(endpoint):
         if not request.user.is_authenticated:
             try:
                 auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
+                if (
+                    isinstance(auth_result, tuple)
+                    and auth_result[0].__class__.__name__ == "User"
+                ):
                     request.user = auth_result[0]
                 else:
-                    raise AuthenticationFailed("Authentication credentials were not provided.")
+                    raise AuthenticationFailed(
+                        "Authentication credentials were not provided."
+                    )
             except AuthenticationFailed as e:
                 return JsonResponse({"detail": e.detail}, status=401)
         return endpoint(request)
@@ -392,7 +433,9 @@ def load_data_from_request(request):
         scope.set_context("data", data)
 
     compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+        request.GET.get("compression")
+        or request.POST.get("compression")
+        or request.headers.get("content-encoding", "")
     )
     compression = compression.lower()
 
@@ -403,7 +446,9 @@ def load_data_from_request(request):
         if isinstance(data, str):
             data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
         else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+            data = lzstring.LZString().decompressFromBase64(
+                data.decode().replace(" ", "+")
+            )
 
     #  Is it plain json?
     try:
