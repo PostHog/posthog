@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import Dict, List, Optional
 
 from django.db.models.signals import post_delete, post_save
@@ -33,7 +34,7 @@ def person_created(sender, instance: Person, created, **kwargs):
         team_id=instance.team_id,
         distinct_ids=instance.distinct_ids,
         properties=instance.properties,
-        uuid=str(instance.uuid),
+        uid=str(instance.uuid),
     )
 
 
@@ -48,14 +49,21 @@ def person_deleted(sender, instance: Person, **kwargs):
 
 
 def create_person(
-    team_id: int, distinct_ids: List[str], uuid: str, properties: Optional[Dict] = {}, sync: bool = False, **kwargs
+    team_id: int,
+    distinct_ids: List[str],
+    uid: Optional[str] = None,
+    properties: Optional[Dict] = {},
+    sync: bool = False,
+    **kwargs
 ) -> int:
+    if not uid:
+        uid = uuid.uuid4()
     p = KafkaProducer()
-    data = {"id": uuid, "team_id": team_id, "properties": json.dumps(properties)}
+    data = {"id": uid, "team_id": team_id, "properties": json.dumps(properties)}
     p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
-            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=uuid)
+            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=uid)
     return uuid
 
 

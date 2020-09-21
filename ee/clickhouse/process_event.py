@@ -71,51 +71,6 @@ def _capture_ee(
         distinct_id=distinct_id,
     )
 
-    # # check/create persondistinctid
-    # check_and_create_person(team_id=team.pk, distinct_id=distinct_id)
-
-
-def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
-    try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-    except Exception:
-        person = create_person(team_id=team_id, distinct_ids=[str(distinct_id)])
-        return person
-    if person:
-        return person
-    return person
-
-
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
-    try:
-        person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
-        try:
-            create_person(person_id=person["id"], distinct_ids=[distinct_id], team_id=team_id)
-            person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-        # Catch race condition where in between getting and creating, another request already created this person
-        except:
-            person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-
-    update_person_properties(team_id=team_id, person_id=person["id"], properties=properties)
-
-    pass
-
-
-def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
-    person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-
-    if not person:
-        try:
-            create_person(distinct_ids=[distinct_id], team_id=team_id)
-            person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-        # Catch race condition where in between getting and creating, another request already created this person
-        except:
-            person = get_person_by_distinct_id(team_id=team_id, distinct_id=str(distinct_id))
-
-    if person and person["is_identified"] != is_identified:
-        update_person_is_identified(team_id=team_id, id=person["id"], is_identified=is_identified)
-
 
 if check_ee_enabled():
 
