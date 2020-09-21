@@ -27,14 +27,14 @@ PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql})
 ) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100
+LIMIT 200 OFFSET %(offset)s
 """
 
 PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql})
 ) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100
+LIMIT 200 OFFSET %(offset)s 
 """
 
 
@@ -45,7 +45,11 @@ class ClickhouseActions(ActionViewSet):
         team = request.user.team_set.get()
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
-        entity = filter.entities[0]
+
+        if len(filter.entities) >= 1:
+            entity = filter.entities[0]
+        else:
+            entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
 
         current_url = request.get_full_path()
         next_url: Optional[str] = None
@@ -57,9 +61,23 @@ class ClickhouseActions(ActionViewSet):
         else:
             serialized_people = self._calculate_entity_people(team, entity, filter)
 
+        current_url = request.get_full_path()
+        next_url: Optional[str] = request.get_full_path()
+        offset = filter.offset
+        if len(serialized_people) > 100 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
+
         return Response(
             {
-                "results": [{"people": serialized_people, "count": len(serialized_people)}],
+                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
                 "next": next_url,
                 "previous": current_url[1:],
             }
@@ -85,7 +103,13 @@ class ClickhouseActions(ActionViewSet):
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
 
-        params: Dict = {"team_id": team.pk, **prop_filter_params, "stickiness_day": stickiness_day, **entity_params}
+        params: Dict = {
+            "team_id": team.pk,
+            **prop_filter_params,
+            "stickiness_day": stickiness_day,
+            **entity_params,
+            "offset": filter.offset,
+        }
 
         content_sql = STICKINESS_PEOPLE_SQL.format(
             entity_filter=entity_sql,
@@ -103,8 +127,7 @@ class ClickhouseActions(ActionViewSet):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
-
-        params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params}
+        params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
         content_sql = PERSON_TREND_SQL.format(
             entity_filter=entity_sql,
