@@ -1,4 +1,4 @@
-{% extends "mail/base.html" %} {% load posthog_assets %} {% block head %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block head %}
 
 <style type="text/css">
     .number-group .big {
@@ -68,6 +68,10 @@
         background-color: #ced2ff;
     }
 
+    .deltaIcon {
+        width: 20px;
+    }
+
     @media only screen and (max-width: 480px) {
         .graphDetails {
             margin-top: 16px;
@@ -112,7 +116,10 @@
                 </td>
                 <td align="center" valign="top" width="50%" class="column">
                     <div class="number-group">
-                        <div class="big">{% delta_indicator "up" "gree" %} 2.8%</div>
+                        <div class="big">
+                            <img src="{% absolute_asset_url 'email/arrow-up-green.png' %}" alt="" class="deltaIcon" />
+                            2.8%
+                        </div>
                         <div class="caption">from last week</div>
                     </div>
                 </td>
@@ -164,7 +171,10 @@
                 </td>
                 <td align="center" valign="top" width="33%" class="column">
                     <div class="number-group">
-                        <div class="big">{% delta_indicator %} 1.8%</div>
+                        <div class="big">
+                            <img src="{% absolute_asset_url 'email/arrow-down-green.png' %}" alt="" class="deltaIcon" />
+                            1.8%
+                        </div>
                         <div class="caption">from last week</div>
                     </div>
                 </td>

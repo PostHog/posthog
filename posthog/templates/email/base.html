@@ -6,7 +6,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-        {% include "mail/styles.html" %} {% block head %} {% endblock %}
+        {% include "email/styles.html" %} {% block head %} {% endblock %}
     </head>
     <body>
         <div class="preheader">{% block preheader %}{% endblock %}</div>
@@ -22,6 +22,7 @@
                                     width="160px"
                                     height="31px"
                                     alt="PostHog"
+                                    class="logo"
                             /></a>
                         </h1>
                         {% endblock %}

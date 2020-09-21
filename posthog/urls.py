@@ -204,7 +204,11 @@ def opt_slash_path(route: str, view: Callable) -> str:
 
 
 def tmp_email(request):
-    return render_template("mail/weekly_report.html", request=request, context={"preheader": "Hello!",},)
+    from posthog.email import EmailMessage
+
+    e = EmailMessage("Weekly report", "weekly_report")
+
+    return HttpResponse(e.html_body)
 
 
 urlpatterns = [
