@@ -1,4 +1,4 @@
-from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
+from ee.kafka.topics import KAFKA_ELEMENTS
 
 from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
