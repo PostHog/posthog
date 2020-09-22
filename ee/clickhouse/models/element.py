@@ -73,7 +73,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     order = serializers.SerializerMethodField()
     team_id = serializers.SerializerMethodField()
     created_at = serializers.SerializerMethodField()
-    group_id = serializers.SerializerMethodField()
+    elements_hash = serializers.SerializerMethodField()
 
     def get_id(self, element):
         return element[0]
@@ -111,5 +111,5 @@ class ClickhouseElementSerializer(serializers.Serializer):
     def get_created_at(self, element):
         return element[11]
 
-    def get_group_id(self, element):
+    def get_elements_hash(self, element):
         return element[12]
