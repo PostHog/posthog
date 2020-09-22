@@ -57,7 +57,7 @@ def query_action(action: Action) -> Optional[List]:
     return None
 
 
-def format_action_filter(action: Action) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -68,31 +68,28 @@ def format_action_filter(action: Action) -> Tuple[str, Dict]:
     for step in steps:
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            element_query, element_params = filter_element(step)
+            element_query, element_params, index = filter_element(step, prepend, index)
             params = {**params, **element_params}
             or_queries.append(element_query)
 
         # filter event
         elif step.event:
-            event_query, event_params = filter_event(step)
+            event_query, event_params, index = filter_event(step, prepend, index)
             params = {**params, **event_params}
             or_queries.append(event_query)
-
     or_separator = "OR id IN"
     formatted_query = or_separator.join(or_queries)
-
     return formatted_query, params
 
 
-def format_action_query(action: Action) -> Tuple[str, Dict]:
-    formatted_query, params = format_action_filter(action)
+def format_action_query(action: Action, prepend: str = "", index=0) -> Tuple[str, Dict]:
+    formatted_query, params = format_action_filter(action, prepend, index)
 
     final_query = ACTION_QUERY.format(action_filter=formatted_query)
-
     return final_query, params
 
 
-def filter_event(step) -> Tuple[str, Dict]:
+def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
     params = {}
     event_filter = ""
     efilter = ""
@@ -100,13 +97,13 @@ def filter_event(step) -> Tuple[str, Dict]:
     if step.url and step.event:
         if step.url_matching == ActionStep.EXACT:
             operation = "value = '{}'".format(step.url)
-            params.update({"prop_val": step.url})
+            params.update({"prop_val_{}".format(index): step.url})
         elif step.url_matching == ActionStep.REGEX:
             operation = "like(value, '{}')".format(step.url)
-            params.update({"prop_val": step.url})
+            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
-            operation = "value LIKE %(prop_val)s "
-            params.update({"prop_val": "%" + step.url + "%"})
+            operation = "value LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
+            params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
         property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
         efilter = "AND event = '{}'".format(step.event)
 
@@ -115,27 +112,30 @@ def filter_event(step) -> Tuple[str, Dict]:
         efilter = "AND event = '{}'".format(step.event)
         event_filter = EVENT_NO_PROP_FILTER.format(event_filter=efilter)
 
-    return event_filter, params
+    return event_filter, params, index + 1
 
 
-def filter_element(step: ActionStep) -> Tuple[str, Dict]:
-    event_filter, params = filter_event(step) if step.url else ("", {})
+def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
+    event_filter, params, index = filter_event(step, prepend, index) if step.url else ("", {}, index + 1)
 
     filters = model_to_dict(step)
 
     prop_queries = []
     if filters.get("selector"):
         selector = Selector(filters["selector"])
-        for index, tag in enumerate(selector.parts):
+        for idx, tag in enumerate(selector.parts):
             prop_queries.append(tag.clickhouse_query(query=ELEMENT_PROP_FILTER))
 
-        for key in ["tag_name", "text", "href"]:
-            if filters.get(key):
-                prop_queries.append("{} = '{}'".format(key, filters[key]))
+    for key in ["tag_name", "text", "href"]:
+        if filters.get(key):
+            prop_queries.append("{} = '{}'".format(key, filters[key]))
     separator = " AND "
     selector_query = separator.join(prop_queries)
 
     return (
-        ELEMENT_ACTION_FILTER.format(element_filter=selector_query, event_filter="AND id IN {}".format(event_filter)),
+        ELEMENT_ACTION_FILTER.format(
+            element_filter=selector_query, event_filter="AND id IN {}".format(event_filter) if event_filter else ""
+        ),
         params,
+        index + 1,
     )

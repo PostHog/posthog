@@ -1,13 +1,15 @@
 import json
 from datetime import datetime, time, timezone
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
 from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from posthog.models.element import Element
 from posthog.models.team import Team
 
 
@@ -18,6 +20,7 @@ def create_event(
     timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[Dict] = {},
     element_hash: Optional[str] = "",
+    elements: Optional[List[Element]] = None,
 ) -> None:
 
     if not timestamp:
@@ -28,6 +31,10 @@ def create_event(
         timestamp = isoparse(timestamp)
     else:
         timestamp = timestamp.astimezone(pytz.utc)
+
+    # TODO: don't create same group twice?
+    if elements and not element_hash:
+        element_hash = create_elements(elements=elements, team=team)
 
     async_execute(
         INSERT_EVENT_SQL,

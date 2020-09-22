@@ -20,10 +20,9 @@ def parse_filter(filters: List[Property]) -> Tuple[str, Dict]:
     return result, params
 
 
-def parse_prop_clauses(key: str, filters: List[Property], team: Team) -> Tuple[str, Dict]:
+def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
     final = ""
     params = {}
-
     for idx, prop in enumerate(filters):
 
         if prop.type == "cohort":
@@ -32,12 +31,14 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team) -> Tuple[s
             final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
 
         else:
-            filter = "(ep.key = %(k{idx})s) AND (ep.value {operator} %(v{idx})s)".format(
-                idx=idx, operator=get_operator(prop.operator)
+            filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
+                idx=idx, operator=get_operator(prop.operator), prepend=prepend
             )
             clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
             final += "{cond} ({clause}) ".format(cond="AND {key} IN".format(key=key), clause=clause)
-            params.update({"k{}".format(idx): prop.key, "v{}".format(idx): _pad_value(prop.value)})
+            params.update(
+                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
+            )
     return final, params
 
 
