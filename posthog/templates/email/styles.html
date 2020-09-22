@@ -83,22 +83,6 @@
         text-decoration: none;
     }
 
-    @media only screen and (max-width: 480px) {
-        .grid {
-            width: 100% !important;
-        }
-
-        .grid .column {
-            display: block !important;
-            width: 100% !important;
-            margin-top: 32px;
-        }
-
-        .section {
-            margin-bottom: 48px;
-        }
-    }
-
     /* Header & Footer */
 
     .header {
@@ -121,21 +105,6 @@
 
     .mainTitle td:last-child {
         text-align: right;
-    }
-
-    @media only screen and (max-width: 480px) {
-        .header {
-            text-align: center;
-            margin: 0 8px;
-        }
-
-        .mainTitle td {
-            text-align: left !important;
-        }
-
-        .mainTitle {
-            margin-bottom: 16px;
-        }
     }
 
     .footer {
@@ -165,5 +134,39 @@
     /* Temporary */
     .beta {
         color: #f7a501;
+    }
+</style>
+
+<style type="text/css" inline="false">
+    @media only screen and (max-width: 480px) {
+        /* General styles */
+        .grid {
+            width: 100% !important;
+        }
+
+        .grid .column {
+            display: block !important;
+            width: 100% !important;
+            margin-top: 32px !important;
+        }
+
+        .section {
+            margin-bottom: 48px !important;
+        }
+
+        /* Header & Footer */
+
+        .header {
+            text-align: center;
+            margin: 0 8px;
+        }
+
+        .mainTitle td {
+            text-align: left !important;
+        }
+
+        .mainTitle {
+            margin-bottom: 16px;
+        }
     }
 </style>
