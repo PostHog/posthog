@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
+from posthog.settings import print_warning
 from posthog.version import VERSION
 
 from . import (
@@ -64,4 +65,4 @@ if check_ee_enabled():
         # router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
-        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
+        print_warning(("ClickHouse enabled, but enterprise features missing!", "Defaulting to Postgres."))
