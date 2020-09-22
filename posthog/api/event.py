@@ -11,6 +11,8 @@ from django.db.models.functions import Lag
 from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
@@ -96,8 +98,15 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         )
         return ElementSerializer(elements, many=True).data
 
+    def to_representation(self, instance):
+        representation = super(EventSerializer, self).to_representation(instance)
+        if self.context.get("format") == "csv":
+            representation.pop("elements")
+        return representation
+
 
 class EventViewSet(viewsets.ModelViewSet):
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
@@ -180,14 +189,18 @@ class EventViewSet(viewsets.ModelViewSet):
         monday = now() + timedelta(days=-now().weekday())
         events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
-        if len(events) < 101:
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+
+        if not is_csv_request and len(events) < 101:
             events = queryset[0:101]
+        elif is_csv_request:
+            events = queryset[0:100000]
 
         prefetched_events = self._prefetch_events([event for event in events])
         path = request.get_full_path()
 
         reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-        if len(events) > 100:
+        if not is_csv_request and len(events) > 100:
             next_url: Optional[str] = request.build_absolute_uri(
                 "{}{}{}={}".format(
                     path,
@@ -199,7 +212,14 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             next_url = None
 
-        return response.Response({"next": next_url, "results": EventSerializer(prefetched_events, many=True).data,})
+        return response.Response(
+            {
+                "next": next_url,
+                "results": EventSerializer(
+                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
+                ).data,
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
