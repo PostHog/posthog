@@ -61,7 +61,7 @@ attributes,
 order,
 team_id,
 created_at,
-group_id,
+elements_hash,
 _timestamp,
 _offset
 FROM kafka_{table_name} 

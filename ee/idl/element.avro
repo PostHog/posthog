@@ -45,8 +45,8 @@
       "type" : "long"
     },
     {
-      "name" : "group_id",
-      "type" : "long"
+      "name" : "elements_hash",
+      "type" : "string"
     }
   ]
 }
