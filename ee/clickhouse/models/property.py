@@ -23,7 +23,6 @@ def parse_filter(filters: List[Property]) -> Tuple[str, Dict]:
 def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
     final = ""
     params = {}
-
     for idx, prop in enumerate(filters):
 
         if prop.type == "cohort":

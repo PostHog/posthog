@@ -75,7 +75,7 @@ class ClickhouseFunnel(Funnel):
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
+            action_query, action_params = format_action_filter(action, "step_{}".format(index))
             if action_query == "":
                 return ""
 
