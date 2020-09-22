@@ -19,7 +19,7 @@ class Command(BaseCommand):
             event_names=["$pageview", "$autocapture"],
             event_properties=["$current_url", "$browser", "$os"],
         )
-        User.objects.join(organization, team, email="test@posthog.com", password="pass")
+        User.objects.create_and_join(organization, team, email="test@posthog.com", password="pass")
         base_url = "https://{}.herokuapp.com/demo/".format(os.environ.get("HEROKU_APP_NAME"))
         _create_anonymous_users(team=team, base_url=base_url)
         _create_funnel(team=team, base_url=base_url)

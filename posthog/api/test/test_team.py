@@ -15,7 +15,7 @@ from .base import APIBaseTest, BaseTest, TransactionBaseTest
 class TestTeamUser(APIBaseTest):
     def create_user_for_team(self, team: Team, organization: Organization) -> User:
         suffix = random.randint(100000, 999999)
-        user = User.objects.join(
+        user = User.objects.create_and_join(
             organization, team, f"user{suffix}@posthog.com", self.TESTS_PASSWORD, first_name=f"User #{suffix}",
         )
         return user

@@ -10,14 +10,14 @@ from .organization import Organization, OrganizationMembership
 from .team import Team
 from .utils import generate_random_token, sane_repr
 
-MULTI_TENANCY_MISSING = False
 if settings.EE_AVAILABLE:
     from ee.models.license import License
 
+MULTI_TENANCY_MISSING = False
 try:
-    from multi_tenancy.models import TeamBilling  # type: ignore
+    from multi_tenancy.models import BilledOrganization  # type: ignore
 except ImportError:
-    TeamBilling = False
+    BilledOrganization = None
     MULTI_TENANCY_MISSING = True
 
 
@@ -83,25 +83,34 @@ class UserManager(BaseUserManager):
         password: Optional[str],
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
-        **user_fields
+        **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
         with transaction.atomic():
             organization = Organization.objects.create(name=company_name, **(organization_fields or {}))
             team = Team.objects.create_with_data(organization=organization, name=company_name, **(team_fields or {}))
             user = self.create_user(email, password, **user_fields)
-            user.join(organization=organization, team=team)
+            user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN)
             return organization, team, user
 
-    def join(
-        self, organization: Organization, team: Team, email: str, password: Optional[str], **extra_fields
+    def create_and_join(
+        self,
+        organization: Organization,
+        team: Team,
+        email: str,
+        password: Optional[str],
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        **extra_fields,
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email, password, **extra_fields)
-            user.join(organization=organization, team=team)
+            user.join(organization=organization, team=team, level=level)
             return user
 
 
 class User(AbstractUser):
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS: List[str] = []
+
     DEFAULT = "default"
     TOOLBAR = "toolbar"
     TOOLBAR_CHOICES = [
@@ -123,13 +132,7 @@ class User(AbstractUser):
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
 
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: List[str] = []
-
     objects: UserManager = UserManager()  # type: ignore
-
-    def feature_available(self, feature: str) -> bool:
-        return feature in self.available_features
 
     @property
     def ee_available(self) -> bool:
@@ -140,12 +143,11 @@ class User(AbstractUser):
         # If the EE folder is missing no features are available
         if not settings.EE_AVAILABLE:
             return None
-
-        # If we're on multi-tenancy grab the team's price
+        # If we're on multi-tenancy, grab the organization's price
         if not MULTI_TENANCY_MISSING:
             try:
-                return TeamBilling.objects.get(team=self.team).get_price_id()
-            except TeamBilling.DoesNotExist:
+                return BilledOrganization.objects.get(organization=self.organization).get_price_id()
+            except BilledOrganization.DoesNotExist:
                 return None
         # Otherwise, try to find a valid license on this instance
         license = License.objects.filter(valid_until__gte=now()).first()
@@ -180,8 +182,12 @@ class User(AbstractUser):
             self.save()
         return self.current_team
 
+    def is_feature_available(self, feature: str) -> bool:
+        return feature in self.available_features
+
     def join(
         self,
+        *,
         organization: Organization,
         team: Team,
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
@@ -193,9 +199,9 @@ class User(AbstractUser):
             self.current_team = team
             self.save()
 
-    def leave(self, organization: Organization, team: Team) -> None:
+    def leave(self, *, organization: Organization, team: Team) -> None:
         with transaction.atomic():
-            OrganizationMembership.objects.delete(user=self, organization=organization)
+            OrganizationMembership.objects.get(user=self, organization=organization).delete()
             team.users.remove(self)
             self.current_organization = self.organizations.first()
             if self.current_organization is not None:

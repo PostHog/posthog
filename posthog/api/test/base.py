@@ -15,7 +15,7 @@ class TestMixin:
     TESTS_FORCE_LOGIN: bool = True
 
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
-        return User.objects.join(self.organization, self.team, email, password, **kwargs)
+        return User.objects.create_and_join(self.organization, self.team, email, password, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore
@@ -49,7 +49,7 @@ class APIBaseTest(APITestCase):
     TESTS_FORCE_LOGIN: bool = True
 
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
-        return User.objects.join(self.organization, self.team, email, password, **kwargs)
+        return User.objects.create_and_join(self.organization, self.team, email, password, **kwargs)
 
     def setUp(self):
         super().setUp()

@@ -87,7 +87,7 @@ def signup_to_team_view(request, token):
                     "signup_token": token,
                 },
             )
-        user = User.objects.join(
+        user = User.objects.create_and_join(
             team.organization, team, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
