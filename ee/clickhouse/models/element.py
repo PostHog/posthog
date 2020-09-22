@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
@@ -15,7 +15,6 @@ from posthog.models.team import Team
 
 def create_element(element: Element, team: Team, elements_hash: str) -> None:
     p = KafkaProducer()
-
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",

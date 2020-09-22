@@ -69,7 +69,7 @@ FROM kafka_{table_name}
 )
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT generateUUIDv4(), %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(element_hash)s, now()
+INSERT INTO events SELECT generateUUIDv4(), %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, now()
 """
 
 GET_EVENTS_SQL = """
