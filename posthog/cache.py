@@ -13,7 +13,7 @@ elif settings.REDIS_URL:
 
 
 def get_cache_key(team_id: int, key: str) -> str:
-    "@c/{}/{}".format(team_id, key)
+    return "@c/{}/{}".format(team_id, key)
 
 
 def get_cached_value(team_id: int, key: str) -> Optional[str]:
