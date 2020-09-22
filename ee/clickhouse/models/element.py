@@ -7,8 +7,8 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import KafkaProducer
-from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
-from posthog.cache import get_cache_key, set_cache_key
+from ee.kafka.topics import KAFKA_ELEMENTS
+from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
@@ -38,7 +38,7 @@ def create_elements(elements: List[Element], team: Team, use_cache: bool = True)
         element.order = index
     elements_hash = hash_elements(elements)
 
-    if use_cache and get_cache_key("@ch/elements/{}".format(elements_hash)):
+    if use_cache and get_cached_value(team.pk, "elements/{}".format(elements_hash)):
         return elements_hash
 
     # create elements
@@ -46,7 +46,7 @@ def create_elements(elements: List[Element], team: Team, use_cache: bool = True)
         create_element(element=element, team=team, elements_hash=elements_hash)
 
     if use_cache:
-        set_cache_key("@ch/elements/{}".format(elements_hash), "1")
+        set_cached_value(team.pk, "elements/{}".format(elements_hash), "1")
 
     return elements_hash
 
