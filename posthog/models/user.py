@@ -42,7 +42,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: str, password: str, **extra_fields):
+    def _create_user(self, email: str, password: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("The given email must be set")
@@ -58,13 +58,13 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, email, password=None, **extra_fields) -> "User":
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(email, password, **extra_fields)
 
-    def create_superuser(self, email, password, **extra_fields):
+    def create_superuser(self, email, password, **extra_fields) -> "User":
         """Create and save a SuperUser with the given email and password."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -89,11 +89,7 @@ class UserManager(BaseUserManager):
             organization = Organization.objects.create(name=company_name, **(organization_fields or {}))
             team = Team.objects.create_with_data(organization=organization, name=company_name, **(team_fields or {}))
             user = self.create_user(email, password, **user_fields)
-            organization.members.add(user)
-            team.users.add(user)
-            user.current_organization = organization
-            user.current_team = team
-            user.save()
+            user.join(organization=organization, team=team)
             return organization, team, user
 
     def join(
@@ -101,11 +97,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email, password, **extra_fields)
-            organization.members.add(user)
-            team.users.add(user)
-            user.current_organization = organization
-            user.current_team = team
-            user.save()
+            user.join(organization=organization, team=team)
             return user
 
 
@@ -187,5 +179,27 @@ class User(AbstractUser):
             self.current_team = self.organization.teams.get()
             self.save()
         return self.current_team
+
+    def join(
+        self,
+        organization: Organization,
+        team: Team,
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+    ) -> None:
+        with transaction.atomic():
+            OrganizationMembership.objects.create(user=self, organization=organization, level=level)
+            team.users.add(self)
+            self.current_organization = organization
+            self.current_team = team
+            self.save()
+
+    def leave(self, organization: Organization, team: Team) -> None:
+        with transaction.atomic():
+            OrganizationMembership.objects.delete(user=self, organization=organization)
+            team.users.remove(self)
+            self.current_organization = self.organizations.first()
+            if self.current_organization is not None:
+                self.current_team = self.current_organization.teams.first()
+            self.save()
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
