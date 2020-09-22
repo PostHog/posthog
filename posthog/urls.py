@@ -18,6 +18,7 @@ from django.views.generic.base import TemplateView
 from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
+from posthog.email import is_email_available
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import Event, Team, User
@@ -203,17 +204,8 @@ def opt_slash_path(route: str, view: Callable) -> str:
     return re_path(fr"^{route}/?(?:[?#].*)?$", view)
 
 
-def tmp_email(request):
-    from posthog.email import EmailMessage
-
-    e = EmailMessage("Weekly report", "weekly_report")
-
-    return HttpResponse(e.html_body)
-
-
 urlpatterns = [
     # internals
-    path("tmp_email", tmp_email),
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
@@ -246,7 +238,7 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     *(
         []
-        if settings.EMAIL_HOST
+        if is_email_available()
         else [
             path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
         ]

@@ -2,6 +2,7 @@ from typing import Dict
 
 import lxml
 import toronado
+from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import get_template
 
@@ -16,6 +17,14 @@ def inline_css(value: str) -> str:
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.
     return lxml.html.tostring(tree, doctype="<!DOCTYPE html>")
+
+
+def is_email_available() -> bool:
+    """
+    Returns whether email services are available on this instance
+    (i.e. settings are properly configured)
+    """
+    return settings.EMAIL_HOST
 
 
 class EmailMessage:
