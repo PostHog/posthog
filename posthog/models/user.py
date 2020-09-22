@@ -58,13 +58,13 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
-    def create_user(self, email, password=None, **extra_fields) -> "User":
+    def create_user(self, first_name: str, email, password=None, **extra_fields) -> "User":
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(first_name=first_name, email=email, password=password, **extra_fields)
 
-    def create_superuser(self, email, password, **extra_fields) -> "User":
+    def create_superuser(self, email, password, first_name: str, **extra_fields) -> "User":
         """Create and save a SuperUser with the given email and password."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -74,13 +74,14 @@ class UserManager(BaseUserManager):
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser=True.")
 
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(first_name=first_name, email=email, password=password, **extra_fields)
 
     def bootstrap(
         self,
         company_name: str,
         email: str,
         password: Optional[str],
+        first_name: str = "",
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
         **user_fields,
@@ -88,7 +89,7 @@ class UserManager(BaseUserManager):
         with transaction.atomic():
             organization = Organization.objects.create(name=company_name, **(organization_fields or {}))
             team = Team.objects.create_with_data(organization=organization, name=company_name, **(team_fields or {}))
-            user = self.create_user(email, password, **user_fields)
+            user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN)
             return organization, team, user
 
@@ -98,11 +99,12 @@ class UserManager(BaseUserManager):
         team: Team,
         email: str,
         password: Optional[str],
+        first_name: str = "",
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
         **extra_fields,
     ) -> "User":
         with transaction.atomic():
-            user = self.create_user(email, password, **extra_fields)
+            user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
             user.join(organization=organization, team=team, level=level)
             return user
 
