@@ -2,14 +2,12 @@ import random
 from typing import Dict, List, Tuple
 from unittest.mock import patch
 
-from django.db.models import Q
 from django.test import tag
 from rest_framework import status
-from rest_framework.exceptions import ErrorDetail
 
 from posthog.models import Organization, Team, User
 
-from .base import APIBaseTest, BaseTest, TransactionBaseTest
+from .base import APIBaseTest, TransactionBaseTest
 
 
 class TestTeamUser(APIBaseTest):
@@ -51,66 +49,66 @@ class TestTeamUser(APIBaseTest):
 
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
 
-    @patch("posthog.api.team.posthoganalytics.capture")
-    def test_user_can_delete_another_team_user(self, mock_capture):
-        organization, team, user = self.create_team_and_user()
-        user2: User = self.create_user_for_team(team, organization)
-        self.client.force_login(user)
+    # @patch("posthog.api.team.posthoganalytics.capture")
+    # def test_user_can_delete_another_team_user(self, mock_capture):
+    #     organization, team, user = self.create_team_and_user()
+    #     user2: User = self.create_user_for_team(team, organization)
+    #     self.client.force_login(user)
 
-        response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+    #     response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
+    #     self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertFalse(User.objects.get(id=user2.id).is_active)
-        self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
+    #     self.assertFalse(User.objects.get(id=user2.id).is_active)
+    #     self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
 
-        # Assert that the event is reported to PH
-        mock_capture.assert_any_call(
-            user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
-        )
-        mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
+    #     # Assert that the event is reported to PH
+    #     mock_capture.assert_any_call(
+    #         user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
+    #     )
+    #     mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
 
-    @patch("posthog.api.team.posthoganalytics.capture")
-    def test_cannot_delete_yourself(self, mock_capture):
-        organization, team, user = self.create_team_and_user()
-        self.client.force_login(user)
+    # @patch("posthog.api.team.posthoganalytics.capture")
+    # def test_cannot_delete_yourself(self, mock_capture):
+    #     organization, team, user = self.create_team_and_user()
+    #     self.client.force_login(user)
 
-        response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"detail": "Cannot delete yourself."})
+    #     response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
+    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    #     self.assertEqual(response.json(), {"detail": "Cannot delete yourself."})
 
-        self.assertEqual(
-            User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
-        )  # User still exists
+    #     self.assertEqual(
+    #         User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
+    #     )  # User still exists
 
-        # Assert no event was repoted to PH
-        mock_capture.assert_not_called()
+    #     # Assert no event was repoted to PH
+    #     mock_capture.assert_not_called()
 
-    def test_cannot_delete_user_using_their_primary_key(self):
-        organization, team, user = self.create_team_and_user()
-        user2: User = self.create_user_for_team(team, organization)
-        self.client.force_login(user)
+    # def test_cannot_delete_user_using_their_primary_key(self):
+    #     organization, team, user = self.create_team_and_user()
+    #     user2: User = self.create_user_for_team(team, organization)
+    #     self.client.force_login(user)
 
-        response = self.client.delete(f"/api/team/user/{user2.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"detail": "Not found."})
+    #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
+    #     self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    #     self.assertEqual(response.json(), {"detail": "Not found."})
 
-        self.assertEqual(
-            User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
-        )  # User still exists
+    #     self.assertEqual(
+    #         User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
+    #     )  # User still exists
 
-    def test_user_cannot_delete_user_from_another_team(self):
-        organization, team, user = self.create_team_and_user()
-        self.client.force_login(user)
+    # def test_user_cannot_delete_user_from_another_team(self):
+    #     organization, team, user = self.create_team_and_user()
+    #     self.client.force_login(user)
 
-        organization2, team2, user2 = self.create_team_and_user()
+    #     organization2, team2, user2 = self.create_team_and_user()
 
-        response = self.client.delete(f"/api/team/user/{user2.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"detail": "Not found."})
+    #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
+    #     self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    #     self.assertEqual(response.json(), {"detail": "Not found."})
 
-        self.assertEqual(
-            User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
-        )  # User still exists
+    #     self.assertEqual(
+    #         User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
+    #     )  # User still exists
 
     def test_creating_or_updating_users_is_currently_not_allowed(self):
         organization, team, user = self.create_team_and_user()
@@ -146,10 +144,10 @@ class TestTeamUser(APIBaseTest):
         response_data: Dict = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
-        response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        response_data = response.json()
-        self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
+        # response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
+        # self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # response_data = response.json()
+        # self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
 
 class TestTeamSignup(TransactionBaseTest):
