@@ -15,6 +15,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
             ],
+            use_cache=False,
         )
 
         self.assertEqual(len(get_all_elements()), 4)
@@ -27,6 +28,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
             ],
+            use_cache=False,
         )
 
         self.assertEqual(elements_hash_1, elements_hash_2)
@@ -49,4 +51,33 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
 
         self.assertGreater(len(get_all_elements()), 4)
         sync_execute("OPTIMIZE TABLE elements FINAL")
+        self.assertEqual(len(get_all_elements()), 4)
+
+    def test_create_cache(self) -> None:
+        self.assertEqual(len(get_all_elements()), 0)
+
+        create_elements(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
+                Element(tag_name="button", nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+            use_cache=True,
+        )
+
+        self.assertEqual(len(get_all_elements()), 4)
+
+        create_elements(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
+                Element(tag_name="button", nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+            use_cache=True,
+        )
+
         self.assertEqual(len(get_all_elements()), 4)

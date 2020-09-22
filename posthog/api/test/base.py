@@ -1,6 +1,7 @@
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
+from posthog.cache import clear_cache
 from posthog.models import Team, User
 
 
@@ -17,6 +18,7 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()  # type: ignore
+        clear_cache()
         self.team: Team = Team.objects.create(api_token="token123")
         if self.TESTS_API:
             self.client = Client()

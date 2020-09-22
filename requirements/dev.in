@@ -1,6 +1,7 @@
 # To compile, run:
 #    pip-compile requirements/dev.in
 
+fakeredis
 flake8
 flake8-bugbear
 flake8-colors
