@@ -5,25 +5,13 @@ from uuid import UUID, uuid4
 from rest_framework import serializers
 
 from ee.clickhouse.client import async_execute, sync_execute
-from ee.clickhouse.sql.elements import (
-    GET_ELEMENT_BY_GROUP_SQL,
-    GET_ELEMENT_GROUP_BY_HASH_SQL,
-    GET_ELEMENTS_SQL,
-    INSERT_ELEMENT_GROUP_SQL,
-    INSERT_ELEMENTS_SQL,
-)
+from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element_group(team: Team, elements_hash: str) -> UUID:
-    id = uuid4()
-    async_execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "elements_hash": elements_hash, "team_id": team.pk})
-    return id
-
-
-def create_element(element: Element, team: Team, group_id: UUID) -> None:
+def create_element(element: Element, team: Team, elements_hash: str) -> None:
     async_execute(
         INSERT_ELEMENTS_SQL,
         {
@@ -37,7 +25,7 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
             "attributes": json.dumps(element.attributes or {}),
             "order": element.order or 0,
             "team_id": team.pk,
-            "group_id": group_id,
+            "elements_hash": elements_hash,
         },
     )
 
@@ -46,37 +34,24 @@ def create_elements(elements: List[Element], team: Team) -> str:
     # create group
     for index, element in enumerate(elements):
         element.order = index
-
     elements_hash = hash_elements(elements)
-    group_id = create_element_group(elements_hash=elements_hash, team=team)
+
+    # TODO: check if such a hash already exists
 
     # create elements
     for index, element in enumerate(elements):
-        create_element(element=element, team=team, group_id=group_id)
+        create_element(element=element, team=team, elements_hash=elements_hash)
 
     return elements_hash
 
 
-def get_element_group_by_hash(elements_hash: str, team_id: int):
-    result = sync_execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
-    return ClickhouseElementGroupSerializer(result, many=True).data
-
-
-def get_elements_by_group(group_id: UUID, team_id: int):
-    result = sync_execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id, "team_id": team_id})
+def get_elements_by_elements_hash(elements_hash: str, team_id: int):
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 
-def get_elements_by_elements_hash(elements_hash: str, team_id: int):
-    elements_group = get_element_group_by_hash(elements_hash, team_id)
-    if len(elements_group) > 0:
-        return get_elements_by_group(elements_group[0]["id"], team_id)
-
-    return []
-
-
-def get_elements():
-    result = sync_execute(GET_ELEMENTS_SQL)
+def get_all_elements(final: bool = False):
+    result = sync_execute(GET_ALL_ELEMENTS_SQL.format(final="FINAL" if final else ""))
     return ClickhouseElementSerializer(result, many=True).data
 
 
@@ -133,18 +108,3 @@ class ClickhouseElementSerializer(serializers.Serializer):
 
     def get_group_id(self, element):
         return element[12]
-
-
-class ClickhouseElementGroupSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
-    elements_hash = serializers.SerializerMethodField()
-    team_id = serializers.SerializerMethodField()
-
-    def get_id(self, element_group):
-        return element_group[0]
-
-    def get_elements_hash(self, element_group):
-        return element_group[1]
-
-    def get_team_id(self, element_group):
-        return element_group[2]

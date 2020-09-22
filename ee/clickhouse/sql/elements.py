@@ -4,11 +4,6 @@ DROP_ELEMENTS_TABLE_SQL = """
 DROP TABLE elements
 """
 
-DROP_ELEMENTS_GROUP_TABLE_SQL = """
-DROP TABLE elements_group
-"""
-
-
 ELEMENTS_TABLE_SQL = """
 CREATE TABLE elements
 (
@@ -24,13 +19,13 @@ CREATE TABLE elements
     order Int32,
     team_id Int32,
     created_at DateTime,
-    group_id UUID
+    elements_hash VARCHAR
 ) ENGINE = {engine} 
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (team_id, id)
+ORDER BY (team_id, elements_hash, order)
 {storage_policy}
 """.format(
-    engine=table_engine("elements"), storage_policy=STORAGE_POLICY
+    engine=table_engine("elements", "Replacing"), storage_policy=STORAGE_POLICY
 )
 
 INSERT_ELEMENTS_SQL = """
@@ -47,37 +42,32 @@ INSERT INTO elements SELECT
     %(order)s,
     %(team_id)s,
     now(),
-    %(group_id)s
+    %(elements_hash)s
 """
 
-ELEMENT_GROUP_TABLE_SQL = """
-CREATE TABLE elements_group
-(
-    id UUID,
-    elements_hash VARCHAR,
-    team_id Int32
-) ENGINE = {engine}
-ORDER BY (team_id, id)
-{storage_policy}
-""".format(
-    engine=table_engine("elements_group"), storage_policy=STORAGE_POLICY
-)
-
-
-INSERT_ELEMENT_GROUP_SQL = """
-INSERT INTO elements_group SELECT %(id)s, %(elements_hash)s, %(team_id)s
+GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
+    SELECT 
+        argMax(id, created_at) id,
+        any(text) text,
+        any(tag_name) tag_name,
+        any(href) href,
+        any(attr_id) attr_id,
+        any(attr_class) attr_class,
+        any(nth_child) nth_child,
+        any(nth_of_type) nth_of_type,
+        any(attributes) attributes,
+        order,
+        team_id,
+        max(created_at) created_at_,
+        elements_hash
+    FROM elements
+    WHERE elements_hash = %(elements_hash)s AND team_id=%(team_id)s
+    GROUP BY team_id, elements_hash, order
+    ORDER BY order
 """
 
-GET_ELEMENT_GROUP_BY_HASH_SQL = """
-SELECT * FROM elements_group where elements_hash = %(elements_hash)s and team_id=%(team_id)s
-"""
-
-GET_ELEMENT_BY_GROUP_SQL = """
-SELECT * FROM elements where group_id = %(group_id)s and team_id=%(team_id)s order by order ASC
-"""
-
-GET_ELEMENTS_SQL = """
-SELECT * FROM elements order by order ASC
+GET_ALL_ELEMENTS_SQL = """
+SELECT * FROM elements {final} ORDER by order ASC 
 """
 
 ELEMENTS_WITH_ARRAY_PROPS = """
@@ -95,12 +85,12 @@ CREATE TABLE elements_with_array_props_view
     order Int32,
     team_id Int32,
     created_at DateTime,
-    group_id UUID,
+    elements_hash VARCHAR,
     array_attribute_keys Array(VARCHAR),
     array_attribute_values Array(VARCHAR)
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (id, team_id)
+ORDER BY (team_id, elements_hash, order)
 {storage_policy}
 """.format(
     engine=table_engine("elements_with_array_props_view"), storage_policy=STORAGE_POLICY
@@ -121,7 +111,7 @@ nth_of_type,
 attributes,
 order,
 team_id,
-group_id,
+elements_hash,
 arrayMap(k -> k.1, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_keys,
 arrayMap(k -> k.2, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_values
 FROM elements
@@ -145,8 +135,7 @@ SELECT concat('<', elements.tag_name, '> ', elements.text) AS tag_name,
        events.elements_hash as tag_hash,
        count(*) as tag_count
 FROM events
-JOIN elements_group ON elements_group.elements_hash = events.elements_hash
-JOIN elements ON (elements.group_id = elements_group.id AND elements.order = toInt32(0))
+JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt32(0))
 WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, tag_hash
 ORDER BY tag_count desc, tag_name

@@ -32,7 +32,6 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    # TODO: don't create same group twice?
     if elements and not elements_hash:
         elements_hash = create_elements(elements=elements, team=team)
 

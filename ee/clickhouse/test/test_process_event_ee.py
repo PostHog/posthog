@@ -4,7 +4,7 @@ from typing import Dict
 
 from django.utils.timezone import now
 
-from ee.clickhouse.models.element import get_element_group_by_hash, get_elements, get_elements_by_group
+from ee.clickhouse.models.element import get_all_elements, get_elements_by_elements_hash
 from ee.clickhouse.models.event import get_events
 from ee.clickhouse.models.person import create_person, get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
@@ -46,8 +46,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         events = get_events()
 
         self.assertEqual(events[0]["event"], "$autocapture")
-        group = get_element_group_by_hash(elements_hash=events[0]["elements_hash"], team_id=team_id)
-        elements = get_elements_by_group(group_id=group[0]["id"], team_id=team_id)
+        elements = get_elements_by_elements_hash(elements_hash=events[0]["elements_hash"], team_id=team_id)
         self.assertEqual(elements[0]["tag_name"], "a")
         self.assertEqual(elements[0]["attr_class"], ["btn", "btn-sm"])
         self.assertEqual(elements[1]["order"], 1)
@@ -460,7 +459,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        elements = get_elements()
+        elements = get_all_elements()
 
         self.assertEqual(len(elements[0]["href"]), 2048)
         self.assertEqual(len(elements[0]["text"]), 400)
