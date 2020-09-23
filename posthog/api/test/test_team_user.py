@@ -345,7 +345,9 @@ class TestTeamSignup(TransactionBaseTest):
 
     @patch("posthog.api.team.MULTI_TENANCY_MISSING", False)
     def test_authenticated_user_cannot_signup_team(self):
-        user = User.objects.create(email="i_was_first@posthog.com")
+        organization, team, user = User.objects.bootstrap(
+            company_name="Test", email="i_was_first@posthog.com", first_name="X", password=None
+        )
         self.client.force_login(user)
 
         count: int = User.objects.count()
