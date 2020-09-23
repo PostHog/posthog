@@ -78,7 +78,7 @@ class TestEmail(TestCase):
             mail.outbox[0].body, "",
         )  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.assertIn(
             "http://localhost:9999/static/posthog-logo.png", html_message,
         )  # absolute URLs are used
