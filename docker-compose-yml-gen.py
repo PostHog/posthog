@@ -73,9 +73,9 @@ def main():
             break
 
     print(
-        f"\nDo you have a specific Django SECRET_KEY? (default: )\n"
-        "Django uses the SECRET_KEY variable for encrypting sessions and tokens among other things.\n"
-        "It's important that it is secret and only yours.\n"
+        f"\nDo you have a specific Django SECRET_KEY?\n"
+        "Django uses the SECRET_KEY variable for e.g. encrypting sessions and tokens,\n"
+        "so it's important that it is secret and only yours.\n"
         "If you don't need a specific key, skip this and let us generate you one.\n"
     )
     secret_key = input() or "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(50))
