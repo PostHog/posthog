@@ -196,7 +196,7 @@ else:
     extend_api_router(router)
 
 
-def opt_slash_path(route: str, view: Callable, name: str = None) -> str:
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     return re_path(route=fr"^{route}/?(?:[?#].*)?$", view=view, name=name)
 
