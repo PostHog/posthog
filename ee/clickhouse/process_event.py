@@ -8,69 +8,17 @@ from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import (
     attach_distinct_ids,
-    create_person_with_distinct_id,
+    create_person,
+    get_person_by_distinct_id,
     merge_people,
+    update_person_is_identified,
     update_person_properties,
 )
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.tasks.process_event import get_or_create_person, handle_timestamp, store_names_and_properties
-
-
-def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
-    old_person: Optional[Person] = None
-    new_person: Optional[Person] = None
-
-    try:
-        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
-    except Person.DoesNotExist:
-        pass
-
-    try:
-        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-    except Person.DoesNotExist:
-        pass
-
-    if old_person and not new_person:
-        try:
-            old_person.add_distinct_id(distinct_id)
-            attach_distinct_ids(old_person.pk, [distinct_id], team_id)
-        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
-        except IntegrityError:
-            if retry_if_failed:  # run everything again to merge the users if needed
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if not old_person and new_person:
-        try:
-            new_person.add_distinct_id(previous_distinct_id)
-            attach_distinct_ids(new_person.pk, [previous_distinct_id], team_id)
-        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
-        except IntegrityError:
-            if retry_if_failed:  # run everything again to merge the users if needed
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if not old_person and not new_person:
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],)
-            create_person_with_distinct_id(
-                person_id=person.pk, team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],
-            )
-        # Catch race condition where in between getting and creating, another request already created this user.
-        except IntegrityError:
-            if retry_if_failed:
-                # try once more, probably one of the two persons exists now
-                _alias(previous_distinct_id, distinct_id, team_id, False)
-        return
-
-    if old_person and new_person and old_person != new_person:
-        old_person_id = old_person.pk
-        old_person_props = old_person.properties
-        new_person.merge_people([old_person])
-        merge_people(new_person, old_person_id, old_person_props)
+from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
 
 
 def _capture_ee(
@@ -123,44 +71,6 @@ def _capture_ee(
         distinct_id=distinct_id,
     )
 
-    # # check/create persondistinctid
-    person, created = get_or_create_person(team_id=team.pk, distinct_id=distinct_id)
-    if created:
-        create_person_with_distinct_id(person_id=person.pk, distinct_ids=[distinct_id], team_id=team.pk)
-
-
-def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
-    try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            create_person_with_distinct_id(person.pk, [distinct_id], team_id)
-        # Catch race condition where in between getting and creating, another request already created this person
-        except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-
-    update_person_properties(person.pk, properties)
-    person.properties.update(properties)
-    person.save()
-
-    pass
-
-
-def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
-    try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
-        try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            create_person_with_distinct_id(person.pk, [distinct_id], team_id)
-        # Catch race condition where in between getting and creating, another request already created this person
-        except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
-    if not person.is_identified:
-        person.is_identified = is_identified
-        person.save()
-
 
 if check_ee_enabled():
 
@@ -168,23 +78,7 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
-        if data["event"] == "$create_alias":
-            _alias(
-                previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
-            )
-        elif data["event"] == "$identify":
-            _set_is_identified(team_id=team_id, distinct_id=distinct_id)
-            if data.get("properties") and data["properties"].get("$anon_distinct_id"):
-                _alias(
-                    previous_distinct_id=data["properties"]["$anon_distinct_id"],
-                    distinct_id=distinct_id,
-                    team_id=team_id,
-                )
-            if data.get("$set"):
-                _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
-
         properties = data.get("properties", data.get("$set", {}))
-
         _capture_ee(
             ip=ip,
             site_url=site_url,

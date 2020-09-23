@@ -13,13 +13,13 @@ export const annotationsLogic = kea({
         values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
-        createAnnotation: (content, date_marker, scope = false) => ({
+        createAnnotation: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
             created_at: moment(),
             scope,
         }),
-        createAnnotationNow: (content, date_marker, scope = false) => ({
+        createAnnotationNow: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
             created_at: moment(),
@@ -38,7 +38,7 @@ export const annotationsLogic = kea({
                     ...(before ? { before } : {}),
                     ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
-                    scope: false,
+                    scope: 'dashboard_item',
                     deleted: false,
                 }
                 const response = await api.get('api/annotation/?' + toParams(params))

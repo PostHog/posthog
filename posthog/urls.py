@@ -93,9 +93,8 @@ def signup_to_organization_view(request, invite_id):
                     "invite_id": invite_id,
                 },
             )
-
-        user = User.objects.create_user(
-            email=email, password=password, first_name=first_name, email_opt_in=email_opt_in,
+        user = User.objects.create_and_join(
+            team.organization, team, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
         invite.use(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -205,9 +204,9 @@ else:
     extend_api_router(router)
 
 
-def opt_slash_path(route: str, view: Callable) -> str:
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    return re_path(fr"^{route}/?(?:[?#].*)?$", view)
+    return re_path(route=fr"^{route}/?(?:[?#].*)?$", view=view, name=name)
 
 
 urlpatterns = [

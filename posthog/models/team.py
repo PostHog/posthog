@@ -14,13 +14,15 @@ from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .personal_api_key import PersonalAPIKey
-from .utils import generate_random_token, uuid1_macless
+from .utils import generate_random_token, sane_repr, uuid1_macless
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, **kwargs) -> "Team":
+    def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":
+        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
+        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
 
         action = Action.objects.create(team=team, name="Pageviews")
@@ -127,3 +129,5 @@ class Team(models.Model):
         if self.app_urls and self.app_urls[0]:
             return ", ".join(self.app_urls)
         return str(self.pk)
+
+    __repr__ = sane_repr("uuid", "name", "api_token")

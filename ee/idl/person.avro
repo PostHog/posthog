@@ -1,0 +1,20 @@
+{
+   "namespace": "com.posthog.ee",
+   "name": "person",
+   "type": "record",
+   "fields" : [
+     {
+       "name" : "id",
+       "type" : "string"
+     },
+     {
+       "name" : "team_id",
+       "type" : "long"
+     },
+     {
+       "name" : "properties",
+       "type" : "map",
+       "values" : "string"
+     }
+   ]
+}

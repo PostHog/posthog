@@ -55,8 +55,7 @@ export const Annotations = function Annotations({
                     }}
                     onDelete={(data) => {
                         annotations.length === 1 && onClose?.()
-                        if ([AnnotationScope.Organization, AnnotationScope.Project].includes(data.scope))
-                            deleteGlobalAnnotation(data.id)
+                        if (data.scope !== AnnotationScope.DashboardItem) deleteGlobalAnnotation(data.id)
                         else deleteAnnotation(data.id)
                     }}
                     onClick={onClick}

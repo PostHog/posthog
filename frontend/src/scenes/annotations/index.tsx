@@ -78,7 +78,11 @@ function _Annotations(): JSX.Element {
         {
             title: 'Type',
             render: function RenderType(annotation): JSX.Element {
-                return annotation.apply_all ? <Tag color="blue">Global</Tag> : <Tag color="purple">Dashboard Item</Tag>
+                return annotation.scope !== 'dashboard_item' ? (
+                    <Tag color="blue">Global</Tag>
+                ) : (
+                    <Tag color="purple">Dashboard Item</Tag>
+                )
             },
         },
     ]

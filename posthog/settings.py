@@ -16,6 +16,7 @@ import shutil
 import sys
 from distutils.util import strtobool
 from typing import Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
@@ -112,7 +113,7 @@ CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
@@ -125,6 +126,17 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+
+_kafka_hosts = KAFKA_URL.split(",")
+
+KAFKA_HOSTS_LIST = []
+for host in _kafka_hosts:
+    url = urlparse(host)
+    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
@@ -371,7 +383,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "posthog.utils.PersonalAPIKeyAuthentication",
+        "posthog.auth.PersonalAPIKeyAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],

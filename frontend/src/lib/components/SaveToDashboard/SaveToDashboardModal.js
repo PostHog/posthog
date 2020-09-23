@@ -65,13 +65,13 @@ export function SaveToDashboardModal({
                 dashboard: dashboardId,
             })
             if (annotations) {
-                for (const { content, date_marker, created_at, apply_all } of annotations) {
+                for (const { content, date_marker, created_at, scope } of annotations) {
                     await api.create('api/annotation', {
                         content,
                         date_marker: moment(date_marker),
                         created_at,
                         dashboard_item: response.id,
-                        apply_all,
+                        scope,
                     })
                 }
             }
