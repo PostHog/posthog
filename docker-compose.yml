@@ -18,11 +18,12 @@ services:
             DATABASE_URL: postgres://posthog:posthog@db:5432/posthog
             IS_DOCKER: 'true'
             REDIS_URL: redis://redis:6379/
-            SECRET_KEY: XyJTI7op51p61c4jC5DN4wARklKXxyEvo95BSxOqOtyItkAeMc
+            SECRET_KEY: <randomly generated secret key>
         image: posthog/posthog:latest
         links:
             - db:db
             - redis:redis
         ports:
             - 8000:8000
+            - 80:8000
 version: '3'
