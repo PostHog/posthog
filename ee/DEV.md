@@ -9,6 +9,8 @@
   - Stop local kafka, clickhouse and zookeeper instances if you have them
   - Same for redis, though it doesn't really matter much
   - `docker-compose -f ee/docker-compose.ch.yml up db redis zookeeper kafka clickhouse`
+  - Add to `/etc/hosts`:
+    - `127.0.0.1       kafka` (setting KAFKA_URL later doesn't seem to work)
 - Run the frontend
   - `yarn build`
   - `yarn start` or click "▶️" next to `"start"` in the scripts section of package.json.
@@ -30,3 +32,6 @@
     - Set up a python configuration
     - script_path `./env/bin/celery` (replace `.` with the project dir)
     - parameters `-A posthog worker -B --scheduler redbeat.RedBeatScheduler`
+  - Tests:
+    - All the same, except skip `DEBUG=1` in the env settings.
+    - Set as the "target" in run configuration `ee/clickhouse`
