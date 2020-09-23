@@ -1,12 +1,11 @@
 import math
-from decimal import Decimal
 from typing import Optional, Union
 
 from django import template
 
 register = template.Library()
 
-Number = Union[int, float, Decimal]
+Number = Union[int, float]
 
 
 @register.filter
