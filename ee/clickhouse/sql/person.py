@@ -125,11 +125,11 @@ SELECT count(*) FROM person where id = %(id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, 0
+INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, 0, now(), 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT generateUUIDv4(), %(distinct_id)s, %(person_id)s, %(team_id)s VALUES
+INSERT INTO person_distinct_id SELECT generateUUIDv4(), %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0 VALUES
 """
 
 UPDATE_PERSON_PROPERTIES = """

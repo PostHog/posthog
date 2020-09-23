@@ -6,7 +6,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
@@ -59,9 +59,17 @@ def create_person(
 ) -> int:
     if not uid:
         uid = uuid.uuid4()
-    p = KafkaProducer()
+
     data = {"id": str(uid), "team_id": team_id, "properties": json.dumps(properties)}
-    p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
+
+    if KAFKA_ENABLED:
+        p = KafkaProducer()
+        p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
+    elif sync:
+        sync_execute(INSERT_PERSON_SQL, data)
+    else:
+        async_execute(INSERT_PERSON_SQL, data)
+
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=str(uid))
@@ -81,7 +89,10 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
 def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
-    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
+    if KAFKA_ENABLED:
+        p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
+    else:
+        async_execute(INSERT_PERSON_DISTINCT_ID, data)
 
 
 def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:

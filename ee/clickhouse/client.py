@@ -17,6 +17,8 @@ from posthog.settings import (
     TEST,
 )
 
+KAFKA_ENABLED = PRIMARY_DB == CLICKHOUSE and not TEST
+
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = None
     ch_sync_client = None

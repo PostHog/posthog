@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
     GET_ELEMENT_GROUP_BY_HASH_SQL,
@@ -21,28 +21,34 @@ from posthog.models.team import Team
 
 def create_element_group(team: Team, element_hash: str) -> UUID:
     id = uuid4()
-    p = KafkaProducer()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
+    if KAFKA_ENABLED:
+        p = KafkaProducer()
+        p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
+    else:
+        async_execute(INSERT_ELEMENT_GROUP_SQL, data)
     return id
 
 
 def create_element(element: Element, team: Team, group_id: UUID) -> None:
-    p = KafkaProducer()
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
         "attr_id": element.attr_id or "",
         "attr_class": element.attr_class or [],
-        "nth_child": element.nth_child,
-        "nth_of_type": element.nth_of_type,
+        "nth_child": element.nth_child or 0,
+        "nth_of_type": element.nth_of_type or 0,
         "attributes": json.dumps(element.attributes or {}),
-        "order": element.order,
+        "order": element.order or 0,
         "team_id": team.pk,
         "group_id": str(group_id),
     }
-    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    if KAFKA_ENABLED:
+        p = KafkaProducer()
+        p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    else:
+        async_execute(INSERT_ELEMENTS_SQL, data)
 
 
 def create_elements(elements: List[Element], team: Team) -> str:

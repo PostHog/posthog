@@ -7,7 +7,7 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_EVENTS
@@ -33,8 +33,6 @@ def create_event(
         timestamp = timestamp.astimezone(pytz.utc)
 
     event_id = uuid.uuid4()
-
-    p = KafkaProducer()
     data = {
         "id": str(event_id),
         "event": event,
@@ -45,7 +43,12 @@ def create_event(
         "element_hash": element_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+
+    if KAFKA_ENABLED:
+        p = KafkaProducer()
+        p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+    else:
+        async_execute(INSERT_EVENT_SQL, data)
 
 
 def get_events():
