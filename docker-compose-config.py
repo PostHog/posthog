@@ -72,7 +72,7 @@ def main():
 
     save_config(config, host_port=host_port, secret_key=secret_key)
 
-    print("\nGenerated and saved docker-compose.yml. You can now use it in production.")
+    print("\nConfigured and saved docker-compose.yml. You can now use it in production.")
 
 
 if __name__ == "__main__":
