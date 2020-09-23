@@ -3,6 +3,7 @@ import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
+import { changeType } from 'lib/utils/changeType'
 import { Button, Modal } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
@@ -34,7 +35,7 @@ function _Person({ _: distinctId, id }) {
             value = event.key === 'true' ? true : false
         } else {
             tag = event.target.getAttribute('tag')
-            value = event.target.value.length === 0 ? null : event.target.value
+            value = event.target.value.length === 0 ? null : changeType(event.target.type, event.target.value)
         }
         if (tag == 'first' || tag == 'last') {
             newState = {

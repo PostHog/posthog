@@ -73,7 +73,7 @@ export function PersonTable({ properties }) {
                     disabled={keyMappingKeys.includes(_key)}
                     placeholder={properties ? _key : 'null'}
                     defaultValue={properties}
-                    onChange={onChange}
+                    onChange={(e) => onChange(e)}
                     tag={_key}
                     required={true}
                 />
