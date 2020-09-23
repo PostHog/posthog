@@ -9,7 +9,7 @@ FILE_PATH = "./docker-compose.yml"
 
 
 def generate_secret_key() -> str:
-    """Generate securely random 50 ASCII letters and digits."""
+    """Securely generate random 50 ASCII letters and digits."""
     return "".join(
         secrets.choice(string.ascii_letters + string.digits) for _ in range(50)
     )  # random 50 ASCII letters and digits
