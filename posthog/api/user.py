@@ -10,13 +10,13 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
+from posthog.auth import authenticate_secondarily
 from posthog.models import Event, User
-from posthog.utils import PersonalAPIKeyAuthentication, authenticate_secondarily
 from posthog.version import VERSION
 
 

@@ -13,8 +13,9 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.models import Dashboard, DashboardItem, Filter
-from posthog.utils import PersonalAPIKeyAuthentication, PublicTokenAuthentication, generate_cache_key, render_template
+from posthog.utils import generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
