@@ -18,7 +18,7 @@ class ClickhouseEvents(viewsets.ViewSet):
 
     def list(self, request):
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         limit = "LIMIT 100" if not filter._date_from and not filter._date_to else ""
         conditions, condition_params = determine_event_conditions(request.GET)
@@ -42,7 +42,7 @@ class ClickhouseEvents(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
         key = request.GET.get("key")
-        team = request.user.team_set.get()
+        team = request.user.team
         result = []
         if key:
             result = get_property_values_for_key(key, team)

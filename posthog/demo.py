@@ -1,7 +1,6 @@
 import json
 import random
 import secrets
-import uuid
 from pathlib import Path
 from typing import List
 
@@ -22,6 +21,7 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
+from posthog.models.utils import uuid1_macless
 from posthog.utils import render_template
 
 
@@ -38,7 +38,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         if index > 0 and index % 14 == 0:
             days_ago -= 1
 
-        distinct_id = str(uuid.uuid4())
+        distinct_id = str(uuid1_macless())
         distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
         date = now() - relativedelta(days=days_ago)
         browser = random.choice(["Chrome", "Safari", "Firefox"])
@@ -197,7 +197,7 @@ def _recalculate(team: Team) -> None:
 
 
 def demo(request):
-    team = request.user.team_set.get()
+    team = request.user.team
     if not Event.objects.filter(team=team).exists():
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo/"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo/"))
@@ -209,7 +209,7 @@ def demo(request):
 
 
 def delete_demo_data(request):
-    team = request.user.team_set.get()
+    team = request.user.team
 
     people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
     Event.objects.filter(team=team, distinct_id__in=people.values("distinct_id")).delete()

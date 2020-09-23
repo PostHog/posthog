@@ -1,6 +1,5 @@
 import json
-import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple, Union
 
 import pytz
@@ -12,6 +11,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.team import Team
+from posthog.models.utils import uuid1_macless
 
 
 def create_event(
@@ -32,7 +32,7 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    event_id = uuid.uuid4()
+    event_id = uuid1_macless()
 
     p = KafkaProducer()
     data = {
