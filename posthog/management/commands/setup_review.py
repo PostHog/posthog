@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 
 from posthog.demo import _create_anonymous_users, _create_funnel, _recalculate
-from posthog.models import Organization, Team, User
+from posthog.models import User
 
 
 class Command(BaseCommand):
