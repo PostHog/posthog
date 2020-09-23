@@ -6,7 +6,7 @@ from django.db import connection
 from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
-from posthog.models import Event, PersonDistinctId, Team, User, person
+from posthog.models import Event, Team, User, person
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id
 from posthog.version import VERSION
@@ -50,6 +50,16 @@ def status_report() -> None:
             cursor.execute(
                 sql.SQL(
                     """
+                SELECT COUNT(DISTINCT person_id) as persons_count
+                FROM posthog_event JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) WHERE posthog_event.team_id = %s AND posthog_event.created_at >= %s AND posthog_event.created_at < %s
+            """
+                ),
+                (team.id, report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
+            )
+            team_report["persons_count_active_in_period"] = cursor.fetchone()[0]
+            cursor.execute(
+                sql.SQL(
+                    """
                 SELECT properties->>'$lib' as lib, COUNT(*) as count
                 FROM posthog_event WHERE team_id = %s AND created_at >= %s AND created_at < %s GROUP BY lib
             """
@@ -69,4 +79,7 @@ def status_report() -> None:
             team_report["events_count_by_name"] = {result.name: result.count for result in namedtuplefetchall(cursor)}
         report["teams"][team.id] = team_report
     posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+    disabled = posthoganalytics.disabled
+    posthoganalytics.disabled = False
     posthoganalytics.capture(get_machine_id(), "instance status report", report)
+    posthoganalytics.disabled = disabled
