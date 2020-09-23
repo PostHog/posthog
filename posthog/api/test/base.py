@@ -9,7 +9,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User, org
 class TestMixin:
     TESTS_API: bool = False
     TESTS_COMPANY_NAME: str = "Test"
-    TESTS_EMAIL: Optional[str] = "user1"
+    TESTS_EMAIL: Optional[str] = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
@@ -43,7 +43,7 @@ class APIBaseTest(APITestCase):
     """
 
     TESTS_COMPANY_NAME: str = "Test"
-    TESTS_EMAIL: str = "user1"
+    TESTS_EMAIL: str = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
