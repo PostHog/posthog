@@ -60,11 +60,11 @@ def create_person(
     if not uid:
         uid = uuid.uuid4()
     p = KafkaProducer()
-    data = {"id": uid, "team_id": team_id, "properties": json.dumps(properties)}
+    data = {"id": str(uid), "team_id": team_id, "properties": json.dumps(properties)}
     p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
-            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=uid)
+            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=str(uid))
     return uuid
 
 
@@ -78,7 +78,7 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
     )
 
 
-def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -> None:
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
