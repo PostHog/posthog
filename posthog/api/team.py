@@ -31,8 +31,8 @@ class TeamSignupSerializer(serializers.Serializer):
             raise serializers.ValidationError("This instance does not support multiple teams.")
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
-        organization, team, user = User.objects.bootstrap(company_name=company_name, **validated_data)
-
+        self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
+        user = self._user
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
