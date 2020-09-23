@@ -1,4 +1,4 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block head %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block head %}
 
 <style type="text/css">
     .number-group .big {
@@ -98,8 +98,8 @@
         <tr>
             <td align="left" valign="middle" width="50%" class="column">{{ block.super }}</td>
             <td align="center" valign="middle" width="50%" class="column">
-                <div>Weekly report - Rocket Rides <span class="beta">BETA</span></div>
-                <div class="secondary">Sep 7 - Sep 14, 2020</div>
+                <div>Weekly report {% if team %} - {{team}} {% endif %}<span class="beta">BETA</span></div>
+                <div class="secondary">{{period_start | date:"M d, Y" }} - {{period_end | date:"M d" }}</div>
             </td>
         </tr>
     </table>
@@ -116,15 +116,18 @@
             <tr>
                 <td align="center" valign="top" width="50%" class="column">
                     <div class="number-group">
-                        <div class="big">5395</div>
+                        <div class="big">{{ active_users | compact_number }}</div>
                         <div class="caption">total users</div>
                     </div>
                 </td>
                 <td align="center" valign="top" width="50%" class="column">
                     <div class="number-group">
                         <div class="big">
+                            {% if active_users_delta and active_users_delta > 0 %}
                             <img src="{% absolute_asset_url 'email/arrow-up-green.png' %}" alt="" class="deltaIcon" />
-                            2.8%
+                            {% elif active_users_delta %}
+                            <img src="{% absolute_asset_url 'email/arrow-down-red.png' %}" alt="" class="deltaIcon" />
+                            {%endif%} {{active_users_delta | percentage }}
                         </div>
                         <div class="caption">from last week</div>
                     </div>
@@ -132,9 +135,9 @@
             </tr>
         </table>
         <div class="distributionBar">
-            <div class="newUsers" style="width: 20%"></div>
-            <div class="retainedUsers" style="width: 60%"></div>
-            <div class="resurrectedUsers" style="width: 20%"></div>
+            <div class="newUsers" style="width: {{ user_distribution.new | percentage:0 }}"></div>
+            <div class="retainedUsers" style="width: {{ user_distribution.retained | percentage:0 }}"></div>
+            <div class="resurrectedUsers" style="width: {{ user_distribution.resurrected | percentage:0 }}"></div>
         </div>
 
         <div class="graphDetails">
@@ -142,15 +145,19 @@
                 <tr>
                     <td align="center" valign="top" width="33%" class="column">
                         <div class="newUsers sample"></div>
-                        <span class="sampleCaption">new users (20%)</span>
+                        <span class="sampleCaption">new users ({{ user_distribution.new | percentage:0 }})</span>
                     </td>
                     <td align="center" valign="top" width="33%" class="column">
                         <div class="retainedUsers sample"></div>
-                        <span class="sampleCaption">retained users (60%)</span>
+                        <span class="sampleCaption"
+                            >retained users ({{ user_distribution.retained | percentage:0 }})</span
+                        >
                     </td>
                     <td align="center" valign="top" width="33%" class="column">
                         <div class="resurrectedUsers sample"></div>
-                        <span class="sampleCaption">resurrected users (20%)</span>
+                        <span class="sampleCaption"
+                            >resurrected users ({{ user_distribution.resurrected | percentage:0 }})</span
+                        >
                     </td>
                 </tr>
             </table>
@@ -165,21 +172,24 @@
             <tr>
                 <td align="center" valign="top" width="33%" class="column">
                     <div class="number-group">
-                        <div class="big">321</div>
+                        <div class="big">{{ churned_users.abs | compact_number }}</div>
                         <div class="caption">churned users</div>
                     </div>
                 </td>
                 <td align="center" valign="top" width="33%" class="column">
                     <div class="number-group">
-                        <div class="big">4.8%</div>
+                        <div class="big">{{ churned_users.ratio | percentage }}</div>
                         <div class="caption">of last week's active users</div>
                     </div>
                 </td>
                 <td align="center" valign="top" width="33%" class="column">
                     <div class="number-group">
                         <div class="big">
+                            {% if churned_users.delta > 0 %}
+                            <img src="{% absolute_asset_url 'email/arrow-up-red.png' %}" alt="" class="deltaIcon" />
+                            {% else %}
                             <img src="{% absolute_asset_url 'email/arrow-down-green.png' %}" alt="" class="deltaIcon" />
-                            1.8%
+                            {% endif %} {{ churned_users.delta | percentage }}
                         </div>
                         <div class="caption">from last week</div>
                     </div>
@@ -198,8 +208,8 @@
     </div>
 
     <div class="feedback">
-        This is a new feature on PostHog. Have any feedback?
-        <a href="mailto:hey@posthog.com?subject=Feedback%20on%20weekly%20report">Reach out</a>
+        This is a new feature on PostHog. Please
+        <a href="mailto:hey@posthog.com?subject=Feedback%20on%20weekly%20report">share feedback</a> with us!
     </div>
 </div>
 {% endblock %}
