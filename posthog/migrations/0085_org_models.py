@@ -45,7 +45,7 @@ def reverse_func(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0083_auto_20200826_1504"),
+        ("posthog", "0084_person_uuid"),
     ]
 
     operations = [
