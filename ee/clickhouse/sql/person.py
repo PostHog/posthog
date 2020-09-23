@@ -1,4 +1,6 @@
-from .clickhouse import STORAGE_POLICY, table_engine
+from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+
+from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -8,37 +10,94 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
-PERSONS_TABLE_SQL = """
-CREATE TABLE person
+PERSONS_TABLE = "person"
+
+PERSONS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
     id UUID,
     created_at datetime,
-    team_id Int32,
+    team_id Int64,
     properties VARCHAR,
-    is_identified Boolean
+    is_identified Boolean,
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
-Order By (team_id, id)
+"""
+
+PERSONS_TABLE_SQL = (
+    PERSONS_TABLE_BASE_SQL
+    + """Order By (team_id, id)
 {storage_policy}
+"""
+).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
+
+KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
+)
+
+PERSONS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+created_at,
+team_id,
+properties,
+is_identified,
+_timestamp,
+_offset
+FROM kafka_{table_name} 
 """.format(
-    engine=table_engine("person"), storage_policy=STORAGE_POLICY
+    table_name=PERSONS_TABLE
 )
 
 GET_PERSON_SQL = """
 SELECT * FROM person WHERE team_id = %(team_id)s
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = """
-CREATE TABLE person_distinct_id
+PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
+
+PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
 (
-    id Int32,
+    id VARCHAR,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int32
+    team_id Int64,
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
-Order By (team_id, id)
+"""
+
+PERSONS_DISTINCT_ID_TABLE_SQL = (
+    PERSONS_DISTINCT_ID_TABLE_BASE_SQL
+    + """Order By (team_id, distinct_id, id)
 {storage_policy}
+"""
+).format(
+    table_name=PERSONS_DISTINCT_ID_TABLE,
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    storage_policy=STORAGE_POLICY,
+)
+
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
+)
+
+PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+id,
+distinct_id,
+person_id,
+team_id,
+_timestamp,
+_offset
+FROM kafka_{table_name} 
 """.format(
-    engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY
+    table_name=PERSONS_DISTINCT_ID_TABLE
 )
 
 GET_DISTINCT_IDS_SQL = """
@@ -54,7 +113,11 @@ SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.p
 """
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
-SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as distinct_id) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id where person_distinct_id.team_id = %(team_id)s
+SELECT count(*) FROM person_distinct_id
+inner join (
+    SELECT arrayJoin({}) as distinct_id
+    ) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
+where person_distinct_id.team_id = %(team_id)s
 """
 
 PERSON_EXISTS_SQL = """

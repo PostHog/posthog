@@ -1,14 +1,17 @@
 import json
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.element import create_elements
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL
+from ee.kafka.client import KafkaProducer
+from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.team import Team
 
@@ -32,21 +35,23 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    # TODO: don't create same group twice?
     if elements and not element_hash:
         element_hash = create_elements(elements=elements, team=team)
 
-    async_execute(
-        INSERT_EVENT_SQL,
-        {
-            "event": event,
-            "properties": json.dumps(properties),
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "team_id": team.pk,
-            "distinct_id": distinct_id,
-            "element_hash": element_hash,
-        },
-    )
+    event_id = generate_clickhouse_uuid()
+
+    p = KafkaProducer()
+    data = {
+        "id": str(event_id),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": distinct_id,
+        "element_hash": element_hash,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    }
+    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
 
 
 def get_events():

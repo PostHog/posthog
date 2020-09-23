@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { Loading, toParams } from '../../lib/utils'
+import { Loading, toParams, formatLabel } from '../../lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useActions, useValues } from 'kea'
@@ -24,8 +24,12 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                     {
                         title: filters.session ? 'Session Attribute' : 'Action',
                         dataIndex: 'label',
-                        render: function renderLabel(_, { label }) {
-                            return <div style={{ wordBreak: 'break-all' }}>{label}</div>
+                        render: function renderLabel(_, { label, action }) {
+                            return (
+                                <div style={{ wordBreak: 'break-all' }}>
+                                    {filters.session ? label : formatLabel(label, action)}
+                                </div>
+                            )
                         },
                     },
                     { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },

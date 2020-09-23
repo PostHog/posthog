@@ -414,3 +414,14 @@ def load_data_from_request(request):
     data_res["data"] = data
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data_res
+
+
+class SingletonDecorator:
+    def __init__(self, klass):
+        self.klass = klass
+        self.instance = None
+
+    def __call__(self, *args, **kwds):
+        if self.instance == None:
+            self.instance = self.klass(*args, **kwds)
+        return self.instance

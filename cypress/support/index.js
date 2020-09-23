@@ -18,7 +18,7 @@ beforeEach(() => {
             logIn()
         }
         cy.wait(200)
-        cy.get('body', { timeout: 7000 }).then(($body) => {
+        cy.get('body').then(($body) => {
             if ($body.find('[data-attr=select-platform-Web]').length) {
                 cy.get('[data-attr=select-platform-Web]').click()
                 cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 2')
@@ -31,7 +31,7 @@ beforeEach(() => {
 })
 
 const signUp = () => {
-    cy.get('#signupCompanyName', { timeout: 7000 }).type('Hedgehogs, Inc.').should('have.value', 'Hedgehogs, Inc.')
+    cy.get('#signupCompanyName').type('Hedgehogs, Inc.').should('have.value', 'Hedgehogs, Inc.')
 
     cy.get('#signupFirstName').type('name').should('have.value', 'name')
 
@@ -41,9 +41,12 @@ const signUp = () => {
 
     cy.get('button[data-attr="signup"]').click()
 
-    cy.wait(1000)
+    cy.wait(3000)
 
     cy.visit('/demo')
+
+    cy.wait(1000)
+
     cy.visit('/')
 }
 

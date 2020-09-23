@@ -6,7 +6,6 @@ import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 

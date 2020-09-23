@@ -43,7 +43,6 @@ else:
         async def async_execute(query, args=None):
             loop = asyncio.get_event_loop()
             task = loop.create_task(ch_client.execute(query, args))
-            # we return this in case we want to cancel it
             return task
 
     else:
