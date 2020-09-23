@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import Event, PersonDistinctId, Team
+from posthog.templatetags.posthog_filters import compact_number
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ def send_weekly_email_report() -> None:
             f"PostHog weekly report for {period_start.strftime('%b %d, %Y')} to {period_end.strftime('%b %d')}",
             "weekly_report",
             {
+                "preheader": f"Your PostHog weekly report is ready! Your team had {compact_number(active_users_count)} active users last week! 🎉",
                 "team": team.name,
                 "period_start": period_start,
                 "period_end": period_end,

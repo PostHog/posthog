@@ -85,6 +85,10 @@ class TestEmail(TestCase):
 
         self.assertIn('style="font-weight: 300"', html_message)  # CSS is inlined
 
+        self.assertIn(
+            "Your PostHog weekly report is ready! Your team had 6 active users last week! &#127881;", html_message,
+        )  # preheader
+
     @patch("posthog.tasks.email.EmailMessage")
     def test_weekly_email_report_content(self, mock_email_message):
 
@@ -97,6 +101,7 @@ class TestEmail(TestCase):
         self.assertEqual(mock_email_message.call_args[0][1], "weekly_report")
 
         template_context = mock_email_message.call_args[0][2]
+
         self.assertEqual(template_context["team"], "The Bakery")
         self.assertEqual(
             template_context["period_start"], datetime.datetime(2020, 9, 14, tzinfo=pytz.UTC),
