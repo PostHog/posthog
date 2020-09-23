@@ -38,7 +38,7 @@ if settings.EE_AVAILABLE and check_ee_enabled():
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team_id, instance.distinct_id, instance.person_id)
+        create_person_distinct_id(instance.team_id, instance.distinct_id, instance.person.uuid)
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -47,7 +47,7 @@ if settings.EE_AVAILABLE and check_ee_enabled():
 
 def create_person(
     team_id: int, distinct_ids: List[str], uid: Optional[str] = None, properties: Optional[Dict] = {}, **kwargs
-) -> Union[str, int]:
+) -> str:
     if not uid:
         uid = generate_clickhouse_uuid()
     p = KafkaProducer()
@@ -59,17 +59,17 @@ def create_person(
     return uid
 
 
-def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
+def update_person_properties(team_id: int, id: str, properties: Dict) -> None:
     sync_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
 
 
-def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> None:
+def update_person_is_identified(team_id: int, id: str, is_identified: bool) -> None:
     sync_execute(
         UPDATE_PERSON_IS_IDENTIFIED, {"team_id": team_id, "id": id, "is_identified": "1" if is_identified else "0"}
     )
 
 
-def create_person_distinct_id(team_id: Union[str, int], distinct_id: str, person_id: Union[str, int]) -> None:
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str) -> None:
     p = KafkaProducer()
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))

@@ -1,11 +1,11 @@
-import kafka_helper
-from kafka import KafkaProducer as KP
+import kafka_helper  # type: ignore
+from kafka import KafkaProducer as KP  # type: ignore
 
 from posthog.settings import IS_HEROKU, KAFKA_HOSTS
 from posthog.utils import SingletonDecorator
 
 
-class KafkaProducer:
+class _KafkaProducer:
     def __init__(self):
         if not IS_HEROKU:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
@@ -19,4 +19,4 @@ class KafkaProducer:
         self.producer.flush()
 
 
-KafkaProducer = SingletonDecorator(KafkaProducer)
+KafkaProducer = SingletonDecorator(_KafkaProducer)

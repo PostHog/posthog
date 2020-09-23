@@ -295,6 +295,8 @@ class ClickhouseTrends(BaseQuery):
             additional_values = {
                 "label": label,
                 "breakdown_value": filter.breakdown[idx]
+                if isinstance(filter.breakdown, list)
+                else filter.breakdown
                 if filter.breakdown_type == "cohort"
                 else top_elements_array[idx],
             }
@@ -347,8 +349,13 @@ class ClickhouseTrends(BaseQuery):
         }
 
     def _determine_breakdown_label(
-        self, index: int, breakdown_type: Optional[str], breakdown: List, elements: List
+        self,
+        index: int,
+        breakdown_type: Optional[str],
+        breakdown: Union[str, List[Union[str, int]], None],
+        elements: List,
     ) -> str:
+        breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
             if breakdown[index] == "all":
                 return "all users"
