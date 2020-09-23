@@ -5,7 +5,7 @@ from typing import Optional
 import yaml
 from yaml.loader import FullLoader
 
-FILE_PATH = "./docker-compose.yml"
+FILE_PATH = "docker-compose.yml"
 
 
 def generate_secret_key() -> str:
@@ -19,7 +19,7 @@ def save_yml(*, host_port: int, secret_key: str):
     with open(FILE_PATH, "r") as file:
         config = yaml.load(file, Loader=FullLoader)
     if not config:
-        raise ValueError("Malformed docker-compose.yml! Get a proper one from the PostHog repository.")
+        raise ValueError("Cannot edit a malformed docker-compose.yml! Get a fresh one from the PostHog repository.")
     with open(FILE_PATH, "w") as file:
         config["services"]["web"]["ports"] = [f"{host_port}:8000"]
         config["services"]["web"]["environment"]["SECRET_KEY"] = secret_key
@@ -48,7 +48,7 @@ def input_secret_key(n: int) -> str:
         f"{n}. Do you have a specific Django SECRET_KEY? (random)\n"
         "Django uses the SECRET_KEY variable for e.g. encrypting sessions and tokens,\n"
         "so it's important that it is secret and only yours.\n"
-        "If you don't need a specific key, skip this and let us generate you one.\n"
+        "If you don't have one already, skip this and let us generate you one.\n"
     )
     return input() or "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(50))
 
