@@ -11,16 +11,17 @@ class Command(BaseCommand):
     help = "Set up review instance with demo data"
 
     def handle(self, *args, **options):
-        organization = Organization.objects.create(name="Hogflix")
-        team = Team.objects.create_with_data(
-            organization=organization,
-            name="Hogflix App",
-            completed_snippet_onboarding=True,
-            event_names=["$pageview", "$autocapture"],
-            event_properties=["$current_url", "$browser", "$os"],
-        )
-        User.objects.create_and_join(
-            organization, team, email="test@posthog.com", password="pass", first_name="Mr. Pokee"
+        organization, team, user = User.objects.bootstrap(
+            "Hogflix",
+            "test@posthog.com",
+            "pass",
+            "Mr. Pokee",
+            team_fields={
+                "name": "Hogflix App",
+                "completed_snippet_onboarding": True,
+                "event_names": ["$pageview", "$autocapture"],
+                "event_properties": ["$current_url", "$browser", "$os"],
+            },
         )
         base_url = "https://{}.herokuapp.com/demo/".format(os.environ.get("HEROKU_APP_NAME"))
         _create_anonymous_users(team=team, base_url=base_url)

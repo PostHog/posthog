@@ -87,8 +87,12 @@ class UserManager(BaseUserManager):
         **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
         with transaction.atomic():
-            organization = Organization.objects.create(name=company_name, **(organization_fields or {}))
-            team = Team.objects.create_with_data(organization=organization, name=company_name, **(team_fields or {}))
+            organization_fields = organization_fields or {}
+            organization_fields.setdefault("name", company_name)
+            organization = Organization.objects.create(**organization_fields)
+            team_fields = team_fields or {}
+            team_fields.setdefault("name", company_name)
+            team = Team.objects.create_with_data(organization=organization, **team_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN)
             return organization, team, user
