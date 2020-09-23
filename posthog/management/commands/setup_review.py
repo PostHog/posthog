@@ -12,10 +12,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         organization, team, user = User.objects.bootstrap(
-            "Hogflix",
-            "test@posthog.com",
-            "pass",
-            "Mr. Pokee",
+            company_name="Hogflix",
+            email="test@posthog.com",
+            password="pass",
+            first_name="Mr. Pokee",
             team_fields={
                 "name": "Hogflix App",
                 "completed_snippet_onboarding": True,
