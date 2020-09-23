@@ -40,7 +40,7 @@ if settings.EE_AVAILABLE and check_ee_enabled():
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team_id, instance.distinct_id, instance.person_id)
+        create_person_distinct_id(instance.team_id, instance.distinct_id, str(instance.person_id))
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -54,9 +54,11 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     **kwargs
-) -> int:
-    if not uid:
-        uid = uuid.uuid4()
+) -> str:
+    if uid:
+        uid = str(uid)
+    else:
+        uid = str(uuid.uuid4())
 
     data = {"id": str(uid), "team_id": team_id, "properties": json.dumps(properties)}
 
@@ -70,8 +72,9 @@ def create_person(
 
     for distinct_id in distinct_ids:
         if not distinct_ids_exist(team_id, [distinct_id]):
-            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=str(uid))
-    return uuid
+            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=uid)
+
+    return uid
 
 
 def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
@@ -116,7 +119,7 @@ def get_person_distinct_ids(team_id: int):
     return ClickhousePersonDistinctIdSerializer(result, many=True).data
 
 
-def get_person_by_distinct_id(team_id: int, distinct_id: str) -> int:
+def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Dict]:
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data

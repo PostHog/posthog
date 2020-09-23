@@ -20,8 +20,8 @@ from posthog.settings import (
 KAFKA_ENABLED = PRIMARY_DB == CLICKHOUSE and not TEST
 
 if PRIMARY_DB != CLICKHOUSE:
-    ch_client = None
-    ch_sync_client = None
+    ch_client = None  # type: Client
+    ch_sync_client = None  # type: SyncClient
 
     def async_execute(query, args=None):
         return

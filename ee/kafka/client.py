@@ -1,5 +1,5 @@
-import kafka_helper
-from kafka import KafkaProducer as KP
+import kafka_helper  # type: ignore
+from kafka import KafkaProducer as KP  # type: ignore
 
 from posthog.settings import IS_HEROKU, KAFKA_HOSTS
 from posthog.utils import SingletonDecorator
