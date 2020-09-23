@@ -20,7 +20,10 @@
     }
 
     .distributionBar {
-        border-radius: 10px;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 10px;
         width: 100%;
         height: 26px;
         margin-top: 32px;
@@ -33,11 +36,17 @@
     }
 
     .distributionBar div:first-child {
-        border-radius: 10px 0 0 10px;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 0px;
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 0px;
     }
 
     .distributionBar div:last-child {
-        border-radius: 0 10px 10px 0;
+        border-top-left-radius: 0px;
+        border-top-right-radius: 10px;
+        border-bottom-left-radius: 0px;
+        border-bottom-right-radius: 10px;
     }
 
     .graphDetails {
@@ -47,8 +56,11 @@
     .graphDetails .sample {
         width: 24px;
         height: 24px;
-        border-radius: 4px;
         display: inline-block;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
     }
 
     .graphDetails .sampleCaption {
