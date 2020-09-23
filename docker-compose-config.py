@@ -35,8 +35,8 @@ def save_config(config: dict, *, host_port: int, secret_key: str) -> None:
 
 def input_host_port(n: int, default: int = 80) -> int:
     print(
-        f"{n}. On which host port should the PostHog server be exposed? (default: {default})\n"
-        "Leave on default value 80 if not using a reverse proxy such as nginx.\n"
+        f"\n{n}. On which host port should the PostHog server be exposed? (default: {default})\n"
+        "Leave on default value if not using a reverse proxy such as nginx.\n"
         "Otherwise select a higher-numbered port (like 8000)\n"
         "and point your reverse proxy server to it.\n"
     )
@@ -50,7 +50,7 @@ def input_host_port(n: int, default: int = 80) -> int:
 
 def input_secret_key(n: int) -> str:
     print(
-        f"{n}. Do you have a specific Django SECRET_KEY? (default: random)\n"
+        f"\n{n}. Do you have a specific Django SECRET_KEY? (default: random)\n"
         "Django uses the SECRET_KEY variable for e.g. encrypting sessions and tokens,\n"
         "so it's important that it is secret and only yours.\n"
         "If you don't have one already, skip this and let us generate you one.\n"
@@ -63,9 +63,9 @@ def main():
     secret_key: Optional[str] = None
     config: dict = read_config()
 
-    print("Let's build the right production docker-compose.yml for your PostHog instance.\n")
+    print("Let's build the right production docker-compose.yml for your PostHog instance.")
 
-    print("If you're OK with a step's default value, you can skip by pressing Enter/Return.\n")
+    print("\nIf you're OK with a step's default value, you can skip by pressing Enter/Return.")
 
     host_port = input_host_port(1)
     secret_key = input_secret_key(2)
