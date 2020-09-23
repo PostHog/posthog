@@ -27,6 +27,6 @@ def _create_cohort(**kwargs):
 
 
 class ClickhouseTestActionPeople(
-    ClickhouseTestMixin, action_people_test_factory(create_event, create_person, _create_action, _create_cohort)
+    ClickhouseTestMixin, action_people_test_factory(create_event, create_person, _create_action, _create_cohort)  # type: ignore
 ):
     pass
