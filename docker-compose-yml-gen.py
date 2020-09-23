@@ -18,6 +18,7 @@ def save_yml(*, host_port: int, secret_key: str):
     with open("docker-compose.yml", "w") as file:
         yaml.dump(
             {
+                "version": "3",
                 "services": {
                     "db": {
                         "container_name": "posthog_db",
@@ -43,7 +44,6 @@ def save_yml(*, host_port: int, secret_key: str):
                         "ports": [f"{host_port}:8000"],
                     },
                 },
-                "version": "3",
             },
             stream=file,
             indent=4,
