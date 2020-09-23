@@ -83,7 +83,7 @@ INSERT INTO elements SELECT
     %(order)s,
     %(team_id)s,
     now(),
-    %(group_id)s
+    %(group_id)s,
     now(), 
     0
 """

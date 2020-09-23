@@ -40,7 +40,7 @@ if settings.EE_AVAILABLE and check_ee_enabled():
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team_id, instance.distinct_id, str(instance.person_id))
+        create_person_distinct_id(instance.team_id, instance.distinct_id, str(instance.person.uuid))
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
