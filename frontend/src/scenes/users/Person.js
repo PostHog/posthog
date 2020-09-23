@@ -34,7 +34,7 @@ function _Person({ _: distinctId, id }) {
             value = event.key === 'true' ? true : false
         } else {
             tag = event.target.getAttribute('tag')
-            value = event.target.value
+            value = event.target.value.length === 0 ? null : event.target.value
         }
         if (tag == 'first' || tag == 'last') {
             newState = {
@@ -43,7 +43,7 @@ function _Person({ _: distinctId, id }) {
                     ...person.properties,
                     name: {
                         ...person.properties.name,
-                        [tag]: event.target.value || '',
+                        [tag]: value,
                     },
                 },
             }

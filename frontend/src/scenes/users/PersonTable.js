@@ -1,13 +1,13 @@
 import React from 'react'
 import PropTypes from 'prop-types'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Table, Input } from 'antd'
 import { Menu, Dropdown } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 export function PersonTable({ properties }) {
+    const keyMappingKeys = Object.keys(keyMapping.event)
     const onChange = properties.onChange._handleChange
     const props = { ...properties.props, distinct_id: properties.distinct_id }
-
     const columns = [
         {
             title: 'key',
@@ -36,7 +36,7 @@ export function PersonTable({ properties }) {
                     ))}
                 </div>
             )
-        if (properties instanceof Object)
+        else if (properties instanceof Object)
             return (
                 <Table
                     columns={columns}
@@ -47,15 +47,15 @@ export function PersonTable({ properties }) {
                     dataSource={Object.entries(properties)}
                 />
             )
-        if (properties === true || properties === false) {
+        else if (properties === true || properties === false) {
             return (
                 <Dropdown
                     overlay={
                         <Menu onClick={onChange}>
-                            <Menu.Item key={true} name="is_demo">
+                            <Menu.Item key={true} name={_key}>
                                 true
                             </Menu.Item>
-                            <Menu.Item key={false} name="is_demo">
+                            <Menu.Item key={false} name={_key}>
                                 false
                             </Menu.Item>
                         </Menu>
@@ -66,12 +66,12 @@ export function PersonTable({ properties }) {
                     </a>
                 </Dropdown>
             )
-        }
-        if (typeof properties === 'string') {
+        } else if (typeof properties === 'string' || typeof properties === 'number' || properties === null) {
             return (
                 <Input
-                    disabled={_key === 'distinct_id' || _key === 'phone'}
-                    placeholder={_key}
+                    type={typeof properties}
+                    disabled={keyMappingKeys.includes(_key)}
+                    placeholder={properties ? _key : 'null'}
                     defaultValue={properties}
                     onChange={onChange}
                     tag={_key}
