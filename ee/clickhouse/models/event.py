@@ -37,10 +37,8 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    if elements and not elements_hash:
-        elements_hash = create_elements(elements=elements, team=team)
-
-    event_id = generate_clickhouse_uuid()
+    if elements and not element_hash:
+        element_hash = create_elements(event_uuid=event_uuid, elements=elements, team=team)
 
     data = {
         "uuid": str(event_uuid),

@@ -54,11 +54,11 @@ def _capture_ee(
     store_names_and_properties(team=team, event=event, properties=properties)
 
     # determine/create elements
-    elements_hash = create_elements(elements_list, team)
+    element_hash = create_elements(event_uuid=event_uuid, elements=elements_list, team=team)
 
     # # determine create events
     create_event(
-        event_uuid=str(event_uuid),
+        event_uuid=event_uuid,
         event=event,
         properties=properties,
         timestamp=timestamp,

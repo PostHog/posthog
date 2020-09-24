@@ -51,12 +51,10 @@ def create_elements(
 ) -> str:
 
     # create group
-    for index, element in enumerate(elements):
-        element.order = index
-    elements_hash = hash_elements(elements)
-
     if use_cache and get_cached_value(team.pk, "elements/{}".format(elements_hash)):
         return elements_hash
+    element_hash = hash_elements(elements)
+    group_id = create_element_group(event_uuid=event_uuid, element_hash=element_hash, team=team)
 
     # create elements
     for element in elements:

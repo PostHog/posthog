@@ -59,11 +59,9 @@ def emit_omni_person(
     is_identified: bool = False,
     timestamp: Union[datetime.datetime, str] = datetime.datetime.now(),
     **kwargs
-) -> str:
-    if uid:
-        uid = str(uid)
-    else:
-        uid = str(uuid.uuid4())
+) -> uuid.UUID:
+    if not uid:
+        uid = uuid.uuid4()
 
     data = {
         "event_uuid": str(event_uuid),
