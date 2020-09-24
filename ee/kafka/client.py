@@ -14,10 +14,10 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def produce(self, topic: str, data: Dict[str, Any]):
+    def send(self, topic: str, data: Dict[str, Any]):
         return
 
-    def close(self):
+    def flush(self):
         return
 
 
