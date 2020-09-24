@@ -15,10 +15,16 @@ class _KafkaProducer:
         if not IS_HEROKU:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
         else:
-            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: json.dumps(d).encode("utf-8"))
+            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
+
+    @staticmethod
+    def json_serializer(d):
+        b = json.dumps(d).encode("utf-8")
+        return b
 
     def produce(self, topic: str, data):
-        self.producer.send(topic, data)
+        b = self.json_serializer(data)
+        self.producer.send(topic, b)
 
     def close(self):
         self.producer.flush()
