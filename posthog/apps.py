@@ -5,6 +5,7 @@ from django.apps import AppConfig
 from django.conf import settings
 
 from posthog.utils import get_machine_id
+from posthog.version import VERSION
 
 
 class PostHogConfig(AppConfig):
@@ -16,7 +17,9 @@ class PostHogConfig(AppConfig):
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
-                posthoganalytics.capture(get_machine_id(), "development server launched")
+                posthoganalytics.capture(
+                    get_machine_id(), "development server launched", {"posthog_version": VERSION},
+                )
             posthoganalytics.disabled = True
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE"):
             posthoganalytics.disabled = True
