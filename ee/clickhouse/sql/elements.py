@@ -83,7 +83,9 @@ INSERT INTO elements SELECT
     %(order)s,
     %(team_id)s,
     now(),
-    %(elements_hash)s
+    %(elements_hash)s,
+    now(), 
+    0
 """
 
 GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """

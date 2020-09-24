@@ -24,7 +24,7 @@ class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
 
     def create(self, validated_data: dict) -> PersonalAPIKey:
         user = self.context["request"].user
-        personal_api_key = PersonalAPIKey.objects.create(user=user, team=user.team_set.get(), **validated_data)
+        personal_api_key = PersonalAPIKey.objects.create(user=user, team=user.team, **validated_data)
         return personal_api_key
 
 

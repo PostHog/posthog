@@ -1,12 +1,13 @@
 import json
 from typing import List
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS
 from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
@@ -15,7 +16,6 @@ from posthog.models.team import Team
 
 
 def create_element(element: Element, team: Team, elements_hash: str) -> None:
-    p = KafkaProducer()
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
@@ -29,7 +29,8 @@ def create_element(element: Element, team: Team, elements_hash: str) -> None:
         "team_id": team.pk,
         "elements_hash": elements_hash,
     }
-    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
 def create_elements(elements: List[Element], team: Team, use_cache: bool = True) -> str:

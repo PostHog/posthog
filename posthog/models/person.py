@@ -38,9 +38,15 @@ class Person(models.Model):
     def merge_people(self, people_to_merge: List["Person"]):
         CohortPeople = apps.get_model(app_label="posthog", model_name="CohortPeople")
 
+        first_seen = self.created_at
+
         # merge the properties
         for other_person in people_to_merge:
             self.properties = {**other_person.properties, **self.properties}
+            if other_person.created_at < first_seen:
+                # Keep the oldest created_at (i.e. the first time we've seen this person)
+                first_seen = other_person.created_at
+        self.created_at = first_seen
         self.save()
 
         # merge the distinct_ids

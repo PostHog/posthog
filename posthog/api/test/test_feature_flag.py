@@ -63,10 +63,7 @@ class TestFeatureFlag(TransactionBaseTest):
 class TestAPIFeatureFlag(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team: Team = Team.objects.create()
-        self.user: User = User.objects.create_user("ff@posthog.com")
-        self.team.users.add(self.user)
-        self.team.save()
+        self.organization, self.team, self.user = User.objects.bootstrap("Feature Flags", "ff@posthog.com", None)
         self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button",)
 
     @patch("posthoganalytics.capture")
@@ -118,9 +115,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         )
 
     def test_deleting_feature_flag(self):
-        new_user = User.objects.create_user(email="new_annotations@posthog.com")
-        self.team.users.add(new_user)
-        self.team.save()
+        new_user = User.objects.create_and_join(self.organization, self.team, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)
@@ -140,10 +135,7 @@ class TestAPIFeatureFlag(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
-        user = User.objects.create_user(email="team2@posthog.com")
-        team = Team.objects.create()
-        team.users.add(user)
-        team.save()
+        organization, team, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
 
         self.client.force_login(user)
 

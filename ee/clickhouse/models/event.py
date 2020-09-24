@@ -1,16 +1,16 @@
 import json
-import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.team import Team
@@ -38,9 +38,8 @@ def create_event(
     if elements and not elements_hash:
         elements_hash = create_elements(elements=elements, team=team)
 
-    event_id = uuid.uuid4()
+    event_id = generate_clickhouse_uuid()
 
-    p = KafkaProducer()
     data = {
         "id": str(event_id),
         "event": event,
@@ -51,7 +50,8 @@ def create_event(
         "elements_hash": elements_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
 
 
 def get_events():
