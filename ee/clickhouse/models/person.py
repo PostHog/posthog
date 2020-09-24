@@ -64,7 +64,7 @@ def emit_omni_person(
 
     data = {
         "event_uuid": str(event_uuid),
-        "id": str(uid),
+        "uuid": str(uid),
         "distinct_id": distinct_id,
         "team_id": team_id,
         "properties": json.dumps(properties),

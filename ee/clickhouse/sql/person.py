@@ -58,7 +58,7 @@ OMNI_PERSONS_TABLE = "omni_person"
 OMNI_PERSONS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
-    id UUID,
+    uuid UUID,
     event_uuid UUID,
     team_id Int64,
     distinct_id VARCHAR,
@@ -85,7 +85,7 @@ OMNI_PERSONS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {table_name} 
 AS SELECT
-id,
+uuid,
 event_uuid,
 team_id,
 distinct_id,
