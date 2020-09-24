@@ -212,13 +212,14 @@ def process_event(
             previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
         )
     elif data["event"] == "$identify":
-        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+
         if data.get("properties") and data["properties"].get("$anon_distinct_id"):
             _alias(
                 previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
             )
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
     properties = data.get("properties", data.get("$set", {}))
 

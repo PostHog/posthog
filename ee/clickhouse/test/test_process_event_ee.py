@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
+from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.element import get_element_group_by_hash, get_elements, get_elements_by_group
 from ee.clickhouse.models.event import get_events
 from ee.clickhouse.models.person import create_person, get_person_by_distinct_id, get_person_distinct_ids, get_persons
@@ -448,7 +449,6 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
             now().isoformat(),
         )
-
         distinct_ids = distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         events = get_events()
 
@@ -793,9 +793,8 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
     # 3. In the frontend, try to alias anonymous_id with new_distinct_id
     # Result should be that we end up with one Person with both ID's
     def test_distinct_with_anonymous_id_which_was_already_created(self) -> None:
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["anonymous_id"])
         Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"}
+            team_id=self.team.pk, distinct_ids=["anonymous_id"], properties={"email": "someone@gmail.com"}
         )
 
         process_event(
@@ -969,6 +968,9 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         self.assertEqual(sorted(ids[self.team.pk]), sorted(["1", "2"]))
         self.assertEqual(ids[team2.pk], ["2"])
 
+        # Assume that clickhouse has done replacement
+        ch_client.execute("OPTIMIZE TABLE person")
+
         people1 = get_persons(team_id=self.team.pk)
         people2 = get_persons(team_id=team2.pk)
 
@@ -1003,6 +1005,9 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
             now().isoformat(),
         )
+
+        # Assume that clickhouse has done replacement
+        ch_client.execute("OPTIMIZE TABLE person")
 
         person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
         self.assertTrue(person_after_event["is_identified"])

@@ -4,11 +4,14 @@ from typing import Dict, List, Optional
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.forms.models import model_to_dict
 from rest_framework import serializers
 
 from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
+    DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
     GET_DISTINCT_IDS_SQL,
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
@@ -32,27 +35,27 @@ if settings.EE_AVAILABLE and check_ee_enabled():
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
         create_person(
-            team_id=instance.team_id,
-            distinct_ids=instance.distinct_ids,
+            team_id=instance.team.pk,
             properties=instance.properties,
             uid=str(instance.uuid),
+            is_identified=instance.is_identified,
         )
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team_id, instance.distinct_id, str(instance.person.uuid))
+        create_person_distinct_id(instance.pk, instance.team.pk, instance.distinct_id, str(instance.person.uuid))
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.id)
+        delete_person(instance.uuid)
 
 
 def create_person(
     team_id: int,
-    distinct_ids: List[str],
     uid: Optional[str] = None,
     properties: Optional[Dict] = {},
     sync: bool = False,
+    is_identified: bool = False,
     **kwargs
 ) -> str:
     if uid:
@@ -60,7 +63,12 @@ def create_person(
     else:
         uid = str(uuid.uuid4())
 
-    data = {"id": str(uid), "team_id": team_id, "properties": json.dumps(properties)}
+    data = {
+        "id": str(uid),
+        "team_id": team_id,
+        "properties": json.dumps(properties),
+        "is_identified": int(is_identified),
+    }
 
     if KAFKA_ENABLED:
         p = KafkaProducer()
@@ -69,10 +77,6 @@ def create_person(
         sync_execute(INSERT_PERSON_SQL, data)
     else:
         async_execute(INSERT_PERSON_SQL, data)
-
-    for distinct_id in distinct_ids:
-        if not distinct_ids_exist(team_id, [distinct_id]):
-            create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=uid)
 
     return uid
 
@@ -87,8 +91,9 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
     )
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str) -> None:
-    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
+    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+
     if KAFKA_ENABLED:
         p = KafkaProducer()
         p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
@@ -102,11 +107,6 @@ def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
 
 def person_exists(id: int) -> bool:
     return bool(sync_execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
-
-
-def attach_distinct_ids(person_id: str, distinct_ids: List[str], team_id: int) -> None:
-    for distinct_id in distinct_ids:
-        create_person_distinct_id(team_id, distinct_id, person_id)
 
 
 def get_persons(team_id: int):
@@ -149,6 +149,7 @@ def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> No
 
 def delete_person(person_id):
     sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
+    sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

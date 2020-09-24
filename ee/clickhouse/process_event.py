@@ -6,14 +6,6 @@ from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import (
-    attach_distinct_ids,
-    create_person,
-    get_person_by_distinct_id,
-    merge_people,
-    update_person_is_identified,
-    update_person_properties,
-)
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
