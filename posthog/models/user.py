@@ -175,14 +175,14 @@ class User(AbstractUser):
         return Team.objects.filter(organization__in=self.organizations.all())
 
     @property
-    def organization(self) -> Optional[Organization]:
+    def organization(self) -> Organization:
         if self.current_organization is None:
             self.current_organization = self.organizations.first()
             self.save()
         return self.current_organization
 
     @property
-    def team(self) -> Optional[Team]:
+    def team(self) -> Team:
         if self.current_team is None:
             organization = self.organization
             if self.organization:
