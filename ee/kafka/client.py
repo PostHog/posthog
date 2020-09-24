@@ -17,8 +17,9 @@ class _KafkaProducer:
         else:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: json.dumps(d))
 
-    def produce(self, topic: str, data):
-        self.producer.send(topic, data.encode("utf-8"))
+    def produce(self, topic: str, data: Dict[str, Any]):
+        serialized = json.dumps(data)
+        self.producer.send(topic, serialized.encode("utf-8"))
 
     def close(self):
         self.producer.flush()
@@ -37,7 +38,7 @@ class ClickhouseProducer:
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.send_to_kafka:
-            self.producer.produce(topic=topic, data=json.dumps(data))
+            self.producer.produce(topic=topic, data=data)
         else:
             if sync:
                 sync_execute(sql, data)
