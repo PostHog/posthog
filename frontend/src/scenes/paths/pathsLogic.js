@@ -45,15 +45,15 @@ export const pathsLogic = kea({
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
                 const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                breakpoint()
+
+                const nodes = [...paths.map((p) => p.source), ...paths.map((p) => p.target)]
 
                 const response = {
-                    nodes: [
-                        ...paths.map((path) => ({ name: path.source, id: path.source_id })),
-                        ...paths.map((path) => ({ name: path.target, id: path.target_id })),
-                    ],
+                    nodes: [...new Set(nodes)].map((name) => ({ name })), // get uniques
                     links: paths,
                 }
-                breakpoint()
+
                 return response
             },
         },
