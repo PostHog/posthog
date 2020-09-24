@@ -1,6 +1,6 @@
 from django.test import Client, TestCase
 
-from posthog.models import Team, User
+from posthog.models import Team, User, organization
 
 
 class TestUrls(TestCase):
@@ -10,9 +10,7 @@ class TestUrls(TestCase):
 
     def test_logout_temporary_token_reset(self):
         # create random team
-        team = Team.objects.create_with_data(
-            name="test", users=[User.objects.create_user(email="adminuser@posthog.com")]
-        )
+        organization, team, user = User.objects.bootstrap("test", "adminuser@posthog.com", None)
 
         # create a new user and log them in
         with self.settings(TEST=False):

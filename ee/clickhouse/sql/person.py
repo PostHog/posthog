@@ -17,9 +17,11 @@ CREATE TABLE {table_name}
 (
     id UUID,
     created_at datetime,
-    team_id Int32,
+    team_id Int64,
     properties VARCHAR,
-    is_identified Boolean
+    is_identified Boolean,
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
 """
 
@@ -28,7 +30,7 @@ PERSONS_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE), storage_policy=STORAGE_POLICY)
+).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
@@ -42,7 +44,9 @@ id,
 created_at,
 team_id,
 properties,
-is_identified
+is_identified,
+_timestamp,
+_offset
 FROM kafka_{table_name} 
 """.format(
     table_name=PERSONS_TABLE
@@ -57,20 +61,24 @@ PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
-    id Int32,
+    id VARCHAR,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int32
+    team_id Int64,
+    _timestamp UInt64,
+    _offset UInt64
 ) ENGINE = {engine} 
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, id)
+    + """Order By (team_id, distinct_id, id)
 {storage_policy}
 """
 ).format(
-    table_name=PERSONS_DISTINCT_ID_TABLE, engine=table_engine(PERSONS_DISTINCT_ID_TABLE), storage_policy=STORAGE_POLICY
+    table_name=PERSONS_DISTINCT_ID_TABLE,
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
@@ -84,7 +92,9 @@ AS SELECT
 id,
 distinct_id,
 person_id,
-team_id
+team_id,
+_timestamp,
+_offset
 FROM kafka_{table_name} 
 """.format(
     table_name=PERSONS_DISTINCT_ID_TABLE
@@ -103,7 +113,11 @@ SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.p
 """
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
-SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as distinct_id) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id where person_distinct_id.team_id = %(team_id)s
+SELECT count(*) FROM person_distinct_id
+inner join (
+    SELECT arrayJoin({}) as distinct_id
+    ) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
+where person_distinct_id.team_id = %(team_id)s
 """
 
 PERSON_EXISTS_SQL = """

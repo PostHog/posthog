@@ -1,6 +1,6 @@
 import json
 from typing import List
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from rest_framework import serializers
 
@@ -17,10 +17,11 @@ from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
+from posthog.models.utils import uuid1_macless
 
 
 def create_element_group(team: Team, element_hash: str) -> UUID:
-    id = uuid4()
+    id = uuid1_macless()()
     p = KafkaProducer()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
     p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
