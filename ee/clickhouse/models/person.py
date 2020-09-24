@@ -23,8 +23,8 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
-from ee.kafka.client import ClickhouseProducer, KafkaProducer
-from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka.client import ClickhouseProducer
+from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
@@ -57,7 +57,7 @@ def emit_omni_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    timestamp: Union[datetime.datetime, str] = datetime.datetime.now(),
+    timestamp: datetime.datetime = datetime.datetime.now(),
 ) -> UUID:
     if not uuid:
         uuid = uuid4()
@@ -69,10 +69,10 @@ def emit_omni_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "ts": timestamp,
+        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = ClickhouseProducer()
-    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
+    p.produce(topic=KAFKA_OMNI_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
     return uuid
 
 

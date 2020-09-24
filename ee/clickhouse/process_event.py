@@ -15,13 +15,14 @@ from posthog.tasks.process_event import handle_timestamp, store_names_and_proper
 
 def _capture_ee(
     event_uuid: UUID,
+    person_uuid: UUID,
     ip: str,
     site_url: str,
     team_id: int,
     event: str,
     distinct_id: str,
     properties: Dict,
-    timestamp: Union[datetime.datetime, str],
+    timestamp: datetime.datetime,
 ) -> None:
     elements = properties.get("$elements")
     elements_list = []
@@ -64,6 +65,14 @@ def _capture_ee(
         elements_hash=elements_hash,
         distinct_id=distinct_id,
     )
+    emit_omni_person(
+        event_uuid=event_uuid,
+        uuid=person_uuid,
+        team_id=team_id,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+    )
 
 
 if check_ee_enabled():
@@ -76,6 +85,9 @@ if check_ee_enabled():
         person_uuid = uuid4()
         event_uuid = uuid4()
         ts = handle_timestamp(data, now, sent_at)
+        if isinstance(ts, str):
+            ts = datetime.datetime.now()
+
         if data["event"] == "$create_alias":
             emit_omni_person(
                 event_uuid=event_uuid,
@@ -125,6 +137,7 @@ if check_ee_enabled():
         properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
             event_uuid=event_uuid,
+            person_uuid=person_uuid,
             ip=ip,
             site_url=site_url,
             team_id=team_id,
