@@ -25,7 +25,7 @@
        "type": "string"
      },
      {
-       "name": "element_hash",
+       "name": "elements_hash",
        "type": "string"
      }
    ]

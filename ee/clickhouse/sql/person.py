@@ -61,7 +61,7 @@ PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
-    id VARCHAR,
+    id Int64,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64,
@@ -72,7 +72,7 @@ CREATE TABLE {table_name}
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, distinct_id, id)
+    + """Order By (team_id, distinct_id, person_id, id)
 {storage_policy}
 """
 ).format(
@@ -125,11 +125,11 @@ SELECT count(*) FROM person where id = %(id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, 0
+INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT generateUUIDv4(), %(distinct_id)s, %(person_id)s, %(team_id)s VALUES
+INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0 VALUES
 """
 
 UPDATE_PERSON_PROPERTIES = """
@@ -142,6 +142,10 @@ ALTER TABLE person_distinct_id UPDATE person_id = %(person_id)s where distinct_i
 
 DELETE_PERSON_BY_ID = """
 ALTER TABLE person DELETE where id = %(id)s
+"""
+
+DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
+ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 """
 
 UPDATE_PERSON_IS_IDENTIFIED = """

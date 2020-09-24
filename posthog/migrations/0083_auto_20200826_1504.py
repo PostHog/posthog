@@ -4,11 +4,13 @@ import uuid
 
 from django.db import migrations, models
 
+from posthog.models.utils import uuid1_macless
+
 
 def create_uuid(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
     for team in Team.objects.all():
-        team.uuid = uuid.uuid4()
+        team.uuid = uuid1_macless()
         team.save()
 
 

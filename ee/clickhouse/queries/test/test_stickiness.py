@@ -1,10 +1,10 @@
 from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.person import Person
 from posthog.queries.test.test_stickiness import stickiness_test_factory
 
 
@@ -18,5 +18,5 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, create_event, create_person, _create_action)):  # type: ignore
+class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, create_event, Person.objects.create, _create_action)):  # type: ignore
     pass

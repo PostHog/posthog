@@ -1,11 +1,11 @@
 from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.cohort import populate_cohort_person_table
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
+from posthog.models.person import Person
 
 
 def _create_action(**kwargs):
@@ -26,7 +26,12 @@ def _create_cohort(**kwargs):
     return cohort
 
 
+def _create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return Person(id=person.uuid)
+
+
 class ClickhouseTestActionPeople(
-    ClickhouseTestMixin, action_people_test_factory(create_event, create_person, _create_action, _create_cohort)  # type: ignore
+    ClickhouseTestMixin, action_people_test_factory(create_event, _create_person, _create_action, _create_cohort)  # type: ignore
 ):
     pass

@@ -44,7 +44,7 @@ class InsightSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
 
         request = self.context["request"]
-        team = request.user.team_set.get()
+        team = request.user.team
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -87,7 +87,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         else:
             queryset = queryset.order_by("order")
 
-        return queryset.filter(team=self.request.user.team_set.get())
+        return queryset.filter(team=self.request.user.team)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -128,7 +128,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     @cached_function(cache_type=TRENDS_ENDPOINT)
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
@@ -149,7 +149,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
@@ -176,7 +176,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team_set.get()
+        team = request.user.team
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -212,7 +212,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
@@ -227,7 +227,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return Response(resp)
@@ -236,4 +236,4 @@ class InsightViewSet(viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.now())
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())

@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
+from posthog.settings import print_warning
 from posthog.version import VERSION
 
 from . import (
@@ -48,7 +49,7 @@ router.register(r"team/user", team_user.TeamUserViewSet)
 
 if check_ee_enabled():
     try:
-        from ee.clickhouse.views import ClickhouseActions, ClickhouseInsights, ClickhousePerson
+        from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
         router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
