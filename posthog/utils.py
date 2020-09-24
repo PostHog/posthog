@@ -87,6 +87,36 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
     return resp
 
 
+def get_git_branch() -> Optional[str]:
+    """
+    Returns the symbolic name of the current active branch. Will return None in case of failure.
+    Example: get_git_branch()
+        => "master"
+    """
+
+    try:
+        return (
+            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+            .decode("utf-8")
+            .strip()
+        )
+    except Exception:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    """
+    Returns the short hash of the last commit.
+    Example: get_git_commit()
+        => "4ff54c8d"
+    """
+
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
+    except Exception:
+        return None
+
+
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
 
@@ -105,10 +135,10 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
     if os.environ.get("OPT_OUT_CAPTURE"):
         context["opt_out_capture"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET",):
         context["github_auth"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET",):
         context["gitlab_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
@@ -116,20 +146,8 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        try:
-            context["git_rev"] = (
-                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
-            )
-        except:
-            context["git_rev"] = None
-        try:
-            context["git_branch"] = (
-                subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
-                .decode("utf-8")
-                .strip()
-            )
-        except:
-            context["git_branch"] = None
+        context["git_rev"] = get_git_commit()
+        context["git_branch"] = get_git_branch()
 
     html = template.render(context, request=request)
     return HttpResponse(html)
