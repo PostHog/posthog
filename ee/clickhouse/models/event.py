@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -17,6 +18,7 @@ from posthog.models.team import Team
 
 
 def create_event(
+    event_uuid: uuid.UUID,
     event: str,
     team: Team,
     distinct_id: str,
@@ -41,7 +43,7 @@ def create_event(
     event_id = generate_clickhouse_uuid()
 
     data = {
-        "id": str(event_id),
+        "uuid": str(event_uuid),
         "event": event,
         "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),

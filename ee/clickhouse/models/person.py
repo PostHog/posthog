@@ -1,6 +1,7 @@
+import datetime
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -46,6 +47,36 @@ if settings.EE_AVAILABLE and check_ee_enabled():
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         delete_person(instance.uuid)
+
+
+def emit_omni_person(
+    event_uuid: uuid.UUID,
+    team_id: int,
+    distinct_id: str,
+    uid: Optional[uuid.UUID] = None,
+    properties: Optional[Dict] = {},
+    sync: bool = False,
+    is_identified: bool = False,
+    timestamp: Union[datetime.datetime, str] = datetime.datetime.now(),
+    **kwargs
+) -> str:
+    if uid:
+        uid = str(uid)
+    else:
+        uid = str(uuid.uuid4())
+
+    data = {
+        "event_uuid": str(event_uuid),
+        "id": str(uid),
+        "distinct_id": distinct_id,
+        "team_id": team_id,
+        "properties": json.dumps(properties),
+        "is_identified": int(is_identified),
+        "ts": timestamp,
+    }
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
+    return uid
 
 
 def create_person(

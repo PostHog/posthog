@@ -15,8 +15,17 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element(element: Element, team: Team, elements_hash: str) -> None:
+def create_element_group(team: Team, event_uuid: UUID, element_hash: str) -> str:
+    id = generate_clickhouse_uuid()
+    data = {"id": str(id), "event_uuid": str(event_uuid), "element_hash": element_hash, "team_id": team.pk}
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, sql=INSERT_ELEMENT_GROUP_SQL, data=data)
+    return id
+
+
+def create_element(element: Element, team: Team, event_uuid: UUID, elements_hash: str, group_id: str) -> None:
     data = {
+        "event_uuid": str(event_uuid),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
@@ -33,7 +42,14 @@ def create_element(element: Element, team: Team, elements_hash: str) -> None:
     p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
-def create_elements(elements: List[Element], team: Team, use_cache: bool = True) -> str:
+def create_elements(
+        event_uuid: UUID,
+        elements: List[Element],
+        team: Team,
+        group_id: str,
+        use_cache: bool = True
+) -> str:
+
     # create group
     for index, element in enumerate(elements):
         element.order = index
@@ -41,6 +57,10 @@ def create_elements(elements: List[Element], team: Team, use_cache: bool = True)
 
     if use_cache and get_cached_value(team.pk, "elements/{}".format(elements_hash)):
         return elements_hash
+
+    # create elements
+    for element in elements:
+        create_element(element=element, team=team, event_uuid=event_uuid, group_id=group_id)
 
     # create elements
     for index, element in enumerate(elements):
