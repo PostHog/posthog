@@ -2,7 +2,7 @@
 `docker-compose -f ee/docker-compose.ch.yml up`
 
 ## Fixing broken frontend build
-`docker run -it ee_web yarn build`
+`docker run ee_web yarn build`
 
 ## Running Python + Webpack locally
 - Run all the services
