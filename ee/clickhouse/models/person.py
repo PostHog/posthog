@@ -1,7 +1,7 @@
 import datetime
 import json
-import uuid
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID, uuid4
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -36,7 +36,7 @@ if settings.EE_AVAILABLE and check_ee_enabled():
         create_person(
             team_id=instance.team.pk,
             properties=instance.properties,
-            uid=str(instance.uuid),
+            uuid=str(instance.uuid),
             is_identified=instance.is_identified,
         )
 
@@ -50,21 +50,21 @@ if settings.EE_AVAILABLE and check_ee_enabled():
 
 
 def emit_omni_person(
-    event_uuid: uuid.UUID,
+    event_uuid: UUID,
     team_id: int,
     distinct_id: str,
-    uid: Optional[uuid.UUID] = None,
+    uuid: Optional[UUID] = None,
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
     timestamp: Union[datetime.datetime, str] = datetime.datetime.now(),
-) -> uuid.UUID:
-    if not uid:
-        uid = uuid.uuid4()
+) -> UUID:
+    if not uuid:
+        uuid = uuid4()
 
     data = {
         "event_uuid": str(event_uuid),
-        "uuid": str(uid),
+        "uuid": str(uuid),
         "distinct_id": distinct_id,
         "team_id": team_id,
         "properties": json.dumps(properties),
@@ -73,30 +73,30 @@ def emit_omni_person(
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
-    return uid
+    return uuid
 
 
 def create_person(
     team_id: int,
-    uid: Optional[str] = None,
+    uuid: Optional[str] = None,
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
 ) -> str:
-    if uid:
-        uid = str(uid)
+    if uuid:
+        uuid = str(uuid)
     else:
-        uid = str(uuid.uuid4())
+        uuid = str(uuid4())
 
     data = {
-        "id": str(uid),
+        "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
-    return uid
+    return uuid
 
 
 def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
