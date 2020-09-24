@@ -37,7 +37,7 @@ class ClickhouseProducer:
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.send_to_kafka:
-            self.producer.produce(topic=topic, data=data)
+            self.producer.produce(topic=topic, data=json.dumps(data))
         else:
             if sync:
                 sync_execute(sql, data)

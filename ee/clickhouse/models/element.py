@@ -16,7 +16,9 @@ from posthog.models.team import Team
 
 
 def create_element(element: Element, team: Team, elements_hash: str) -> None:
+    element_id = generate_clickhouse_uuid()
     data = {
+        "id": element_id,
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
