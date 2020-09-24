@@ -71,8 +71,8 @@ def emit_omni_person(
         "is_identified": int(is_identified),
         "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_OMNI_PERSON, data=data, sync=sync)
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_OMNI_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
     return uuid
 
 

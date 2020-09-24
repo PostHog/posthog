@@ -119,7 +119,7 @@ if check_ee_enabled():
                     event_uuid=event_uuid,
                     uuid=person_uuid,
                     team_id=team_id,
-                    distinct_id=properties["$anan_distinct_id"],
+                    distinct_id=properties["$anon_distinct_id"],
                     timestamp=ts,
                     properties=properties,
                 )
