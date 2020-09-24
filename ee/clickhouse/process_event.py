@@ -3,14 +3,12 @@ from typing import Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
 from celery import shared_task
-from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import emit_omni_person
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
 

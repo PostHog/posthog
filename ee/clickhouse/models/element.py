@@ -5,7 +5,6 @@ from uuid import UUID
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS

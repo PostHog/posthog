@@ -7,8 +7,7 @@ import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import async_execute, sync_execute
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import ClickhouseProducer

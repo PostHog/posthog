@@ -58,7 +58,6 @@ def emit_omni_person(
     sync: bool = False,
     is_identified: bool = False,
     timestamp: Union[datetime.datetime, str] = datetime.datetime.now(),
-    **kwargs
 ) -> uuid.UUID:
     if not uid:
         uid = uuid.uuid4()
@@ -83,7 +82,6 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    **kwargs
 ) -> str:
     if uid:
         uid = str(uid)
