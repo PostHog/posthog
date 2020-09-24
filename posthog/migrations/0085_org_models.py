@@ -36,7 +36,7 @@ def forwards_func(apps, schema_editor):
                 annotation.save()
         # migrated users become admins (level 8)
         OrganizationMembership.objects.create(
-            organization=user.current_organization, user=user, level=OrganizationMembership.Level.ADMIN,
+            organization=user.current_organization, user=user, level=8,
         )
         user.current_team = user.current_organization.teams.get()
         user.save()
