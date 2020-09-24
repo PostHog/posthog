@@ -53,19 +53,19 @@ function App() {
     }, [location.pathname])
 
     useEffect(() => {
-        if (unauthenticatedRoutes.includes(scene) && user) replace('/')
+        // If user is already logged in, redirect away from unauthenticated routes like signup
+        if (user && unauthenticatedRoutes.includes(scene)) replace('/')
     }, [scene, user])
 
-    if (unauthenticatedRoutes.includes(scene) && !user) {
-        return (
-            <>
-                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
-        )
-    }
-
     if (!user) {
-        return null
+        return (
+            unauthenticatedRoutes.includes(scene) && (
+                <>
+                    <Scene {...params} />{' '}
+                    <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                </>
+            )
+        )
     }
 
     if (!user.team.completed_snippet_onboarding) {
