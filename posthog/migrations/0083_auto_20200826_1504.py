@@ -25,6 +25,6 @@ class Migration(migrations.Migration):
         migrations.AddField(model_name="team", name="uuid", field=models.UUIDField(blank=True, null=True),),
         migrations.RunPython(create_uuid),
         migrations.AlterField(
-            model_name="team", name="uuid", field=models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+            model_name="team", name="uuid", field=models.UUIDField(default=uuid.uuid4, unique=True, editable=False),
         ),
     ]
