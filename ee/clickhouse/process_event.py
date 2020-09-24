@@ -6,14 +6,6 @@ from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import (
-    attach_distinct_ids,
-    create_person,
-    get_person_by_distinct_id,
-    merge_people,
-    update_person_is_identified,
-    update_person_properties,
-)
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -59,7 +51,7 @@ def _capture_ee(
     store_names_and_properties(team=team, event=event, properties=properties)
 
     # determine/create elements
-    element_hash = create_elements(elements_list, team)
+    elements_hash = create_elements(elements_list, team)
 
     # # determine create events
     create_event(
@@ -67,7 +59,7 @@ def _capture_ee(
         properties=properties,
         timestamp=timestamp,
         team=team,
-        element_hash=element_hash,
+        elements_hash=elements_hash,
         distinct_id=distinct_id,
     )
 

@@ -5,72 +5,60 @@ from uuid import UUID
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.elements import (
-    GET_ELEMENT_BY_GROUP_SQL,
-    GET_ELEMENT_GROUP_BY_HASH_SQL,
-    GET_ELEMENTS_SQL,
-    INSERT_ELEMENT_GROUP_SQL,
-    INSERT_ELEMENTS_SQL,
-)
-from ee.kafka.client import KafkaProducer
-from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
+from ee.kafka.client import ClickhouseProducer
+from ee.kafka.topics import KAFKA_ELEMENTS
+from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
-from posthog.models.utils import uuid1_macless
 
 
-def create_element_group(team: Team, element_hash: str) -> UUID:
-    id = uuid1_macless()()
-    p = KafkaProducer()
-    data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
-    return id
-
-
-def create_element(element: Element, team: Team, group_id: UUID) -> None:
-    p = KafkaProducer()
+def create_element(element: Element, team: Team, elements_hash: str) -> None:
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
         "attr_id": element.attr_id or "",
         "attr_class": element.attr_class or [],
-        "nth_child": element.nth_child,
-        "nth_of_type": element.nth_of_type,
+        "nth_child": element.nth_child or 0,
+        "nth_of_type": element.nth_of_type or 0,
         "attributes": json.dumps(element.attributes or {}),
-        "order": element.order,
+        "order": element.order or 0,
         "team_id": team.pk,
-        "group_id": str(group_id),
+        "elements_hash": elements_hash,
     }
-    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
-def create_elements(elements: List[Element], team: Team) -> str:
-
+def create_elements(elements: List[Element], team: Team, use_cache: bool = True) -> str:
     # create group
-    element_hash = hash_elements(elements)
-    group_id = create_element_group(element_hash=element_hash, team=team)
+    for index, element in enumerate(elements):
+        element.order = index
+    elements_hash = hash_elements(elements)
+
+    if use_cache and get_cached_value(team.pk, "elements/{}".format(elements_hash)):
+        return elements_hash
 
     # create elements
-    for element in elements:
-        create_element(element=element, team=team, group_id=group_id)
+    for index, element in enumerate(elements):
+        create_element(element=element, team=team, elements_hash=elements_hash)
 
-    return element_hash
+    if use_cache:
+        set_cached_value(team.pk, "elements/{}".format(elements_hash), "1")
 
-
-def get_element_group_by_hash(elements_hash: str):
-    result = sync_execute(GET_ELEMENT_GROUP_BY_HASH_SQL, {"elements_hash": elements_hash})
-    return ClickhouseElementGroupSerializer(result, many=True).data
+    return elements_hash
 
 
-def get_elements_by_group(group_id: UUID):
-    result = sync_execute(GET_ELEMENT_BY_GROUP_SQL, {"group_id": group_id})
+def get_elements_by_elements_hash(elements_hash: str, team_id: int):
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 
-def get_elements():
-    result = sync_execute(GET_ELEMENTS_SQL)
+def get_all_elements(final: bool = False):
+    result = sync_execute(GET_ALL_ELEMENTS_SQL.format(final="FINAL" if final else ""))
     return ClickhouseElementSerializer(result, many=True).data
 
 
@@ -87,7 +75,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     order = serializers.SerializerMethodField()
     team_id = serializers.SerializerMethodField()
     created_at = serializers.SerializerMethodField()
-    group_id = serializers.SerializerMethodField()
+    elements_hash = serializers.SerializerMethodField()
 
     def get_id(self, element):
         return element[0]
@@ -114,7 +102,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
         return element[7]
 
     def get_attributes(self, element):
-        return element[8]
+        return json.loads(element[8])
 
     def get_order(self, element):
         return element[9]
@@ -125,20 +113,5 @@ class ClickhouseElementSerializer(serializers.Serializer):
     def get_created_at(self, element):
         return element[11]
 
-    def get_group_id(self, element):
+    def get_elements_hash(self, element):
         return element[12]
-
-
-class ClickhouseElementGroupSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
-    elements_hash = serializers.SerializerMethodField()
-    team_id = serializers.SerializerMethodField()
-
-    def get_id(self, element_group):
-        return element_group[0]
-
-    def get_elements_hash(self, element_group):
-        return element_group[1]
-
-    def get_team_id(self, element_group):
-        return element_group[2]

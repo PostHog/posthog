@@ -3,7 +3,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect, lazy, Suspense } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -42,6 +42,7 @@ function App() {
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
+    const { replace } = useActions(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
     const [image, setImage] = useState(null)
@@ -51,16 +52,20 @@ function App() {
         setImage(urlBackgroundMap[location.pathname])
     }, [location.pathname])
 
-    if (unauthenticatedRoutes.includes(scene)) {
-        return (
-            <>
-                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
-        )
-    }
+    useEffect(() => {
+        // If user is already logged in, redirect away from unauthenticated routes like signup
+        if (user && unauthenticatedRoutes.includes(scene)) replace('/')
+    }, [scene, user])
 
     if (!user) {
-        return null
+        return (
+            unauthenticatedRoutes.includes(scene) && (
+                <>
+                    <Scene {...params} />{' '}
+                    <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                </>
+            )
+        )
     }
 
     if (!user.team.completed_snippet_onboarding) {

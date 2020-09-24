@@ -1,6 +1,7 @@
 """
 Django settings for PostHog Enterprise Edition.
 """
+from posthog.settings import CLICKHOUSE, PRIMARY_DB, TEST
 
 # Zapier
 HOOK_EVENTS = {
@@ -11,3 +12,5 @@ HOOK_EVENTS = {
 }
 HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
 HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
+
+KAFKA_ENABLED = PRIMARY_DB == CLICKHOUSE and not TEST

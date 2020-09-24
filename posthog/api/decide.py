@@ -7,8 +7,9 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import FeatureFlag, Team
-from posthog.utils import PersonalAPIKeyAuthentication, base64_to_json, cors_response, load_data_from_request
+from posthog.utils import base64_to_json, cors_response, load_data_from_request
 
 
 def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:

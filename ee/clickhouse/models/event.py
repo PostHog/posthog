@@ -1,17 +1,19 @@
 import json
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import async_execute, sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_EVENTS
+from posthog.models.element import Element
 from posthog.models.team import Team
-from posthog.models.utils import uuid1_macless
 
 
 def create_event(
@@ -20,7 +22,8 @@ def create_event(
     distinct_id: str,
     timestamp: Optional[Union[datetime, str]],
     properties: Optional[Dict] = {},
-    element_hash: Optional[str] = "",
+    elements_hash: Optional[str] = "",
+    elements: Optional[List[Element]] = None,
 ) -> None:
 
     if not timestamp:
@@ -32,9 +35,11 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    event_id = uuid1_macless()
+    if elements and not elements_hash:
+        elements_hash = create_elements(elements=elements, team=team)
 
-    p = KafkaProducer()
+    event_id = generate_clickhouse_uuid()
+
     data = {
         "id": str(event_id),
         "event": event,
@@ -42,10 +47,11 @@ def create_event(
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "element_hash": element_hash,
+        "elements_hash": elements_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
 
 
 def get_events():

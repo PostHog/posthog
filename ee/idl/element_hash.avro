@@ -1,6 +1,6 @@
 {
   "namespace": "com.posthog.ee",
-  "name": "element_hash",
+  "name": "elements_hash",
   "type": "record",
   "fields" : [
     {
@@ -8,7 +8,7 @@
       "type" : "string"
     },
     {
-      "name" : "element_hash",
+      "name" : "elements_hash",
       "type" : "string"
     },
     {
