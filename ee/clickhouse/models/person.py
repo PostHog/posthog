@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -119,12 +119,12 @@ def get_person_distinct_ids(team_id: int):
     return ClickhousePersonDistinctIdSerializer(result, many=True).data
 
 
-def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Dict]:
+def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data
 
-    return None
+    return {}
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
