@@ -3,7 +3,7 @@ from typing import Optional
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User, organization
 
 
 class TestMixin:

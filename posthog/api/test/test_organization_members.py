@@ -63,7 +63,6 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         )
 
     def test_change_organization_member_level_requires_admin(self):
-        self.organization_membership_admin.level = OrganizationMembership.Level.MEMBER
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)

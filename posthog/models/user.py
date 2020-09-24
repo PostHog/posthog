@@ -42,7 +42,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: str, password: str, **extra_fields) -> "User":
+    def _create_user(self, email: str, password: Optional[str], **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("The given email must be set")
@@ -54,7 +54,8 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("distinct_id", generate_random_token())
 
         user = self.model(email=email, **extra_fields)
-        user.set_password(password)
+        if password is not None:
+            user.set_password(password)
         user.save()
         return user
 
@@ -109,7 +110,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            user.join(organization=organization, team=team or organization.teams.first(), level=level)
+            user.join(organization=organization, team=team or organization.teams.get(), level=level)
             return user
 
 

@@ -11,7 +11,7 @@ from .base import APIBaseTest, TransactionBaseTest
 
 
 class TestTeamUser(APIBaseTest):
-    def create_user_for_team(self, team: Team, organization: Organization) -> User:
+    def create_user_for_team_org(self, team: Team, organization: Organization) -> User:
         suffix = random.randint(100000, 999999)
         user = User.objects.create_and_join(
             organization, team, f"user{suffix}@posthog.com", self.TESTS_PASSWORD, first_name=f"User #{suffix}",
@@ -21,7 +21,7 @@ class TestTeamUser(APIBaseTest):
     def create_org_team_user(self) -> Tuple[Organization, Team, User]:
         organization: Organization = Organization.objects.create(name="Test")
         team: Team = Team.objects.create(organization=organization, api_token="token123")
-        return (organization, team, self.create_user_for_team(team, organization))
+        return (organization, team, self.create_user_for_team_org(team, organization))
 
     def test_user_can_list_their_teams(self):
 
@@ -47,7 +47,7 @@ class TestTeamUser(APIBaseTest):
         organization, team, user = self.create_org_team_user()
         users.append(user)
         for i in range(0, 3):
-            users.append(self.create_user_for_team(team, organization))
+            users.append(self.create_user_for_team_org(team, organization))
 
         self.client.force_login(random.choice(users))  # Log in as any of the users
 
@@ -111,13 +111,13 @@ class TestTeamUser(APIBaseTest):
 
     def test_user_can_delete_another_team_user(self):
         organization, team, user = self.create_org_team_user()
-        user2: User = self.create_user_for_team(team)
+        user2: User = self.create_user_for_team_org(team, organization)
         self.client.force_login(user)
 
     # @patch("posthog.api.team.posthoganalytics.capture")
     # def test_user_can_delete_another_team_user(self, mock_capture):
     #     organization, team, user = self.create_org_team_user()
-    #     user2: User = self.create_user_for_team(team, organization)
+    #     user2: User = self.create_user_for_team_org(team, organization)
     #     self.client.force_login(user)
 
     #     response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
@@ -150,7 +150,7 @@ class TestTeamUser(APIBaseTest):
 
     # def test_cannot_delete_user_using_their_primary_key(self):
     #     organization, team, user = self.create_org_team_user()
-    #     user2: User = self.create_user_for_team(team, organization)
+    #     user2: User = self.create_user_for_team_org(team, organization)
     #     self.client.force_login(user)
 
     #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
