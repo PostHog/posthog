@@ -93,7 +93,7 @@ INSERT INTO elements SELECT
 
 GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
     SELECT 
-        argMax(id, _timestamp) uuid,
+        argMax(uuid, _timestamp) uuid,
         any(text) text,
         any(tag_name) tag_name,
         any(href) href,

@@ -83,38 +83,41 @@ class ClickhouseElementSerializer(serializers.Serializer):
     def get_uuid(self, element):
         return element[0]
 
-    def get_text(self, element):
+    def get_event_uuid(self, element):
         return element[1]
 
-    def get_tag_name(self, element):
+    def get_text(self, element):
         return element[2]
 
-    def get_href(self, element):
+    def get_tag_name(self, element):
         return element[3]
 
-    def get_attr_id(self, element):
+    def get_href(self, element):
         return element[4]
 
-    def get_attr_class(self, element):
+    def get_attr_id(self, element):
         return element[5]
 
-    def get_nth_child(self, element):
+    def get_attr_class(self, element):
         return element[6]
 
-    def get_nth_of_type(self, element):
+    def get_nth_child(self, element):
         return element[7]
 
+    def get_nth_of_type(self, element):
+        return element[8]
+
     def get_attributes(self, element):
-        return json.loads(element[8])
+        return json.loads(element[9])
 
     def get_order(self, element):
-        return element[9]
-
-    def get_team_id(self, element):
         return element[10]
 
-    def get_created_at(self, element):
+    def get_team_id(self, element):
         return element[11]
 
-    def get_elements_hash(self, element):
+    def get_created_at(self, element):
         return element[12]
+
+    def get_elements_hash(self, element):
+        return element[13]
