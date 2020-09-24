@@ -175,17 +175,19 @@ class User(AbstractUser):
         return Team.objects.filter(organization__in=self.organizations.all())
 
     @property
-    def organization(self) -> Organization:
+    def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
-            self.current_organization = self.organizations.get()
+            self.current_organization = self.organizations.first()
             self.save()
         return self.current_organization
 
     @property
-    def team(self) -> Team:
+    def team(self) -> Optional[Team]:
         if self.current_team is None:
-            self.current_team = self.organization.teams.get()
-            self.save()
+            organization = self.organization
+            if self.organization:
+                self.current_team = organization.teams.first()
+                self.save()
         return self.current_team
 
     def is_feature_available(self, feature: str) -> bool:
