@@ -11,7 +11,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
     TESTS_API = True
 
     def test_add_organization_member(self):
-        user = User.objects.create_user("test@x.com")
+        user = User.objects.create_user("test@x.com", None, "X")
         response = self.client.put(f"/api/organization/members/{user.id}")
         self.assertEqual(response.status_code, 201)
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
@@ -31,7 +31,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         )
 
     def test_delete_organization_member(self):
-        user = User.objects.create_user("test@x.com")
+        user = User.objects.create_user("test@x.com", None, "X")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
         response = self.client.delete(f"/api/organization/members/{user.id}/")
         self.assertEqual(response.status_code, 201)
@@ -39,7 +39,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertFalse(membership_queryset.exists())
 
     def test_change_organization_member_level(self):
-        user = User.objects.create_user("test@x.com")
+        user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
@@ -64,7 +64,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
 
     def test_change_organization_member_level_requires_admin(self):
         self.organization_membership_admin.level = OrganizationMembership.Level.MEMBER
-        user = User.objects.create_user("test@x.com")
+        user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(

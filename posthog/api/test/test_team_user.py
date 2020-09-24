@@ -18,7 +18,7 @@ class TestTeamUser(APIBaseTest):
         )
         return user
 
-    def create_team_and_user(self) -> Tuple[Organization, Team, User]:
+    def create_org_team_user(self) -> Tuple[Organization, Team, User]:
         organization: Organization = Organization.objects.create(name="Test")
         team: Team = Team.objects.create(organization=organization, api_token="token123")
         return (organization, team, self.create_user_for_team(team, organization))
@@ -44,7 +44,7 @@ class TestTeamUser(APIBaseTest):
 
         # Create a team with a list of multiple users first
         users: List = []
-        organization, team, user = self.create_team_and_user()
+        organization, team, user = self.create_org_team_user()
         users.append(user)
         for i in range(0, 3):
             users.append(self.create_user_for_team(team, organization))
@@ -110,13 +110,13 @@ class TestTeamUser(APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     def test_user_can_delete_another_team_user(self):
-        team, user = self.create_team_and_user()
+        organization, team, user = self.create_org_team_user()
         user2: User = self.create_user_for_team(team)
         self.client.force_login(user)
 
     # @patch("posthog.api.team.posthoganalytics.capture")
     # def test_user_can_delete_another_team_user(self, mock_capture):
-    #     organization, team, user = self.create_team_and_user()
+    #     organization, team, user = self.create_org_team_user()
     #     user2: User = self.create_user_for_team(team, organization)
     #     self.client.force_login(user)
 
@@ -134,7 +134,7 @@ class TestTeamUser(APIBaseTest):
 
     # @patch("posthog.api.team.posthoganalytics.capture")
     # def test_cannot_delete_yourself(self, mock_capture):
-    #     organization, team, user = self.create_team_and_user()
+    #     organization, team, user = self.create_org_team_user()
     #     self.client.force_login(user)
 
     #     response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
@@ -149,7 +149,7 @@ class TestTeamUser(APIBaseTest):
     #     mock_capture.assert_not_called()
 
     # def test_cannot_delete_user_using_their_primary_key(self):
-    #     organization, team, user = self.create_team_and_user()
+    #     organization, team, user = self.create_org_team_user()
     #     user2: User = self.create_user_for_team(team, organization)
     #     self.client.force_login(user)
 
@@ -162,10 +162,10 @@ class TestTeamUser(APIBaseTest):
     #     )  # User still exists
 
     # def test_user_cannot_delete_user_from_another_team(self):
-    #     organization, team, user = self.create_team_and_user()
+    #     organization, team, user = self.create_org_team_user()
     #     self.client.force_login(user)
 
-    #     organization2, team2, user2 = self.create_team_and_user()
+    #     organization2, team2, user2 = self.create_org_team_user()
 
     #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
     #     self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -176,7 +176,7 @@ class TestTeamUser(APIBaseTest):
     #     )  # User still exists
 
     def test_creating_or_updating_users_is_currently_not_allowed(self):
-        organization, team, user = self.create_team_and_user()
+        organization, team, user = self.create_org_team_user()
         self.client.force_login(user)
 
         # Cannot partially update users
@@ -201,7 +201,7 @@ class TestTeamUser(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
 
     def test_unauthenticated_user_cannot_list_or_delete_team_users(self):
-        organization, team, user = self.create_team_and_user()
+        organization, team, user = self.create_org_team_user()
         self.client.logout()
 
         response = self.client.get("/api/team/user/")

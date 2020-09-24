@@ -8,9 +8,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import authenticate, decorators, login
 from django.contrib.auth import views as auth_views
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect
-from django.template.exceptions import TemplateDoesNotExist
 from django.template.loader import render_to_string
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
@@ -20,7 +19,7 @@ from rest_framework import permissions
 from posthog.demo import delete_demo_data, demo
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
-from .models import Event, Organization, OrganizationInvite, OrganizationMembership, Team, User
+from .models import OrganizationInvite, User
 from .utils import render_template
 from .views import health, preflight_check, stats
 
@@ -94,7 +93,7 @@ def signup_to_organization_view(request, invite_id):
                 },
             )
         user = User.objects.create_and_join(
-            team.organization, team, email, password, first_name=first_name, email_opt_in=email_opt_in,
+            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
         invite.use(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")

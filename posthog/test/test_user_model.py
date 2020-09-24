@@ -14,7 +14,7 @@ class TestUser(BaseTest):
 
     @patch("posthog.settings.EE_AVAILABLE", False)
     def test_feature_available_no_ee(self):
-        self.assertFalse(self.user.feature_available("whatever"))
+        self.assertFalse(self.user.is_feature_available("whatever"))
 
     @tag("ee")
     @patch("posthog.models.user.MULTI_TENANCY_MISSING", False)
@@ -22,7 +22,7 @@ class TestUser(BaseTest):
     @patch("posthog.models.user.BilledOrganization")
     def test_feature_available_multi_tenancy(self, patch_team_billing):
         patch_team_billing.objects.get().price_id = "price_1234567890"
-        self.assertTrue(self.user.feature_available("whatever"))
+        self.assertTrue(self.user.is_feature_available("whatever"))
 
     @patch("posthog.models.user.MULTI_TENANCY_MISSING", False)
     @patch("posthog.models.user.BilledOrganization")
@@ -30,7 +30,7 @@ class TestUser(BaseTest):
         patch_team_billing.objects.get().price_id = (
             "price_test_1"  # price_test_1 is not on posthog.models.user.License.PLANS
         )
-        self.assertFalse(self.user.feature_available("whatever"))
+        self.assertFalse(self.user.is_feature_available("whatever"))
 
     @tag("ee")
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})

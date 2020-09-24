@@ -58,13 +58,13 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
-    def create_user(self, first_name: str, email, password=None, **extra_fields) -> "User":
+    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(first_name=first_name, email=email, password=password, **extra_fields)
 
-    def create_superuser(self, email, password, first_name: str, **extra_fields) -> "User":
+    def create_superuser(self, email: str, password: str, first_name: str, **extra_fields) -> "User":
         """Create and save a SuperUser with the given email and password."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -100,7 +100,7 @@ class UserManager(BaseUserManager):
     def create_and_join(
         self,
         organization: Organization,
-        team: Team,
+        team: Optional[Team],
         email: str,
         password: Optional[str],
         first_name: str = "",
@@ -109,7 +109,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            user.join(organization=organization, team=team, level=level)
+            user.join(organization=organization, team=team or organization.teams.first(), level=level)
             return user
 
 
