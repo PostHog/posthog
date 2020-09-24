@@ -449,7 +449,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
             now().isoformat(),
         )
-        distinct_ids = distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
+
         events = get_events()
 
         self.assertEqual(len(events), 2)
