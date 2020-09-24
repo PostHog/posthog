@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
-from .base import APIBaseTest, TransactionBaseTest
+from .base import APIBaseTest
 
 
 class TestTeamUser(APIBaseTest):
@@ -150,7 +150,7 @@ class TestTeamUser(APIBaseTest):
         # self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
 
-class TestTeamSignup(TransactionBaseTest):
+class TestTeamSignup(APIBaseTest):
     TESTS_EMAIL = None
 
     @tag("skip_on_multitenancy")
@@ -174,7 +174,7 @@ class TestTeamSignup(TransactionBaseTest):
         user: User = User.objects.order_by("-pk")[0]
         team: Team = user.team
         self.assertEqual(
-            response.data,  # type: ignore
+            response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
         )
 
@@ -214,7 +214,7 @@ class TestTeamSignup(TransactionBaseTest):
         user: User = User.objects.order_by("-pk").get()
         team: Team = user.team
         self.assertEqual(
-            response.data,  # type: ignore
+            response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
         )
 
@@ -258,7 +258,7 @@ class TestTeamSignup(TransactionBaseTest):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/team/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.data, {attribute: ["This field is required."]})  # type: ignore
+            self.assertEqual(response.data, {attribute: ["This field is required."]})
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -272,7 +272,7 @@ class TestTeamSignup(TransactionBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}  # type: ignore
+            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}
         )
 
         self.assertEqual(User.objects.count(), count)
@@ -290,7 +290,7 @@ class TestTeamSignup(TransactionBaseTest):
             "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])  # type: ignore
+        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -308,7 +308,7 @@ class TestTeamSignup(TransactionBaseTest):
             "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["This instance does not support multiple teams."])  # type: ignore
+        self.assertEqual(response.data, ["This instance does not support multiple teams."])
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
