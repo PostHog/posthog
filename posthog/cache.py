@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 import fakeredis
@@ -17,11 +18,13 @@ def get_cache_key(team_id: int, key: str) -> str:
 
 
 def get_cached_value(team_id: int, key: str) -> Optional[str]:
-    return redis_instance.get(get_cache_key(team_id, key))
+    value = redis_instance.get(get_cache_key(team_id, key))
+    if value:
+        return json.loads(value)
 
 
 def set_cached_value(team_id: int, key: str, value: str) -> None:
-    redis_instance.set(get_cache_key(team_id, key), value)
+    redis_instance.set(get_cache_key(team_id, key), json.dumps(value))
 
 
 def clear_cache() -> None:

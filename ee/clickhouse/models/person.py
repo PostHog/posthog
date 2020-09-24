@@ -19,24 +19,53 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
+from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.person import Person
 from posthog.models.team import Team
 
 
 def create_person(
-    team_id: int, distinct_ids: List[str], properties: Optional[Dict] = {}, sync: bool = False, **kwargs
+    team_id: int,
+    distinct_ids: List[str],
+    properties: Optional[Dict] = {},
+    sync: bool = False,
+    cache: bool = True,
+    **kwargs
 ) -> str:
     person_id = kwargs.get("person_id", None)  # type: Optional[str]
-    if not person_id:
-        person_id = generate_clickhouse_uuid()
 
-    if sync:
-        sync_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+    # TODO: handle case when person_id is given
+
+    cached_person_id = None
+
+    if cache:
+        for distinct_id in distinct_ids:
+            cached_person_id = get_cached_value(team_id, "person_for_distinct_id/{}".format(distinct_id))
+
+    if cached_person_id:
+        person_id = cached_person_id
+
+    if not person_id:
+        person_id = str(generate_clickhouse_uuid())
+
+    if not cached_person_id:
+        if sync:
+            sync_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+        else:
+            async_execute(
+                INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)}
+            )
+        # TODO: insert properties into another table
     else:
-        async_execute(INSERT_PERSON_SQL, {"id": person_id, "team_id": team_id, "properties": json.dumps(properties)})
+        # TODO: update properties
+        pass
 
     for distinct_id in distinct_ids:
-        if not distinct_ids_exist(team_id, [distinct_id]):
+        if cache:
+            if not get_cached_value(team_id, "person_for_distinct_id/{}".format(distinct_id)):
+                create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
+                set_cached_value(team_id, "person_for_distinct_id/{}".format(distinct_id), person_id)
+        else:
             create_person_distinct_id(team_id=team_id, distinct_id=distinct_id, person_id=person_id)
 
     return person_id

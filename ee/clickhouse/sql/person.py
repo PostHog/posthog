@@ -30,15 +30,15 @@ SELECT * FROM person WHERE team_id = %(team_id)s
 PERSONS_DISTINCT_ID_TABLE_SQL = """
 CREATE TABLE person_distinct_id
 (
-    id Int32,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int32
+    team_id Int32,
+    created_at DateTime
 ) ENGINE = {engine} 
-Order By (team_id, id)
+Order By (team_id, distinct_id)
 {storage_policy}
 """.format(
-    engine=table_engine("person_distinct_id"), storage_policy=STORAGE_POLICY
+    engine=table_engine("person_distinct_id", "Replacing"), storage_policy=STORAGE_POLICY
 )
 
 GET_DISTINCT_IDS_SQL = """
@@ -50,7 +50,22 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+SELECT
+    person.*
+FROM
+    person
+WHERE
+    team_id = %(team_id)s
+    AND id IN (
+        SELECT
+            argMax(person_id, created_at)
+        FROM
+            person_distinct_id
+        WHERE
+            distinct_id = %(distinct_id)s
+        GROUP BY
+            distinct_id
+    )
 """
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
@@ -66,7 +81,7 @@ INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT generateUUIDv4(), %(distinct_id)s, %(person_id)s, %(team_id)s VALUES
+INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, now() VALUES
 """
 
 UPDATE_PERSON_PROPERTIES = """
