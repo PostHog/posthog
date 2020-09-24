@@ -91,11 +91,19 @@ export const pathsLogic = kea({
             (s) => [s.loadedPaths],
             (loadedPaths) => {
                 const { paths } = loadedPaths
+
+                const nodes = {}
+                for (const path of paths) {
+                    if (!nodes[path.source]) {
+                        nodes[path.source] = { name: path.source, id: path.source_id }
+                    }
+                    if (!nodes[path.target]) {
+                        nodes[path.target] = { name: path.target, id: path.target_id }
+                    }
+                }
+
                 const response = {
-                    nodes: [
-                        ...paths.map((path) => ({ name: path.source, id: path.source_id })),
-                        ...paths.map((path) => ({ name: path.target, id: path.target_id })),
-                    ],
+                    nodes: Object.values(nodes),
                     links: paths,
                 }
                 return response
