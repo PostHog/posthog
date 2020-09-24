@@ -34,9 +34,7 @@ ELEMENT_ACTION_FILTER = """
 (
     SELECT id FROM events WHERE 
     elements_hash IN (
-        SELECT elements_hash FROM elements_group WHERE id IN (
-            SELECT group_id from elements WHERE {element_filter}
-        ) 
+        SELECT elements_hash FROM elements WHERE {element_filter} GROUP BY elements_hash
     ) {event_filter}
 )
 """

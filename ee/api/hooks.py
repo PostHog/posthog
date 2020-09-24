@@ -29,4 +29,4 @@ class HookViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        serializer.save(user=user, team=user.team_set.get())
+        serializer.save(user=user, team=user.team)

@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
+from posthog.settings import print_warning
 from posthog.version import VERSION
 
 from . import (
@@ -36,8 +37,6 @@ def api_not_found(request):
 router = OptionalTrailingSlashRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"element", element.ElementViewSet)
-router.register(r"person", person.PersonViewSet)
-router.register(r"action", action.ActionViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
@@ -56,15 +55,17 @@ if check_ee_enabled():
             ClickhousePerson,
         )
 
-        # router.register(r"action", ClickhouseActions, basename="action")
+        router.register(r"action", ClickhouseActions, basename="action")
         router.register(r"event", ClickhouseEvents, basename="event")
         router.register(r"insight", ClickhouseInsights, basename="insight")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
-        # router.register(r"person", ClickhousePerson, basename="person")
+        router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
 else:
     router.register(r"insight", insight.InsightViewSet)
+    router.register(r"action", action.ActionViewSet)
+    router.register(r"person", person.PersonViewSet)
     router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")

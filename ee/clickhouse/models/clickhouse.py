@@ -1,7 +1,5 @@
-from ee.clickhouse.client import ch_client
-from ee.clickhouse.sql.clickhouse import GENERATE_UUID_SQL
+from posthog.models.utils import uuid1_macless
 
 
 def generate_clickhouse_uuid() -> str:
-    response = ch_client.execute(GENERATE_UUID_SQL)
-    return response[0][0]
+    return str(uuid1_macless())

@@ -53,7 +53,7 @@ class ClickhouseEvents(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
         key = request.GET.get("key")
-        team = request.user.team_set.get()
+        team = request.user.team
         result = []
         if key:
             result = get_property_values_for_key(key, team)

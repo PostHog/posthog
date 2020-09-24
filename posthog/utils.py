@@ -1,6 +1,5 @@
 import base64
 import datetime
-import functools
 import gzip
 import hashlib
 import json
@@ -8,23 +7,20 @@ import os
 import re
 import subprocess
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlparse
 
 import lzstring  # type: ignore
 import pytz
 import redis
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.apps import apps
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.request import Request
 from sentry_sdk import push_scope
 
 
@@ -91,6 +87,36 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
     return resp
 
 
+def get_git_branch() -> Optional[str]:
+    """
+    Returns the symbolic name of the current active branch. Will return None in case of failure.
+    Example: get_git_branch()
+        => "master"
+    """
+
+    try:
+        return (
+            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+            .decode("utf-8")
+            .strip()
+        )
+    except Exception:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    """
+    Returns the short hash of the last commit.
+    Example: get_git_commit()
+        => "4ff54c8d"
+    """
+
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
+    except Exception:
+        return None
+
+
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
 
@@ -98,7 +124,7 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context = {}
     template = get_template(template_name)
     try:
-        context["opt_out_capture"] = request.user.team_set.get().opt_out_capture
+        context["opt_out_capture"] = request.user.team.opt_out_capture
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.all()
         # if there's one team on the instance, and they've set opt_out
@@ -109,10 +135,10 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
     if os.environ.get("OPT_OUT_CAPTURE"):
         context["opt_out_capture"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET",):
         context["github_auth"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET",):
         context["gitlab_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
@@ -120,20 +146,8 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        try:
-            context["git_rev"] = (
-                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()
-            )
-        except:
-            context["git_rev"] = None
-        try:
-            context["git_branch"] = (
-                subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
-                .decode("ascii")
-                .strip()
-            )
-        except:
-            context["git_branch"] = None
+        context["git_rev"] = get_git_commit()
+        context["git_branch"] = get_git_branch()
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -218,112 +232,6 @@ def cors_response(request, response):
     return response
 
 
-class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
-    """A way of authenticating with personal API keys.
-    Only the first key candidate found in the request is tried, and the order is:
-    1. Request Authorization header of type Bearer.
-    2. Request body.
-    3. Request query string.
-    """
-
-    keyword = "Bearer"
-
-    @classmethod
-    def find_key_with_source(
-        cls,
-        request: Union[HttpRequest, Request],
-        request_data: Optional[Dict[str, Any]] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Tuple[str, str]]:
-        """Try to find personal API key in request and return it along with where it was found."""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(fr"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
-            if authorization_match:
-                return authorization_match.group(1).strip(), "Authorization header"
-        if request_data is None and isinstance(request, Request):
-            data = request.data
-        else:
-            data = request_data or {}
-        if "personal_api_key" in data:
-            return data["personal_api_key"], "body"
-        if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
-        return None
-
-    @classmethod
-    def find_key(
-        cls,
-        request: Union[HttpRequest, Request],
-        request_data: Optional[Dict[str, Any]] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        """Try to find personal API key in request and return it."""
-        key_with_source = cls.find_key_with_source(request, request_data, extra_data)
-        return key_with_source[0] if key_with_source is not None else None
-
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
-        personal_api_key_with_source = cls.find_key_with_source(request)
-        if not personal_api_key_with_source:
-            return None
-        personal_api_key, source = personal_api_key_with_source
-        PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
-        try:
-            personal_api_key_object = (
-                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=personal_api_key)
-            )
-        except PersonalAPIKey.DoesNotExist:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
-        personal_api_key_object.last_used_at = timezone.now()
-        personal_api_key_object.save()
-        assert personal_api_key_object.user is not None
-        return personal_api_key_object.user, None
-
-    @classmethod
-    def authenticate_header(cls, request) -> str:
-        return cls.keyword
-
-
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesn't exist")
-            return (user.first(), None)
-        return None
-
-
-class PublicTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
-            Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
-            dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
-            )
-            if not dashboard.exists():
-                raise AuthenticationFailed(detail="Dashboard doesn't exist")
-            return (AnonymousUser(), None)
-        return None
-
-
 def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
@@ -341,25 +249,6 @@ def get_redis_heartbeat() -> Union[str, int]:
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
     return "offline"
-
-
-def authenticate_secondarily(endpoint):
-    """Proper authentication for function views."""
-
-    @functools.wraps(endpoint)
-    def wrapper(request: HttpRequest):
-        if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
-                    request.user = auth_result[0]
-                else:
-                    raise AuthenticationFailed("Authentication credentials were not provided.")
-            except AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
-        return endpoint(request)
-
-    return wrapper
 
 
 def base64_to_json(data) -> Dict:
@@ -414,3 +303,21 @@ def load_data_from_request(request):
     data_res["data"] = data
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data_res
+
+
+class SingletonDecorator:
+    def __init__(self, klass):
+        self.klass = klass
+        self.instance = None
+
+    def __call__(self, *args, **kwds):
+        if self.instance == None:
+            self.instance = self.klass(*args, **kwds)
+        return self.instance
+
+
+def get_machine_id() -> str:
+    """A MAC address-dependent ID. Useful for PostHog instance analytics."""
+    # MAC addresses are 6 bits long, so overflow shouldn't happen
+    # hashing here as we don't care about the actual address, just it being rather consistent
+    return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()

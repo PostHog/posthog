@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
@@ -41,3 +42,10 @@ class ClickhouseInsights(InsightViewSet):
         filter = Filter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
+
+    @action(methods=["GET"], detail=False)
+    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = request.user.team_set.get()
+        filter = Filter(request=request)
+        response = ClickhouseFunnel(team=team, filter=filter).run()
+        return Response(response)
