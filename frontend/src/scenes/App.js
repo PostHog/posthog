@@ -52,6 +52,10 @@ function App() {
     }, [location.pathname])
 
     if (unauthenticatedRoutes.includes(scene)) {
+        if (user) {
+            /* User is already logged in, redirect */
+            window.location.href = '/'
+        }
         return (
             <>
                 <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
