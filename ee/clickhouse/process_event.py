@@ -85,8 +85,6 @@ if check_ee_enabled():
         person_uuid = uuid4()
         event_uuid = uuid4()
         ts = handle_timestamp(data, now, sent_at)
-        if isinstance(ts, str):
-            ts = datetime.datetime.now()
 
         if data["event"] == "$create_alias":
             emit_omni_person(
