@@ -151,7 +151,7 @@ export function AnnotationMarker({
                                         <i style={{ color: 'gray', marginRight: 6 }}>
                                             {humanFriendlyDetailedTime(data.created_at)}
                                         </i>
-                                        {data.apply_all && (
+                                        {data.scope !== 'dashboard_item' && (
                                             <Tooltip title="This note is shown on all charts">
                                                 <GlobalOutlined></GlobalOutlined>
                                             </Tooltip>

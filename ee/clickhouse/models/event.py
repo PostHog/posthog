@@ -1,6 +1,5 @@
 import json
-import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
@@ -14,6 +13,7 @@ from ee.kafka.client import KafkaProducer
 from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.team import Team
+from posthog.models.utils import uuid1_macless
 
 
 def create_event(
@@ -37,8 +37,8 @@ def create_event(
 
     if elements and not element_hash:
         element_hash = create_elements(elements=elements, team=team)
+    event_id = uuid1_macless()
 
-    event_id = uuid.uuid4()
     data = {
         "id": str(event_id),
         "event": event,
