@@ -5,6 +5,7 @@ from uuid import UUID
 from rest_framework import serializers
 
 from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
     GET_ELEMENT_GROUP_BY_HASH_SQL,
@@ -17,12 +18,10 @@ from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
-from posthog.models.utils import uuid1_macless
 
 
-def create_element_group(team: Team, element_hash: str) -> UUID:
-    id = uuid1_macless()
-    p = KafkaProducer()
+def create_element_group(team: Team, element_hash: str) -> str:
+    id = generate_clickhouse_uuid()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
     if KAFKA_ENABLED:
         p = KafkaProducer()
@@ -32,7 +31,7 @@ def create_element_group(team: Team, element_hash: str) -> UUID:
     return id
 
 
-def create_element(element: Element, team: Team, group_id: UUID) -> None:
+def create_element(element: Element, team: Team, group_id: str) -> None:
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
@@ -44,7 +43,7 @@ def create_element(element: Element, team: Team, group_id: UUID) -> None:
         "attributes": json.dumps(element.attributes or {}),
         "order": element.order or 0,
         "team_id": team.pk,
-        "group_id": str(group_id),
+        "group_id": group_id,
     }
     if KAFKA_ENABLED:
         p = KafkaProducer()
