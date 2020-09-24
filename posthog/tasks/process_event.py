@@ -184,7 +184,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
+def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.datetime:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
