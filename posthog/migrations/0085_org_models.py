@@ -17,7 +17,9 @@ def forwards_func(apps, schema_editor):
     OrganizationMembership = apps.get_model("posthog", "OrganizationMembership")
     Annotation = apps.get_model("posthog", "Annotation")
     for user in User.objects.all():
-        team = user.team_set.get()
+        team = user.team_set.first()
+        if not team:
+            continue
         deterministic_derived_uuid = uuid.UUID(hashlib.md5(team.id.to_bytes(16, "big")).hexdigest())
         try:
             # try to keep users from the same old team in the same new organization
