@@ -9,9 +9,10 @@ from django.utils.timezone import now
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person, update_person_is_identified, update_person_properties
+from ee.clickhouse.models.person import update_person_is_identified, update_person_properties
 from posthog.models import Team
 from posthog.models.element import Element
+from posthog.models.person import Person
 
 
 def create_anonymous_users_ch(team: Team, base_url: str) -> None:
@@ -28,7 +29,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
         distinct_id = generate_clickhouse_uuid()
-        person_id = create_person(team_id=team.pk, distinct_ids=[distinct_id], properties={"is_demo": True})
+        person = Person.objects.create(team_id=team.pk, distinct_ids=[distinct_id], properties={"is_demo": True})
 
         create_event(
             team=team,
@@ -40,8 +41,8 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
 
         if index % 3 == 0:
 
-            update_person_properties(team_id=team.pk, id=person_id, properties=demo_data[demo_data_index])
-            update_person_is_identified(team_id=team.pk, id=person_id, is_identified=True)
+            update_person_properties(team_id=team.pk, id=person.uuid, properties=demo_data[demo_data_index])
+            update_person_is_identified(team_id=team.pk, id=person.uuid, is_identified=True)
             demo_data_index += 1
 
             elements = [

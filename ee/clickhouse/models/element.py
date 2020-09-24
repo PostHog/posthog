@@ -4,6 +4,7 @@ from typing import List
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS
@@ -14,7 +15,9 @@ from posthog.models.team import Team
 
 
 def create_element(element: Element, team: Team, elements_hash: str) -> None:
+    element_id = generate_clickhouse_uuid()
     data = {
+        "id": element_id,
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",

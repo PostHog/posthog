@@ -212,7 +212,6 @@ def demo(request):
         from ee.clickhouse.models.event import get_events_by_team
 
         result = get_events_by_team(team_id=team.pk)
-
         if not result:
             create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo/"))
 

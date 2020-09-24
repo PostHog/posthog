@@ -67,7 +67,7 @@ FROM kafka_{table_name}
 
 INSERT_ELEMENTS_SQL = """
 INSERT INTO elements SELECT 
-    generateUUIDv4(), 
+    %(id)s, 
     %(text)s,
     %(tag_name)s,
     %(href)s,
