@@ -79,7 +79,7 @@ OMNI_PERSONS_TABLE_SQL = (
     table_name=OMNI_PERSONS_TABLE, engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY
 )
 
-KAFKA_OMNI_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
+KAFKA_OMNI_PERSONS_TABLE_SQL = OMNI_PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON)
 )
 
@@ -98,7 +98,7 @@ _timestamp,
 _offset
 FROM kafka_{table_name} 
 """.format(
-    table_name=PERSONS_TABLE
+    table_name=OMNI_PERSONS_TABLE
 )
 
 
