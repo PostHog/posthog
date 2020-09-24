@@ -4,7 +4,7 @@ from uuid import UUID
 
 from rest_framework import serializers
 
-from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
@@ -13,7 +13,7 @@ from ee.clickhouse.sql.elements import (
     INSERT_ELEMENT_GROUP_SQL,
     INSERT_ELEMENTS_SQL,
 )
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
@@ -23,11 +23,8 @@ from posthog.models.team import Team
 def create_element_group(team: Team, element_hash: str) -> str:
     id = generate_clickhouse_uuid()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    if KAFKA_ENABLED:
-        p = KafkaProducer()
-        p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
-    else:
-        async_execute(INSERT_ELEMENT_GROUP_SQL, data)
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, sql=INSERT_ELEMENT_GROUP_SQL, data=data)
     return id
 
 
@@ -45,11 +42,8 @@ def create_element(element: Element, team: Team, group_id: str) -> None:
         "team_id": team.pk,
         "group_id": group_id,
     }
-    if KAFKA_ENABLED:
-        p = KafkaProducer()
-        p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
-    else:
-        async_execute(INSERT_ELEMENTS_SQL, data)
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
 def create_elements(elements: List[Element], team: Team) -> str:

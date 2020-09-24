@@ -4,11 +4,9 @@ from typing import Any, Dict, List, Optional
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-from django.forms.models import model_to_dict
 from rest_framework import serializers
 
-from ee.clickhouse.client import KAFKA_ENABLED, async_execute, sync_execute
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
@@ -24,7 +22,7 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer, KafkaProducer
 from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
@@ -69,15 +67,8 @@ def create_person(
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
     }
-
-    if KAFKA_ENABLED:
-        p = KafkaProducer()
-        p.produce(topic=KAFKA_PERSON, data=json.dumps(data))
-    elif sync:
-        sync_execute(INSERT_PERSON_SQL, data)
-    else:
-        async_execute(INSERT_PERSON_SQL, data)
-
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
     return uid
 
 
@@ -93,12 +84,8 @@ def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> N
 
 def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
     data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
-
-    if KAFKA_ENABLED:
-        p = KafkaProducer()
-        p.produce(topic=KAFKA_PERSON_UNIQUE_ID, data=json.dumps(data))
-    else:
-        async_execute(INSERT_PERSON_DISTINCT_ID, data)
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
 
 
 def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
