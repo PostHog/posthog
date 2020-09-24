@@ -408,6 +408,14 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
             self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
+            response = paths().run(team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/"}),)
+
+            self.assertEqual(len(response), 3)
+
+            self.assertTrue(response[0].items() >= {"source": "1_/", "target": "2_/about", "value": 2}.items())
+            self.assertTrue(response[1].items() >= {"source": "1_/", "target": "2_/pricing", "value": 2}.items())
+            self.assertTrue(response[2].items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items())
+
         def test_paths_in_window(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
 
