@@ -1,4 +1,4 @@
-from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
 from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
@@ -72,13 +72,15 @@ CREATE TABLE {table_name}
 
 OMNI_PERSONS_TABLE_SQL = (
     PERSONS_TABLE_BASE_SQL
-    + """Order By (team_id, id, distinct_id)
+    + """Order By (team_id, uuid, distinct_id)
 {storage_policy}
 """
-).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=OMNI_PERSONS_TABLE, engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY
+)
 
 KAFKA_OMNI_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
+    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON)
 )
 
 OMNI_PERSONS_TABLE_MV_SQL = """

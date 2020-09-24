@@ -60,7 +60,7 @@ def get_events():
 
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     event = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
@@ -68,7 +68,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_id(self, event):
+    def get_uuid(self, event):
         return str(event[0])
 
     def get_properties(self, event):

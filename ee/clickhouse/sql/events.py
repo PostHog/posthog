@@ -39,8 +39,8 @@ CREATE TABLE {table_name}
 EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, id)
-SAMPLE BY id 
+ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
+SAMPLE BY uuid 
 {storage_policy}
 """
 ).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
@@ -69,7 +69,7 @@ FROM kafka_{table_name}
 )
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT %(id)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, %(created_at)s, now(), 0
+INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, %(created_at)s, now(), 0
 """
 
 GET_EVENTS_SQL = """
@@ -93,8 +93,8 @@ CREATE TABLE events_with_array_props_view
     _offset UInt64
 ) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, id)
-SAMPLE BY id
+ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
+SAMPLE BY uuid 
 {storage_policy}
 """.format(
     engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY

@@ -1,6 +1,6 @@
 import json
 from typing import List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
@@ -16,6 +16,7 @@ from posthog.models.team import Team
 
 def create_element(element: Element, team: Team, event_uuid: UUID, elements_hash: str) -> None:
     data = {
+        "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
@@ -65,7 +66,7 @@ def get_all_elements(final: bool = False):
 
 
 class ClickhouseElementSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField()
     text = serializers.SerializerMethodField()
     tag_name = serializers.SerializerMethodField()
     href = serializers.SerializerMethodField()
@@ -79,7 +80,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_id(self, element):
+    def get_uuid(self, element):
         return element[0]
 
     def get_text(self, element):
