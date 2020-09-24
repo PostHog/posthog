@@ -164,19 +164,15 @@ class ClickhousePersonSerializer(serializers.Serializer):
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
     distinct_id = serializers.SerializerMethodField()
     person_id = serializers.SerializerMethodField()
     team_id = serializers.SerializerMethodField()
 
-    def get_id(self, pid):
+    def get_distinct_id(self, pid):
         return pid[0]
 
-    def get_distinct_id(self, pid):
+    def get_person_id(self, pid):
         return pid[1]
 
-    def get_person_id(self, pid):
-        return pid[2]
-
     def get_team_id(self, pid):
-        return pid[3]
+        return pid[2]
