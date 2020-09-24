@@ -25,7 +25,7 @@ class TestMixin:
             self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
         if self.TESTS_API:
             self.client = Client()
-            if self.TESTS_FORCE_LOGIN:
+            if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
                 self.client.force_login(self.user)
 
 
@@ -57,6 +57,6 @@ class APIBaseTest(APITestCase):
         super().setUp()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
-        self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-        if self.TESTS_FORCE_LOGIN:
+        if self.TESTS_EMAIL:
+            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
             self.client.force_login(self.user)
