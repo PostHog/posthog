@@ -71,7 +71,7 @@ CREATE TABLE {table_name}
 """
 
 OMNI_PERSONS_TABLE_SQL = (
-    PERSONS_TABLE_BASE_SQL
+    OMNI_PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, uuid, distinct_id)
 {storage_policy}
 """
