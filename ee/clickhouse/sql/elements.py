@@ -94,6 +94,7 @@ INSERT INTO elements SELECT
 GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
     SELECT 
         argMax(uuid, _timestamp) uuid,
+        any(event_uuid) event_uuid, 
         any(text) text,
         any(tag_name) tag_name,
         any(href) href,
@@ -105,7 +106,9 @@ GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
         order,
         team_id,
         max(_timestamp) _timestamp_,
-        elements_hash
+        elements_hash,
+        now(),
+        0
     FROM elements
     WHERE elements_hash = %(elements_hash)s AND team_id=%(team_id)s
     GROUP BY team_id, elements_hash, order

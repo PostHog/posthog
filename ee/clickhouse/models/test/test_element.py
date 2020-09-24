@@ -75,6 +75,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(get_all_elements()), 4)
 
         create_elements(
+            event_uuid=uuid.uuid4(),
             team=self.team,
             elements=[
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
