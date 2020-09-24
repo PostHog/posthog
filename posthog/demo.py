@@ -82,7 +82,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     event="$pageview",
                     team=team,
                     distinct_id=distinct_id,
-                    properties={"$current_url": "%s1/" % base_url, "$browser": browser, "$lib": "web",},
+                    properties={"$current_url": "%s/1" % base_url, "$browser": browser, "$lib": "web",},
                     timestamp=date + relativedelta(seconds=15),
                 )
             )
@@ -92,7 +92,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     event="$autocapture",
                     distinct_id=distinct_id,
                     properties={
-                        "$current_url": "%s1/" % base_url,
+                        "$current_url": "%s/1" % base_url,
                         "$browser": browser,
                         "$lib": "web",
                         "$event_type": "click",
@@ -111,7 +111,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                         event="$pageview",
                         team=team,
                         distinct_id=distinct_id,
-                        properties={"$current_url": "%s2/" % base_url, "$browser": browser, "$lib": "web",},
+                        properties={"$current_url": "%s/2" % base_url, "$browser": browser, "$lib": "web",},
                         timestamp=date + relativedelta(seconds=30),
                     )
                 )
@@ -121,7 +121,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                         event="$autocapture",
                         distinct_id=distinct_id,
                         properties={
-                            "$current_url": "%s2/" % base_url,
+                            "$current_url": "%s/2" % base_url,
                             "$browser": browser,
                             "$lib": "web",
                             "$event_type": "click",
@@ -149,7 +149,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             event="$pageview",
                             team=team,
                             distinct_id=distinct_id,
-                            properties={"$current_url": "%s3/" % base_url, "$browser": browser, "$lib": "web",},
+                            properties={"$current_url": "%s/3" % base_url, "$browser": browser, "$lib": "web",},
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
@@ -165,12 +165,12 @@ def _create_funnel(team: Team, base_url: str) -> None:
 
     user_signed_up = Action.objects.create(team=team, name="HogFlix signed up")
     ActionStep.objects.create(
-        action=user_signed_up, event="$autocapture", url="%s1" % base_url, url_matching="contains", selector="button",
+        action=user_signed_up, event="$autocapture", url="%s/1" % base_url, url_matching="contains", selector="button",
     )
 
     user_paid = Action.objects.create(team=team, name="HogFlix paid")
     ActionStep.objects.create(
-        action=user_paid, event="$autocapture", url="%s2" % base_url, url_matching="contains", selector="button",
+        action=user_paid, event="$autocapture", url="%s/2" % base_url, url_matching="contains", selector="button",
     )
 
     dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
@@ -199,8 +199,8 @@ def _recalculate(team: Team) -> None:
 def demo(request):
     team = request.user.team_set.get()
     if not Event.objects.filter(team=team).exists():
-        _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo/"))
-        _create_funnel(team=team, base_url=request.build_absolute_uri("/demo/"))
+        _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
+        _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         _recalculate(team=team)
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
@@ -213,7 +213,7 @@ def demo(request):
         result = get_events_by_team(team_id=team.pk)
 
         if not result:
-            create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo/"))
+            create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
