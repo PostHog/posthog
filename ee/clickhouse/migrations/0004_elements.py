@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from infi.clickhouse_orm import migrations  # type: ignore
 
 from ee.clickhouse.sql.elements import (
     ELEMENTS_GROUP_TABLE_SQL,

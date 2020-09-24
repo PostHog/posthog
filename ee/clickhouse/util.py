@@ -2,7 +2,7 @@ from ee.clickhouse.client import async_execute, sync_execute
 from ee.clickhouse.sql.elements import (
     DROP_ELEMENTS_GROUP_TABLE_SQL,
     DROP_ELEMENTS_TABLE_SQL,
-    ELEMENT_GROUP_TABLE_SQL,
+    ELEMENTS_GROUP_TABLE_SQL,
     ELEMENTS_TABLE_SQL,
 )
 from ee.clickhouse.sql.events import (
@@ -33,7 +33,7 @@ class ClickhouseTestMixin:
 
         self._create_event_tables()
         sync_execute(ELEMENTS_TABLE_SQL)
-        sync_execute(ELEMENT_GROUP_TABLE_SQL)
+        sync_execute(ELEMENTS_GROUP_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
         sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
 

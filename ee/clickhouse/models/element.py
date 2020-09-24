@@ -5,6 +5,7 @@ from uuid import UUID
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import (
     GET_ELEMENT_BY_GROUP_SQL,
     GET_ELEMENT_GROUP_BY_HASH_SQL,
@@ -12,38 +13,37 @@ from ee.clickhouse.sql.elements import (
     INSERT_ELEMENT_GROUP_SQL,
     INSERT_ELEMENTS_SQL,
 )
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS, KAFKA_ELEMENTS_GROUP
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
-from posthog.models.utils import uuid1_macless
 
 
-def create_element_group(team: Team, element_hash: str) -> UUID:
-    id = uuid1_macless()()
-    p = KafkaProducer()
+def create_element_group(team: Team, element_hash: str) -> str:
+    id = generate_clickhouse_uuid()
     data = {"id": str(id), "element_hash": element_hash, "team_id": team.pk}
-    p.produce(topic=KAFKA_ELEMENTS_GROUP, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS_GROUP, sql=INSERT_ELEMENT_GROUP_SQL, data=data)
     return id
 
 
-def create_element(element: Element, team: Team, group_id: UUID) -> None:
-    p = KafkaProducer()
+def create_element(element: Element, team: Team, group_id: str) -> None:
     data = {
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
         "attr_id": element.attr_id or "",
         "attr_class": element.attr_class or [],
-        "nth_child": element.nth_child,
-        "nth_of_type": element.nth_of_type,
+        "nth_child": element.nth_child or 0,
+        "nth_of_type": element.nth_of_type or 0,
         "attributes": json.dumps(element.attributes or {}),
-        "order": element.order,
+        "order": element.order or 0,
         "team_id": team.pk,
-        "group_id": str(group_id),
+        "group_id": group_id,
     }
-    p.produce(topic=KAFKA_ELEMENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
 def create_elements(elements: List[Element], team: Team) -> str:

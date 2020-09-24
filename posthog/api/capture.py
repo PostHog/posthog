@@ -15,7 +15,7 @@ from posthog.tasks.process_event import process_event
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import process_event_ee  # type: ignore
+    from ee.clickhouse.process_event import process_event_ee
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:

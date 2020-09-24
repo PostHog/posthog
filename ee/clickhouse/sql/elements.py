@@ -83,7 +83,9 @@ INSERT INTO elements SELECT
     %(order)s,
     %(team_id)s,
     now(),
-    %(group_id)s
+    %(group_id)s,
+    now(), 
+    0
 """
 
 ELEMENTS_GROUP_TABLE = "elements_group"
@@ -130,7 +132,7 @@ FROM kafka_{table_name}
 )
 
 INSERT_ELEMENT_GROUP_SQL = """
-INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s
+INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s, now(), 0
 """
 
 GET_ELEMENT_GROUP_BY_HASH_SQL = """

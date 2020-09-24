@@ -58,7 +58,7 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv
+TEST = "test" in sys.argv  # type: bool
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
@@ -141,7 +141,12 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
 
 # IP block settings
