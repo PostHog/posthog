@@ -1,4 +1,5 @@
 import json
+from typing import Any, Dict
 
 import kafka_helper  # type: ignore
 from kafka import KafkaProducer as KP  # type: ignore
@@ -34,7 +35,7 @@ class ClickhouseProducer:
         else:
             self.send_to_kafka = False
 
-    def produce(self, sql: str, topic: str, data: str, sync: bool = True):
+    def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.send_to_kafka:
             self.producer.produce(topic=topic, data=data)
         else:
