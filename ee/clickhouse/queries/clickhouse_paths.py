@@ -103,7 +103,7 @@ class ClickhousePaths(BaseQuery):
             marked_session_start="{} = %(start_point)s".format(start_comparator)
             if filter and filter.start_point
             else "new_session",
-            element_joins="JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt32(0))"
+            element_joins="JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt64(0))"
             if event == AUTOCAPTURE_EVENT
             else "",
             excess_row_filter=excess_row_filter,
