@@ -648,6 +648,9 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
+        # Assume that clickhouse has done replacement
+        ch_client.execute("OPTIMIZE TABLE person")
+
         persons = get_persons(team_id=self.team.pk)
         self.assertEqual(
             persons[0]["properties"],
