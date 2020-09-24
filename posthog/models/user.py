@@ -177,17 +177,15 @@ class User(AbstractUser):
     @property
     def organization(self) -> Organization:
         if self.current_organization is None:
-            self.current_organization = self.organizations.first()
+            self.current_organization = self.organizations.get()
             self.save()
         return self.current_organization
 
     @property
     def team(self) -> Team:
         if self.current_team is None:
-            organization = self.organization
-            if self.organization:
-                self.current_team = organization.teams.first()
-                self.save()
+            self.current_team = self.organization.teams.get()
+            self.save()
         return self.current_team
 
     def is_feature_available(self, feature: str) -> bool:
