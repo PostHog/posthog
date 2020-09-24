@@ -22,7 +22,7 @@ class Paths(BaseQuery):
         event: Optional[str] = "$pageview"
         event_filter = {"event": event}
         path_type = "properties->> '$current_url'"
-        start_comparator = "{} ~".format(path_type)
+        start_comparator = "{} =".format(path_type)
 
         # determine requested type
         if requested_type:
@@ -30,7 +30,7 @@ class Paths(BaseQuery):
                 event = SCREEN_EVENT
                 event_filter = {"event": event}
                 path_type = "properties->> '$screen_name'"
-                start_comparator = "{} ~".format(path_type)
+                start_comparator = "{} =".format(path_type)
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 event_filter = {"event": event}
@@ -150,17 +150,16 @@ class Paths(BaseQuery):
             final
         )
 
-        cursor = connection.cursor()
-        cursor.execute(
-            "\
+        query = "\
         SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from ({}) as counts\
         where source_event is not null and target_event is not null\
         group by source_event, target_event order by count desc limit 20\
         ".format(
-                counts
-            ),
-            sessions_sql_params,
+            counts
         )
+
+        cursor = connection.cursor()
+        cursor.execute(query, sessions_sql_params)
         rows = cursor.fetchall()
 
         for row in rows:
