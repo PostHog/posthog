@@ -72,7 +72,7 @@ def emit_omni_person(
         "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = KafkaProducer()
-    p.produce(topic=KAFKA_OMNI_PERSON, data=data, sync=sync)
+    p.produce(topic=KAFKA_OMNI_PERSON, data=data)
     return uuid
 
 
