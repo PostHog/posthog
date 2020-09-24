@@ -3,6 +3,7 @@ from typing import Optional
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
+from posthog.cache import clear_cache
 from posthog.models import Organization, OrganizationMembership, Team, User, organization
 
 
@@ -19,6 +20,7 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()  # type: ignore
+        clear_cache()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:

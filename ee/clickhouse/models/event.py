@@ -22,7 +22,7 @@ def create_event(
     distinct_id: str,
     timestamp: Optional[Union[datetime, str]],
     properties: Optional[Dict] = {},
-    element_hash: Optional[str] = "",
+    elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
 ) -> None:
 
@@ -35,8 +35,9 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    if elements and not element_hash:
-        element_hash = create_elements(elements=elements, team=team)
+    if elements and not elements_hash:
+        elements_hash = create_elements(elements=elements, team=team)
+
     event_id = generate_clickhouse_uuid()
 
     data = {
@@ -46,7 +47,7 @@ def create_event(
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "element_hash": element_hash,
+        "elements_hash": elements_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = ClickhouseProducer()
