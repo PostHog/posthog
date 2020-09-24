@@ -36,31 +36,23 @@ function cleanPathParams(filters, properties) {
 }
 
 export const pathsLogic = kea({
-    loaders: ({ values }) => ({
-        paths: {
-            __default: {
-                nodes: [],
-                links: [],
-            },
-            loadPaths: async (_, breakpoint) => {
-                const params = toParams({ ...values.filter, properties: values.properties })
-                const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
-                breakpoint()
-
-                const nodes = [...paths.map((p) => p.source), ...paths.map((p) => p.target)]
-
-                const response = {
-                    nodes: [...new Set(nodes)].map((name) => ({ name })), // get uniques
-                    links: paths,
-                }
-
-                return response
-            },
-        },
-    }),
     connect: {
         actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
+    loaders: ({ values }) => ({
+        loadedPaths: [
+            { paths: [], filter: {} },
+            {
+                loadPaths: async (_, breakpoint) => {
+                    const filter = { ...values.filter, properties: values.properties }
+                    const params = toParams(filter)
+                    const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    breakpoint()
+                    return { paths, filter }
+                },
+            },
+        ],
+    }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
@@ -94,9 +86,24 @@ export const pathsLogic = kea({
             actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
     }),
-    selectors: ({ selectors }) => ({
+    selectors: {
+        paths: [
+            (s) => [s.loadedPaths],
+            (loadedPaths) => {
+                const { paths } = loadedPaths
+                const response = {
+                    nodes: [
+                        ...paths.map((path) => ({ name: path.source, id: path.source_id })),
+                        ...paths.map((path) => ({ name: path.target, id: path.target_id })),
+                    ],
+                    links: paths,
+                }
+                return response
+            },
+        ],
+        loadedFilter: [(s) => [s.loadedPaths, s.filter], (loadedPaths, filter) => loadedPaths?.filter || filter],
         propertiesForUrl: [
-            () => [selectors.properties, selectors.filter],
+            (s) => [s.properties, s.filter],
             (properties, filter) => {
                 let result = {
                     insight: ViewType.PATHS,
@@ -115,7 +122,7 @@ export const pathsLogic = kea({
                 return Object.keys(result).length === 0 ? '' : result
             },
         ],
-    }),
+    },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
             return [router.values.location.pathname, values.propertiesForUrl]

@@ -50,8 +50,14 @@ function pageUrl(d) {
         .map((a) => new URL(a))
     const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
 
-    const url = new URL(d.name.replace(/(^[0-9]+_)/, ''))
-    const name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+    let name = d.name.replace(/(^[0-9]+_)/, '')
+
+    try {
+        const url = new URL(name)
+        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+    } catch {
+        // discard if invalid url
+    }
 
     return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
 }
@@ -72,7 +78,7 @@ function NoData() {
 
 export function Paths() {
     const canvas = useRef(null)
-    const { paths, filter, pathsLoading } = useValues(pathsLogic)
+    const { paths, loadedFilter, pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [event, setEvent] = useState(null)
@@ -201,16 +207,16 @@ export function Paths() {
             .attr('dy', '0.35em')
             .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
-            .text(filter.path_type === PAGEVIEW ? pageUrl : pathText)
+            .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
             .on('click', async (node) => {
-                if (filter.path_type === AUTOCAPTURE) {
+                if (loadedFilter.path_type === AUTOCAPTURE) {
                     setModalVisible(true)
                     setEvent(null)
                     let result = await api.get('api/event/' + node.id)
                     setEvent(result)
                 }
             })
-            .style('cursor', filter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -224,7 +230,7 @@ export function Paths() {
 
     return (
         <div>
-            {filter.path_type === AUTOCAPTURE && (
+            {loadedFilter.path_type === AUTOCAPTURE && (
                 <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
             )}
             <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
