@@ -24,7 +24,7 @@ def forwards_func(apps, schema_editor):
             user.current_organization = Organization.objects.get(id=deterministic_derived_uuid)
         except Organization.DoesNotExist:
             # if no organization exists for the old team yet, create it
-            user.current_organization = Organization.objects.create(id=deterministic_derived_uuid, name=team.name)
+            user.current_organization = Organization.objects.create(id=deterministic_derived_uuid, name=team.name or "Your Organization")
             team.organization = user.current_organization
             team.save()
             for annotation in Annotation.objects.filter(team=team):
@@ -33,7 +33,7 @@ def forwards_func(apps, schema_editor):
                 annotation.scope = "organization" if annotation.apply_all else "dashboard_item"
                 annotation.save()
         # migrated users become admins (level 8)
-        OrganizationMembership.objects.create(organization=user.current_organization, user=user, level=8)
+        OrganizationMembership.objects.create(organization=user.current_organization, user=user, level=OrganizationMembership.Level.ADMIN)
         user.current_team = user.current_organization.teams.get()
         user.save()
 
