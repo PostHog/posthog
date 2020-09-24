@@ -65,7 +65,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 event="$autocapture",
                 properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
                 timestamp=date + relativedelta(seconds=14),
-                element_hash=element_hash,
+                elements_hash=element_hash,
             )
 
             create_event(
@@ -97,7 +97,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         "$event_type": "click",
                     },
                     timestamp=date + relativedelta(seconds=29),
-                    element_hash=element_hash,
+                    elements_hash=element_hash,
                 )
 
                 create_event(
@@ -130,7 +130,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                             "$event_type": "click",
                         },
                         timestamp=date + relativedelta(seconds=59),
-                        element_hash=element_hash,
+                        elements_hash=element_hash,
                     )
 
                     create_event(
