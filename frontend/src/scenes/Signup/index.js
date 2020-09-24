@@ -1,12 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { signupLogic } from './logic'
 import hedgehogBlue from '../../../public/hedgehog-blue.png'
 import posthogLogo from '../../../public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
-import { userLogic } from 'scenes/userLogic'
 
 function Signup() {
     const [state, setState] = useState({ submitted: false })
@@ -21,8 +19,6 @@ function Signup() {
     const logic = signupLogic()
     const { createAccount } = useActions(logic)
     const { account, accountLoading } = useValues(logic)
-    const { user } = useValues(userLogic)
-    const { replace } = useActions(router)
 
     const { plan } = queryString.parse(location.search)
 
@@ -55,10 +51,6 @@ function Signup() {
         }
         createAccount(payload)
     }
-
-    useEffect(() => {
-        if (user) replace('/')
-    }, [user])
 
     useEffect(() => {
         if (account && Object.keys(account).length > 0) window.location.href = '/'
