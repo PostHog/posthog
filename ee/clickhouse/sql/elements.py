@@ -178,8 +178,7 @@ SELECT concat('<', elements.tag_name, '> ', elements.text) AS tag_name,
        events.elements_hash as tag_hash,
        count(*) as tag_count
 FROM events
-JOIN elements_group ON elements_group.elements_hash = events.elements_hash
-JOIN elements ON (elements.group_id = elements_group.id AND elements.order = toInt32(0))
+JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt32(0))
 WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, tag_hash
 ORDER BY tag_count desc, tag_name
