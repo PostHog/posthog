@@ -14,6 +14,11 @@ GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
 
+KAFKA_COLUMNS = """
+, _timestamp
+, _offset
+"""
+
 
 def table_engine(table: str, ver: str) -> str:
     return TABLE_ENGINE.format(table=table, ver=ver)
