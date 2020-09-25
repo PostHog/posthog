@@ -1,5 +1,6 @@
+import datetime
 import json
-from typing import List
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from rest_framework import serializers
@@ -14,10 +15,15 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element(element: Element, team: Team, event_uuid: UUID, elements_hash: str) -> None:
+def create_element(
+    element: Element, team: Team, event_uuid: UUID, elements_hash: str, timestamp: Optional[datetime.datetime] = None,
+) -> None:
+    if not timestamp:
+        timestamp = datetime.datetime.now()
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
+        "created_at": timestamp.isoformat(),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
