@@ -19,9 +19,7 @@ CREATE TABLE {table_name}
     created_at datetime,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    _timestamp UInt64,
-    _offset UInt64
+    is_identified Boolean
 ) ENGINE = {engine} 
 """
 
@@ -64,9 +62,7 @@ CREATE TABLE {table_name}
     distinct_id VARCHAR,
     properties VARCHAR,
     is_identified Boolean,
-    ts DateTime, 
-    _timestamp UInt64,
-    _offset UInt64
+    ts DateTime
 ) ENGINE = {engine} 
 """
 

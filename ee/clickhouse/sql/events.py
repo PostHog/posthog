@@ -30,9 +30,7 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime64(6, 'UTC'),
-    _timestamp UInt64,
-    _offset UInt64
+    created_at DateTime64(6, 'UTC')
 ) ENGINE = {engine} 
 """
 

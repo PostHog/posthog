@@ -28,9 +28,7 @@ CREATE TABLE {table_name}
     order Int64,
     team_id Int64,
     created_at DateTime,
-    elements_hash VARCHAR,
-    _timestamp UInt64,
-    _offset UInt64
+    elements_hash VARCHAR
 ) ENGINE = {engine} 
 """
 
