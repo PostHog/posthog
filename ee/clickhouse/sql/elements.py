@@ -1,6 +1,6 @@
 from ee.kafka.topics import KAFKA_ELEMENTS
 
-from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_ELEMENTS_TABLE_SQL = """
 DROP TABLE elements
@@ -27,10 +27,9 @@ CREATE TABLE {table_name}
     attributes VARCHAR,
     order Int64,
     team_id Int64,
-    created_at DateTime,
-    elements_hash VARCHAR,
-    _timestamp UInt64,
-    _offset UInt64
+    created_at DateTime64,
+    elements_hash VARCHAR
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -40,10 +39,15 @@ ELEMENTS_TABLE_SQL = (
 ORDER BY (team_id, elements_hash, order)
 {storage_policy}
 """
-).format(table_name=ELEMENTS_TABLE, engine=table_engine(ELEMENTS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=ELEMENTS_TABLE,
+    engine=table_engine(ELEMENTS_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
+    storage_policy=STORAGE_POLICY,
+)
 
 KAFKA_ELEMENTS_TABLE_SQL = ELEMENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + ELEMENTS_TABLE, engine=kafka_engine(topic=KAFKA_ELEMENTS)
+    table_name="kafka_" + ELEMENTS_TABLE, engine=kafka_engine(topic=KAFKA_ELEMENTS), extra_fields=""
 )
 
 ELEMENTS_TABLE_MV_SQL = """
@@ -134,7 +138,7 @@ CREATE TABLE elements_with_array_props_view
     attributes VARCHAR,
     order Int64,
     team_id Int64,
-    created_at DateTime,
+    created_at DateTime64,
     elements_hash VARCHAR,
     array_attribute_keys Array(VARCHAR),
     array_attribute_values Array(VARCHAR),
