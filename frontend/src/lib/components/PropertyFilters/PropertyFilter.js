@@ -27,6 +27,7 @@ function PropertyPaneContents({
                     autoFocus={!propkey}
                     defaultOpen={!propkey}
                     placeholder="Property key"
+                    data-attr="property-filter-dropdown"
                     labelInValue
                     value={
                         type === 'cohort'

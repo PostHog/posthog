@@ -4,8 +4,8 @@ from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
-from posthog.utils import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -37,11 +37,11 @@ class ElementViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
 
-        return queryset.filter(group__team=self.request.user.team_set.get())
+        return queryset.filter(group__team=self.request.user.team)
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request) -> response.Response:
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         filter = Filter(request=request)
 
         events = (
@@ -108,7 +108,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=request.user.team_set.get().pk, key=key
+                where=where, team_id=request.user.team.pk, key=key
             ),
             params,
         )

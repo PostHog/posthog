@@ -1,0 +1,19 @@
+{
+  "namespace": "com.posthog.ee",
+  "name": "elements_hash",
+  "type": "record",
+  "fields" : [
+    {
+      "name" : "id",
+      "type" : "string"
+    },
+    {
+      "name" : "elements_hash",
+      "type" : "string"
+    },
+    {
+      "name" : "team_id",
+      "type" : "long"
+    }
+  ]
+}

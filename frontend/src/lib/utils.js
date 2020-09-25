@@ -233,6 +233,20 @@ export const formatProperty = (property) => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
+// Format a label that gets returned from the /insights api
+export const formatLabel = (label, action) => {
+    let math = 'Total'
+    if (action.math === 'dau') label += ` (${action.math.toUpperCase()}) `
+    else label += ` (${math}) `
+    if (action && action.properties && !_.isEmpty(action.properties)) {
+        label += ` (${action.properties
+            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .join(', ')})`
+    }
+
+    return label
+}
+
 export const deletePersonData = (person, callback) => {
     window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
         api.delete('api/person/' + person.id).then(() => {
