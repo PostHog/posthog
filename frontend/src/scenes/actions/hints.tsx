@@ -1,7 +1,7 @@
 import React from 'react'
 
-export const URL_MATCHING_HINTS = {
-    exact: undefined,
+export const URL_MATCHING_HINTS: Record<string, JSX.Element | null> = {
+    exact: null,
     contains: (
         <>
             Use <code>%</code> for wildcard, for example: <code>/user/%/edit</code>.
