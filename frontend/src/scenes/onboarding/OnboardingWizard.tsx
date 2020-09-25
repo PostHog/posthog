@@ -1,33 +1,25 @@
 import React, { useState } from 'react'
 import { Row, List, Button } from 'antd'
-import './onboardingWizard.scss'
+import './OnboardingWizard.scss'
 
 import { CardContainer } from './CardContainer'
 import { VerificationPanel } from 'scenes/onboarding/VerificationPanel'
 import { AutocapturePanel } from 'scenes/onboarding/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/onboarding/InstructionsPanel'
 import {
-    ANDROID,
     API,
     AUTOCAPTURE,
-    ELIXIR,
-    FLUTTER,
     FRAMEWORK,
-    GO,
     INSTRUCTIONS,
-    IOS,
     MOBILE,
-    NODEJS,
-    PHP,
+    mobileFrameworks,
     PLATFORM_TYPE,
     platformTypes,
-    PURE_JS,
-    PYTHON,
-    REACT_NATIVE,
-    RUBY,
     VERIFICATION,
     WEB,
+    webFrameworks,
 } from 'scenes/onboarding/constants'
+import { Framework, PlatformType } from 'scenes/onboarding/types'
 
 const states = {
     0: PLATFORM_TYPE,
@@ -37,25 +29,17 @@ const states = {
     4: VERIFICATION,
 }
 
-const webFrameworks = {
-    [PURE_JS]: 'JavaScript',
-    [NODEJS]: 'Node.js',
-    [GO]: 'Go',
-    [RUBY]: 'Ruby',
-    [PYTHON]: 'Python',
-    [PHP]: 'PHP',
-    [ELIXIR]: 'Elixir',
-}
-
-const mobileFrameworks = {
-    [ANDROID]: 'Android',
-    [IOS]: 'iOS',
-    [REACT_NATIVE]: 'React Native',
-    [FLUTTER]: 'Flutter',
+type CreatePanelParameters = {
+    onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
+    reverse: () => void
+    onCustomContinue: () => void
+    platformType: PlatformType
+    framework: Framework
+    onApiContinue: () => void
 }
 
 const content = {
-    PLATFORM_TYPE: function CreatePlatformPanel(props) {
+    PLATFORM_TYPE: function CreatePlatformPanel({ onSubmit }: CreatePanelParameters): JSX.Element {
         return (
             <CardContainer index={0}>
                 <h1>Welcome to PostHog</h1>
@@ -70,7 +54,7 @@ const content = {
                             data-attr={'select-platform-' + type}
                             key={type}
                             style={{ marginRight: 10 }}
-                            onClick={() => props.onSubmit({ type })}
+                            onClick={() => onSubmit({ type: type as PlatformType })}
                         >
                             {type}
                         </Button>
@@ -79,15 +63,20 @@ const content = {
             </CardContainer>
         )
     },
-    AUTOCAPTURE: function CreateAutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
-        return (
-            <AutocapturePanel user={user} onSubmit={onSubmit} reverse={reverse} onCustomContinue={onCustomContinue} />
-        )
+    AUTOCAPTURE: function CreateAutocapturePanel({
+        onSubmit,
+        reverse,
+        onCustomContinue,
+    }: CreatePanelParameters): JSX.Element {
+        return <AutocapturePanel onSubmit={onSubmit} reverse={reverse} onCustomContinue={onCustomContinue} />
     },
-    FRAMEWORK: function CreateFrameworkPanel({ platformType, reverse, onSubmit, onApiContinue }) {
-        let frameworks = {}
-        if (platformType === WEB) frameworks = webFrameworks
-        else if (platformType === MOBILE) frameworks = mobileFrameworks
+    FRAMEWORK: function CreateFrameworkPanel({
+        platformType,
+        reverse,
+        onSubmit,
+        onApiContinue,
+    }: CreatePanelParameters): JSX.Element {
+        const frameworks = platformType === WEB ? webFrameworks : mobileFrameworks
 
         return (
             <CardContainer index={1} totalSteps={4} onBack={reverse}>
@@ -99,53 +88,57 @@ const content = {
                     <List
                         style={{ width: '100%' }}
                         bordered
-                        dataSource={Object.keys(frameworks)}
+                        dataSource={Object.keys(frameworks) as (keyof typeof frameworks)[]}
                         renderItem={(item) => (
                             <List.Item
                                 className="selectable-item"
                                 data-attr={'select-framework-' + item}
-                                onClick={() => onSubmit({ framework: item })}
+                                onClick={() => onSubmit({ framework: item as Framework })}
                                 key={item}
                             >
                                 {frameworks[item]}
                             </List.Item>
                         )}
-                    ></List>
+                    />
                 </Row>
                 <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
                     Don't see a language/platform/framework here?
-                    <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => onApiContinue()}>
+                    <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={onApiContinue}>
                         Continue with our HTTP API
                     </b>
                 </Row>
             </CardContainer>
         )
     },
-    INSTRUCTIONS: function CreateInstructionsPanel({ onSubmit, reverse, platformType, framework }) {
+    INSTRUCTIONS: function CreateInstructionsPanel({
+        onSubmit,
+        reverse,
+        platformType,
+        framework,
+    }: CreatePanelParameters): JSX.Element {
         return (
             <InstructionsPanel
                 onSubmit={onSubmit}
                 reverse={reverse}
                 platformType={platformType}
                 framework={framework}
-            ></InstructionsPanel>
+            />
         )
     },
-    VERIFICATION: function CreateVerificationPanel({ reverse }) {
+    VERIFICATION: function CreateVerificationPanel({ reverse }: CreatePanelParameters) {
         return <VerificationPanel reverse={reverse} />
     },
 }
 
-export default function OnboardingWizard({ user }) {
+export default function OnboardingWizard(): JSX.Element {
     const [index, setIndex] = useState(0)
-    const [platformType, setPlatformType] = useState(null)
-    const [framework, setFramework] = useState(null)
-    const [path, setPath] = useState([])
+    const [platformType, setPlatformType] = useState(null as PlatformType)
+    const [framework, setFramework] = useState(null as Framework)
+    const [path, setPath] = useState([] as number[])
 
-    function onSubmit(payload) {
+    function onSubmit({ type, framework }: { type?: PlatformType; framework?: Framework } = {}): void {
         setPath([...path, index])
-        if (index === 0) {
-            const { type } = payload
+        if (index === 0 && type) {
             setPlatformType(type)
             if (type === MOBILE) {
                 setIndex(index + 2)
@@ -154,27 +147,28 @@ export default function OnboardingWizard({ user }) {
         } else if (index === 1) {
             setIndex(4)
             return
-        } else if (index === 2) {
-            const { framework } = payload
+        } else if (index === 2 && framework) {
             setFramework(framework)
         }
         setIndex((index + 1) % 5)
     }
 
-    function reverse() {
-        let copyPath = [...path]
+    function reverse(): void {
+        const copyPath = [...path]
         const prev = copyPath.pop()
-        setIndex(prev)
+        if (typeof prev !== 'undefined') {
+            setIndex(prev)
+        }
         setPath(copyPath)
     }
 
-    function onApiContinue() {
+    function onApiContinue(): void {
         setPath([...path, index])
         setFramework(API)
         setIndex(index + 1)
     }
 
-    function onCustomContinue() {
+    function onCustomContinue(): void {
         setPath([...path, index])
         setIndex(2)
     }
@@ -184,13 +178,12 @@ export default function OnboardingWizard({ user }) {
             className="background"
             style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center' }}
         >
-            {content[states[index]]({
+            {content[states[index as 0 | 1 | 2 | 3 | 4] as keyof typeof content]({
                 onCustomContinue,
                 onSubmit,
                 platformType,
-                user,
+                framework: framework as Framework,
                 reverse,
-                framework,
                 onApiContinue,
             })}
         </div>

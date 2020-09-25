@@ -21,3 +21,20 @@ export const ANDROID = 'ANDROID'
 export const IOS = 'IOS'
 export const REACT_NATIVE = 'REACT_NATIVE'
 export const FLUTTER = 'FLUTTER'
+
+export const webFrameworks = {
+    [PURE_JS]: 'JavaScript',
+    [NODEJS]: 'Node.js',
+    [GO]: 'Go',
+    [RUBY]: 'Ruby',
+    [PYTHON]: 'Python',
+    [PHP]: 'PHP',
+    [ELIXIR]: 'Elixir',
+}
+
+export const mobileFrameworks = {
+    [ANDROID]: 'Android',
+    [IOS]: 'iOS',
+    [REACT_NATIVE]: 'React Native',
+    [FLUTTER]: 'Flutter',
+}

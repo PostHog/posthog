@@ -2,13 +2,14 @@ import { CardContainer } from 'scenes/onboarding/CardContainer'
 import { Row } from 'antd'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import React from 'react'
+import { Framework, PlatformType } from 'scenes/onboarding/types'
 
 export function AutocapturePanel({
     onSubmit,
     reverse,
     onCustomContinue,
 }: {
-    onSubmit: () => void
+    onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
     reverse: () => void
     onCustomContinue: () => void
 }): JSX.Element {

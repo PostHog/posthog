@@ -15,9 +15,8 @@ import {
 } from 'scenes/onboarding/FrameworkInstructions'
 import { Row } from 'antd'
 import React from 'react'
-import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { API, MOBILE, PURE_JS, WEB } from 'scenes/onboarding/constants'
+import { Framework, PlatformType } from 'scenes/onboarding/types'
 
 const frameworksSnippet = {
     PURE_JS: JSInstructions,
@@ -40,12 +39,14 @@ export function InstructionsPanel({
     platformType,
     framework,
 }: {
-    onSubmit: () => void
+    onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
     reverse: () => void
-    platformType: typeof WEB | typeof MOBILE
-    framework: keyof typeof frameworksSnippet | typeof API
+    platformType: PlatformType
+    framework: Framework
 }): JSX.Element {
-    const { user } = useValues(userLogic)
+    if (!framework) {
+        return <></>
+    }
 
     const FrameworkSnippet = frameworksSnippet[framework]
 
@@ -58,7 +59,7 @@ export function InstructionsPanel({
                         "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
                     }
                 </p>
-                <FrameworkSnippet user={user} />
+                <FrameworkSnippet />
             </CardContainer>
         )
     }
@@ -72,7 +73,7 @@ export function InstructionsPanel({
                         'posthog-js will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
                     }
                 </p>
-                <FrameworkSnippet user={user} />
+                <FrameworkSnippet />
             </CardContainer>
         )
     }
@@ -86,17 +87,17 @@ export function InstructionsPanel({
             ) : (
                 <h2>Setup</h2>
             )}
-            {platformType === WEB && (
+            {platformType === WEB ? (
                 <>
                     <p className="prompt-text">
                         {
                             'To send events from your backend or add custom events, you can use our framework specific libraries.'
                         }
                     </p>
-                    <FrameworkSnippet user={user} />
+                    <FrameworkSnippet />
                 </>
-            )}
-            {platformType === MOBILE && <FrameworkSnippet user={user} />}
+            ) : null}
+            {platformType === MOBILE ? <FrameworkSnippet /> : null}
         </CardContainer>
     )
 }
