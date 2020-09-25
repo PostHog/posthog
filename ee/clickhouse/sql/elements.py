@@ -27,7 +27,7 @@ CREATE TABLE {table_name}
     attributes VARCHAR,
     order Int64,
     team_id Int64,
-    created_at DateTime,
+    created_at DateTime64,
     elements_hash VARCHAR
     {extra_fields}
 ) ENGINE = {engine} 
@@ -138,7 +138,7 @@ CREATE TABLE elements_with_array_props_view
     attributes VARCHAR,
     order Int64,
     team_id Int64,
-    created_at DateTime,
+    created_at DateTime64,
     elements_hash VARCHAR,
     array_attribute_keys Array(VARCHAR),
     array_attribute_values Array(VARCHAR),

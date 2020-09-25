@@ -68,7 +68,7 @@ CREATE TABLE {table_name}
     distinct_id VARCHAR,
     properties VARCHAR,
     is_identified Boolean,
-    ts DateTime
+    ts DateTime64
     {extra_fields}
 ) ENGINE = {engine} 
 """

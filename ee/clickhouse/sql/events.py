@@ -90,7 +90,7 @@ CREATE TABLE events_with_array_props_view
     team_id Int64,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
-    created_at DateTime,
+    created_at DateTime64,
     array_property_keys Array(VARCHAR),
     array_property_values Array(VARCHAR),
     _timestamp UInt64,
