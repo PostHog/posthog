@@ -639,7 +639,7 @@ class TestSelectors(BaseTest):
     def test_selector_with_spaces(self):
         selector1 = Selector("span    ")
         self.assertEqual(
-            selector.parts[0].__dict__,
+            selector1.parts[0].__dict__,
             {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0},
         )
 
