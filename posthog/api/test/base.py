@@ -3,6 +3,7 @@ from typing import Optional
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
+from posthog.cache import clear_cache
 from posthog.models import Organization, OrganizationMembership, Team, User, organization
 
 
@@ -19,13 +20,14 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()  # type: ignore
+        clear_cache()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
             self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
         if self.TESTS_API:
             self.client = Client()
-            if self.TESTS_FORCE_LOGIN:
+            if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
                 self.client.force_login(self.user)
 
 
@@ -43,7 +45,7 @@ class APIBaseTest(APITestCase):
     """
 
     TESTS_COMPANY_NAME: str = "Test"
-    TESTS_EMAIL: str = "user1@posthog.com"
+    TESTS_EMAIL: Optional[str] = "user1@posthog.com"
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
@@ -57,6 +59,7 @@ class APIBaseTest(APITestCase):
         super().setUp()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
-        self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-        if self.TESTS_FORCE_LOGIN:
-            self.client.force_login(self.user)
+        if self.TESTS_EMAIL:
+            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+            if self.TESTS_FORCE_LOGIN:
+                self.client.force_login(self.user)

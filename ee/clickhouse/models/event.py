@@ -1,6 +1,7 @@
 import json
+import uuid
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -8,20 +9,23 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import KafkaProducer
+from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_EVENTS
+from posthog.models.element import Element
 from posthog.models.team import Team
-from posthog.models.utils import uuid1_macless
 
 
 def create_event(
+    event_uuid: uuid.UUID,
     event: str,
     team: Team,
     distinct_id: str,
     timestamp: Optional[Union[datetime, str]],
     properties: Optional[Dict] = {},
-    element_hash: Optional[str] = "",
+    elements_hash: Optional[str] = "",
+    elements: Optional[List[Element]] = None,
 ) -> None:
 
     if not timestamp:
@@ -33,20 +37,21 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    event_id = uuid1_macless()
+    if elements and not elements_hash:
+        elements_hash = create_elements(event_uuid=event_uuid, elements=elements, team=team)
 
-    p = KafkaProducer()
     data = {
-        "id": str(event_id),
+        "uuid": str(event_uuid),
         "event": event,
         "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "element_hash": element_hash,
+        "elements_hash": elements_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
-    p.produce(topic=KAFKA_EVENTS, data=json.dumps(data))
+    p = ClickhouseProducer()
+    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
 
 
 def get_events():
@@ -56,7 +61,7 @@ def get_events():
 
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     event = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
@@ -64,7 +69,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_id(self, event):
+    def get_uuid(self, event):
         return str(event[0])
 
     def get_properties(self, event):

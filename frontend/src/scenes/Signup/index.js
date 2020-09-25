@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './logic'
 import hedgehogBlue from '../../../public/hedgehog-blue.png'
 import posthogLogo from '../../../public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
+const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 function Signup() {
     const [state, setState] = useState({ submitted: false })
@@ -25,7 +26,8 @@ function Signup() {
     const updateForm = (name, target, valueAttr = 'value') => {
         /* Validate password (if applicable) */
         if (name === 'password') {
-            const valid = target[valueAttr].length >= 8
+            let password = target[valueAttr]
+            const valid = password.length >= 8
             setFormState({ ...formState, password: { ...formState.password, valid, value: target[valueAttr] } })
         } else {
             setFormState({ ...formState, [name]: { ...formState[name], value: target[valueAttr] } })
@@ -135,7 +137,12 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupPassword"
                             />
-                            <span className="caption">At least 8 characters.</span>
+                            <Suspense fallback={<span></span>}>
+                                <PasswordStrength password={formState.password.value} />
+                            </Suspense>
+                            {!formState.password.valid && (
+                                <span className="caption">Your password must have at least 8 characters.</span>
+                            )}
                         </div>
 
                         <div>
