@@ -23,7 +23,7 @@ EVENTS_TABLE = "events"
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
-    id UUID,
+    uuid UUID,
     event VARCHAR,
     properties VARCHAR,
     timestamp DateTime64(6, 'UTC'),
@@ -39,8 +39,8 @@ CREATE TABLE {table_name}
 EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, id)
-SAMPLE BY id 
+ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
+SAMPLE BY uuid 
 {storage_policy}
 """
 ).format(table_name=EVENTS_TABLE, engine=table_engine(EVENTS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
@@ -53,7 +53,7 @@ EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {table_name} 
 AS SELECT
-id,
+uuid,
 event,
 properties,
 timestamp,
@@ -69,7 +69,7 @@ FROM kafka_{table_name}
 )
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT %(id)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, %(created_at)s, now(), 0
+INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, %(created_at)s, now(), 0
 """
 
 GET_EVENTS_SQL = """
@@ -79,7 +79,7 @@ SELECT * FROM events_with_array_props_view
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
-    id UUID,
+    uuid UUID,
     event VARCHAR,
     properties VARCHAR,
     timestamp DateTime64(6, 'UTC'),
@@ -93,8 +93,8 @@ CREATE TABLE events_with_array_props_view
     _offset UInt64
 ) ENGINE = {engine} 
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, id)
-SAMPLE BY id
+ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
+SAMPLE BY uuid 
 {storage_policy}
 """.format(
     engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
@@ -108,7 +108,7 @@ MAT_EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE MATERIALIZED VIEW events_with_array_props_mv
 TO events_with_array_props_view
 AS SELECT
-id,
+uuid,
 event,
 properties,
 timestamp,
@@ -127,7 +127,7 @@ MAT_EVENT_PROP_TABLE_SQL = """
 CREATE MATERIALIZED VIEW events_properties_view
 ENGINE = MergeTree()
 ORDER BY (team_id, key, value, event_id)
-AS SELECT id as event_id,
+AS SELECT uuid as event_id,
 team_id,
 array_property_keys as key,
 array_property_values as value
@@ -143,7 +143,7 @@ SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
     *
 FROM events_with_array_props_view AS ewap
-WHERE id IN
+WHERE uuid IN
 (
     SELECT event_id
     FROM events_properties_view AS ep

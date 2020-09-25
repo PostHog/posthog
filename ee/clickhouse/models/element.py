@@ -1,11 +1,10 @@
 import json
 from typing import List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS
@@ -15,8 +14,10 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element(element: Element, team: Team, elements_hash: str) -> None:
+def create_element(element: Element, team: Team, event_uuid: UUID, elements_hash: str) -> None:
     data = {
+        "uuid": str(uuid4()),
+        "event_uuid": str(event_uuid),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
@@ -33,7 +34,7 @@ def create_element(element: Element, team: Team, elements_hash: str) -> None:
     p.produce(topic=KAFKA_ELEMENTS, sql=INSERT_ELEMENTS_SQL, data=data)
 
 
-def create_elements(elements: List[Element], team: Team, use_cache: bool = True) -> str:
+def create_elements(event_uuid: UUID, elements: List[Element], team: Team, use_cache: bool = True) -> str:
     # create group
     for index, element in enumerate(elements):
         element.order = index
@@ -44,7 +45,9 @@ def create_elements(elements: List[Element], team: Team, use_cache: bool = True)
 
     # create elements
     for index, element in enumerate(elements):
-        create_element(element=element, team=team, elements_hash=elements_hash)
+        create_element(
+            element=element, team=team, event_uuid=event_uuid, elements_hash=elements_hash,
+        )
 
     if use_cache:
         set_cached_value(team.pk, "elements/{}".format(elements_hash), "1")
@@ -63,7 +66,7 @@ def get_all_elements(final: bool = False):
 
 
 class ClickhouseElementSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField()
     text = serializers.SerializerMethodField()
     tag_name = serializers.SerializerMethodField()
     href = serializers.SerializerMethodField()
@@ -77,41 +80,44 @@ class ClickhouseElementSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_id(self, element):
+    def get_uuid(self, element):
         return element[0]
 
-    def get_text(self, element):
+    def get_event_uuid(self, element):
         return element[1]
 
-    def get_tag_name(self, element):
+    def get_text(self, element):
         return element[2]
 
-    def get_href(self, element):
+    def get_tag_name(self, element):
         return element[3]
 
-    def get_attr_id(self, element):
+    def get_href(self, element):
         return element[4]
 
-    def get_attr_class(self, element):
+    def get_attr_id(self, element):
         return element[5]
 
-    def get_nth_child(self, element):
+    def get_attr_class(self, element):
         return element[6]
 
-    def get_nth_of_type(self, element):
+    def get_nth_child(self, element):
         return element[7]
 
+    def get_nth_of_type(self, element):
+        return element[8]
+
     def get_attributes(self, element):
-        return json.loads(element[8])
+        return json.loads(element[9])
 
     def get_order(self, element):
-        return element[9]
-
-    def get_team_id(self, element):
         return element[10]
 
-    def get_created_at(self, element):
+    def get_team_id(self, element):
         return element[11]
 
-    def get_elements_hash(self, element):
+    def get_created_at(self, element):
         return element[12]
+
+    def get_elements_hash(self, element):
+        return element[13]

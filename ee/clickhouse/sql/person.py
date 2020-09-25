@@ -1,4 +1,4 @@
-from ee.kafka.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
 from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
 
@@ -51,6 +51,56 @@ FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_TABLE
 )
+
+
+OMNI_PERSONS_TABLE = "omni_person"
+
+OMNI_PERSONS_TABLE_BASE_SQL = """
+CREATE TABLE {table_name} 
+(
+    uuid UUID,
+    event_uuid UUID,
+    team_id Int64,
+    distinct_id VARCHAR,
+    properties VARCHAR,
+    is_identified Boolean,
+    ts DateTime, 
+    _timestamp UInt64,
+    _offset UInt64
+) ENGINE = {engine} 
+"""
+
+OMNI_PERSONS_TABLE_SQL = (
+    OMNI_PERSONS_TABLE_BASE_SQL
+    + """Order By (team_id, uuid, distinct_id)
+{storage_policy}
+"""
+).format(
+    table_name=OMNI_PERSONS_TABLE, engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY
+)
+
+KAFKA_OMNI_PERSONS_TABLE_SQL = OMNI_PERSONS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON)
+)
+
+OMNI_PERSONS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv 
+TO {table_name} 
+AS SELECT
+uuid,
+event_uuid,
+team_id,
+distinct_id,
+properties,
+is_identified,
+ts,
+_timestamp,
+_offset
+FROM kafka_{table_name} 
+""".format(
+    table_name=OMNI_PERSONS_TABLE
+)
+
 
 GET_PERSON_SQL = """
 SELECT * FROM person WHERE team_id = %(team_id)s

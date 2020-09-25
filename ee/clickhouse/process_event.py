@@ -1,26 +1,28 @@
 import datetime
 from typing import Dict, List, Optional, Union
+from uuid import UUID, uuid4
 
 from celery import shared_task
-from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.person import emit_omni_person
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
 
 
 def _capture_ee(
+    event_uuid: UUID,
+    person_uuid: UUID,
     ip: str,
     site_url: str,
     team_id: int,
     event: str,
     distinct_id: str,
     properties: Dict,
-    timestamp: Union[datetime.datetime, str],
+    timestamp: datetime.datetime,
 ) -> None:
     elements = properties.get("$elements")
     elements_list = []
@@ -51,16 +53,25 @@ def _capture_ee(
     store_names_and_properties(team=team, event=event, properties=properties)
 
     # determine/create elements
-    elements_hash = create_elements(elements_list, team)
+    elements_hash = create_elements(event_uuid=event_uuid, elements=elements_list, team=team)
 
     # # determine create events
     create_event(
+        event_uuid=event_uuid,
         event=event,
         properties=properties,
         timestamp=timestamp,
         team=team,
         elements_hash=elements_hash,
         distinct_id=distinct_id,
+    )
+    emit_omni_person(
+        event_uuid=event_uuid,
+        uuid=person_uuid,
+        team_id=team_id,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
     )
 
 
@@ -70,15 +81,68 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
+        properties = data.get("properties", None)
+        person_uuid = uuid4()
+        event_uuid = uuid4()
+        ts = handle_timestamp(data, now, sent_at)
+
+        if data["event"] == "$create_alias":
+            emit_omni_person(
+                event_uuid=event_uuid,
+                uuid=person_uuid,
+                team_id=team_id,
+                distinct_id=distinct_id,
+                timestamp=ts,
+                properties=properties,
+            )
+            emit_omni_person(
+                event_uuid=event_uuid,
+                uuid=person_uuid,
+                team_id=team_id,
+                distinct_id=properties["alias"],
+                timestamp=ts,
+                properties=properties,
+            )
+        elif data["event"] == "$identify":
+            if properties and properties.get("$anon_distinct_id"):
+                emit_omni_person(
+                    event_uuid=event_uuid,
+                    uuid=person_uuid,
+                    team_id=team_id,
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties=properties,
+                )
+                emit_omni_person(
+                    event_uuid=event_uuid,
+                    uuid=person_uuid,
+                    team_id=team_id,
+                    distinct_id=properties["$anon_distinct_id"],
+                    timestamp=ts,
+                    properties=properties,
+                )
+            if data.get("$set"):
+                emit_omni_person(
+                    event_uuid=event_uuid,
+                    uuid=person_uuid,
+                    team_id=team_id,
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties=data["$set"],
+                    is_identified=True,
+                )
+
         properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
+            event_uuid=event_uuid,
+            person_uuid=person_uuid,
             ip=ip,
             site_url=site_url,
             team_id=team_id,
             event=data["event"],
             distinct_id=distinct_id,
             properties=properties,
-            timestamp=handle_timestamp(data, now, sent_at),
+            timestamp=ts,
         )
 
 

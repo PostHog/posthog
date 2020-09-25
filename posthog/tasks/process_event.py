@@ -184,7 +184,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
+def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.datetime:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
@@ -195,8 +195,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[date
                 return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
             except TypeError as e:
                 capture_exception(e)
-
-        return data["timestamp"]
+        return parser.isoparse(data["timestamp"])
     now_datetime = parser.parse(now)
     if data.get("offset"):
         return now_datetime - relativedelta(microseconds=data["offset"] * 1000)

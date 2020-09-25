@@ -6,19 +6,38 @@ from kafka import KafkaProducer as KP  # type: ignore
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_HOSTS
+from posthog.settings import IS_HEROKU, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
+
+
+class TestKafkaProducer:
+    def __init__(self):
+        pass
+
+    def send(self, topic: str, data: Dict[str, Any]):
+        return
+
+    def flush(self):
+        return
 
 
 class _KafkaProducer:
     def __init__(self):
-        if not IS_HEROKU:
+        if TEST:
+            self.producer = TestKafkaProducer()
+        elif not IS_HEROKU:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
         else:
-            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: json.dumps(d))
+            self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
 
-    def produce(self, topic: str, data):
-        self.producer.send(topic, data.encode("utf-8"))
+    @staticmethod
+    def json_serializer(d):
+        b = json.dumps(d).encode("utf-8")
+        return b
+
+    def produce(self, topic: str, data: Dict[str, Any]):
+        b = self.json_serializer(data)
+        self.producer.send(topic, b)
 
     def close(self):
         self.producer.flush()
