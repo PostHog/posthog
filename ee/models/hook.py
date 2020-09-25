@@ -27,7 +27,7 @@ def find_and_fire_hook(
         # action_performed is a resource_id-filterable hook
         hooks = hooks.filter(models.Q(resource_id=instance.pk) | models.Q(resource_id__isnull=True))
     for hook in hooks:
-        if hook.user.feature_available("zapier"):
+        if hook.user.is_feature_available("zapier"):
             hook.deliver_hook(instance, payload_override)
 
 

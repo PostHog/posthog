@@ -90,7 +90,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             },
         },
     }),
-    reducers: () => ({
+    reducers: {
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
         },
@@ -101,7 +101,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
         },
         insightsNext: [
-            null,
+            null as null | string,
             {
                 setInsightsNext: (_, { next }) => next,
             },
@@ -114,7 +114,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             },
         ],
         savedInsightsNext: [
-            null,
+            null as null | string,
             {
                 setSavedInsightsNext: (_, { next }) => next,
             },
@@ -127,7 +127,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             },
         ],
         teamInsightsNext: [
-            null,
+            null as null | string,
             {
                 setTeamInsightsNext: (_, { next }) => next,
             },
@@ -139,8 +139,8 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 setTeamInsightsNext: () => false,
             },
         ],
-    }),
-    actions: () => ({
+    },
+    actions: {
         createInsight: (filters: Record<string, any>) => ({ filters }),
         saveInsight: (insight: InsightHistory, name: string) => ({ insight, name }),
         deleteInsight: (insight: InsightHistory) => ({ insight }),
@@ -153,7 +153,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
         updateInsights: (insights: InsightHistory[]) => ({ insights }),
         updateSavedInsights: (insights: InsightHistory[]) => ({ insights }),
         updateTeamInsights: (insights: InsightHistory[]) => ({ insights }),
-    }),
+    },
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
             await api.create('api/insight', {

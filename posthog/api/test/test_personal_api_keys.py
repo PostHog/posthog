@@ -1,5 +1,3 @@
-from typing import Optional, Type
-
 from posthog.models import PersonalAPIKey
 
 from .base import TransactionBaseTest

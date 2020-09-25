@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytz
+from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
@@ -14,7 +15,7 @@ class TestAnnotation(BaseTest):
 
     @patch("posthoganalytics.capture")
     def test_retrieving_annotation(self, mock_capture):
-        Annotation.objects.create(team=self.team, content="hello")
+        Annotation.objects.create(organization=self.organization, team=self.team, content="hello")
 
         # Annotation creation is not reported to PostHog because it has no created_by
         mock_capture.assert_not_called()
@@ -29,7 +30,7 @@ class TestAnnotation(BaseTest):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
 
         dashboardItem = DashboardItem.objects.create(
-            team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=datetime.now(),
+            team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=timezone.now(),
         )
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,
@@ -41,7 +42,7 @@ class TestAnnotation(BaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation created", {"apply_all": False, "date_marker": None},
+            self.user.distinct_id, "annotation created", {"scope": "dashboard_item", "date_marker": None},
         )
 
     def test_query_annotations_by_datetime(self):
@@ -64,11 +65,10 @@ class TestAnnotation(BaseTest):
 class TestAPIAnnotation(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team: Team = Team.objects.create()
-        self.user: User = User.objects.create_user("annotations@posthog.com")
-        self.team.users.add(self.user)
-        self.team.save()
-        self.annotation = Annotation.objects.create(team=self.team, created_by=self.user,)
+        self.organization, self.team, self.user = User.objects.bootstrap("Test", "annotations@posthog.com", None)
+        self.annotation = Annotation.objects.create(
+            organization=self.organization, team=self.team, created_by=self.user,
+        )
 
     @patch("posthoganalytics.capture")
     def test_creating_annotation(self, mock_capture):
@@ -80,7 +80,7 @@ class TestAPIAnnotation(APIBaseTest):
             "/api/annotation/",
             {
                 "content": "Marketing campaign",
-                "apply_all": True,
+                "scope": "organization",
                 "date_marker": "2020-01-01T00:00:00.000000Z",
                 "team": team2.pk,  # make sure this is set automatically
             },
@@ -89,13 +89,13 @@ class TestAPIAnnotation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = Annotation.objects.get(pk=response.data["id"])  # type: ignore
         self.assertEqual(instance.content, "Marketing campaign")
-        self.assertEqual(instance.apply_all, True)
+        self.assertEqual(instance.scope, "organization")
         self.assertEqual(instance.date_marker, date_marker)
         self.assertEqual(instance.team, self.team)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation created", {"apply_all": True, "date_marker": date_marker},
+            self.user.distinct_id, "annotation created", {"scope": "organization", "date_marker": date_marker},
         )
 
     @patch("posthoganalytics.capture")
@@ -103,22 +103,22 @@ class TestAPIAnnotation(APIBaseTest):
         instance = self.annotation
         self.client.force_login(self.user)
 
-        response = self.client.patch(f"/api/annotation/{instance.pk}/", {"content": "Updated text", "apply_all": True},)
+        response = self.client.patch(
+            f"/api/annotation/{instance.pk}/", {"content": "Updated text", "scope": "organization"},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.content, "Updated text")
-        self.assertEqual(instance.apply_all, True)
+        self.assertEqual(instance.scope, "organization")
         self.assertEqual(instance.date_marker, None)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation updated", {"apply_all": True, "date_marker": None},
+            self.user.distinct_id, "annotation updated", {"scope": "organization", "date_marker": None},
         )
 
     def test_deleting_annotation(self):
-        new_user = User.objects.create_user(email="new_annotations@posthog.com")
-        self.team.users.add(new_user)
-        self.team.save()
+        new_user = User.objects.create_and_join(self.organization, self.team, "new_annotations@posthog.com", None)
 
         instance = Annotation.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)
@@ -131,5 +131,5 @@ class TestAPIAnnotation(APIBaseTest):
 
         # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
         mock_capture.assert_called_once_with(
-            new_user.distinct_id, "annotation deleted", {"apply_all": False, "date_marker": None},
+            new_user.distinct_id, "annotation deleted", {"scope": "dashboard_item", "date_marker": None},
         )

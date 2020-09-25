@@ -2,9 +2,9 @@ from posthog.settings import CLICKHOUSE_ENABLE_STORAGE_POLICY, CLICKHOUSE_REPLIC
 
 STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 TABLE_ENGINE = (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
     if CLICKHOUSE_REPLICATION
-    else "MergeTree()"
+    else "ReplacingMergeTree({ver})"
 )
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
@@ -15,8 +15,8 @@ SELECT generateUUIDv4()
 """
 
 
-def table_engine(table: str) -> str:
-    return TABLE_ENGINE.format(table=table)
+def table_engine(table: str, ver: str) -> str:
+    return TABLE_ENGINE.format(table=table, ver=ver)
 
 
 def kafka_engine(topic: str, kafka_host=KAFKA_HOSTS, group="group1", serialization="JSONEachRow"):
