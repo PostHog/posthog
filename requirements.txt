@@ -26,6 +26,7 @@ django-redis==4.12.1
 django-statsd==2.5.2
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
+fakeredis==1.4.3
 future==0.18.2
 gunicorn==20.0.4
 idna==2.8
@@ -67,6 +68,7 @@ sentry-sdk==0.16.5
 six==1.14.0
 social-auth-app-django==3.1.0
 social-auth-core==3.3.3
+sortedcontainers==2.2.2
 sqlparse==0.3.0
 tenacity==6.1.0
 traitlets==4.3.3

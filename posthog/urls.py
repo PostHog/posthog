@@ -87,12 +87,10 @@ def signup_to_team_view(request, token):
                     "signup_token": token,
                 },
             )
-        user = User.objects.create_user(
-            email=email, password=password, first_name=first_name, email_opt_in=email_opt_in,
+        user = User.objects.create_and_join(
+            team.organization, team, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        team.users.add(user)
-        team.save()
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
         )
@@ -198,9 +196,9 @@ else:
     extend_api_router(router)
 
 
-def opt_slash_path(route: str, view: Callable) -> str:
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    return re_path(fr"^{route}/?(?:[?#].*)?$", view)
+    return re_path(route=fr"^{route}/?(?:[?#].*)?$", view=view, name=name)
 
 
 urlpatterns = [

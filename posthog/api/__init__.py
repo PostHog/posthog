@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
+from posthog.settings import print_warning
 from posthog.version import VERSION
 
 from . import (
@@ -51,12 +52,7 @@ router.register(r"insight", insight.InsightViewSet)
 
 if check_ee_enabled():
     try:
-        from ee.clickhouse.views import (  # type: ignore
-            ClickhouseActions,
-            ClickhouseEvents,
-            ClickhouseInsights,
-            ClickhousePerson,
-        )
+        from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
         # router.register(r"action", ClickhouseActions, basename="action")
         # router.register(r"event", ClickhouseEvents, basename="event")
@@ -64,4 +60,4 @@ if check_ee_enabled():
         # router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
-        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
+        print_warning(("ClickHouse enabled, but enterprise features missing!", "Defaulting to Postgres."))
