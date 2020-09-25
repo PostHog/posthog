@@ -62,7 +62,7 @@ jobs:
                   mypy posthog
 
     django:
-        name: Django tests
+        name: Django tests – posthog
         runs-on: ubuntu-latest
 
         services:
@@ -139,7 +139,7 @@ jobs:
                   python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
 
     multitenancy:
-        name: Django tests (multi-tenancy)
+        name: Django tests – posthog-production
         runs-on: ubuntu-latest
 
         services:
@@ -212,7 +212,7 @@ jobs:
                   python manage.py test posthog multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
 
     foss:
-        name: Django tests (EE-less FOSS edition)
+        name: Django tests – posthog-foss
         runs-on: ubuntu-latest
 
         services:
