@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Row, List, Button } from 'antd'
 import './OnboardingWizard.scss'
 
@@ -7,11 +7,9 @@ import { VerificationPanel } from 'scenes/onboarding/VerificationPanel'
 import { AutocapturePanel } from 'scenes/onboarding/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/onboarding/InstructionsPanel'
 import {
-    API,
     AUTOCAPTURE,
     FRAMEWORK,
     INSTRUCTIONS,
-    MOBILE,
     mobileFrameworks,
     PLATFORM_TYPE,
     platformTypes,
@@ -20,6 +18,8 @@ import {
     webFrameworks,
 } from 'scenes/onboarding/constants'
 import { Framework, PlatformType } from 'scenes/onboarding/types'
+import { useActions, useValues } from 'kea'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
 const states = {
     0: PLATFORM_TYPE,
@@ -131,47 +131,8 @@ const content = {
 }
 
 export default function OnboardingWizard(): JSX.Element {
-    const [index, setIndex] = useState(0)
-    const [platformType, setPlatformType] = useState(null as PlatformType)
-    const [framework, setFramework] = useState(null as Framework)
-    const [path, setPath] = useState([] as number[])
-
-    function onSubmit({ type, framework }: { type?: PlatformType; framework?: Framework } = {}): void {
-        setPath([...path, index])
-        if (index === 0 && type) {
-            setPlatformType(type)
-            if (type === MOBILE) {
-                setIndex(index + 2)
-                return
-            }
-        } else if (index === 1) {
-            setIndex(4)
-            return
-        } else if (index === 2 && framework) {
-            setFramework(framework)
-        }
-        setIndex((index + 1) % 5)
-    }
-
-    function reverse(): void {
-        const copyPath = [...path]
-        const prev = copyPath.pop()
-        if (typeof prev !== 'undefined') {
-            setIndex(prev)
-        }
-        setPath(copyPath)
-    }
-
-    function onApiContinue(): void {
-        setPath([...path, index])
-        setFramework(API)
-        setIndex(index + 1)
-    }
-
-    function onCustomContinue(): void {
-        setPath([...path, index])
-        setIndex(2)
-    }
+    const { index, platformType, framework } = useValues(onboardingLogic)
+    const { onSubmit, reverse, onApiContinue, onCustomContinue } = useActions(onboardingLogic)
 
     return (
         <div
@@ -182,7 +143,7 @@ export default function OnboardingWizard(): JSX.Element {
                 onCustomContinue,
                 onSubmit,
                 platformType,
-                framework: framework as Framework,
+                framework,
                 reverse,
                 onApiContinue,
             })}
