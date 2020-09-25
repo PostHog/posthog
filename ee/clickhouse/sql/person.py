@@ -16,7 +16,7 @@ PERSONS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
     id UUID,
-    created_at datetime,
+    created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
     is_identified Boolean
