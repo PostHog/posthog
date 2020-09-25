@@ -1,6 +1,5 @@
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
@@ -22,7 +21,7 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]],
+    timestamp: Optional[Union[timezone.datetime, str]],
     properties: Optional[Dict] = {},
     elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
@@ -30,6 +29,7 @@ def create_event(
 
     if not timestamp:
         timestamp = timezone.now()
+    assert timestamp is not None
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):
