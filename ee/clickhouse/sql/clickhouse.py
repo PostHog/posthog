@@ -15,8 +15,8 @@ SELECT generateUUIDv4()
 """
 
 KAFKA_COLUMNS = """
-, _timestamp
-, _offset
+, _timestamp DateTime
+, _offset UInt64
 """
 
 
