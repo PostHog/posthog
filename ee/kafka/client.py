@@ -25,7 +25,7 @@ class _KafkaProducer:
     def __init__(self):
         if TEST:
             self.producer = TestKafkaProducer()
-        elif IS_HEROKU:
+        elif not IS_HEROKU:
             self.producer = KP(bootstrap_servers=KAFKA_HOSTS)
         else:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
