@@ -47,26 +47,21 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
 
             elements = [
                 Element(
-                    tag_name="a",
-                    href="/demo/1",
-                    attr_class=["btn", "btn-success"],
-                    attr_id="sign-up",
-                    text="Sign up",
-                    order=0,
+                    tag_name="a", href="/demo/1", attr_class=["btn", "btn-success"], attr_id="sign-up", text="Sign up",
                 ),
-                Element(tag_name="form", attr_class=["form"], order=1),
-                Element(tag_name="div", attr_class=["container"], order=2),
-                Element(tag_name="body", order=3),
-                Element(tag_name="html", order=4),
+                Element(tag_name="form", attr_class=["form"]),
+                Element(tag_name="div", attr_class=["container"]),
+                Element(tag_name="body"),
+                Element(tag_name="html"),
             ]
-            element_hash = create_elements(elements=elements, team=team)
+            elements_hash = create_elements(elements=elements, team=team)
             create_event(
                 team=team,
                 distinct_id=distinct_id,
                 event="$autocapture",
                 properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
                 timestamp=date + relativedelta(seconds=14),
-                elements_hash=element_hash,
+                elements_hash=elements_hash,
             )
 
             create_event(
@@ -80,13 +75,13 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
             if index % 4 == 0:
 
                 elements = [
-                    Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!", order=0,),
-                    Element(tag_name="form", attr_class=["form"], order=1),
-                    Element(tag_name="div", attr_class=["container"], order=2),
-                    Element(tag_name="body", order=3),
-                    Element(tag_name="html", order=4),
+                    Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
+                    Element(tag_name="form", attr_class=["form"]),
+                    Element(tag_name="div", attr_class=["container"]),
+                    Element(tag_name="body"),
+                    Element(tag_name="html"),
                 ]
-                element_hash = create_elements(elements=elements, team=team)
+                elements_hash = create_elements(elements=elements, team=team)
                 create_event(
                     team=team,
                     event="$autocapture",
@@ -98,7 +93,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         "$event_type": "click",
                     },
                     timestamp=date + relativedelta(seconds=29),
-                    elements_hash=element_hash,
+                    elements_hash=elements_hash,
                 )
 
                 create_event(
@@ -112,13 +107,13 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 if index % 5 == 0:
 
                     elements = [
-                        Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10", order=0,),
-                        Element(tag_name="form", attr_class=["form"], order=1),
-                        Element(tag_name="div", attr_class=["container"], order=2),
-                        Element(tag_name="body", order=3),
-                        Element(tag_name="html", order=4),
+                        Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
+                        Element(tag_name="form", attr_class=["form"]),
+                        Element(tag_name="div", attr_class=["container"]),
+                        Element(tag_name="body"),
+                        Element(tag_name="html"),
                     ]
-                    element_hash = create_elements(elements=elements, team=team)
+                    elements_hash = create_elements(elements=elements, team=team)
 
                     create_event(
                         team=team,
@@ -131,7 +126,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                             "$event_type": "click",
                         },
                         timestamp=date + relativedelta(seconds=59),
-                        elements_hash=element_hash,
+                        elements_hash=elements_hash,
                     )
 
                     create_event(

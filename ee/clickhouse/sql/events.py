@@ -155,6 +155,10 @@ WHERE id IN
 ) {conditions} {limit}
 """
 
+SELECT_ONE_EVENT_SQL = """
+SELECT * FROM events_with_array_props_view WHERE id = %(event_id)s AND team_id = %(team_id)s
+"""
+
 EVENT_PROP_CLAUSE = """
 SELECT event_id
 FROM events_properties_view AS ep
