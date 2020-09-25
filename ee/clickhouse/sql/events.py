@@ -156,7 +156,7 @@ WHERE uuid IN
 """
 
 SELECT_ONE_EVENT_SQL = """
-SELECT * FROM events_with_array_props_view WHERE id = %(event_id)s AND team_id = %(team_id)s
+SELECT * FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 EVENT_PROP_CLAUSE = """
@@ -182,5 +182,5 @@ INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
 """
 
 EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
-INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.id = pid.event_id
+INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """

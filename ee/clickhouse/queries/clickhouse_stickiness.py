@@ -29,7 +29,7 @@ STICKINESS_ACTIONS_SQL = """
          SELECT person_distinct_id.person_id, countDistinct(toDate(timestamp)) as day_count
          FROM events
          LEFT JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-         WHERE team_id = {team_id} AND id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
+         WHERE team_id = {team_id} AND uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
          GROUP BY person_distinct_id.person_id
     ) GROUP BY day_count ORDER BY day_count
 """
@@ -71,7 +71,7 @@ class ClickhouseStickiness(BaseQuery):
         range_days = (filter.date_to - filter.date_from).days + 2
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
         params: Dict = {"team_id": team.pk}
         params = {**params, **prop_filter_params}
@@ -87,7 +87,7 @@ class ClickhouseStickiness(BaseQuery):
                 actions_query=action_query,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="AND uuid IN {filters}".format(filters=prop_filters) if filter.properties else "",
             )
         else:
             content_sql = STICKINESS_SQL.format(
@@ -95,7 +95,7 @@ class ClickhouseStickiness(BaseQuery):
                 event=entity.id,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND id IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="AND uuid IN {filters}".format(filters=prop_filters) if filter.properties else "",
             )
 
         aggregated_counts = ch_client.execute(content_sql, params)

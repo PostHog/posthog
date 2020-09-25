@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -10,5 +12,9 @@ def _create_person(**kwargs):
     return Person(id=person.uuid)
 
 
-class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, create_event, _create_person)):  # type: ignore
+def _create_event(**kwargs):
+    create_event(**kwargs, event_uuid=uuid4())
+
+
+class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
     pass

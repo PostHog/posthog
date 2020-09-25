@@ -37,8 +37,8 @@ SELECT person_id FROM person_distinct_id where person_id IN {query}
 """
 
 FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL = """
-SELECT distinct_id FROM events where id IN (
-    SELECT id FROM {table_name}
+SELECT distinct_id FROM events where uuid IN (
+    SELECT uuid FROM {table_name}
 )
 """
 

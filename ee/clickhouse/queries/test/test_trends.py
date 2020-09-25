@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from freezegun import freeze_time
 
 from ee.clickhouse.models.action import populate_action_event_table
@@ -31,7 +33,11 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
+def _create_event(**kwargs):
+    create_event(**kwargs, event_uuid=uuid4())
+
+
+class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
     def test_breakdown_filtering(self):
         self._create_events()
         # test breakdown filtering

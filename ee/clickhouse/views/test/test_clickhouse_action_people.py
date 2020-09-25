@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.cohort import populate_cohort_person_table
 from ee.clickhouse.models.event import create_event
@@ -31,7 +33,11 @@ def _create_person(**kwargs):
     return Person(id=person.uuid)
 
 
+def _create_event(**kwargs):
+    create_event(**kwargs, event_uuid=uuid4())
+
+
 class ClickhouseTestActionPeople(
-    ClickhouseTestMixin, action_people_test_factory(create_event, _create_person, _create_action, _create_cohort)  # type: ignore
+    ClickhouseTestMixin, action_people_test_factory(_create_event, _create_person, _create_action, _create_cohort)  # type: ignore
 ):
     pass

@@ -34,7 +34,7 @@ class ClickhousePaths(BaseQuery):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
-        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
         # Step 0. Event culling subexpression for step 1.
         # Make an expression that removes events in a session that are definitely unused.
@@ -69,7 +69,7 @@ class ClickhousePaths(BaseQuery):
                 SELECT 
                     timestamp,
                     person_id,
-                    events.id AS event_id,
+                    events.uuid AS event_id,
                     {path_type} AS path_type
                     {select_elements_hash}
                 FROM events_with_array_props_view AS events

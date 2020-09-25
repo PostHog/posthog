@@ -1,8 +1,8 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
 FILTER_EVENT_BY_ACTION_SQL = """
-SELECT * FROM events where id IN (
-    SELECT id FROM {table_name}
+SELECT * FROM events where uuid IN (
+    SELECT uuid FROM {table_name}
 )
 """
 
@@ -11,9 +11,9 @@ def create_action_mapping_table_sql(table_name: str) -> str:
     return """
         CREATE TABLE IF NOT EXISTS {table_name}
         (
-            id UUID
+            uuid UUID
         )ENGINE = {engine}
-        ORDER BY (id)
+        ORDER BY (uuid)
         {storage_policy}
         """.format(
         table_name=table_name, engine=table_engine(table_name), storage_policy=STORAGE_POLICY
@@ -21,18 +21,18 @@ def create_action_mapping_table_sql(table_name: str) -> str:
 
 
 INSERT_INTO_ACTION_TABLE = """
-INSERT INTO {table_name} SELECT id FROM ({query})
+INSERT INTO {table_name} SELECT uuid FROM ({query})
 """
 
 ACTION_QUERY = """
-SELECT * FROM events WHERE id IN {action_filter}
+SELECT * FROM events WHERE uuid IN {action_filter}
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
 
 ELEMENT_ACTION_FILTER = """
 (
-    SELECT id FROM events WHERE 
+    SELECT uuid FROM events WHERE 
     elements_hash IN (
         SELECT elements_hash FROM elements WHERE {element_filter} GROUP BY elements_hash
     ) {event_filter}
@@ -41,27 +41,14 @@ ELEMENT_ACTION_FILTER = """
 
 ELEMENT_PROP_FILTER = """
 (
-    SELECT id FROM elements_properties_view WHERE
+    SELECT uuid FROM elements_properties_view WHERE
     key = {} AND value = {}
 )
 """
 
-# element_filter –
-#     (
-#         SELECT id FROM elements_properties_view WHERE
-#         key = 'attr__type' AND value = 'submit'
-#     )
-#     AND id IN
-#     (
-#         SELECT id FROM elements_properties_view WHERE
-#         key = 'attr__class' AND value = 'btn btn-success'
-#     )
-#     AND tag_name = 'button'
-
-
 EVENT_ACTION_FILTER = """
 (
-    SELECT id from events_with_array_props_view WHERE id IN (
+    SELECT uuid from events_with_array_props_view WHERE uuid IN (
         SELECT event_id
         FROM events_properties_view AS ep
         WHERE team_id = %(team_id)s {property_filter}
@@ -71,41 +58,6 @@ EVENT_ACTION_FILTER = """
 
 EVENT_NO_PROP_FILTER = """
 (
-    SELECT id FROM events_with_array_props_view where team_id = %(team_id)s {event_filter}
+    SELECT uuid FROM events_with_array_props_view where team_id = %(team_id)s {event_filter}
 )
 """
-
-#####
-# event_filter — "event = '$pageview'" or ''
-# property_filter — "AND (ep.key = '$browser') AND (ep.value = 'Chrome')" or ''
-#####
-
-
-# example:
-# SELECT count(1) FROM events where id IN
-# (
-#     SELECT id from events where
-#     elements_hash IN (
-#         SELECT hash from element_group where id IN (
-#             SELECT group_id from elements WHERE id IN
-#                 (
-#                     SELECT id FROM elements_properties_view WHERE
-#                     key = 'attr__type' AND value = 'submit'
-#                 )
-#                 AND id IN
-#                 (
-#                     SELECT id FROM elements_properties_view WHERE
-#                     key = 'attr__class' AND value = 'btn btn-success'
-#                 )
-#                 AND tag_name = 'button'
-#         )
-#     ) AND team_id = 2
-# )
-# OR id IN
-# (
-#     SELECT id from events_with_array_props_view WHERE id IN (
-#         SELECT event_id
-#         FROM events_properties_view AS ep
-#         WHERE team_id = 2 AND (ep.key = '$browser') AND (ep.value = 'Chrome')
-#     )
-# )

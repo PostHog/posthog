@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
@@ -18,5 +20,9 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, create_event, Person.objects.create, _create_action)):  # type: ignore
+def _create_event(**kwargs):
+    create_event(**kwargs, event_uuid=uuid4())
+
+
+class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, Person.objects.create, _create_action)):  # type: ignore
     pass

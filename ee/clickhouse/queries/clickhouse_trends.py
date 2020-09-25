@@ -32,7 +32,7 @@ SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC'
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and id IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """
 
 AGGREGATE_SQL = """
@@ -50,7 +50,7 @@ SELECT groupArray(value) FROM (
             SELECT *
             FROM events_properties_view AS ep
             WHERE key = %(key)s AND team_id = %(team_id)s
-        ) ep ON e.id = ep.event_id WHERE team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+        ) ep ON e.uuid = ep.event_id WHERE team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
     GROUP BY value
     ORDER BY count DESC
     LIMIT %(limit)s
@@ -110,7 +110,7 @@ INNER JOIN (
     FROM events_properties_view AS ep
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
-ON e.id = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON e.uuid = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
@@ -216,7 +216,7 @@ class ClickhouseTrends(BaseQuery):
                 conditions = BREAKDOWN_CONDITIONS_SQL.format(
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="and id IN ({})".format(action_query) if action_query else "",
+                    actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
                 breakdown_query = BREAKDOWN_DEFAULT_SQL.format(
@@ -237,7 +237,7 @@ class ClickhouseTrends(BaseQuery):
                     cohort_queries=cohort_queries,
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="and id IN ({})".format(action_query) if action_query else "",
+                    actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                 )
                 breakdown_query = BREAKDOWN_QUERY_SQL.format(
@@ -270,7 +270,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_filter = BREAKDOWN_PROP_JOIN_SQL.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
-                actions_query="and id IN ({})".format(action_query) if action_query else "",
+                actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
@@ -398,7 +398,7 @@ class ClickhouseTrends(BaseQuery):
         inteval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
         aggregate_operation, join_condition, math_params = self._process_math(entity)
 

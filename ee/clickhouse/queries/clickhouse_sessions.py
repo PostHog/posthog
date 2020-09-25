@@ -102,7 +102,7 @@ class ClickhouseSessions(BaseQuery):
         filter._date_to = (now + relativedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         filter._date_from = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d 00:00:00")
 
-        filters, params = parse_prop_clauses("id", filter.properties, team)
+        filters, params = parse_prop_clauses("uuid", filter.properties, team)
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
@@ -141,7 +141,7 @@ class ClickhouseSessions(BaseQuery):
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
-        filters, params = parse_prop_clauses("id", filter.properties, team)
+        filters, params = parse_prop_clauses("uuid", filter.properties, team)
 
         interval_notation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
@@ -202,7 +202,7 @@ class ClickhouseSessions(BaseQuery):
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
-        filters, params = parse_prop_clauses("id", filter.properties, team)
+        filters, params = parse_prop_clauses("uuid", filter.properties, team)
         dist_query = DIST_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,

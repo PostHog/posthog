@@ -19,7 +19,7 @@ SELECT id, {select_steps} FROM (
         person_distinct_id.person_id as id,
         groupArray(events.timestamp) as timestamps,
         groupArray(events.event) as eventsArr,
-        groupArray(events.id) as event_ids,
+        groupArray(events.uuid) as event_ids,
         {steps}
     FROM events 
     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
@@ -59,10 +59,10 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses("id", entity.properties, self._team, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", entity.properties, self._team, prepend=str(index))
         self.params.update(prop_filter_params)
         if entity.properties:
-            return prop_filters.replace("id IN", "random_event_id IN", 1)
+            return prop_filters.replace("uuid IN", "random_event_id IN", 1)
         return ""
 
     def _build_steps_query(self, entity: Entity, index: int) -> str:
@@ -103,7 +103,7 @@ class ClickhouseFunnel(Funnel):
 
     def _exec_query(self) -> List[Tuple]:
         prop_filters, prop_filter_params = parse_prop_clauses(
-            "id", self._filter.properties, self._team, prepend="global"
+            "uuid", self._filter.properties, self._team, prepend="global"
         )
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
         self.params: Dict = {"team_id": self._team.pk, **prop_filter_params}
@@ -112,7 +112,7 @@ class ClickhouseFunnel(Funnel):
             select_steps=",".join(["step_{}".format(index) for index, _ in enumerate(self._filter.entities)]),
             team_id=self._team.id,
             steps=", ".join(steps),
-            filters=prop_filters.replace("id IN", "events.id IN", 1),
+            filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
         )

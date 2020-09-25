@@ -79,7 +79,7 @@ class ClickhouseActions(ActionViewSet):
             try:
                 action = Action.objects.get(pk=entity.id)
                 action_query, params = format_action_filter(action)
-                entity_filter = "AND id IN ({})".format(action_query)
+                entity_filter = "AND uuid IN ({})".format(action_query)
 
             except Action.DoesNotExist:
                 raise ValueError("This action does not exist")
@@ -91,7 +91,7 @@ class ClickhouseActions(ActionViewSet):
 
     def _calculate_stickiness_entity_people(self, team: Team, entity: Entity, filter: Filter, stickiness_day: int):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
 
         params: Dict = {
@@ -116,7 +116,7 @@ class ClickhouseActions(ActionViewSet):
 
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("id", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
         params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
