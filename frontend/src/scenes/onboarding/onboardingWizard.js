@@ -1,31 +1,33 @@
 import React, { useState } from 'react'
-import { Row, List, Spin, Button } from 'antd'
-import { useActions, useValues } from 'kea'
+import { Row, List, Button } from 'antd'
 import './onboardingWizard.scss'
-import { JSSnippet } from 'lib/components/JSSnippet'
-import {
-    AndroidInstructions,
-    GoInstructions,
-    IOSInstructions,
-    NodeInstructions,
-    PHPInstructions,
-    PythonInstructions,
-    RNInstructions,
-    RubyInstructions,
-    JSInstructions,
-    APIInstructions,
-    ElixirInstructions,
-    FlutterInstructions,
-} from './FrameworkInstructions'
-import { userLogic } from 'scenes/userLogic'
-import { useInterval } from 'lib/hooks/useInterval'
-import { CardContainer } from './CardContainer'
 
-const PLATFORM_TYPE = 'PLATFORM_TYPE'
-const AUTOCAPTURE = 'AUTOCAPTURE'
-const FRAMEWORK = 'FRAMEWORK'
-const INSTRUCTIONS = 'INSTRUCTIONS'
-const VERIFICATION = 'VERIFICATION'
+import { CardContainer } from './CardContainer'
+import { VerificationPanel } from 'scenes/onboarding/VerificationPanel'
+import { AutocapturePanel } from 'scenes/onboarding/AutocapturePanel'
+import { InstructionsPanel } from 'scenes/onboarding/InstructionsPanel'
+import {
+    ANDROID,
+    API,
+    AUTOCAPTURE,
+    ELIXIR,
+    FLUTTER,
+    FRAMEWORK,
+    GO,
+    INSTRUCTIONS,
+    IOS,
+    MOBILE,
+    NODEJS,
+    PHP,
+    PLATFORM_TYPE,
+    platformTypes,
+    PURE_JS,
+    PYTHON,
+    REACT_NATIVE,
+    RUBY,
+    VERIFICATION,
+    WEB,
+} from 'scenes/onboarding/constants'
 
 const states = {
     0: PLATFORM_TYPE,
@@ -34,19 +36,6 @@ const states = {
     3: INSTRUCTIONS,
     4: VERIFICATION,
 }
-
-const WEB = 'Web'
-const MOBILE = 'Mobile'
-const platformTypes = [WEB, MOBILE]
-
-const PURE_JS = 'PURE_JS'
-const NODEJS = 'NODEJS'
-const GO = 'GO'
-const RUBY = 'RUBY'
-const PYTHON = 'PYTHON'
-const PHP = 'PHP'
-const ELIXIR = 'ELIXIR'
-const API = 'API'
 
 const webFrameworks = {
     [PURE_JS]: 'JavaScript',
@@ -58,50 +47,11 @@ const webFrameworks = {
     [ELIXIR]: 'Elixir',
 }
 
-const webFrameworksSnippet = {
-    PURE_JS: function createJSInstructions({ user }) {
-        return <JSInstructions user={user}></JSInstructions>
-    },
-    NODEJS: function createNodeInstructions({ user }) {
-        return <NodeInstructions user={user}></NodeInstructions>
-    },
-    GO: function createGoInstructions({ user }) {
-        return <GoInstructions user={user}></GoInstructions>
-    },
-    RUBY: function createRubyInstructions({ user }) {
-        return <RubyInstructions user={user}></RubyInstructions>
-    },
-    PYTHON: function createPythonInstructions({ user }) {
-        return <PythonInstructions user={user}></PythonInstructions>
-    },
-    PHP: function createPHPInstructions({ user }) {
-        return <PHPInstructions user={user}></PHPInstructions>
-    },
-    ELIXIR: function createElixirInstructions({ user }) {
-        return <ElixirInstructions user={user}></ElixirInstructions>
-    },
-}
-
 const mobileFrameworks = {
-    ANDROID: 'Android',
-    IOS: 'iOS',
-    REACT_NATIVE: 'React Native',
-    FLUTTER: 'Flutter',
-}
-
-const mobileFrameworksSnippet = {
-    ANDROID: function createAndroidInstructions({ user }) {
-        return <AndroidInstructions user={user}></AndroidInstructions>
-    },
-    IOS: function createIOSInstructions({ user }) {
-        return <IOSInstructions user={user}></IOSInstructions>
-    },
-    REACT_NATIVE: function createRNInstructions({ user }) {
-        return <RNInstructions user={user}></RNInstructions>
-    },
-    FLUTTER: function createFlutterInstructions({ user }) {
-        return <FlutterInstructions user={user}></FlutterInstructions>
-    },
+    [ANDROID]: 'Android',
+    [IOS]: 'iOS',
+    [REACT_NATIVE]: 'React Native',
+    [FLUTTER]: 'Flutter',
 }
 
 const content = {
@@ -131,12 +81,7 @@ const content = {
     },
     AUTOCAPTURE: function CreateAutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
         return (
-            <AutocapturePanel
-                user={user}
-                onSubmit={onSubmit}
-                reverse={reverse}
-                onCustomContinue={onCustomContinue}
-            ></AutocapturePanel>
+            <AutocapturePanel user={user} onSubmit={onSubmit} reverse={reverse} onCustomContinue={onCustomContinue} />
         )
     },
     FRAMEWORK: function CreateFrameworkPanel({ platformType, reverse, onSubmit, onApiContinue }) {
@@ -176,10 +121,9 @@ const content = {
             </CardContainer>
         )
     },
-    INSTRUCTIONS: function CreateInstructionsPanel({ user, onSubmit, reverse, platformType, framework }) {
+    INSTRUCTIONS: function CreateInstructionsPanel({ onSubmit, reverse, platformType, framework }) {
         return (
             <InstructionsPanel
-                user={user}
                 onSubmit={onSubmit}
                 reverse={reverse}
                 platformType={platformType}
@@ -188,7 +132,7 @@ const content = {
         )
     },
     VERIFICATION: function CreateVerificationPanel({ reverse }) {
-        return <VerificationPanel reverse={reverse}></VerificationPanel>
+        return <VerificationPanel reverse={reverse} />
     },
 }
 
@@ -250,138 +194,5 @@ export default function OnboardingWizard({ user }) {
                 onApiContinue,
             })}
         </div>
-    )
-}
-
-function VerificationPanel({ reverse }) {
-    const { loadUser, userUpdateRequest } = useActions(userLogic)
-    const { user } = useValues(userLogic)
-
-    useInterval(() => {
-        !user.has_events && loadUser()
-    }, 3000)
-
-    return (
-        <CardContainer index={3} totalSteps={4} onBack={reverse}>
-            {!user.has_events ? (
-                <>
-                    <Row align="middle">
-                        <Spin></Spin>
-                        <h2 className="ml-3">Listening for events!</h2>
-                    </Row>
-                    <p className="prompt-text">
-                        {' '}
-                        Once you have integrated the snippet and sent an event, we will verify it sent properly and
-                        continue
-                    </p>
-                    <b
-                        data-attr="wizard-complete-button"
-                        style={{ float: 'right' }}
-                        className="button-border clickable"
-                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
-                    >
-                        Continue without verifying
-                    </b>
-                </>
-            ) : (
-                <>
-                    <h2>Successfully sent events!</h2>
-                    <p className="prompt-text">
-                        You will now be able to explore PostHog and take advantage of all its features to understand
-                        your users.
-                    </p>
-                    <Button
-                        data-attr="wizard-complete-button"
-                        type="primary"
-                        style={{ float: 'right' }}
-                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
-                    >
-                        Complete
-                    </Button>
-                </>
-            )}
-        </CardContainer>
-    )
-}
-
-function AutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
-    return (
-        <CardContainer index={1} totalSteps={3} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
-            <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
-                <h2 style={{ color: 'black', marginLeft: 8 }}>{'Autocapture'}</h2>
-                <b
-                    style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
-                    onClick={onCustomContinue}
-                    className="button-border clickable"
-                >
-                    I also want to capture custom events
-                </b>
-            </Row>
-            <p className="prompt-text">
-                Since you're running a web application, we suggest using our header snippet. This snippet will
-                automatically capture page views, page leaves, and interactions with specific elements (
-                {'<a>, <button>, <input>, <textarea>, <form>'}).
-            </p>
-            <p className="prompt-text">
-                Just insert this snippet into your website where you configure {'<head> or <meta>'} tags.
-            </p>
-            <JSSnippet user={user}></JSSnippet>
-            <h2>Send an Event</h2>
-            <p className="prompt-text">
-                Once you've inserted the snippet, click on a button or form on your website to send an event!
-            </p>
-        </CardContainer>
-    )
-}
-
-function InstructionsPanel({ user, onSubmit, reverse, platformType, framework }) {
-    if (framework === API) {
-        return (
-            <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
-                <h2>API</h2>
-                <p className="prompt-text">
-                    {
-                        "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
-                    }
-                </p>
-                <APIInstructions user={user}></APIInstructions>
-            </CardContainer>
-        )
-    }
-
-    if (framework === PURE_JS) {
-        return (
-            <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
-                <h2>posthog-js</h2>
-                <p className="prompt-text">
-                    {
-                        'posthog-js will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
-                    }
-                </p>
-                {webFrameworksSnippet[framework]({ user })}
-            </CardContainer>
-        )
-    }
-    return (
-        <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
-            {platformType === WEB ? (
-                <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
-                    <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
-                </Row>
-            ) : (
-                <h2>Setup</h2>
-            )}
-            {platformType === WEB && (
-                <>
-                    <p className="prompt-text">
-                        {
-                            'To send events from your backend or add custom events, you can use our framework specific libraries.'
-                        }
-                    </p>
-                    {webFrameworksSnippet[framework]({ user })}
-                </>
-            )}
-            {platformType === MOBILE && <>{mobileFrameworksSnippet[framework]({ user })}</>}
-        </CardContainer>
     )
 }

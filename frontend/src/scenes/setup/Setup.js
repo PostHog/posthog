@@ -33,7 +33,7 @@ function _Setup() {
             <a href="https://posthog.com/docs/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
-            <JSSnippet user={user} />
+            <JSSnippet />
             <h2 id="custom-events">Send Custom Events</h2>
             To send custom events <a href="https://posthog.com/docs/integrations">visit our docs</a> and integrate the
             library for the specific language or platform you're using (Python, Ruby, Node, Go, PHP, iOS, Android, and
