@@ -74,7 +74,13 @@ jobs:
                     POSTGRES_DB: postgres
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
+            clickhouse-server:
+                image: yandex/clickhouse-server
+                ports:
+                    - '8123:8123'
+                    - '9000:9000'
+                    - '9440:9440'
+                    - '9009:9009'
         steps:
             - uses: actions/checkout@v1
               with:
@@ -106,7 +112,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
               run: python manage.py makemigrations --check --dry-run
 
-            - name: Run tests
+            - name: Run posthog tests
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -115,10 +121,25 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test --keepdb -v 2
+                  python manage.py test posthog -v 2
+            - name: Run EE tests
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  PRIMARY_DB: 'clickhouse'
+                  CLICKHOUSE_HOST: 'localhost'
+                  CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_SECURE: 'False'
+                  CLICKHOUSE_VERIFY: 'False'
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/shared_dashboard.html
+                  python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
 
     multitenancy:
-        name: Django tests (multitenancy)
+        name: Django tests – posthog-production
         runs-on: ubuntu-latest
 
         services:
@@ -182,10 +203,70 @@ jobs:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
-                  source env.template
+                  source .env.template
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test --keepdb -v 2
+                  python manage.py test posthog multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+
+    foss:
+        name: Django tests – posthog-foss
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+        steps:
+            - uses: actions/checkout@v1
+              with:
+                  fetch-depth: 1
+
+            - name: Set up Python 3.7
+              uses: actions/setup-python@v1
+              with:
+                  python-version: 3.7
+
+            - uses: actions/cache@v1
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+
+            - name: Install requirements.txt dependencies with pip
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun
+              if: steps.cache.outputs.cache-hit != 'true'
+
+            - name: Remove ee
+              run: |
+                  rm -rf ee/
+
+            - name: Check migrations
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: python manage.py makemigrations --check --dry-run
+
+            - name: Run tests
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/shared_dashboard.html
+                  python manage.py test -v 2 --exclude-tag=ee

@@ -10,31 +10,14 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
+from posthog.auth import authenticate_secondarily
 from posthog.models import Event, User
-from posthog.utils import PersonalAPIKeyAuthentication
 from posthog.version import VERSION
-
-
-def authenticate_secondarily(endpoint):
-    @functools.wraps(endpoint)
-    def wrapper(request: HttpRequest):
-        if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and isinstance(auth_result[0], User):
-                    request.user = auth_result[0]
-                else:
-                    raise exceptions.AuthenticationFailed("Authentication credentials were not provided.")
-            except exceptions.AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
-        return endpoint(request)
-
-    return wrapper
 
 
 # TODO: remake these endpoints with DRF!
@@ -114,7 +97,7 @@ def user(request):
 
 @authenticate_secondarily
 def redirect_to_site(request):
-    team = request.user.team_set.get()
+    team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
     use_new_toolbar = request.user.toolbar_mode == "toolbar"
 

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.test import Client, TestCase
 from rest_framework import status
 
+from posthog.api.test.base import BaseTest
 from posthog.models import Team, User
 
 
@@ -28,13 +29,6 @@ class TestSignup(TestCase):
 
             response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
 
-            self.assertEqual(
-                response.json(),
-                {
-                    "code": "validation",
-                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                },
-            )
             self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST
             )  # Check for a bad request exception because it means the middleware didn't block the request
@@ -100,18 +94,9 @@ class TestSignup(TestCase):
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 
-class TestToolbarCookieMiddleware(TestCase):
-    def _create_user(self, email, **kwargs) -> User:
-        user = User.objects.create_user(email, **kwargs)
-        self.team.users.add(user)
-        self.team.save()
-        return user
-
-    def setUp(self):
-        super().setUp()
-        self.team: Team = Team.objects.create(api_token="token123")
-        self.user = self._create_user("user1", password="pass123")
-        self.client = Client()
+class TestToolbarCookieMiddleware(BaseTest):
+    TESTS_API = True
+    TESTS_FORCE_LOGIN = False
 
     def test_logged_out_client(self):
         response = self.client.get("/")

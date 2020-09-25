@@ -60,13 +60,13 @@ function Team({ user }) {
             dataIndex: 'email',
             key: 'email',
         },
-        {
+        /*{
             title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
             render: ActionsComponent,
-        },
+        },*/
     ]
 
     return (

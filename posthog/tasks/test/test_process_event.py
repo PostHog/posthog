@@ -1,12 +1,13 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
+from posthog.api.test.base import BaseTest, TransactionBaseTest
 from posthog.models import (
     Action,
     ActionStep,
@@ -31,7 +32,7 @@ class ProcessEvent(BaseTest):
         self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
         self.team.save()
 
-        with self.assertNumQueries(30):
+        with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
             process_event(
                 2,
                 "",
@@ -453,10 +454,9 @@ class ProcessEvent(BaseTest):
         """
         Assert that we report to posthoganalytics the first event ingested by a team.
         """
-        team = Team.objects.create(api_token="token456")
-        user = User.objects.create_user("testuser@posthog.com")
-        team.users.add(user)
-        team.save()
+        organization, team, user = User.objects.bootstrap(
+            "Test", "testuser@posthog.com", None, team_fields={"api_token": 456}
+        )
 
         process_event(
             2,
@@ -481,14 +481,10 @@ class ProcessEvent(BaseTest):
         self.assertEqual(team.ingested_event, True)
 
 
-class TestIdentify(TransactionTestCase):
-    def setUp(self) -> None:
-        user: User = User.objects.create_user("tim@posthog.com")
-        if not hasattr(self, "team"):
-            self.team: Team = Team.objects.create(api_token="token123")
-        self.team.users.add(user)
-        self.team.save()
-        self.client.force_login(user)
+class TestIdentify(TransactionBaseTest):
+    TESTS_API: bool = True
+    TESTS_EMAIL: str = "tim@posthog.com"
+    TESTS_PASSWORD: Optional[str] = None
 
     def test_distinct_with_anonymous_id(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
@@ -662,3 +658,18 @@ class TestIdentify(TransactionTestCase):
         )
         person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
         self.assertTrue(person_after_event.is_identified)
+
+    def test_team_event_properties(self) -> None:
+        self.assertListEqual(self.team.event_properties_numerical, [])
+        process_event(
+            "xxx",
+            "",
+            "",
+            {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        self.team.refresh_from_db()
+        self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
+        self.assertListEqual(self.team.event_properties_numerical, ["price"])

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './preflightCheckLogic'
 import { Row, Col, Space, Card, Button } from 'antd'
-import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
+import hedgehogBlue from './../../../public/hedgehog-blue.png'
 import {
     CheckSquareFilled,
     CloseSquareFilled,
@@ -105,7 +105,7 @@ function PreflightCheck() {
     }
 
     const handlePreflightFinished = () => {
-        window.location.href = '/setup_admin'
+        window.location.href = '/signup'
     }
 
     useEffect(() => {
@@ -128,7 +128,7 @@ function PreflightCheck() {
             </Col>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={hedgehogBlue} style={{ maxHeight: '100%' }} />
+                    <img src={hedgehogBlue} style={{ maxHeight: '100%', width: 380 }} />
                     <p>Got any PostHog questions?</p>
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
