@@ -65,7 +65,7 @@ def get_events_by_team(team_id: Union[str, int]):
 
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField()
+    id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     event = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
@@ -73,7 +73,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_uuid(self, event):
+    def get_id(self, event):
         return str(event[0])
 
     def get_properties(self, event):
