@@ -25,6 +25,11 @@ GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
 
+KAFKA_COLUMNS = """
+, _timestamp DateTime
+, _offset UInt64
+"""
+
 
 def table_engine(table: str, ver: Optional[str] = None) -> str:
     if ver:

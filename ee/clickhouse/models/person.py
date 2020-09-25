@@ -57,10 +57,13 @@ def emit_omni_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    timestamp: datetime.datetime = datetime.datetime.now(),
+    timestamp: Optional[datetime.datetime] = None,
 ) -> UUID:
     if not uuid:
         uuid = uuid4()
+
+    if not timestamp:
+        timestamp = datetime.datetime.now()
 
     data = {
         "event_uuid": str(event_uuid),
@@ -69,7 +72,7 @@ def emit_omni_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "ts": timestamp.isoformat(),
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_OMNI_PERSON, data=data)
@@ -82,17 +85,21 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
+    timestamp: Optional[datetime.datetime] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
     else:
         uuid = str(uuid4())
+    if not timestamp:
+        timestamp = datetime.datetime.now()
 
     data = {
         "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
+        "created_at": timestamp.isoformat(),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)

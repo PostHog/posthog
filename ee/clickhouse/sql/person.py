@@ -1,6 +1,6 @@
 from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
-from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -19,9 +19,8 @@ CREATE TABLE {table_name}
     created_at datetime,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    _timestamp UInt64,
-    _offset UInt64
+    is_identified Boolean
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -30,10 +29,15 @@ PERSONS_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=PERSONS_TABLE,
+    engine=table_engine(PERSONS_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
+    storage_policy=STORAGE_POLICY,
+)
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
+    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON), extra_fields=""
 )
 
 PERSONS_TABLE_MV_SQL = """
@@ -64,9 +68,8 @@ CREATE TABLE {table_name}
     distinct_id VARCHAR,
     properties VARCHAR,
     is_identified Boolean,
-    ts DateTime, 
-    _timestamp UInt64,
-    _offset UInt64
+    ts DateTime64
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -76,11 +79,14 @@ OMNI_PERSONS_TABLE_SQL = (
 {storage_policy}
 """
 ).format(
-    table_name=OMNI_PERSONS_TABLE, engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY
+    table_name=OMNI_PERSONS_TABLE,
+    engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
+    storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_OMNI_PERSONS_TABLE_SQL = OMNI_PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON)
+    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON), extra_fields=""
 )
 
 OMNI_PERSONS_TABLE_MV_SQL = """
@@ -114,9 +120,8 @@ CREATE TABLE {table_name}
     id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int64,
-    _timestamp UInt64,
-    _offset UInt64
+    team_id Int64
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -128,11 +133,12 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields=""
 )
 
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
