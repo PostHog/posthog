@@ -2,6 +2,7 @@ import json
 import random
 from pathlib import Path
 from typing import List
+from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -31,12 +32,14 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
         distinct_id = generate_clickhouse_uuid()
         person = Person.objects.create(team_id=team.pk, distinct_ids=[distinct_id], properties={"is_demo": True})
 
+        event_uuid = uuid4()
         create_event(
             team=team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": base_url, "$browser": browser, "$lib": "web",},
             timestamp=date,
+            event_uuid=event_uuid,
         )
 
         if index % 3 == 0:
@@ -54,7 +57,9 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 Element(tag_name="body"),
                 Element(tag_name="html"),
             ]
-            elements_hash = create_elements(elements=elements, team=team)
+
+            event_uuid = uuid4()
+            elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
             create_event(
                 team=team,
                 distinct_id=distinct_id,
@@ -62,14 +67,17 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
                 timestamp=date + relativedelta(seconds=14),
                 elements_hash=elements_hash,
+                event_uuid=event_uuid,
             )
 
+            event_uuid = uuid4()
             create_event(
                 event="$pageview",
                 team=team,
                 distinct_id=distinct_id,
                 properties={"$current_url": "%s1/" % base_url, "$browser": browser, "$lib": "web",},
                 timestamp=date + relativedelta(seconds=15),
+                event_uuid=event_uuid,
             )
 
             if index % 4 == 0:
@@ -81,7 +89,9 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                     Element(tag_name="body"),
                     Element(tag_name="html"),
                 ]
-                elements_hash = create_elements(elements=elements, team=team)
+
+                event_uuid = uuid4()
+                elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
                 create_event(
                     team=team,
                     event="$autocapture",
@@ -94,14 +104,17 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                     },
                     timestamp=date + relativedelta(seconds=29),
                     elements_hash=elements_hash,
+                    event_uuid=event_uuid,
                 )
 
+                event_uuid = uuid4()
                 create_event(
                     event="$pageview",
                     team=team,
                     distinct_id=distinct_id,
                     properties={"$current_url": "%s2/" % base_url, "$browser": browser, "$lib": "web",},
                     timestamp=date + relativedelta(seconds=30),
+                    event_uuid=event_uuid,
                 )
 
                 if index % 5 == 0:
@@ -113,7 +126,9 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         Element(tag_name="body"),
                         Element(tag_name="html"),
                     ]
-                    elements_hash = create_elements(elements=elements, team=team)
+
+                    event_uuid = uuid4()
+                    elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
 
                     create_event(
                         team=team,
@@ -127,22 +142,27 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         },
                         timestamp=date + relativedelta(seconds=59),
                         elements_hash=elements_hash,
+                        event_uuid=event_uuid,
                     )
 
+                    event_uuid = uuid4()
                     create_event(
                         event="purchase",
                         team=team,
                         distinct_id=distinct_id,
                         properties={"price": 10},
                         timestamp=date + relativedelta(seconds=60),
+                        event_uuid=event_uuid,
                     )
 
+                    event_uuid = uuid4()
                     create_event(
                         event="$pageview",
                         team=team,
                         distinct_id=distinct_id,
                         properties={"$current_url": "%s3/" % base_url, "$browser": browser, "$lib": "web",},
                         timestamp=date + relativedelta(seconds=60),
+                        event_uuid=event_uuid,
                     )
 
     team.event_properties_numerical.append("purchase")
