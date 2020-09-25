@@ -11,7 +11,8 @@ ELEMENTS_TABLE = "elements"
 ELEMENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name}
 (
-    id UUID,
+    uuid UUID,
+    event_uuid UUID,
     text VARCHAR,
     tag_name VARCHAR,
     href VARCHAR,
@@ -45,7 +46,8 @@ ELEMENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {table_name} 
 AS SELECT
-id,
+uuid,
+event_uuid,
 text,
 tag_name,
 href,
@@ -67,7 +69,8 @@ FROM kafka_{table_name}
 
 INSERT_ELEMENTS_SQL = """
 INSERT INTO elements SELECT 
-    %(id)s, 
+    %(uuid)s,
+    %(event_uuid)s, 
     %(text)s,
     %(tag_name)s,
     %(href)s,
@@ -86,7 +89,8 @@ INSERT INTO elements SELECT
 
 GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
     SELECT 
-        argMax(id, _timestamp) id,
+        argMax(uuid, _timestamp) uuid,
+        any(event_uuid) event_uuid, 
         any(text) text,
         any(tag_name) tag_name,
         any(href) href,
@@ -98,7 +102,9 @@ GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
         order,
         team_id,
         max(_timestamp) _timestamp_,
-        elements_hash
+        elements_hash,
+        now(),
+        0
     FROM elements
     WHERE elements_hash = %(elements_hash)s AND team_id=%(team_id)s
     GROUP BY team_id, elements_hash, order
@@ -112,7 +118,8 @@ SELECT * FROM elements {final} ORDER by order ASC
 ELEMENTS_WITH_ARRAY_PROPS = """
 CREATE TABLE elements_with_array_props_view
 (
-    id UUID,
+    uuid UUID,
+    event_uuid UUID,
     text VARCHAR,
     tag_name VARCHAR,
     href VARCHAR,
@@ -141,7 +148,8 @@ ELEMENTS_WITH_ARRAY_PROPS_MAT = """
 CREATE MATERIALIZED VIEW elements_with_array_props_mv
 TO elements_with_array_props_view
 AS SELECT
-id,
+uuid,
+event_uuid,
 text,
 tag_name,
 href,
@@ -163,9 +171,10 @@ FROM elements
 ELEMENTS_PROPERTIES_MAT = """
 CREATE MATERIALIZED VIEW elements_properties_view
 ENGINE = MergeTree()
-ORDER BY (key, value, id)
+ORDER BY (key, value, uuid)
 POPULATE
-AS SELECT id,
+AS SELECT uuid,
+event_uuid,
 team_id,
 array_attribute_keys as key,
 array_attribute_values as value

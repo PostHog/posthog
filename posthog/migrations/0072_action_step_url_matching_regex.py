@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             name="url_matching",
             field=models.CharField(
                 blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact"),],
                 default="contains",
                 max_length=400,
                 null=True,

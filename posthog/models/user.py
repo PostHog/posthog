@@ -15,9 +15,9 @@ if settings.EE_AVAILABLE:
 
 MULTI_TENANCY_MISSING = False
 try:
-    from multi_tenancy.models import BilledOrganization  # type: ignore
+    from multi_tenancy.models import OrganizationBilling  # type: ignore
 except ImportError:
-    BilledOrganization = None
+    OrganizationBilling = None
     MULTI_TENANCY_MISSING = True
 
 
@@ -152,8 +152,8 @@ class User(AbstractUser):
         # If we're on multi-tenancy, grab the organization's price
         if not MULTI_TENANCY_MISSING:
             try:
-                return BilledOrganization.objects.get(organization=self.organization).get_price_id()
-            except BilledOrganization.DoesNotExist:
+                return OrganizationBilling.objects.get(organization=self.organization).get_price_id()
+            except OrganizationBilling.DoesNotExist:
                 return None
         # Otherwise, try to find a valid license on this instance
         license = License.objects.filter(valid_until__gte=now()).first()
