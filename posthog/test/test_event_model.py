@@ -17,7 +17,13 @@ class TestFilterByActions(BaseTest):
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, order=1),
                 Element(tag_name="button", nth_child=0, nth_of_type=0, order=2),
                 Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, order=4, attr_id="nested",),
+                Element(
+                    tag_name="div",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=4,
+                    attr_id="nested",
+                ),
             ],
         )
 
@@ -54,7 +60,9 @@ class TestFilterByActions(BaseTest):
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(event="$autocapture", action=action1, selector="div > div > a")
         ActionStep.objects.create(
-            event="$autocapture", action=action1, selector="div > a.somethingthatdoesntexist",
+            event="$autocapture",
+            action=action1,
+            selector="div > a.somethingthatdoesntexist",
         )
         action1.calculate_events()
 
@@ -101,22 +109,53 @@ class TestFilterByActions(BaseTest):
         event1 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0, order=0,)],
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    text="some_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=0,
+                )
+            ],
         )
 
         event2 = Event.objects.create(
             team=self.team,
             distinct_id="whatever2",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0, order=0,)],
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    text="some_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=0,
+                )
+            ],
         )
 
         event3 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0, order=0,),
+                Element(
+                    tag_name="a",
+                    href="/a-url-2",
+                    text="some_other_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=0,
+                ),
                 # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,),
+                Element(
+                    tag_name="div",
+                    text="some_other_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=1,
+                ),
             ],
         )
 
@@ -124,9 +163,22 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever2",
             elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0, order=0,),
+                Element(
+                    tag_name="a",
+                    href="/a-url-2",
+                    text="some_other_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=0,
+                ),
                 # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,),
+                Element(
+                    tag_name="div",
+                    text="some_other_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=1,
+                ),
             ],
         )
 
@@ -208,7 +260,9 @@ class TestFilterByActions(BaseTest):
         Person.objects.create(distinct_ids=["whatever"], team=self.team)
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(
-            action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+            action=action1,
+            url="https://posthog.com/feedback/123",
+            url_matching=ActionStep.EXACT,
         )
         ActionStep.objects.create(action=action1, href="/a-url-2")
 
@@ -217,12 +271,16 @@ class TestFilterByActions(BaseTest):
 
         action3 = Action.objects.create(team=self.team)
         ActionStep.objects.create(
-            action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS,
+            action=action3,
+            url="https://posthog.com/%/123",
+            url_matching=ActionStep.CONTAINS,
         )
 
         action4 = Action.objects.create(team=self.team)
         ActionStep.objects.create(
-            action=action4, url="/123$", url_matching=ActionStep.REGEX,
+            action=action4,
+            url="/123$",
+            url_matching=ActionStep.REGEX,
         )
 
         event1 = Event.objects.create(team=self.team, distinct_id="whatever")
@@ -230,7 +288,15 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             properties={"$current_url": "https://posthog.com/feedback/123"},
-            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,)],
+            elements=[
+                Element(
+                    tag_name="div",
+                    text="some_other_text",
+                    nth_child=0,
+                    nth_of_type=0,
+                    order=1,
+                )
+            ],
         )
 
         events = Event.objects.filter_by_action(action1)
@@ -255,11 +321,15 @@ class TestFilterByActions(BaseTest):
 
         person = Person.objects.create(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
         event_watched_movie_anonymous = Event.objects.create(
-            distinct_id="anonymous_user", team=self.team, elements=[Element(tag_name="a", href="/movie")],
+            distinct_id="anonymous_user",
+            team=self.team,
+            elements=[Element(tag_name="a", href="/movie")],
         )
 
         event_watched_movie = Event.objects.create(
-            distinct_id="is_now_signed_up", team=self.team, elements=[Element(tag_name="a", href="/movie")],
+            distinct_id="is_now_signed_up",
+            team=self.team,
+            elements=[Element(tag_name="a", href="/movie")],
         )
 
         events = Event.objects.filter_by_action(action_watch_movie)
@@ -343,15 +413,24 @@ class TestActions(BaseTest):
     def test_simple_element_filters(self):
         action_sign_up = Action.objects.create(team=self.team, name="signed up")
         ActionStep.objects.create(
-            action=action_sign_up, tag_name="button", text="Sign up!", event="$autocapture",
+            action=action_sign_up,
+            tag_name="button",
+            text="Sign up!",
+            event="$autocapture",
         )
         # 2 steps that match same element might trip stuff up
         ActionStep.objects.create(
-            action=action_sign_up, tag_name="button", text="Sign up!", event="$autocapture",
+            action=action_sign_up,
+            tag_name="button",
+            text="Sign up!",
+            event="$autocapture",
         )
         action_credit_card = Action.objects.create(team=self.team, name="paid")
         ActionStep.objects.create(
-            action=action_credit_card, tag_name="button", text="Pay $10", event="$autocapture",
+            action=action_credit_card,
+            tag_name="button",
+            text="Pay $10",
+            event="$autocapture",
         )
 
         # events
@@ -362,7 +441,10 @@ class TestActions(BaseTest):
     def test_selector(self):
         action_watch_movie = Action.objects.create(team=self.team, name="watch movie")
         ActionStep.objects.create(
-            action=action_watch_movie, text="Watch now", selector="div > a.watch_movie", event="$autocapture",
+            action=action_watch_movie,
+            text="Watch now",
+            selector="div > a.watch_movie",
+            event="$autocapture",
         )
         Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
         event = self._movie_event("watched_movie")
@@ -413,7 +495,8 @@ class TestPreCalculation(BaseTest):
         with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual(
-            [e for e in action.events.all().order_by("id")], [user_signed_up, user_logged_in],
+            [e for e in action.events.all().order_by("id")],
+            [user_signed_up, user_logged_in],
         )
 
         # update actionstep
@@ -422,7 +505,8 @@ class TestPreCalculation(BaseTest):
         with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual(
-            [e for e in action.events.all().order_by("id")], [user_signed_up, user_logged_out],
+            [e for e in action.events.all().order_by("id")],
+            [user_signed_up, user_logged_out],
         )
 
         # delete actionstep
@@ -439,7 +523,9 @@ class TestPreCalculation(BaseTest):
         Event.objects.create(event="$pageview", distinct_id="person1", team=self.team)
         action = Action.objects.create(name="pageview", team=self.team)
         ActionStep.objects.create(
-            action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+            action=action,
+            event="$pageview",
+            properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
         )
         action.calculate_events()
         self.assertEqual(action.events.count(), 1)
@@ -448,7 +534,9 @@ class TestPreCalculation(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
         action = Action.objects.create(name="pageview", team=self.team)
         ActionStep.objects.create(
-            action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+            action=action,
+            event="$pageview",
+            properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
         )
         action.calculate_events()
         self.assertEqual(action.events.count(), 0)
@@ -483,25 +571,46 @@ class TestSelectors(BaseTest):
     def test_selector_child(self):
         selector1 = Selector("div span")
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "span"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[1].__dict__,
+            {
+                "data": {"tag_name": "div"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
 
     def test_selector_child_direct_descendant(self):
         selector1 = Selector("div > span")
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "span"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
+            selector1.parts[1].__dict__,
+            {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
         )
 
     def test_selector_attribute(self):
         selector1 = Selector('div[data-id="5"] > span')
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "span"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
             selector1.parts[1].__dict__,
@@ -515,25 +624,42 @@ class TestSelectors(BaseTest):
     def test_selector_id(self):
         selector1 = Selector('[id="5"] > span')
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "span"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"attr_id": "5"}, "direct_descendant": True, "unique_order": 0},
+            selector1.parts[1].__dict__,
+            {"data": {"attr_id": "5"}, "direct_descendant": True, "unique_order": 0},
         )
 
     def test_selector_with_spaces(self):
-        selector1 = Selector('span     ')
-        pass
+        selector1 = Selector("span    ")
+        self.assertEqual(
+            selector.parts[0].__dict__,
+            {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0},
+        )
 
     def test_class(self):
         selector1 = Selector("div.classone.classtwo > span")
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "span"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
             selector1.parts[1].__dict__,
             {
-                "data": {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"],},
+                "data": {
+                    "tag_name": "div",
+                    "attr_class__contains": ["classone", "classtwo"],
+                },
                 "direct_descendant": True,
                 "unique_order": 0,
             },
@@ -543,17 +669,28 @@ class TestSelectors(BaseTest):
         selector1 = Selector("div > span:nth-child(3)")
         self.assertEqual(
             selector1.parts[0].__dict__,
-            {"data": {"tag_name": "span", "nth_child": "3"}, "direct_descendant": False, "unique_order": 0,},
+            {
+                "data": {"tag_name": "span", "nth_child": "3"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
+            selector1.parts[1].__dict__,
+            {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
         )
 
     def test_unique_order(self):
         selector1 = Selector("div > div")
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[0].__dict__,
+            {
+                "data": {"tag_name": "div"},
+                "direct_descendant": False,
+                "unique_order": 0,
+            },
         )
         self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 1},
+            selector1.parts[1].__dict__,
+            {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 1},
         )

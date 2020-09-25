@@ -101,7 +101,7 @@ class Selector(object):
 
     def __init__(self, selector: str):
         self.parts = []
-        tags = re.split(" ", selector)
+        tags = re.split(" ", selector.strip())
         tags.reverse()
         for index, tag in enumerate(tags):
             if tag == ">":
@@ -267,12 +267,15 @@ class EventManager(models.QuerySet):
         """
 
         full_query = full_query.format(
-            events_query=events_query, first_date_query=first_date_query, event_date_query=TruncDay("timestamp"),
+            events_query=events_query,
+            first_date_query=first_date_query,
+            event_date_query=TruncDay("timestamp"),
         )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query, (filters.date_from,) + events_query_params + first_date_params,
+                full_query,
+                (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
@@ -289,14 +292,20 @@ class EventManager(models.QuerySet):
 
         by_dates = {}
         for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
+            people = sorted(
+                row.people,
+                key=lambda p: scores[round(row.first_date, 1)][int(p)],
+                reverse=True,
+            )
 
             random_key = "".join(
                 random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
             )
             cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
             cache.set(
-                cache_key, people, 600,
+                cache_key,
+                people,
+                600,
             )
             by_dates.update(
                 {
@@ -384,7 +393,9 @@ class Event(models.Model):
 
         actions = (
             Action.objects.filter(
-                team_id=self.team_id, steps__event=self.event, deleted=False,  # filter by event name to narrow down
+                team_id=self.team_id,
+                steps__event=self.event,
+                deleted=False,  # filter by event name to narrow down
             )
             .distinct("id")
             .prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
