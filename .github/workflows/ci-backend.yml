@@ -62,7 +62,7 @@ jobs:
                   mypy posthog
 
     django:
-        name: Django tests – posthog
+        name: Django tests
         runs-on: ubuntu-latest
 
         services:
