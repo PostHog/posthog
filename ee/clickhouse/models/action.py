@@ -77,7 +77,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
             event_query, event_params, index = filter_event(step, prepend, index)
             params = {**params, **event_params}
             or_queries.append(event_query)
-    or_separator = "OR id IN"
+    or_separator = "OR uuid IN"
     formatted_query = or_separator.join(or_queries)
     return formatted_query, params
 
@@ -134,7 +134,7 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
 
     return (
         ELEMENT_ACTION_FILTER.format(
-            element_filter=selector_query, event_filter="AND id IN {}".format(event_filter) if event_filter else ""
+            element_filter=selector_query, event_filter="AND uuid IN {}".format(event_filter) if event_filter else ""
         ),
         params,
         index + 1,
