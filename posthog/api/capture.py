@@ -1,5 +1,4 @@
 import re
-import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
@@ -9,13 +8,14 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
-from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import process_event_ee  # type: ignore
+    from ee.clickhouse.process_event import process_event_ee
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:

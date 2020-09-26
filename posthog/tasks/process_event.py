@@ -6,7 +6,6 @@ import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
@@ -185,7 +184,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
+def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.datetime:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
@@ -196,8 +195,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[date
                 return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
             except TypeError as e:
                 capture_exception(e)
-
-        return data["timestamp"]
+        return parser.isoparse(data["timestamp"])
     now_datetime = parser.parse(now)
     if data.get("offset"):
         return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
@@ -213,13 +211,14 @@ def process_event(
             previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
         )
     elif data["event"] == "$identify":
-        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+
         if data.get("properties") and data["properties"].get("$anon_distinct_id"):
             _alias(
                 previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
             )
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
     properties = data.get("properties", data.get("$set", {}))
 

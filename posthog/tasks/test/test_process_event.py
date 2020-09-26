@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import patch
 
 from django.conf import settings
@@ -7,7 +7,7 @@ from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
+from posthog.api.test.base import BaseTest, TransactionBaseTest
 from posthog.models import (
     Action,
     ActionStep,
@@ -454,10 +454,9 @@ class ProcessEvent(BaseTest):
         """
         Assert that we report to posthoganalytics the first event ingested by a team.
         """
-        team = Team.objects.create(api_token="token456")
-        user = User.objects.create_user("testuser@posthog.com")
-        team.users.add(user)
-        team.save()
+        organization, team, user = User.objects.bootstrap(
+            "Test", "testuser@posthog.com", None, team_fields={"api_token": 456}
+        )
 
         process_event(
             2,
@@ -482,14 +481,10 @@ class ProcessEvent(BaseTest):
         self.assertEqual(team.ingested_event, True)
 
 
-class TestIdentify(TransactionTestCase):
-    def setUp(self) -> None:
-        user: User = User.objects.create_user("tim@posthog.com")
-        if not hasattr(self, "team"):
-            self.team: Team = Team.objects.create(api_token="token123")
-        self.team.users.add(user)
-        self.team.save()
-        self.client.force_login(user)
+class TestIdentify(TransactionBaseTest):
+    TESTS_API: bool = True
+    TESTS_EMAIL: str = "tim@posthog.com"
+    TESTS_PASSWORD: Optional[str] = None
 
     def test_distinct_with_anonymous_id(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])

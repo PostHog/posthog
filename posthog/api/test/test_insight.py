@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from django.test.utils import override_settings
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models.dashboard_item import DashboardItem
@@ -115,11 +116,11 @@ class TestInsightApi(TransactionBaseTest):
             team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"}
         )
         Event.objects.create(
-            team=self.team, event="$pageview", distinct_id="person1", timestamp=datetime.now() - timedelta(days=11)
+            team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=11)
         )
 
         Event.objects.create(
-            team=self.team, event="$pageview", distinct_id="person1", timestamp=datetime.now() - timedelta(days=10)
+            team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=10)
         )
         response = self.client.get("/api/insight/retention/",).json()
 

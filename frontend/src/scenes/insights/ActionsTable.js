@@ -25,7 +25,11 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                         title: filters.session ? 'Session Attribute' : 'Action',
                         dataIndex: 'label',
                         render: function renderLabel(_, { label, action }) {
-                            return <div style={{ wordBreak: 'break-all' }}>{formatLabel(label, action)}</div>
+                            return (
+                                <div style={{ wordBreak: 'break-all' }}>
+                                    {filters.session ? label : formatLabel(label, action)}
+                                </div>
+                            )
                         },
                     },
                     { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },

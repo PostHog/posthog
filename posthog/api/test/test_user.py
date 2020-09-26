@@ -17,14 +17,14 @@ class TestUser(BaseTest):
     def test_create_user_when_restricted(self):
         with self.settings(RESTRICT_SIGNUPS="posthog.com,uk.posthog.com"):
             with self.assertRaisesMessage(ValueError, "Can't sign up with this email"):
-                User.objects.create_user(email="tim@gmail.com")
+                User.objects.create_user(first_name="Tim Gmail", email="tim@gmail.com")
 
-            user = User.objects.create_user(email="tim@uk.posthog.com")
+            user = User.objects.create_user(first_name="Tim PostHog", email="tim@uk.posthog.com")
             self.assertEqual(user.email, "tim@uk.posthog.com")
 
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
-            user = User.objects.create_user(email="tim@gmail.com")
+            user = User.objects.create_user(first_name="Tim", email="tim@gmail.com")
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
 

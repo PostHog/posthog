@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             model_name="dashboarditem",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(model_name="dashboarditem", name="saved", field=models.BooleanField(default=False),),
