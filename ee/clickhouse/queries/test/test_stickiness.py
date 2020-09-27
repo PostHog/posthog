@@ -21,7 +21,8 @@ def _create_action(**kwargs):
 
 
 def _create_event(**kwargs):
-    create_event(**kwargs, event_uuid=uuid4())
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
 
 
 class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, Person.objects.create, _create_action)):  # type: ignore
