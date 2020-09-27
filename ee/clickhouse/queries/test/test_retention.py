@@ -12,4 +12,5 @@ def _create_event(**kwargs):
 
 
 class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create)):  # type: ignore
-    pass
+    def test_retention_with_properties(self):
+        pass
