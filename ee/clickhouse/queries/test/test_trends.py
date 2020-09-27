@@ -34,7 +34,8 @@ def _create_cohort(**kwargs):
 
 
 def _create_event(**kwargs):
-    create_event(**kwargs, event_uuid=uuid4())
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
 
 
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore

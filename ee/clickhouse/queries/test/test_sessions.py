@@ -7,7 +7,8 @@ from posthog.queries.test.test_sessions import sessions_test_factory
 
 
 def _create_event(**kwargs):
-    create_event(**kwargs, event_uuid=uuid4())
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
 
 
 class TestClickhouseSessions(ClickhouseTestMixin, sessions_test_factory(ClickhouseSessions, _create_event)):  # type: ignore

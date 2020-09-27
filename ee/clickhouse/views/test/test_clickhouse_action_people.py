@@ -34,7 +34,8 @@ def _create_person(**kwargs):
 
 
 def _create_event(**kwargs):
-    create_event(**kwargs, event_uuid=uuid4())
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
 
 
 class ClickhouseTestActionPeople(
