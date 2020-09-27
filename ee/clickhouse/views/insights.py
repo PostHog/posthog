@@ -52,8 +52,8 @@ class ClickhouseInsights(InsightViewSet):
         return Response(response)
 
     @action(methods=["GET"], detail=False)
-    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team
+    def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = request.user.team_set.get()
         filter = Filter(request=request)
         result = ClickhouseRetention().run(filter, team)
         return Response({"data": result})
