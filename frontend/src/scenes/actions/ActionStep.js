@@ -283,10 +283,9 @@ export class ActionStep extends Component {
 
     URLMatchingHints = ({ step }) => {
         return (
-            step?.url_matching &&
-            step.url_matching in URL_MATCHING_HINTS && (
+            (step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                 <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
-            )
+            )) || <></>
         )
     }
 
