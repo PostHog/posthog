@@ -97,7 +97,7 @@ def retention_test_factory(retention, event_factory, person_factory):
         #             }
         #         ),
         #         self.team,
-        #         total_days=7,
+        #         total_intervals=7,
         #     )
 
         #     self.assertEqual(len(result), 7)
@@ -142,7 +142,7 @@ def retention_test_factory(retention, event_factory, person_factory):
             result = retention().run(
                 Filter(data={"date_from": self._date(0, hour=0), "target_entity": start_entity,}),
                 self.team,
-                total_days=7,
+                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
@@ -171,8 +171,8 @@ def retention_test_factory(retention, event_factory, person_factory):
                 )
             return sign_up_action
 
-        def _date(self, day, hour=5):
-            return datetime(2020, 6, 10 + day, hour, tzinfo=pytz.UTC).isoformat()
+        def _date(self, day, hour=5, month=0):
+            return datetime(2020, 6 + month, 10 + day, hour, tzinfo=pytz.UTC).isoformat()
 
         def pluck(self, list_of_dicts, key, child_key=None):
             return [self.pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
