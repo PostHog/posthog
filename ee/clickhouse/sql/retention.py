@@ -9,7 +9,7 @@ FROM (
     SELECT *
     from events e join person_distinct_id pdi on e.distinct_id = pdi.distinct_id
     where toDate(e.timestamp) >= toDate(%(start_date)s) AND toDate(e.timestamp) <= toDate(%(end_date)s)
-    AND e.team_id = %(team_id)s
+    AND e.team_id = %(team_id)s {target_query} {filters}
 ) events
 JOIN (
     SELECT DISTINCT 
