@@ -10,6 +10,8 @@ from ee.clickhouse.models.element import get_elements_by_elements_hash
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
+from ee.clickhouse.util import endpoint_enabled
+from posthog.api.event import EventViewSet
 from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
 
@@ -18,6 +20,10 @@ class ClickhouseEvents(viewsets.ViewSet):
     serializer_class = ClickhouseEventSerializer
 
     def list(self, request):
+
+        if not endpoint_enabled("ch-event-endpoint", request.user.distinct_id):
+            return EventViewSet().list(request)
+
         team = request.user.team_set.get()
         filter = Filter(request=request)
         limit = "LIMIT 100" if not filter._date_from and not filter._date_to else ""
@@ -40,6 +46,10 @@ class ClickhouseEvents(viewsets.ViewSet):
         return Response({"next": None, "results": result})
 
     def retrieve(self, request, pk=None):
+
+        if not endpoint_enabled("ch-event-endpoint", request.user.distinct_id):
+            return EventViewSet().retrieve(request, pk)
+
         # TODO: implement getting elements
         team = request.user.team_set.get()
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
@@ -52,6 +62,10 @@ class ClickhouseEvents(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
+
+        if not endpoint_enabled("ch-event-endpoint", request.user.distinct_id):
+            return Response(EventViewSet().get_values(request))
+
         key = request.GET.get("key")
         team = request.user.team
         result = []

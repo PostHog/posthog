@@ -1,3 +1,6 @@
+import posthoganalytics
+from django.conf import settings
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import DROP_ELEMENTS_TABLE_SQL, ELEMENTS_TABLE_SQL
 from ee.clickhouse.sql.events import (
@@ -41,3 +44,7 @@ class ClickhouseTestMixin:
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_EVENT_PROP_TABLE_SQL)
+
+
+def endpoint_enabled(endpoint_flag: str, distinct_id: str):
+    return posthoganalytics.feature_enabled(endpoint_flag, distinct_id) or settings.DEBUG or settings.TEST

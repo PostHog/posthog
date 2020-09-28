@@ -12,6 +12,10 @@ class PathsViewSet(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
 
+        rows = self.get_elements(request)
+        return Response(rows)
+
+    def get_elements(self, request: request.Request):
         team = request.user.team
         all_events = Event.objects.filter(team=team, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
@@ -26,17 +30,21 @@ class PathsViewSet(viewsets.ViewSet):
         cursor = connection.cursor()
         cursor.execute(elements_readble, sql_params)
         rows = dict_from_cursor_fetchall(cursor)
-        return Response(rows)
+        return rows
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request):
+        resp = self.get_list(request)
+        return Response(resp)
+
+    def get_list(self, request):
         team = request.user.team
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")
         request_type = request.GET.get("type", None)
         resp = paths.Paths().run(
-            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
+            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team,
         )
-        return Response(resp)
+        return resp

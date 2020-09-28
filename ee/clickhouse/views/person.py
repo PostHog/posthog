@@ -14,6 +14,7 @@ from ee.clickhouse.sql.person import (
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
 )
+from ee.clickhouse.util import endpoint_enabled
 
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
 from posthog.api.person import PersonViewSet
@@ -36,7 +37,7 @@ class ClickhousePerson(viewsets.ViewSet):
             result = ch_client.execute(PEOPLE_SQL.format(content_sql=people), {"offset": 0})
         else:
             result = ch_client.execute(
-                PEOPLE_BY_TEAM_SQL.format(filters=queryset_category_pass), {"offset": 0, "team_id": team.pk}
+                PEOPLE_BY_TEAM_SQL.format(filters=queryset_category_pass), {"offset": 0, "team_id": team.pk},
             )
 
         # if request.GET.get("search"):
@@ -73,6 +74,11 @@ class ClickhousePerson(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
+
+        if not endpoint_enabled("ch-person-endpoint", request.user.distinct_id):
+            result = PersonViewSet().get_by_distinct_id(request)
+            return Response(result)
+
         distinct_id = str(request.GET["distinct_id"])
         result = ch_client.execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=[distinct_id]), {"offset": 0})
         res = ClickhousePersonSerializer(result[0]).data if len(result) > 0 else []
@@ -80,6 +86,11 @@ class ClickhousePerson(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: Request) -> Response:
+
+        if not endpoint_enabled("ch-person-endpoint", request.user.distinct_id):
+            result = PersonViewSet().get_properties(request)
+            return Response(result)
+
         team = self.request.user.team_set.get()
         result = ch_client.execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
 
