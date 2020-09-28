@@ -9,6 +9,7 @@ from celery.schedules import crontab
 from django.conf import settings
 from django.db import connection
 
+from posthog.models.user import MULTI_TENANCY_MISSING
 from posthog.settings import STATSD_HOST, STATSD_PORT, STATSD_PREFIX
 
 # set the default Django settings module for the 'celery' program.
@@ -46,9 +47,9 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
-    sender.add_periodic_task(
-        crontab(day_of_week="mon"), status_report.s(),
-    )
+    # send weekly status report on non-PostHog Cloud instances
+    if MULTI_TENANCY_MISSING:
+        sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
 
