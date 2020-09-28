@@ -22,7 +22,7 @@ except ImportError:
 
 
 def is_email_restricted_from_signup(email: str) -> bool:
-    if not hasattr(settings, "RESTRICT_SIGNUPS"):
+    if not getattr(settings, "RESTRICT_SIGNUPS", False):
         return False
 
     restricted_signups: Union[str, bool] = settings.RESTRICT_SIGNUPS
