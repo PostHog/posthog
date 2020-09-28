@@ -11,5 +11,13 @@ export const billingLogic = kea({
                 },
             },
         ],
+        billingSubscription: [
+            {},
+            {
+                subscribe: async (plan) => {
+                    return await api.create('billing/subscribe', { plan })
+                },
+            },
+        ],
     }),
 })

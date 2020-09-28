@@ -1,14 +1,36 @@
 import React, { useEffect, useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { billingLogic } from './billingLogic'
-import { Card, Progress, Row, Col, Button, Popconfirm } from 'antd'
+import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
 import PropTypes from 'prop-types'
 import defaultImg from './../../../public/plan-default.svg'
 
+const Plan = (props) => {
+    const { plan, onUpgrade } = props
+    return (
+        <Card>
+            <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
+            <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
+            <div>
+                <Popconfirm
+                    title={`Sign up for the ${plan.name} now? You will need a bank card.`}
+                    onConfirm={() => onUpgrade(plan)}
+                    okText="Yes"
+                    cancelText="No"
+                >
+                    <Button data-attr="btn-upgrade-now" data-plan={plan.key}>
+                        Upgrade now
+                    </Button>
+                </Popconfirm>
+            </div>
+        </Card>
+    )
+}
+
 function Billing(props) {
     const logic = billingLogic()
-    const { plans } = useValues(logic)
-    const { loadPlans } = useActions(logic)
+    const { plans, billingSubscription, billingSubscriptionLoading } = useValues(logic)
+    const { loadPlans, subscribe } = useActions(logic)
     const [state, setState] = useState({ percentage: 0 })
     const { user } = props
 
@@ -31,9 +53,8 @@ function Billing(props) {
         return color
     }
 
-    const planSignup = (plan) => {
-        // TODO
-        console.log(plan)
+    const handleBillingSubscribe = (plan) => {
+        subscribe(plan.key)
     }
 
     useEffect(() => {
@@ -49,9 +70,12 @@ function Billing(props) {
         setState({ ...state, percentage })
     }, [user])
 
+    useEffect(() => {
+        if (billingSubscription?.subscription_url) window.location.href = billingSubscription.subscription_url
+    }, [billingSubscription])
+
     return (
         <>
-            <div>{JSON.stringify(plans)}</div>
             <h1 className="page-header">Billing &amp; usage information</h1>
             <div className="space-top"></div>
             <Card title="Current usage">
@@ -110,22 +134,14 @@ function Billing(props) {
                         <Row gutter={16} className="space-top">
                             {plans.results.map((plan) => (
                                 <Col sm={24 / plans.results.length} key={plan.key} className="text-center">
-                                    <Card>
-                                        <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
-                                        <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
-                                        <div>
-                                            <Popconfirm
-                                                title={`Sign up for the ${plan.name} now? You will need a bank card.`}
-                                                onConfirm={() => planSignup(plan)}
-                                                okText="Yes"
-                                                cancelText="No"
-                                            >
-                                                <Button data-attr="btn-upgrade-now" data-plan={plan.key}>
-                                                    Upgrade now
-                                                </Button>
-                                            </Popconfirm>
-                                        </div>
-                                    </Card>
+                                    {billingSubscriptionLoading && (
+                                        <Spin>
+                                            <Plan plan={plan} onUpgrade={handleBillingSubscribe} />
+                                        </Spin>
+                                    )}
+                                    {!billingSubscriptionLoading && (
+                                        <Plan plan={plan} onUpgrade={handleBillingSubscribe} />
+                                    )}
                                 </Col>
                             ))}
                         </Row>
@@ -139,6 +155,11 @@ function Billing(props) {
 
 Billing.propTypes = {
     user: PropTypes.object.isRequired,
+}
+
+Plan.propTypes = {
+    plan: PropTypes.object.isRequired,
+    onUpgrade: PropTypes.func.isRequired,
 }
 
 export default Billing
