@@ -2,24 +2,25 @@ import { CardContainer } from 'scenes/onboarding/CardContainer'
 import { Row } from 'antd'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import React from 'react'
-import { Framework, PlatformType } from 'scenes/onboarding/types'
+import { useActions, useValues } from 'kea'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
-export function AutocapturePanel({
-    onSubmit,
-    reverse,
-    onCustomContinue,
-}: {
-    onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
-    reverse: () => void
-    onCustomContinue: () => void
-}): JSX.Element {
+export function AutocapturePanel(): JSX.Element {
+    const { index, totalSteps } = useValues(onboardingLogic)
+    const { setPlatformType, setCustomEvent, setVerify } = useActions(onboardingLogic)
     return (
-        <CardContainer index={1} totalSteps={3} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
+        <CardContainer
+            index={index}
+            totalSteps={totalSteps}
+            nextButton={true}
+            onSubmit={() => setVerify(true)}
+            onBack={() => setPlatformType(null)}
+        >
             <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                 <h2 style={{ color: 'black', marginLeft: 8 }}>{'Autocapture'}</h2>
                 <b
                     style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
-                    onClick={onCustomContinue}
+                    onClick={() => setCustomEvent(true)}
                     className="button-border clickable"
                 >
                     I also want to capture custom events

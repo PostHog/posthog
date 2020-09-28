@@ -1,73 +1,128 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/onboarding/types'
 import { onboardingLogicType } from 'types/scenes/onboarding/onboardingLogicType'
-import { API, MOBILE } from 'scenes/onboarding/constants'
+import { MOBILE, WEB } from 'scenes/onboarding/constants'
+import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>({
     actions: {
-        onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => ({ type, framework }),
-        reverse: true,
-        onApiContinue: true,
-        onCustomContinue: true,
-
-        setIndex: (index: number) => ({ index }),
-        setPath: (path: number[]) => ({ path }),
         setPlatformType: (type: PlatformType) => ({ type }),
+        setCustomEvent: (customEvent: boolean) => ({ customEvent }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
+        setVerify: (verify: boolean) => ({ verify }),
+        setState: (type: PlatformType, customEvent: boolean, framework: string | null, verify: boolean) => ({
+            type,
+            customEvent,
+            framework,
+            verify,
+        }),
+        completeOnboarding: true,
     },
 
     reducers: {
-        index: [
-            0,
+        platformType: [
+            null as null | PlatformType,
+            { setPlatformType: (_, { type }) => type, setCustomEvent: () => WEB, setState: (_, { type }) => type },
+        ],
+        customEvent: [
+            false,
             {
-                setIndex: (_, { index }) => index,
+                setPlatformType: () => false,
+                setCustomEvent: (_, { customEvent }) => customEvent,
+                setState: (_, { customEvent }) => customEvent,
             },
         ],
-        platformType: [null as null | PlatformType, { setPlatformType: (_, { type }) => type }],
-        framework: [null as null | Framework, { setFramework: (_, { framework }) => framework as Framework }],
-        path: [[] as number[], { setPath: (_, { path }) => path }],
+        framework: [
+            null as null | Framework,
+            {
+                setFramework: (_, { framework }) => framework as Framework,
+                setState: (_, { framework }) => (framework ? (framework.toUpperCase() as Framework) : null),
+            },
+        ],
+        verify: [
+            false,
+            {
+                setPlatformType: () => false,
+                setCustomEvent: () => false,
+                setFramework: () => false,
+                setVerify: (_, { verify }) => verify,
+                setState: (_, { verify }) => verify,
+            },
+        ],
     },
 
-    listeners: ({ actions, values }) => ({
-        onSubmit({ framework, type }) {
-            const { index, path } = values
-
-            actions.setPath([...path, index])
-
-            if (index === 0 && type) {
-                actions.setPlatformType(type)
-                if (type === MOBILE) {
-                    actions.setIndex(index + 2)
-                    return
+    selectors: {
+        index: [
+            (s) => [s.platformType, s.customEvent, s.framework, s.verify],
+            (platformType, customEvent, framework, verify) => {
+                return (verify ? 1 : 0) + (framework ? 1 : 0) + (platformType ? 1 : 0) + (customEvent ? 1 : 0)
+            },
+        ],
+        totalSteps: [
+            (s) => [s.platformType, s.customEvent],
+            (platformType, customEvent) => {
+                if (platformType === WEB && !customEvent) {
+                    return 3
                 }
-            } else if (index === 1) {
-                actions.setIndex(4)
-                return
-            } else if (index === 2 && framework) {
-                actions.setFramework(framework as Framework)
-            }
-            actions.setIndex((index + 1) % 5)
-        },
+                if (platformType === MOBILE) {
+                    return 4
+                }
+                return 5
+            },
+        ],
+    },
 
-        reverse() {
-            const copyPath = [...values.path]
-            const prev = copyPath.pop()
-            if (typeof prev !== 'undefined') {
-                actions.setIndex(prev)
-            }
-            actions.setPath(copyPath)
-        },
+    actionToUrl: ({ values }) => ({
+        setPlatformType: () => getUrl(values),
+        setCustomEvent: () => getUrl(values),
+        setFramework: () => getUrl(values),
+        setVerify: () => getUrl(values),
+    }),
 
-        onApiContinue() {
-            const { index } = values
-            actions.setPath([...values.path, index])
-            actions.setFramework(API)
-            actions.setIndex(index + 1)
+    urlToAction: ({ actions }) => ({
+        '/onboarding': () => actions.setState(null, false, null, false),
+        '/onboarding(/:type)(/:framework)(/:verify)': ({ type, framework, verify }: Record<string, string>) => {
+            actions.setState(
+                type === 'mobile' ? MOBILE : type === 'web' || type === 'web-custom' ? WEB : null,
+                type === 'web-custom',
+                framework === 'verify' ? null : framework,
+                !!verify || framework === 'verify'
+            )
         },
+    }),
 
-        onCustomContinue() {
-            actions.setPath([...values.path, values.index])
-            actions.setIndex(2)
+    listeners: () => ({
+        completeOnboarding: () => {
+            userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
+            router.actions.push('/insights')
         },
     }),
 })
+
+function getUrl(values: typeof onboardingLogic['values']): string {
+    const { platformType, framework, customEvent, verify } = values
+
+    let url = '/onboarding'
+
+    if (platformType === MOBILE) {
+        url += '/mobile'
+    }
+
+    if (platformType === WEB) {
+        url += '/web'
+        if (customEvent) {
+            url += '-custom'
+        }
+    }
+
+    if (framework) {
+        url += `/${framework.toLowerCase()}`
+    }
+
+    if (verify) {
+        url += '/verify'
+    }
+
+    return url
+}

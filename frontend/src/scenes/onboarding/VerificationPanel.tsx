@@ -1,20 +1,23 @@
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/onboarding/CardContainer'
 import { Button, Row, Spin } from 'antd'
-import React from 'react'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
-export function VerificationPanel({ reverse }: { reverse: () => void }): JSX.Element {
-    const { loadUser, userUpdateRequest } = useActions(userLogic)
+export function VerificationPanel(): JSX.Element {
+    const { loadUser } = useActions(userLogic)
     const { user } = useValues(userLogic)
+    const { setVerify, completeOnboarding } = useActions(onboardingLogic)
+    const { index, totalSteps } = useValues(onboardingLogic)
 
     useInterval(() => {
         !user?.has_events && loadUser()
     }, 3000)
 
     return (
-        <CardContainer index={3} totalSteps={4} onBack={reverse}>
+        <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
             {!user?.has_events ? (
                 <>
                     <Row align="middle">
@@ -30,7 +33,7 @@ export function VerificationPanel({ reverse }: { reverse: () => void }): JSX.Ele
                         data-attr="wizard-complete-button"
                         style={{ float: 'right' }}
                         className="button-border clickable"
-                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
+                        onClick={completeOnboarding}
                     >
                         Continue without verifying
                     </b>
@@ -46,7 +49,7 @@ export function VerificationPanel({ reverse }: { reverse: () => void }): JSX.Ele
                         data-attr="wizard-complete-button"
                         type="primary"
                         style={{ float: 'right' }}
-                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
+                        onClick={completeOnboarding}
                     >
                         Complete
                     </Button>

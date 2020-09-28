@@ -16,7 +16,8 @@ import {
 import { Row } from 'antd'
 import React from 'react'
 import { API, MOBILE, PURE_JS, WEB } from 'scenes/onboarding/constants'
-import { Framework, PlatformType } from 'scenes/onboarding/types'
+import { useActions, useValues } from 'kea'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
 const frameworksSnippet = {
     PURE_JS: JSInstructions,
@@ -33,17 +34,10 @@ const frameworksSnippet = {
     API: APIInstructions,
 }
 
-export function InstructionsPanel({
-    onSubmit,
-    reverse,
-    platformType,
-    framework,
-}: {
-    onSubmit: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
-    reverse: () => void
-    platformType: PlatformType
-    framework: Framework
-}): JSX.Element {
+export function InstructionsPanel(): JSX.Element {
+    const { index, totalSteps, platformType, framework } = useValues(onboardingLogic)
+    const { setFramework, setVerify } = useActions(onboardingLogic)
+
     if (!framework) {
         return <></>
     }
@@ -52,7 +46,13 @@ export function InstructionsPanel({
 
     if (framework === API) {
         return (
-            <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
+            <CardContainer
+                index={index}
+                totalSteps={totalSteps}
+                nextButton={true}
+                onSubmit={() => setVerify(true)}
+                onBack={() => setFramework(null)}
+            >
                 <h2>API</h2>
                 <p className="prompt-text">
                     {
@@ -66,7 +66,13 @@ export function InstructionsPanel({
 
     if (framework === PURE_JS) {
         return (
-            <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
+            <CardContainer
+                index={index}
+                totalSteps={totalSteps}
+                nextButton={true}
+                onSubmit={() => setVerify(true)}
+                onBack={() => setFramework(null)}
+            >
                 <h2>posthog-js</h2>
                 <p className="prompt-text">
                     {
@@ -79,7 +85,13 @@ export function InstructionsPanel({
     }
 
     return (
-        <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
+        <CardContainer
+            index={index}
+            totalSteps={totalSteps}
+            nextButton={true}
+            onSubmit={() => setVerify(true)}
+            onBack={() => setFramework(null)}
+        >
             {platformType === WEB ? (
                 <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                     <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
