@@ -29,4 +29,4 @@ class Retention(BaseQuery):
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_retention(filter=filter, team=team, total_intervals=kwargs.get("total_days", 11),)
+        return self.calculate_retention(filter=filter, team=team, total_intervals=kwargs.get("total_intervals", 11),)
