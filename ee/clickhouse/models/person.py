@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -63,7 +64,7 @@ def emit_omni_person(
         uuid = uuid4()
 
     if not timestamp:
-        timestamp = datetime.datetime.utcnow()
+        timestamp = now()
 
     data = {
         "event_uuid": str(event_uuid),
@@ -92,7 +93,7 @@ def create_person(
     else:
         uuid = str(uuid4())
     if not timestamp:
-        timestamp = datetime.datetime.utcnow()
+        timestamp = now()
 
     data = {
         "id": str(uuid),
