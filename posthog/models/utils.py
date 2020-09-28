@@ -19,8 +19,7 @@ class UUIDT(uuid.UUID):
     (that's over 5 trillion events per day), but it should be largely safe to assume that these are time-sortable.
 
     Anatomy:
-    - 4 bytes - Unix time milliseconds unsigned integer
-    - 2 bytes - autoincremented per-millisecond series unsigned integer
+    - 6 bytes - Unix time milliseconds unsigned integer
     - 2 bytes - leftmost 2 bytes of hardware address (MAC with random fallback)
     - 8 bytes - securely random gibberish
 
@@ -29,15 +28,14 @@ class UUIDT(uuid.UUID):
     """
 
     current_series_per_ms: Dict[int, int] = defaultdict(int)
-    machine_component: bytes = uuid.getnode().to_bytes(6, "big", signed=False)[0:2]  # 16 bits for machine
 
     def __init__(self, unix_time_ms: Optional[int] = None) -> None:
         if unix_time_ms is None:
             unix_time_ms = int(time() * 1000)
-        time_component = unix_time_ms.to_bytes(4, "big", signed=False)  # 32 bits for time, WILL FAIL in the year 2106
+        time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE
         series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
         random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
-        bytes = time_component + series_component + self.machine_component + random_component
+        bytes = time_component + series_component + random_component
         assert len(bytes) == 16
         super().__init__(bytes=bytes)
 
