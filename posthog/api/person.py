@@ -48,7 +48,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     pagination_class = CursorPagination
 
     def paginate_queryset(self, queryset):
-        if "text/csv" in self.request.accepted_media_type or not self.paginator:
+        if self.request.accepted_renderer.format == "csv" or not self.paginator:
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
@@ -88,7 +88,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team_set.get()
+        team = request.user.team
         person = Person.objects.get(team=team, pk=pk)
         events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
         events.delete()
@@ -97,14 +97,14 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         queryset = queryset.filter(team=team)
         return self._filter_request(self.request, queryset, team)
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
         person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
-        return response.Response(PersonSerializer(person, context={"request": request}).data)
+        return response.Response(PersonSerializer(person).data)
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request) -> response.Response:

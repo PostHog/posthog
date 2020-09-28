@@ -16,6 +16,7 @@ import shutil
 import sys
 from distutils.util import strtobool
 from typing import Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
@@ -57,7 +58,7 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv
+TEST = "test" in sys.argv  # type: bool
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
@@ -127,12 +128,30 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
-KAFKA_HOSTS = os.environ.get("KAFKA_HOSTS", "")
+KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+
+_kafka_hosts = KAFKA_URL.split(",")
+
+KAFKA_HOSTS_LIST = []
+for host in _kafka_hosts:
+    url = urlparse(host)
+    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
 
 # IP block settings
@@ -374,7 +393,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "posthog.utils.PersonalAPIKeyAuthentication",
+        "posthog.auth.PersonalAPIKeyAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],

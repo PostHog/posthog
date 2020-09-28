@@ -11,22 +11,25 @@ from posthog.settings import (
 
 
 class ClickhouseTestRunner(DiscoverRunner):
-    def setup_databases(self, **kwargs):
-        Database(
+    def get_database(self) -> Database:
+        return Database(
             CLICKHOUSE_DATABASE,
             db_url=CLICKHOUSE_HTTP_URL,
             username=CLICKHOUSE_USERNAME,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=CLICKHOUSE_VERIFY,
-        ).migrate("ee.clickhouse.migrations")
+        )
+
+    def setup_databases(self, **kwargs):
+        database = self.get_database()
+        try:
+            database.drop_database()
+        except:
+            pass
+        database.create_database()
+        database.migrate("ee.clickhouse.migrations")
         return super().setup_databases(**kwargs)
 
     def teardown_databases(self, old_config, **kwargs):
-        Database(
-            CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USERNAME,
-            password=CLICKHOUSE_PASSWORD,
-            verify_ssl_cert=CLICKHOUSE_VERIFY,
-        ).drop_database()
+        self.get_database().drop_database()
         super().teardown_databases(old_config, **kwargs)

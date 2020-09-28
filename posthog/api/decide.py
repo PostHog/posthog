@@ -7,8 +7,9 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import FeatureFlag, Team
-from posthog.utils import PersonalAPIKeyAuthentication, base64_to_json, cors_response, load_data_from_request
+from posthog.utils import base64_to_json, cors_response, load_data_from_request
 
 
 def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
@@ -82,7 +83,7 @@ def get_decide(request: HttpRequest):
             response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
 
     if request.user.is_authenticated:
-        team = request.user.team_set.get()
+        team = request.user.team
         permitted_domains = ["127.0.0.1", "localhost"]
 
         for url in team.app_urls:

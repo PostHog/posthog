@@ -28,13 +28,20 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "deleted",
-            "apply_all",
+            "scope",
+        ]
+        read_only_fields = [
+            "id",
+            "creation_type",
+            "created_by",
+            "created_at",
+            "updated_at",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         annotation = Annotation.objects.create(
-            team=request.user.team_set.get(), created_by=request.user, **validated_data,
+            organization=request.user.organization, team=request.user.team, created_by=request.user, **validated_data,
         )
         return annotation
 
@@ -45,7 +52,7 @@ class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
 
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)
@@ -65,8 +72,13 @@ class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(created_at__lt=request.GET["before"])
             elif key == "dashboardItemId":
                 queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
+            elif key == "scope":
+                queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
-                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["apply_all"]))))
+                queryset_method = (
+                    queryset.exclude if bool(strtobool(str(request.GET["apply_all"]))) else queryset.filter
+                )
+                queryset = queryset_method(scope="dashboard_item")
             elif key == "deleted":
                 queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 
