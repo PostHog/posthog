@@ -6,7 +6,6 @@ import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -20,6 +19,8 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { Dock } from '~/toolbar/button/icons/Dock'
 import { Tooltip } from 'antd'
+
+const HELP_URL = 'https://posthog.com/docs/tutorials/toolbar'
 
 export function ToolbarButton(): JSX.Element {
     const {
@@ -56,10 +57,8 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
-    const { dock, hideButton } = useActions(dockLogic)
-
     const { isAuthenticated } = useValues(toolbarLogic)
-    const { authenticate } = useActions(toolbarLogic)
+    const { authenticate, hideButton } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
@@ -161,9 +160,9 @@ export function ToolbarButton(): JSX.Element {
                         distance={dockButtonOnTop ? 90 : 55}
                         rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
                         content={<Dock style={{ height: 18, width: 18 }} />}
-                        label="Dock"
+                        label="Help"
                         zIndex={2}
-                        onClick={dock}
+                        onClick={() => window.open(HELP_URL, '_blank')?.focus()}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
                             cursor: 'pointer',
