@@ -1,30 +1,16 @@
 import React, { useEffect, useState } from 'react'
+import { useValues, useActions } from 'kea'
+import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm } from 'antd'
 import PropTypes from 'prop-types'
+import defaultImg from './../../../public/plan-default.svg'
 
 function Billing(props) {
+    const logic = billingLogic()
+    const { plans } = useValues(logic)
+    const { loadPlans } = useActions(logic)
     const [state, setState] = useState({ percentage: 0 })
     const { user } = props
-
-    const plans = [
-        {
-            key: 'starter',
-            name: 'Starter Plan',
-            image:
-                'https://mcusercontent.com/292207b434c26e77b45153b96/images/a46dd013-3331-41d3-bcc6-2bd4b0cf7b7d.png',
-        },
-        {
-            key: 'growth',
-            name: 'Growth Plan',
-            image:
-                'https://mcusercontent.com/292207b434c26e77b45153b96/images/a46dd013-3331-41d3-bcc6-2bd4b0cf7b7d.png',
-        },
-        {
-            key: 'Enterprise',
-            name: 'Enterprise Plan',
-            image: 'https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/starter.svg',
-        },
-    ]
 
     const strokeColor = (percentage) => {
         let color = '#1890FF'
@@ -51,6 +37,7 @@ function Billing(props) {
     }
 
     useEffect(() => {
+        if (!user.billing?.plan) loadPlans()
         if (!user.billing?.current_usage || !user.billing.plan) return
         if (!user.billing.plan.allowance) {
             /* Plan is unlimited */
@@ -64,6 +51,7 @@ function Billing(props) {
 
     return (
         <>
+            <div>{JSON.stringify(plans)}</div>
             <h1 className="page-header">Billing &amp; usage information</h1>
             <div className="space-top"></div>
             <Card title="Current usage">
@@ -108,10 +96,10 @@ function Billing(props) {
                         change or cancel your subscription.
                     </>
                 )}
-                {!user.billing.plan && (
+                {!user.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
+                {!user.billing.plan && plans?.results?.length > 0 && (
                     <>
-                        You don't have a billing plan set up yet. Choose a plan from the list below to initiate a
-                        subscription.{' '}
+                        Choose a plan from the list below to initiate a subscription.{' '}
                         <b>
                             For more information on our plans, check out our{' '}
                             <a href="https://posthog.com/pricing" target="_blank">
@@ -120,11 +108,11 @@ function Billing(props) {
                             .
                         </b>
                         <Row gutter={16} className="space-top">
-                            {plans.map((plan) => (
-                                <Col sm={24 / plans.length} key={plan.key} className="text-center">
+                            {plans.results.map((plan) => (
+                                <Col sm={24 / plans.results.length} key={plan.key} className="text-center">
                                     <Card>
-                                        <img src={plan.image} alt="" height={100} width={100} />
-                                        <h3 style={{ fontSize: 22, color: '#35416B' }}>{plan.name}</h3>
+                                        <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
+                                        <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
                                         <div>
                                             <Popconfirm
                                                 title={`Sign up for the ${plan.name} now? You will need a bank card.`}
