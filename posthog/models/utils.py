@@ -15,19 +15,26 @@ class UUIDT(uuid.UUID):
     to UUID v4 (as the complete randomness of v4 makes its indexing performance suboptimal),
     and to UUID v1 (as despite being time-based it can't be used practically for sorting by generation time).
 
-    This is loosely based on Segment's KSUID (https://github.com/segmentio/ksuid) and on Twitter's snowflake ID
+    Anatomy:
+    - 4 bytes - Unix time milliseconds unsigned integer
+    - 2 bytes - autoincremented per-millisecond series unsigned integer
+    - 2 bytes - leftmost 2 bytes of hardware address (MAC with random fallback)
+    - 8 bytes - securely random gibberish
+
+    Loosely based on Segment's KSUID (https://github.com/segmentio/ksuid) and on Twitter's snowflake ID
     (https://blog.twitter.com/engineering/en_us/a/2010/announcing-snowflake.html).
     """
 
     current_series_per_ms: Dict[int, int] = defaultdict(int)
+    machine_component: bytes = uuid.getnode().to_bytes(6, "big", signed=False)[0:2]  # 16 bits for machine
 
     def __init__(self, unix_time_ms: Optional[int] = None) -> None:
         if unix_time_ms is None:
             unix_time_ms = int(time() * 1000)
-        time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time
+        time_component = unix_time_ms.to_bytes(4, "big", signed=False)  # 32 bits for time, WILL FAIL in the year 2106
         series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
-        random_component = secrets.token_bytes(8)  # 64 bits for gibberish
-        bytes = time_component + series_component + random_component
+        random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
+        bytes = time_component + series_component + self.machine_component + random_component
         assert len(bytes) == 16
         super().__init__(bytes=bytes)
 
@@ -35,8 +42,7 @@ class UUIDT(uuid.UUID):
     def get_series(cls, unix_time_ms: int) -> int:
         """Get per-millisecond series integer in range [0-65536)."""
         series = cls.current_series_per_ms[unix_time_ms]
-        if len(cls.current_series_per_ms) > 10_000:
-            # clear class dict periodically
+        if len(cls.current_series_per_ms) > 10_000:  # Clear class dict periodically
             cls.current_series_per_ms.clear()
             cls.current_series_per_ms[unix_time_ms] = series
         cls.current_series_per_ms[unix_time_ms] += 1
