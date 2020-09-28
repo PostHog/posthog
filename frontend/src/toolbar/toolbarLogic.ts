@@ -55,7 +55,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
     events: ({ props, actions }) => ({
         async afterMount() {
             if (props.instrument) {
-                posthog.identify(props.distinctId, { email: props.userEmail })
+                posthog.identify((props as EditorProps).distinctId || null, { email: props.userEmail })
                 posthog.optIn()
             }
             if (props.userIntent) {
