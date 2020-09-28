@@ -28,7 +28,7 @@ def create_event(
 ) -> None:
 
     if not timestamp:
-        timestamp = datetime.now()
+        timestamp = datetime.utcnow()
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):

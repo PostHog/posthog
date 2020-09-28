@@ -19,7 +19,7 @@ def create_element(
     element: Element, team: Team, event_uuid: UUID, elements_hash: str, timestamp: Optional[datetime.datetime] = None,
 ) -> None:
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.utcnow()
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
