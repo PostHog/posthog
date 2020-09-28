@@ -22,7 +22,6 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":
         kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
-        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
 
         action = Action.objects.create(team=team, name="Pageviews")
@@ -119,7 +118,6 @@ class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
-    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     objects = TeamManager()
 

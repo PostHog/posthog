@@ -2,7 +2,6 @@ from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
 from posthog.settings import print_warning
-from posthog.version import VERSION
 
 from . import (
     action,

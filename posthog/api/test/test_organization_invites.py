@@ -17,7 +17,7 @@ class TestOrganizationInvitesAPI(TransactionBaseTest):
         response_data = response.json()
         response_data.pop("id")
         response_data.pop("created_at")
-        response_data.pop("update_at")
+        response_data.pop("updated_at")
         self.assertDictEqual(
             response_data,
             {
@@ -53,63 +53,3 @@ class TestOrganizationInvitesAPI(TransactionBaseTest):
         response = self.client.delete(f"/api/organization/invites/{invite.id}")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(OrganizationInvite.objects.exists())
-
-    # TDD for a /use endpoint - not in use right now, as org joining works through forms
-    # def test_use_organization_invite(self):
-    #     new_organization = Organization.objects.create(name="New")
-    #     invite = OrganizationInvite.objects.create(organization=new_organization)
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response = self.client.post(f"/api/organization/invites/{invite.id}/use")
-    #     self.assertEqual(response.status_code, 200)
-    #     invite.refresh_from_db()
-    #     self.assertEqual(invite.uses, 1)
-    #     self.assertTrue(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(new_organization.members.first(), self.client)
-
-    # def test_cannot_use_organization_invite_over_maximum(self):
-    #     new_organization = Organization.objects.create(name="New")
-    #     invite = OrganizationInvite.objects.create(organization=new_organization, max_uses=0)
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response = self.client.post(f"/api/organization/invites/{invite.id}/use")
-    #     self.assertEqual(response.status_code, 403)
-    #     invite.refresh_from_db()
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response_data = response.json()
-    #     self.assertDictEqual(
-    #         response_data,
-    #         {
-    #             "status": 403, "detail": "This invite has been used up."
-    #         }
-    #     )
-
-    # def test_cannot_use_organization_invite_if_wrong_target_email(self):
-    #     new_organization = Organization.objects.create(name="New")
-    #     invite = OrganizationInvite.objects.create(organization=new_organization, target_email='test@x.com')
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response = self.client.post(f"/api/organization/invites/{invite.id}/use")
-    #     self.assertEqual(response.status_code, 403)
-    #     invite.refresh_from_db()
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response_data = response.json()
-    #     self.assertDictEqual(
-    #         response_data,
-    #         {
-    #             "status": 403, "detail": "This invite is for a different email than yours."
-    #         }
-    #     )
-
-    # def test_can_use_organization_invite_if_wrong_target_email(self):
-    #     new_organization = Organization.objects.create(name="New")
-    #     invite = OrganizationInvite.objects.create(organization=new_organization, target_email=self.user.email)
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 0)
-    #     response = self.client.post(f"/api/organization/invites/{invite.id}/use")
-    #     self.assertEqual(response.status_code, 200)
-    #     invite.refresh_from_db()
-    #     self.assertFalse(OrganizationMembership.objects.filter(organization=new_organization).exists())
-    #     self.assertEqual(invite.uses, 1)

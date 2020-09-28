@@ -2,6 +2,7 @@ import random
 from typing import Dict, List, Tuple
 from unittest.mock import patch
 
+from django.db.models import Q
 from django.test import tag
 from rest_framework import status
 
@@ -20,7 +21,7 @@ class TestTeamUser(APIBaseTest):
 
     def create_org_team_user(self) -> Tuple[Organization, Team, User]:
         organization: Organization = Organization.objects.create(name="Test")
-        team: Team = Team.objects.create(organization=organization, api_token="token123")
+        team: Team = Team.objects.create(organization=organization, name="Test", api_token="token456")
         return (organization, team, self.create_user_for_team_org(team, organization))
 
     def test_user_can_list_their_teams(self):
@@ -51,7 +52,7 @@ class TestTeamUser(APIBaseTest):
 
         self.client.force_login(random.choice(users))  # Log in as any of the users
 
-        response = self.client.get("/api/team/user/")
+        response = self.client.get("/api/organization/members/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data: Dict = response.json()
@@ -76,7 +77,7 @@ class TestTeamUser(APIBaseTest):
         response = self.client.get("/api/user/", content_type="application/json",)
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
-        self.assertEqual(response_data["team"]["name"], "Test")
+        self.assertEqual(response_data["team"]["name"], "Default")
         self.assertEqual(response_data["team"]["api_token"], "token")
 
         response = self.client.patch(
@@ -114,66 +115,66 @@ class TestTeamUser(APIBaseTest):
         user2: User = self.create_user_for_team_org(team, organization)
         self.client.force_login(user)
 
-    # @patch("posthog.api.team.posthoganalytics.capture")
-    # def test_user_can_delete_another_team_user(self, mock_capture):
-    #     organization, team, user = self.create_org_team_user()
-    #     user2: User = self.create_user_for_team_org(team, organization)
-    #     self.client.force_login(user)
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_user_can_delete_another_team_user(self, mock_capture):
+        organization, team, user = self.create_org_team_user()
+        user2: User = self.create_user_for_team_org(team, organization)
+        self.client.force_login(user)
 
-    #     response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
-    #     self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        response = self.client.delete(f"/api/organization/member/{user2.distinct_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    #     self.assertFalse(User.objects.get(id=user2.id).is_active)
-    #     self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
+        self.assertFalse(User.objects.get(id=user2.id).is_active)
+        self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
 
-    #     # Assert that the event is reported to PH
-    #     mock_capture.assert_any_call(
-    #         user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
-    #     )
-    #     mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
+        # Assert that the event is reported to PH
+        mock_capture.assert_any_call(
+            user.distinct_id, "team member deleted", {"deleted_team_member": user2.distinct_id}
+        )
+        mock_capture.assert_any_call(user2.distinct_id, "this user deleted")
 
-    # @patch("posthog.api.team.posthoganalytics.capture")
-    # def test_cannot_delete_yourself(self, mock_capture):
-    #     organization, team, user = self.create_org_team_user()
-    #     self.client.force_login(user)
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_cannot_delete_yourself(self, mock_capture):
+        organization, team, user = self.create_org_team_user()
+        self.client.force_login(user)
 
-    #     response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
-    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-    #     self.assertEqual(response.json(), {"detail": "Cannot delete yourself."})
+        response = self.client.delete(f"/api/organization/member/{user.distinct_id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"detail": "Cannot delete yourself."})
 
-    #     self.assertEqual(
-    #         User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
-    #     )  # User still exists
+        self.assertEqual(
+            User.objects.filter(Q(pk=user.pk) | Q(distinct_id=user.distinct_id)).count(), 1,
+        )  # User still exists
 
-    #     # Assert no event was repoted to PH
-    #     mock_capture.assert_not_called()
+        # Assert no event was repoted to PH
+        mock_capture.assert_not_called()
 
-    # def test_cannot_delete_user_using_their_primary_key(self):
-    #     organization, team, user = self.create_org_team_user()
-    #     user2: User = self.create_user_for_team_org(team, organization)
-    #     self.client.force_login(user)
+    def test_cannot_delete_user_using_their_primary_key(self):
+        organization, team, user = self.create_org_team_user()
+        user2: User = self.create_user_for_team_org(team, organization)
+        self.client.force_login(user)
 
-    #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
-    #     self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-    #     self.assertEqual(response.json(), {"detail": "Not found."})
+        response = self.client.delete(f"/api/organization/member/{user2.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), {"detail": "Not found."})
 
-    #     self.assertEqual(
-    #         User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
-    #     )  # User still exists
+        self.assertEqual(
+            User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
+        )  # User still exists
 
-    # def test_user_cannot_delete_user_from_another_team(self):
-    #     organization, team, user = self.create_org_team_user()
-    #     self.client.force_login(user)
+    def test_user_cannot_delete_user_from_another_team(self):
+        organization, team, user = self.create_org_team_user()
+        self.client.force_login(user)
 
-    #     organization2, team2, user2 = self.create_org_team_user()
+        organization2, team2, user2 = self.create_org_team_user()
 
-    #     response = self.client.delete(f"/api/team/user/{user2.pk}/")
-    #     self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-    #     self.assertEqual(response.json(), {"detail": "Not found."})
+        response = self.client.delete(f"/api/organization/member/{user2.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), {"detail": "Not found."})
 
-    #     self.assertEqual(
-    #         User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
-    #     )  # User still exists
+        self.assertEqual(
+            User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).count(), 1,
+        )  # User still exists
 
     def test_creating_or_updating_users_is_currently_not_allowed(self):
         organization, team, user = self.create_org_team_user()
@@ -181,12 +182,16 @@ class TestTeamUser(APIBaseTest):
 
         # Cannot partially update users
         email: str = user.email
-        response = self.client.patch(f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "json")
+        response = self.client.patch(
+            f"/api/organization/member/{user.distinct_id}", {"email": "newemail@posthog.com"}, "json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
 
         # Cannot update users
-        response = self.client.put(f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "json")
+        response = self.client.put(
+            f"/api/organization/member/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PUT" not allowed.'})
 
@@ -195,7 +200,9 @@ class TestTeamUser(APIBaseTest):
 
         # Cannot create users
         count: int = User.objects.count()
-        response = self.client.post(f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "json")
+        response = self.client.post(
+            f"/api/organization/member/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "POST" not allowed.'})
         self.assertEqual(User.objects.count(), count)
@@ -204,15 +211,15 @@ class TestTeamUser(APIBaseTest):
         organization, team, user = self.create_org_team_user()
         self.client.logout()
 
-        response = self.client.get("/api/team/user/")
+        response = self.client.get("/api/organization/member/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data: Dict = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
-        # response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
-        # self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        # response_data = response.json()
-        # self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
+        response = self.client.delete(f"/api/organization/member/{user.distinct_id}/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        response_data = response.json()
+        self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
 
 class TestTeamSignup(APIBaseTest):

@@ -17,7 +17,7 @@ class TestTrends(BaseTest):
         ActionStep.objects.create(action=sign_up_action, event="sign up")
 
         person = Person.objects.create(team=self.team, distinct_ids=["blabla", "anonymous_id"])
-        secondTeam = Team.objects.create(api_token="token123")
+        second_team = Team.objects.create(api_token="token456")
 
         freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
         freeze_with_time = [
@@ -52,7 +52,7 @@ class TestTrends(BaseTest):
 
             # second team should have no effect
             Event.objects.create(
-                team=secondTeam, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
+                team=second_team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
             )
         return sign_up_action, person
 

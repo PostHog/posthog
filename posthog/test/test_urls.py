@@ -1,6 +1,7 @@
 from django.test import Client, TestCase
 
 from posthog.models import Team, User, organization
+from posthog.models.organization import OrganizationInvite
 
 
 class TestUrls(TestCase):
@@ -11,11 +12,11 @@ class TestUrls(TestCase):
     def test_logout_temporary_token_reset(self):
         # create random team
         organization, team, user = User.objects.bootstrap("test", "adminuser@posthog.com", None)
-
+        invite = OrganizationInvite.objects.create(organization=organization)
         # create a new user and log them in
         with self.settings(TEST=False):
             response = self.client.post(
-                "/signup/{}".format(team.signup_token),
+                f"/signup/{invite.id}",
                 {"name": "Jane", "email": "jane@acme.com", "password": "hunter2", "emailOptIn": "",},
                 follow=True,
             )

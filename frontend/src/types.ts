@@ -38,7 +38,6 @@ export interface TeamType {
     event_names: string[]
     event_properties: string[]
     opt_out_capture: boolean
-    signup_token: string
     slack_incoming_webhook: string
 }
 

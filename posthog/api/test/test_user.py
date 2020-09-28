@@ -42,29 +42,6 @@ class TestUser(BaseTest):
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
 
-    @patch("secrets.token_urlsafe")
-    def test_user_team_update_signup_token(self, patch_token):
-        patch_token.return_value = "abcde"
-
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.patch(
-            "/api/user", data={"team": {"signup_state": False}}, content_type="application/json",
-        ).json()
-
-        self.assertEqual(response["team"]["signup_token"], None)
-
-        team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.signup_token, None)
-
-        response = self.client.patch(
-            "/api/user/", data={"team": {"signup_state": True}}, content_type="application/json",
-        ).json()
-
-        self.assertEqual(response["team"]["signup_token"], "abcde")
-
-        team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.signup_token, "abcde")
-
 
 class TestUserChangePassword(BaseTest):
     TESTS_API = True

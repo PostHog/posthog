@@ -12,7 +12,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
 
     def test_add_organization_member(self):
         user = User.objects.create_user("test@x.com", None, "X")
-        response = self.client.put(f"/api/organization/members/{user.id}")
+        response = self.client.put(f"/api/organization/members/{user.id}", content_type="application/json")
         self.assertEqual(response.status_code, 201)
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
@@ -39,11 +39,15 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertFalse(membership_queryset.exists())
 
     def test_change_organization_member_level(self):
+        self.user.level = OrganizationMembership.Level.ADMIN
+        self.user.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organization/members/{user.id}", {"level": OrganizationMembership.Level.ADMIN}
+            f"/api/organization/members/{user.id}",
+            {"level": OrganizationMembership.Level.ADMIN},
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -67,7 +71,9 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organization/members/{user.id}/", {"level": OrganizationMembership.Level.ADMIN}
+            f"/api/organization/members/{user.id}/",
+            {"level": OrganizationMembership.Level.ADMIN},
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, 403)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
