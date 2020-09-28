@@ -94,6 +94,18 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
 
     listeners: () => ({
         completeOnboarding: () => {
+            const { user } = userLogic.values
+            if (user) {
+                // make the change immediately before the request comes back
+                // this way we are not re-redirected to the onboarding page
+                userLogic.actions.setUser({
+                    ...user,
+                    team: {
+                        ...user.team,
+                        completed_snippet_onboarding: true,
+                    },
+                })
+            }
             userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })
             router.actions.push('/insights')
         },
