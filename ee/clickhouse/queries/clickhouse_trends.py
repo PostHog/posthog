@@ -1,10 +1,10 @@
 import copy
-from ast import parse
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
+from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -193,9 +193,7 @@ class ClickhouseTrends(BaseQuery):
             interval=inteval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or datetime.now(tz=timezone.utc)) + timedelta(days=1)).strftime(
-                "%Y-%m-%d 00:00:00"
-            ),
+            date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
         )
 
         aggregate_operation, join_condition, math_params = self._process_math(entity)
@@ -213,9 +211,7 @@ class ClickhouseTrends(BaseQuery):
                     interval=inteval_annotation,
                     seconds_in_interval=seconds_in_interval,
                     num_intervals=num_intervals,
-                    date_to=((filter.date_to or datetime.now(tz=timezone.utc)) + timedelta(days=1)).strftime(
-                        "%Y-%m-%d 00:00:00"
-                    ),
+                    date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
                 )
                 conditions = BREAKDOWN_CONDITIONS_SQL.format(
                     parsed_date_from=parsed_date_from,
@@ -443,7 +439,7 @@ class ClickhouseTrends(BaseQuery):
             interval=inteval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or datetime.now(tz=timezone.utc))).strftime("%Y-%m-%d %H:%M:%S"),
+            date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
@@ -467,7 +463,7 @@ class ClickhouseTrends(BaseQuery):
         if not filter._date_from:
             filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
-            filter._date_to = datetime.now(tz=timezone.utc)
+            filter._date_to = timezone.now()
 
         result = []
         for entity in filter.entities:

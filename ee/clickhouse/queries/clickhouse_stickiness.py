@@ -1,6 +1,7 @@
 import copy
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from django.utils import timezone
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
@@ -123,7 +124,7 @@ class ClickhouseStickiness(BaseQuery):
         if not filter._date_from:
             filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
-            filter._date_to = datetime.now(timezone.utc)
+            filter._date_to = timezone.now()
 
         result = []
 

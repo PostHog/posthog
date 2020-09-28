@@ -17,6 +17,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
     def test_retention_with_user_properties(self):
         pass
 
+    # period filtering for clickhouse only
     def test_retention_period(self):
         Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},

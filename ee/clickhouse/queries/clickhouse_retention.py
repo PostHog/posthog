@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.action import format_action_filter
@@ -31,7 +32,7 @@ class ClickhouseRetention(BaseQuery):
             date_from = filter.date_from
             date_to = date_from + tdelta
         else:
-            date_to = datetime.now(tz=timezone.utc)
+            date_to = timezone.now()
             date_from = date_to - tdelta
 
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)

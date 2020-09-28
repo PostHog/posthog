@@ -1,10 +1,11 @@
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
+from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -28,7 +29,7 @@ def create_event(
 ) -> None:
 
     if not timestamp:
-        timestamp = datetime.now(tz=timezone.utc)
+        timestamp = timezone.now()
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):

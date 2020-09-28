@@ -33,7 +33,7 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
     if filter.date_to:
         _date_to = filter.date_to
     else:
-        _date_to = datetime.now()
+        _date_to = timezone.now()
 
     date_to = "and timestamp <= '{}'".format(
         _date_to.strftime(
