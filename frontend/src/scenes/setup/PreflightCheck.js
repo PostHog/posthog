@@ -161,7 +161,7 @@ function PreflightCheck() {
                                         type="default"
                                         data-attr="preflight-refresh"
                                         icon={<SyncOutlined />}
-                                        onClick={resetPreflight}
+                                        onClick={() => window.location.reload()}
                                         disabled={preflightLoading || Object.keys(preflight).length === 0}
                                     >
                                         Refresh
