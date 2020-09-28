@@ -36,7 +36,7 @@ def compact_number(value: Number, max_decimals: int = 1) -> str:
 @register.filter
 def percentage(value: Optional[Number], decimals: int = 1) -> str:
     """
-    Returns a rounded formatted with a specific number of decimals and a % sign. Expects a decimal-based ratio.
+    Returns a rounded formatted with a specific number of decimal digits and a % sign. Expects a decimal-based ratio.
     Example:
       {% percentage 0.2283113 %}
       =>  "22.8%"
@@ -44,5 +44,4 @@ def percentage(value: Optional[Number], decimals: int = 1) -> str:
 
     if value is None:
         return "-"
-
-    return f"{str(round(value * 100.0, decimals)).rstrip('0').rstrip('.')}%"
+    return "-" if value is None else "{0:.{decimals}f}".format(value * 100, decimals=decimals)
