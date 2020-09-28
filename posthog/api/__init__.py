@@ -1,3 +1,5 @@
+import posthoganalytics
+from django.conf import settings
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
@@ -55,11 +57,30 @@ if check_ee_enabled():
             ClickhousePerson,
         )
 
-        router.register(r"action", ClickhouseActions, basename="action")
-        router.register(r"event", ClickhouseEvents, basename="event")
-        router.register(r"insight", ClickhouseInsights, basename="insight")
-        router.register(r"paths", ClickhousePathsViewSet, basename="paths")
-        router.register(r"person", ClickhousePerson, basename="person")
+        if posthoganalytics.feature_enabled("ch-action") or settings.DEBUG:
+            router.register(r"action", ClickhouseActions, basename="action")
+        else:
+            router.register(r"action", action.ActionViewSet)
+
+        if posthoganalytics.feature_enabled("ch-event") or settings.DEBUG:
+            router.register(r"event", ClickhouseEvents, basename="event")
+        else:
+            router.register(r"event", event.EventViewSet)
+
+        if posthoganalytics.feature_enabled("ch-insight") or settings.DEBUG:
+            router.register(r"insight", ClickhouseInsights, basename="insight")
+        else:
+            router.register(r"insight", insight.InsightViewSet)
+
+        if posthoganalytics.feature_enabled("ch-person") or settings.DEBUG:
+            router.register(r"person", ClickhousePerson, basename="person")
+        else:
+            router.register(r"person", person.PersonViewSet)
+
+        if posthoganalytics.feature_enabled("ch-person") or settings.DEBUG:
+            router.register(r"paths", ClickhousePathsViewSet, basename="paths")
+        else:
+            router.register(r"paths", paths.PathsViewSet, basename="paths")
 
     except ImportError:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
