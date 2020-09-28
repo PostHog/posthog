@@ -56,68 +56,102 @@ def retention_test_factory(retention, event_factory, person_factory):
                 ],
             )
 
-        # def test_retention_with_properties(self):
-        #     person1 = person_factory(
-        #         team_id=self.team.pk,
-        #         distinct_ids=["person1", "alias1"],
-        #         properties={"email": "person1@test.com"},
-        #     )
-        #     person2 = person_factory(
-        #         team_id=self.team.pk,
-        #         distinct_ids=["person2"],
-        #         properties={"email": "person2@test.com"},
-        #     )
+        def test_retention_with_properties(self):
 
-        #     self._create_pageviews(
-        #         [
-        #             ("person1", self._date(0)),
-        #             ("person1", self._date(1)),
-        #             ("person1", self._date(2)),
-        #             ("person1", self._date(5)),
-        #             ("alias1", self._date(5, 9)),
-        #             ("person1", self._date(6)),
-        #             ("person2", self._date(1)),
-        #             ("person2", self._date(2)),
-        #             ("person2", self._date(3)),
-        #             ("person2", self._date(6)),
-        #         ]
-        #     )
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
-        #     result = retention().run(
-        #         Filter(
-        #             data={
-        #                 "properties": [
-        #                     {
-        #                         "key": "email",
-        #                         "value": "person1@test.com",
-        #                         "type": "person",
-        #                     }
-        #                 ],
-        #                 "date_from": self._date(0, hour=0),
-        #             }
-        #         ),
-        #         self.team,
-        #         total_intervals=7,
-        #     )
+            self._create_pageviews(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
 
-        #     self.assertEqual(len(result), 7)
-        #     self.assertEqual(
-        #         self.pluck(result, "label"),
-        #         ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        #     )
-        #     self.assertEqual(result[0]["date"], "Wed. 10 June")
-        #     self.assertEqual(
-        #         self.pluck(result, "values", "count"),
-        #         [
-        #             [1, 1, 1, 0, 0, 1, 1],
-        #             [1, 1, 0, 0, 1, 1],
-        #             [1, 0, 0, 1, 1],
-        #             [0, 0, 0, 0],
-        #             [0, 0, 0],
-        #             [1, 1],
-        #             [1],
-        #         ],
-        #     )
+            result = retention().run(
+                Filter(
+                    data={
+                        "properties": [{"key": "$some_property", "value": "value"}],
+                        "date_from": self._date(0, hour=0),
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(len(result), 11)
+            self.assertEqual(
+                self.pluck(result, "label"),
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
+            )
+            self.assertEqual(result[0]["date"], "Wed. 10 June")
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
+        def test_retention_with_user_properties(self):
+            person1 = person_factory(
+                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+            )
+            person2 = person_factory(
+                team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+            )
+
+            self._create_pageviews(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+
+            result = retention().run(
+                Filter(
+                    data={
+                        "properties": [{"key": "email", "value": "person1@test.com", "type": "person",}],
+                        "date_from": self._date(0, hour=0),
+                    }
+                ),
+                self.team,
+                total_intervals=7,
+            )
+
+            self.assertEqual(len(result), 7)
+            self.assertEqual(
+                self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            )
+            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1],],
+            )
 
         def test_retention_action_start_point(self):
             person1 = person_factory(team=self.team, distinct_ids=["person1", "alias1"])
@@ -157,10 +191,17 @@ def retention_test_factory(retention, event_factory, person_factory):
             )
 
         def _create_pageviews(self, user_and_timestamps):
+            i = 0
             for distinct_id, timestamp in user_and_timestamps:
+                properties = {"$some_property": "value"} if i % 2 == 0 else {}
                 event_factory(
-                    team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp,
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=timestamp,
+                    properties=properties,
                 )
+                i += 1
 
         def _create_signup_actions(self, user_and_timestamps):
             sign_up_action = Action.objects.create(team=self.team, name="sign up")
