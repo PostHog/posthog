@@ -1,5 +1,5 @@
 import React from 'react'
-import { CodeSnippet, Language } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet, Language } from 'scenes/onboarding/frameworks/CodeSnippet'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 

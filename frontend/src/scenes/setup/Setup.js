@@ -15,7 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet } from 'scenes/onboarding/frameworks/CodeSnippet'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
