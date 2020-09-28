@@ -12,7 +12,7 @@ import {
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
-} from 'scenes/onboarding/FrameworkInstructions'
+} from 'scenes/onboarding/frameworks'
 import { Row } from 'antd'
 import React from 'react'
 import { API, MOBILE, PURE_JS, WEB } from 'scenes/onboarding/constants'
