@@ -1,7 +1,7 @@
 import datetime
 import json
-from typing import Any, Dict, List, Optional, Union
-from uuid import UUID, uuid4
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -28,6 +28,7 @@ from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.utils import UUIDT
 
 if settings.EE_AVAILABLE and check_ee_enabled():
 
@@ -60,7 +61,7 @@ def emit_omni_person(
     timestamp: Optional[datetime.datetime] = None,
 ) -> UUID:
     if not uuid:
-        uuid = uuid4()
+        uuid = UUIDT()
 
     if not timestamp:
         timestamp = datetime.datetime.now()
@@ -90,7 +91,7 @@ def create_person(
     if uuid:
         uuid = str(uuid)
     else:
-        uuid = str(uuid4())
+        uuid = str(UUIDT())
     if not timestamp:
         timestamp = datetime.datetime.now()
 

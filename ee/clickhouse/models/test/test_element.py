@@ -1,16 +1,15 @@
-import uuid
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import create_elements, get_all_elements, get_elements_by_elements_hash
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
 from posthog.models import Element
+from posthog.models.utils import UUIDT
 
 
 class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
     def test_create_elements(self) -> None:
         elements_hash_1 = create_elements(
-            event_uuid=uuid.uuid4(),
+            event_uuid=UUIDT(),
             team=self.team,
             elements=[
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
@@ -24,7 +23,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(get_all_elements()), 4)
 
         elements_hash_2 = create_elements(
-            event_uuid=uuid.uuid4(),
+            event_uuid=UUIDT(),
             team=self.team,
             elements=[
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
@@ -61,7 +60,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(get_all_elements()), 0)
 
         create_elements(
-            event_uuid=uuid.uuid4(),
+            event_uuid=UUIDT(),
             team=self.team,
             elements=[
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
@@ -75,7 +74,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(get_all_elements()), 4)
 
         create_elements(
-            event_uuid=uuid.uuid4(),
+            event_uuid=UUIDT(),
             team=self.team,
             elements=[
                 Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),

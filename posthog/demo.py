@@ -21,7 +21,7 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
-from posthog.models.utils import uuid1_macless
+from posthog.models.utils import UUIDT
 from posthog.utils import render_template
 
 
@@ -38,7 +38,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         if index > 0 and index % 14 == 0:
             days_ago -= 1
 
-        distinct_id = str(uuid1_macless())
+        distinct_id = str(UUIDT())
         distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
         date = now() - relativedelta(days=days_ago)
         browser = random.choice(["Chrome", "Safari", "Firefox"])
