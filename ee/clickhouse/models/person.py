@@ -63,7 +63,7 @@ def emit_omni_person(
         uuid = uuid4()
 
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.utcnow()
 
     data = {
         "event_uuid": str(event_uuid),
@@ -92,7 +92,7 @@ def create_person(
     else:
         uuid = str(uuid4())
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.utcnow()
 
     data = {
         "id": str(uuid),
