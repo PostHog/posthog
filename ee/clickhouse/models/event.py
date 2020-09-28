@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
-from django.utils import timezone
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -29,7 +29,7 @@ def create_event(
 ) -> None:
 
     if not timestamp:
-        timestamp = timezone.now()
+        timestamp = now()
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):
