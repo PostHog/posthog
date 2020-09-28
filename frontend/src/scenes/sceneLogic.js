@@ -25,7 +25,7 @@ export const scenes = {
     licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
     signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
-    onboarding: () => import(/* webpackChunkName: 'onboarding' */ './onboarding/onboardingWizard'),
+    onboarding: () => import(/* webpackChunkName: 'onboarding' */ './onboarding/OnboardingWizard'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
