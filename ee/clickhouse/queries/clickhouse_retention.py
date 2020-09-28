@@ -60,8 +60,8 @@ class ClickhouseRetention(BaseQuery):
             ),
             {
                 "team_id": team.pk,
-                "start_date": date_from.strftime("%Y-%m-%d"),
-                "end_date": date_to.strftime("%Y-%m-%d"),
+                "start_date": date_from.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_date": date_to.strftime("%Y-%m-%d %H:%M:%S"),
                 **prop_filter_params,
                 **target_params,
                 "period": period,
