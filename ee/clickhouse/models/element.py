@@ -1,5 +1,6 @@
 import datetime
 import json
+from datetime import timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -19,7 +20,7 @@ def create_element(
     element: Element, team: Team, event_uuid: UUID, elements_hash: str, timestamp: Optional[datetime.datetime] = None,
 ) -> None:
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.now(tz=timezone.utc)
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),

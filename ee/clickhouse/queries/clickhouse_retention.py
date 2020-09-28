@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
@@ -31,7 +31,7 @@ class ClickhouseRetention(BaseQuery):
             date_from = filter.date_from
             date_to = date_from + tdelta
         else:
-            date_to = datetime.now()
+            date_to = datetime.now(tz=timezone.utc)
             date_from = date_to - tdelta
 
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)

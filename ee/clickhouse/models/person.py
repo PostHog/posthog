@@ -1,5 +1,6 @@
 import datetime
 import json
+from datetime import timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
@@ -63,7 +64,7 @@ def emit_omni_person(
         uuid = uuid4()
 
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.now(tz=timezone.utc)
 
     data = {
         "event_uuid": str(event_uuid),
@@ -92,7 +93,7 @@ def create_person(
     else:
         uuid = str(uuid4())
     if not timestamp:
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.now(tz=timezone.utc)
 
     data = {
         "id": str(uuid),
