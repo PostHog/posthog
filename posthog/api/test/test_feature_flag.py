@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import FeatureFlag, User
 
 from .base import APIBaseTest, TransactionBaseTest
 
@@ -24,7 +24,10 @@ class TestFeatureFlag(TransactionBaseTest):
             "/api/feature_flag", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
         ).json()
 
-        self.assertEqual(response[0], "key-exists")
+        self.assertEqual(
+            response,
+            {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
+        )
 
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user,
@@ -35,7 +38,10 @@ class TestFeatureFlag(TransactionBaseTest):
             data={"name": "Beta feature", "key": "beta-feature"},
             content_type="application/json",
         ).json()
-        self.assertEqual(response[0], "key-exists")
+        self.assertEqual(
+            response,
+            {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
+        )
 
         # try updating the existing one
         response = self.client.patch(
