@@ -67,8 +67,8 @@ class ClickhousePerson(viewsets.ViewSet):
             result = PersonViewSet().retrieve(request, pk)
             return Response(result)
 
-        result = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
-        res = ClickhousePersonSerializer(result[0]).data if len(result) > 0 else []
+        qres = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
+        res = ClickhousePersonSerializer(qres[0]).data if len(qres) > 0 else []
         return Response(res)
 
     def list(self, request):
@@ -102,6 +102,6 @@ class ClickhousePerson(viewsets.ViewSet):
             return Response(result)
 
         team = self.request.user.team_set.get()
-        result = ch_client.execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
+        qres = ch_client.execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
 
-        return Response([{"name": element[0], "count": element[1]} for element in result])
+        return Response([{"name": element[0], "count": element[1]} for element in qres])
