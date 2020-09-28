@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from ee.clickhouse.client import ch_client
@@ -14,7 +14,7 @@ class ClickhouseRetention(BaseQuery):
             date_from = filter.date_from
             date_to = date_from + timedelta(days=total_days)
         else:
-            date_to = datetime.now()
+            date_to = datetime.now(tz=timezone.utc)
             date_from = date_to - timedelta(days=total_days)
 
         result = ch_client.execute(

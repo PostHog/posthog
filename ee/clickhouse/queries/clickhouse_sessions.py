@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from dateutil.relativedelta import relativedelta
@@ -98,7 +98,7 @@ class ClickhouseSessions(BaseQuery):
     # TODO: handle offset
     def calculate_list(self, filter: Filter, team: Team, offset: int):
 
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         filter._date_to = (now + relativedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
         filter._date_from = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime("%Y-%m-%d 00:00:00")
 
@@ -155,7 +155,7 @@ class ClickhouseSessions(BaseQuery):
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
         null_sql = NULL_SQL.format(
-            date_to=(filter.date_to or datetime.now()).strftime("%Y-%m-%d 00:00:00"),
+            date_to=(filter.date_to or datetime.now(tz=timezone.utc)).strftime("%Y-%m-%d 00:00:00"),
             interval=interval_notation,
             num_intervals=num_intervals,
             seconds_in_interval=seconds_in_interval,
