@@ -17,7 +17,7 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { Dock } from '~/toolbar/button/icons/Dock'
+import { QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 
 const HELP_URL = 'https://posthog.com/docs/tutorials/toolbar'
@@ -159,7 +159,7 @@ export function ToolbarButton(): JSX.Element {
                         extensionPercentage={extensionPercentage}
                         distance={dockButtonOnTop ? 90 : 55}
                         rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<Dock style={{ height: 18, width: 18 }} />}
+                        content={<QuestionOutlined style={{ fontSize: 22 }} />}
                         label="Help"
                         zIndex={2}
                         onClick={() => window.open(HELP_URL, '_blank')?.focus()}
