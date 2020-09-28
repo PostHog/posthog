@@ -58,7 +58,7 @@ function Billing(props) {
     }
 
     useEffect(() => {
-        if (!user.billing?.plan) loadPlans()
+        if (!user.billing?.plan || user.billing?.should_setup_billing) loadPlans()
         if (!user.billing?.current_usage || !user.billing.plan) return
         if (!user.billing.plan.allowance) {
             /* Plan is unlimited */
@@ -76,7 +76,9 @@ function Billing(props) {
 
     return (
         <>
-            <h1 className="page-header">Billing &amp; usage information</h1>
+            <h1 className="page-header">
+                Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
+            </h1>
             <div className="space-top"></div>
             <Card title="Current usage">
                 {user.billing?.current_usage && (
@@ -112,7 +114,7 @@ function Billing(props) {
             </Card>
             <div className="space-top"></div>
             <Card title="Billing plan">
-                {user.billing.plan && (
+                {user.billing.plan && !user.billing.should_setup_billing && (
                     <>
                         Your organization is currently on the <b>{user.billing.plan.name}</b>. We're working on allowing
                         self-serve billing management, in the meantime, please{' '}
@@ -120,8 +122,15 @@ function Billing(props) {
                         change or cancel your subscription.
                     </>
                 )}
+                {user.billing.plan && user.billing.should_setup_billing && (
+                    <>
+                        Your organization is currently enrolled in the <b>{user.billing.plan.name}</b>, but billing
+                        details have not been set up. Please <a href={user.billing.subscription_url}>set them up now</a>{' '}
+                        or change your plan.{' '}
+                    </>
+                )}
                 {!user.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
-                {!user.billing.plan && plans?.results?.length > 0 && (
+                {plans?.results?.length > 0 && (
                     <>
                         Choose a plan from the list below to initiate a subscription.{' '}
                         <b>
