@@ -26,7 +26,7 @@ class LicenseViewSet(viewsets.ModelViewSet):
     serializer_class = LicenseSerializer
 
     def get_queryset(self) -> QuerySet:
-        if hasattr(settings, "MULTI_TENANCY"):
+        if getattr(settings, "MULTI_TENANCY", False):
             return License.objects.none()
 
         return super().get_queryset()

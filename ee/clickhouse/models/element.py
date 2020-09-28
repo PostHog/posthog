@@ -4,6 +4,7 @@ from datetime import timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -20,7 +21,7 @@ def create_element(
     element: Element, team: Team, event_uuid: UUID, elements_hash: str, timestamp: Optional[datetime.datetime] = None,
 ) -> None:
     if not timestamp:
-        timestamp = datetime.datetime.now(tz=timezone.utc)
+        timestamp = now()
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
