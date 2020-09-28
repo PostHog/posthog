@@ -10,7 +10,14 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.util import endpoint_enabled
+from ee.clickhouse.util import (
+    CH_FUNNEL_ENDPOINT,
+    CH_PATH_ENDPOINT,
+    CH_RETENTION_ENDPOINT,
+    CH_SESSION_ENDPOINT,
+    CH_TREND_ENDPOINT,
+    endpoint_enabled,
+)
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models.filter import Filter
@@ -19,7 +26,7 @@ from posthog.models.filter import Filter
 class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not endpoint_enabled("ch-trend-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_TREND_ENDPOINT, request.user.distinct_id):
             result = super().calculate_trends(request)
             return Response(result)
 
@@ -37,7 +44,7 @@ class ClickhouseInsights(InsightViewSet):
 
     @action(methods=["GET"], detail=False)
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not endpoint_enabled("ch-session-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_SESSION_ENDPOINT, request.user.distinct_id):
             result = super().calculate_session(request)
             return Response(result)
 
@@ -49,7 +56,7 @@ class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled("ch-path-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_PATH_ENDPOINT, request.user.distinct_id):
             result = super().calculate_path(request)
             return Response(result)
 
@@ -61,7 +68,7 @@ class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled("ch-funnel-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_FUNNEL_ENDPOINT, request.user.distinct_id):
             result = super().calculate_funnel(request)
             return Response(result)
 
@@ -73,7 +80,7 @@ class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled("ch-retention-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_RETENTION_ENDPOINT, request.user.distinct_id):
             result = super().calculate_retention(request)
             return Response({"data": result})
 

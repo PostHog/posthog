@@ -14,7 +14,7 @@ from ee.clickhouse.sql.person import (
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
 )
-from ee.clickhouse.util import endpoint_enabled
+from ee.clickhouse.util import CH_PERSON_ENDPOINT, endpoint_enabled
 
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
 from posthog.api.person import PersonViewSet
@@ -62,11 +62,21 @@ class ClickhousePerson(viewsets.ViewSet):
         return result
 
     def retrieve(self, request, pk=None):
+
+        if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
+            result = PersonViewSet().retrieve(request, pk)
+            return Response(result)
+
         result = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
         res = ClickhousePersonSerializer(result[0]).data if len(result) > 0 else []
         return Response(res)
 
     def list(self, request):
+
+        if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
+            result = PersonViewSet().list(request)
+            return Response(result)
+
         team = self.request.user.team_set.get()
         filtered = self._filter_request(self.request, team)
         results = ClickhousePersonSerializer(filtered, many=True).data
@@ -75,7 +85,7 @@ class ClickhousePerson(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
 
-        if not endpoint_enabled("ch-person-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
             result = PersonViewSet().get_by_distinct_id(request)
             return Response(result)
 
@@ -87,7 +97,7 @@ class ClickhousePerson(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def properties(self, request: Request) -> Response:
 
-        if not endpoint_enabled("ch-person-endpoint", request.user.distinct_id):
+        if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
             result = PersonViewSet().get_properties(request)
             return Response(result)
 
