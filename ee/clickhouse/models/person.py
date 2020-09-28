@@ -73,7 +73,7 @@ def emit_omni_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "ts": timestamp.isoformat(),
+        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_OMNI_PERSON, data=data)
