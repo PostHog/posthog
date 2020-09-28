@@ -11,7 +11,7 @@ function _ToolbarContainer(): JSX.Element {
     const { buttonVisible } = useValues(toolbarLogic)
 
     return (
-        <Fade visible={buttonVisible}>
+        <Fade visible={buttonVisible} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
             <Elements />
             <DraggableButton />
         </Fade>
