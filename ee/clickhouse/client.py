@@ -58,8 +58,7 @@ else:
         )
 
         def async_execute(query, args=None):
-            task = ch_client.execute(query, args)
-            return task
+            return sync_execute(query, args)
 
     ch_sync_pool = ChPool(
         host=CLICKHOUSE_HOST,
