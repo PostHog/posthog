@@ -3,26 +3,21 @@ from typing import Any, Dict
 
 import posthoganalytics
 from django.db import connection
-from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
-from posthog.models import Event, Team, User, person
+from posthog.models import Event, Team, User
 from posthog.models.utils import namedtuplefetchall
-from posthog.utils import get_machine_id
+from posthog.utils import get_machine_id, get_previous_week
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
 
 
 def status_report() -> None:
-    now = timezone.now()
-    period_end = (now - timezone.timedelta(now.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )  # very start of the current Monday
-    period_start = period_end - timezone.timedelta(7)  # very start of the Monday preceding the current one
+    period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "period": {"start_inclusive": period_start.isoformat(), "end_exclusive": period_end.isoformat()},
+        "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
     }
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
@@ -35,11 +30,11 @@ def status_report() -> None:
         team_report: Dict[str, Any] = {}
         events_considered_total = Event.objects.filter(team_id=team.id)
         events_considered_new_in_period = events_considered_total.filter(
-            created_at__gte=period_start, created_at__lt=period_end
+            created_at__gte=period_start, created_at__lte=period_end,
         )
         persons_considered_total = Event.objects.filter(team_id=team.id)
         persons_considered_total_new_in_period = persons_considered_total.filter(
-            created_at__gte=period_start, created_at__lt=period_end
+            created_at__gte=period_start, created_at__lte=period_end,
         )
         team_report["events_count_total"] = events_considered_total.count()
         team_report["events_count_new_in_period"] = events_considered_new_in_period.count()

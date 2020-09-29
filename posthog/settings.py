@@ -60,6 +60,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv  # type: bool
 
+# Canonical base URL (used for email links)
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
 if DEBUG:
@@ -407,12 +408,12 @@ REST_FRAMEWORK = {
 
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
-EMAIL_PORT = os.environ.get("EMAIL_PORT")
+EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "tim@posthog.com")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
 
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service

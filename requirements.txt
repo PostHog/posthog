@@ -72,6 +72,7 @@ social-auth-core==3.3.3
 sortedcontainers==2.2.2
 sqlparse==0.3.0
 tenacity==6.1.0
+toronado==0.0.11
 traitlets==4.3.3
 typing==3.7.4.3
 typing-extensions==3.7.4.2
