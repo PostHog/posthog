@@ -45,4 +45,4 @@ def percentage(value: Optional[Number], decimals: int = 1) -> str:
     if value is None:
         return "-"
 
-    return "{0:.{decimals}f}".format(value * 100, decimals=decimals)
+    return "{0:.{decimals}f}%".format(value * 100, decimals=decimals)

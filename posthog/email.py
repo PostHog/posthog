@@ -24,7 +24,7 @@ def is_email_available() -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
     """
-    return bool(settings.EMAIL_HOST and settings.EMAIL_HOST_USER and settings.EMAIL_HOST_PASSWORD)
+    return bool(settings.EMAIL_HOST)
 
 
 class EmailMessage:
@@ -33,7 +33,7 @@ class EmailMessage:
     ):
         if not is_email_available():
             raise exceptions.ImproperlyConfigured(
-                "Email settings not configured! Set at least environment variables EMAIL_HOST, EMAIL_HOST_USER and EMAIL_HOST_PASSWORD."
+                "Email settings not configured! Set at least the EMAIL_HOST environment variable.",
             )
 
         self.subject = subject

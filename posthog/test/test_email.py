@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 import pytz
 from django.core import mail
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.email import EmailMessage
-from posthog.models import Event, Person, Team, User
+from posthog.models import Event, Organization, Person, Team, User
 from posthog.tasks.email import send_weekly_email_report
 
 
@@ -21,11 +22,12 @@ class TestEmail(TestCase):
 
     def setUp(self):
         super().setUp()
-        self.team = Team.objects.create(name="The Bakery")
+        self.organization = Organization.objects.create()
+        self.team = Team.objects.create(organization=self.organization, name="The Bakery")
         self.user = User.objects.create(email="test@posthog.com")
         self.user2 = User.objects.create(email="test2@posthog.com")
-        self.team.users.add(self.user)
-        self.team.users.add(self.user2)
+        self.organization.members.add(self.user)
+        self.organization.members.add(self.user2)
 
         last_week = datetime.datetime(2020, 9, 17, 3, 22, tzinfo=pytz.UTC)
         two_weeks_ago = datetime.datetime(2020, 9, 8, 19, 54, tzinfo=pytz.UTC)
@@ -57,14 +59,18 @@ class TestEmail(TestCase):
 
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
         with self.settings(EMAIL_HOST=None):
-            with self.assertRaises(AssertionError) as e:
+            with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("Subject", "template")
-            self.assertEqual(str(e.exception), "email settings not configured")
+            self.assertEqual(
+                str(e.exception), "Email settings not configured! Set at least the EMAIL_HOST environment variable.",
+            )
 
     @freeze_time("2020-09-21")
     def test_weekly_email_report(self) -> None:
 
-        with self.settings(EMAIL_HOST="localhost", SITE_URL="http://localhost:9999"):
+        with self.settings(
+            EMAIL_HOST="localhost", SITE_URL="http://localhost:9999",
+        ):
             send_weekly_email_report()
 
         self.assertEqual(len(mail.outbox), 2)
@@ -90,6 +96,7 @@ class TestEmail(TestCase):
         )  # preheader
 
     @patch("posthog.tasks.email.EmailMessage")
+    @freeze_time("2020-09-21")
     def test_weekly_email_report_content(self, mock_email_message):
 
         with self.settings(EMAIL_HOST="localhost"):
