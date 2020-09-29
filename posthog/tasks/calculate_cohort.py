@@ -29,7 +29,6 @@ def calculate_cohorts() -> None:
     ).order_by("id"):
         cohort_start = time.time()
         cohort.calculate_people()
-        calculate_cohorts_ch(cohort)
         logger.info(" - Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - cohort_start)))
 
     logger.info("Calculating all cohorts took {:.2f} seconds".format(time.time() - start_time))
