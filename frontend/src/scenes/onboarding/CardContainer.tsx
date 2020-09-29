@@ -1,7 +1,6 @@
 import React from 'react'
 import { Col, Card, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import { Framework, PlatformType } from 'scenes/onboarding/types'
 
 export function CardContainer({
     index,
@@ -16,7 +15,7 @@ export function CardContainer({
     onBack?: () => void
     children: React.ReactNode
     nextButton?: boolean
-    onSubmit?: ({ type, framework }: { type?: PlatformType; framework?: Framework }) => void
+    onSubmit?: () => void
 }): JSX.Element {
     return (
         <Col>
@@ -55,7 +54,7 @@ export function CardContainer({
                         cursor: 'pointer',
                         backgroundColor: '#007bff',
                     }}
-                    onClick={() => onSubmit && onSubmit({})}
+                    onClick={onSubmit}
                 >
                     <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
                 </Card>
