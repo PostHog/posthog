@@ -1,0 +1,12 @@
+syntax = "proto3";
+import "google/protobuf/timestamp.proto";
+
+message Event {
+  string uuid = 1;
+  string properties = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  uint64 team_id = 4;
+  string distinct_id = 5;
+  string elements_hash = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
