@@ -11,7 +11,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     loaders: ({ actions, values }) => ({
         sessions: {
             __default: [] as SessionType[],
-            loadSessions: async () => {
+            loadSessions: async (_: any, breakpoint) => {
                 const { selectedDateURLparam } = values
                 const params = toParams({
                     date_from: selectedDateURLparam,
@@ -19,6 +19,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     offset: values.offset,
                 })
                 const response = await api.get(`api/insight/session/?${params}`)
+                breakpoint()
                 if (response.offset) {
                     actions.setOffset(response.offset)
                 }
@@ -31,6 +32,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
         dateChanged: (date: Moment | null) => ({ date }),
+        previousDay: true,
+        nextDay: true,
     }),
     reducers: {
         sessions: {
@@ -49,13 +52,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
     },
     listeners: ({ values, actions }) => ({
-        fetchNextSessions: async () => {
+        fetchNextSessions: async (_, breakpoint) => {
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
                 offset: values.offset,
             })
             const response = await api.get(`api/insight/session/?${params}`)
+            breakpoint()
             if (response.offset) {
                 actions.setOffset(response.offset)
             } else {
@@ -64,13 +68,19 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             actions.appendNewSessions(response.result)
         },
         dateChanged: () => {
-            actions.loadSessions()
+            actions.loadSessions(true)
             actions.setOffset(null)
+        },
+        previousDay: () => {
+            actions.dateChanged(moment(values.selectedDate).add(-1, 'day'))
+        },
+        nextDay: () => {
+            actions.dateChanged(moment(values.selectedDate).add(1, 'day'))
         },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadSessions()
+            actions.loadSessions(true)
         },
     }),
     actionToUrl: ({ values }) => ({

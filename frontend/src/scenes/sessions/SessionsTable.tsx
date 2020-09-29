@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin } from 'antd'
+import { Table, Button, Spin, Space } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -8,10 +8,11 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
+import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 
 export function SessionsTable(): JSX.Element {
     const { sessions, sessionsLoading, offset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
-    const { fetchNextSessions, dateChanged } = useActions(sessionsTableLogic)
+    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
 
     const columns = [
         {
@@ -76,7 +77,11 @@ export function SessionsTable(): JSX.Element {
     return (
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Sessions By Day</h1>
-            <DatePicker className="mb-2" value={selectedDate} onChange={dateChanged} allowClear={false}></DatePicker>
+            <Space className="mb-2">
+                <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
+                <DatePicker value={selectedDate} onChange={dateChanged} allowClear={false} />
+                <Button onClick={nextDay} icon={<CaretRightOutlined />} />
+            </Space>
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
