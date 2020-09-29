@@ -10,7 +10,7 @@ from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import create_elements
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_EVENTS
 from posthog.models.element import Element
@@ -22,7 +22,7 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]] = None,
+    timestamp: Optional[Union[datetime, str]],
     properties: Optional[Dict] = {},
     elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
@@ -59,14 +59,9 @@ def get_events():
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
-def get_events_by_team(team_id: Union[str, int]):
-    events = sync_execute(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
-
-
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
+    uuid = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     event = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
@@ -74,7 +69,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_id(self, event):
+    def get_uuid(self, event):
         return str(event[0])
 
     def get_properties(self, event):

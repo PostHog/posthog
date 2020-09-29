@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from infi.clickhouse_orm import Database  # type: ignore
+from infi.clickhouse_orm import Database
 
 from posthog.settings import (
     CLICKHOUSE_DATABASE,

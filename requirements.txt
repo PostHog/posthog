@@ -49,7 +49,7 @@ pandas==1.0.3
 parso==0.6.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.1.0
+posthoganalytics==1.0.10
 prompt-toolkit==2.0.10
 psycopg2-binary==2.8.4
 ptyprocess==0.6.0
