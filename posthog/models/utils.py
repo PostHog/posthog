@@ -20,7 +20,7 @@ class UUIDT(uuid.UUID):
 
     Anatomy:
     - 6 bytes - Unix time milliseconds unsigned integer
-    - 2 bytes - leftmost 2 bytes of hardware address (MAC with random fallback)
+    - 2 bytes - autoincremented series unsigned integer (per millisecond, rolls over to 0 after reaching 65 535 UUIDs in one ms)
     - 8 bytes - securely random gibberish
 
     Loosely based on Segment's KSUID (https://github.com/segmentio/ksuid) and on Twitter's snowflake ID
