@@ -41,7 +41,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("key-exists")
+            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
         return feature_flag
 
@@ -49,7 +49,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             return super().update(instance, validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("key-exists")
+            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
 
 class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -60,4 +60,4 @@ class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team).order_by("-created_at",)
+        return queryset.filter(team=self.request.user.team).order_by("-created_at")
