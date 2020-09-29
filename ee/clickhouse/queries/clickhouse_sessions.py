@@ -4,6 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.element import ClickhouseElementSerializer, get_elements_by_elements_hashes
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
@@ -58,7 +59,7 @@ SESSION_SQL = """
                     if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
                 FROM (
                     SELECT 
-                        any(id) as uuid,
+                        any(uuid) as uuid,
                         event,
                         any(properties) as properties,
                         timestamp, 
@@ -142,16 +143,15 @@ class ClickhouseSessions(BaseQuery):
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
-        query_result = sync_execute(
-            SESSION_SQL.format(
-                date_from=date_from,
-                date_to=date_to,
-                filters="{}".format(filters) if filter.properties else "",
-                sessions_limit="LIMIT %(offset)s, %(limit)s",
-            ),
-            params,
+        query = SESSION_SQL.format(
+            date_from=date_from,
+            date_to=date_to,
+            filters="{}".format(filters) if filter.properties else "",
+            sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
+        query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
+        result = self._add_elements(team, result)
 
         return result
 
@@ -180,12 +180,36 @@ class ClickhouseSessions(BaseQuery):
                     "length": result[2],
                     "start_time": result[3],
                     "event_count": len(result[4]),
-                    "events": reversed(events),
+                    "events": list(reversed(events)),
                     "properties": {},
                 }
             )
 
         return final
+
+    def _add_elements(self, team=Team, sessions=List[Tuple]):
+        hash_ids = {}
+        for session in sessions:
+            for event in session["events"]:
+                if event.get("elements_hash"):
+                    hash_ids[event["elements_hash"]] = True
+
+        hash_id_list = list(hash_ids.keys())
+
+        elements = get_elements_by_elements_hashes(hash_id_list, team.pk)
+
+        grouped_elements = {}
+        for element in elements:
+            if not grouped_elements.get(element["elements_hash"], None):
+                grouped_elements[element["elements_hash"]] = []
+            grouped_elements[element["elements_hash"]].append(element)
+
+        for session in sessions:
+            for event in session["events"]:
+                if event["elements_hash"] and grouped_elements.get(event["elements_hash"], None):
+                    event["elements"] = grouped_elements[event["elements_hash"]]
+
+        return sessions
 
     def calculate_avg(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
