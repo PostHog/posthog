@@ -5,7 +5,7 @@ function indent(n) {
 }
 
 export function EventElements({ event }) {
-    let elements = [...(event.elements || [])].reverse()
+    let elements = [...event.elements].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
     return (

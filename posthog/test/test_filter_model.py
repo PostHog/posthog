@@ -37,7 +37,7 @@ class TestSelectors(BaseTest):
         event1 = Event.objects.create(
             team=self.team,
             event="$autocapture",
-            elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
+            elements=[Element.objects.create(tag_name="a", order=0), Element.objects.create(tag_name="div", order=1),],
         )
         event2 = Event.objects.create(team=self.team, event="$autocapture")
         filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})

@@ -14,10 +14,10 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
-                Element(tag_name="button", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
+                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, order=1),
+                Element(tag_name="button", nth_child=0, nth_of_type=0, order=2),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=4, attr_id="nested",),
             ],
         )
 
@@ -26,15 +26,15 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="a", nth_child=2, nth_of_type=0, order=0, attr_id="someId"),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=1),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=2),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=3),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=4),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=5),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=6),
                 # make sure elements don't get double counted if they're part of the same event
-                Element(href="/a-url-2", nth_child=0, nth_of_type=0),
+                Element(href="/a-url-2", nth_child=0, nth_of_type=0, order=7),
             ],
         )
 
@@ -45,8 +45,8 @@ class TestFilterByActions(BaseTest):
             team=team2,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="a", nth_child=2, nth_of_type=0, order=0, attr_id="someId"),
+                Element(tag_name="div", nth_child=0, nth_of_type=0, order=1),
             ],
         )
 
@@ -101,22 +101,22 @@ class TestFilterByActions(BaseTest):
         event1 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0, order=0,)],
         )
 
         event2 = Event.objects.create(
             team=self.team,
             distinct_id="whatever2",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0, order=0,)],
         )
 
         event3 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0, order=0,),
                 # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,),
             ],
         )
 
@@ -124,9 +124,9 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever2",
             elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0, order=0,),
                 # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,),
             ],
         )
 
@@ -145,8 +145,8 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["active", "nav-link"]),
+                Element(tag_name="span", attr_class=None, order=0),
+                Element(tag_name="a", attr_class=["active", "nav-link"], order=1),
             ],
         )
 
@@ -162,8 +162,8 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["na\\v-link:b@ld"]),
+                Element(tag_name="span", attr_class=None, order=0),
+                Element(tag_name="a", attr_class=["na\\v-link:b@ld"], order=1),
             ],
         )
 
@@ -179,8 +179,8 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"]),
+                Element(tag_name="span", attr_class=None, order=0),
+                Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"], order=1),
             ],
         )
 
@@ -193,7 +193,7 @@ class TestFilterByActions(BaseTest):
         event1 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
+            elements=[Element(tag_name="button", order=0, attributes={"attr__data-id": "123"})],
         )
 
         action1 = Action.objects.create(team=self.team)
@@ -230,7 +230,7 @@ class TestFilterByActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             properties={"$current_url": "https://posthog.com/feedback/123"},
-            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,)],
+            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0, order=1,)],
         )
 
         events = Event.objects.filter_by_action(action1)
@@ -286,8 +286,8 @@ class TestFilterByActions(BaseTest):
 class TestElementGroup(BaseTest):
     def test_create_elements(self):
         elements = [
-            Element(tag_name="button", text="Sign up!",),
-            Element(tag_name="div",),
+            Element(tag_name="button", text="Sign up!"),
+            Element(tag_name="div"),
         ]
         group1 = ElementGroup.objects.create(team=self.team, elements=elements)
         elements = list(Element.objects.all())
@@ -295,9 +295,9 @@ class TestElementGroup(BaseTest):
         self.assertEqual(elements[1].tag_name, "div")
 
         elements = [
-            Element(tag_name="button", text="Sign up!",),
+            Element(tag_name="button", text="Sign up!"),
             # make sure we remove events if we can
-            Element(tag_name="div", event=Event.objects.create(team=self.team),),
+            Element(tag_name="div", event=Event.objects.create(team=self.team)),
         ]
         group2 = ElementGroup.objects.create(team=self.team, elements=elements)
         self.assertEqual(Element.objects.count(), 2)
@@ -308,7 +308,6 @@ class TestElementGroup(BaseTest):
         group3 = ElementGroup.objects.create(team=team2, elements=elements)
         group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
         self.assertNotEqual(group2, group3)
-        self.assertEqual(group3, group3_duplicate)
         self.assertEqual(ElementGroup.objects.count(), 2)
 
 
@@ -334,8 +333,9 @@ class TestActions(BaseTest):
                     text="Watch now",
                     attr_id="something",
                     href="/movie",
+                    order=0,
                 ),
-                Element(tag_name="div", href="/movie"),
+                Element(tag_name="div", href="/movie", order=1),
             ],
         )
         return event
@@ -377,7 +377,7 @@ class TestActions(BaseTest):
         event = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(tag_name="a", attributes={"attr__data-id": "whatever"})],
+            elements=[Element(order=0, tag_name="a", attributes={"attr__data-id": "whatever"})],
         )
         self.assertEqual(event.actions, [action])
 
@@ -396,7 +396,7 @@ class TestActions(BaseTest):
             event="$autocapture",
             distinct_id="user_paid",
             team=self.team,
-            elements=[Element(tag_name="a", attr_class=None)],
+            elements=[Element(tag_name="a", attr_class=None, order=0)],
         )
         # This would error when attr_class wasn't set.
         self.assertEqual(event.actions, [])

@@ -22,8 +22,6 @@ class ElementGroupManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         elements = kwargs.pop("elements")
         with transaction.atomic():
-            for index, element in enumerate(elements):
-                element.order = index
             kwargs["hash"] = hash_elements(elements)
             try:
                 with transaction.atomic():
@@ -32,8 +30,9 @@ class ElementGroupManager(models.Manager):
                 return ElementGroup.objects.get(
                     hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
                 )
-            for index, element in enumerate(elements):
+            for element in elements:
                 element.group = group
+            for element in elements:
                 setattr(element, "pk", None)
             Element.objects.bulk_create(elements)
             return group

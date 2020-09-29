@@ -12,7 +12,6 @@ from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
     BREAKDOWN_TYPE,
-    BREAKDOWN_VALUE,
     COMPARE,
     DATE_FROM,
     DATE_TO,
@@ -23,7 +22,6 @@ from posthog.constants import (
     INTERVAL,
     OFFSET,
     PATH_TYPE,
-    PERIOD,
     PROPERTIES,
     SELECTOR,
     SESSION,
@@ -46,8 +44,8 @@ class Filter(PropertyMixin):
     This class just allows for stronger typing of this object.
     """
 
-    _date_from: Optional[Union[str, datetime.datetime]] = None
-    _date_to: Optional[Union[str, datetime.datetime]] = None
+    _date_from: Optional[str] = None
+    _date_to: Optional[str] = None
     properties: List[Property] = []
     interval: Optional[str] = None
     entities: List[Entity] = []
@@ -56,7 +54,6 @@ class Filter(PropertyMixin):
     shown_as: Optional[str] = None
     breakdown: Optional[Union[str, List[Union[str, int]]]] = None
     breakdown_type: Optional[str] = None
-    breakdown_value: Optional[str] = None
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
     insight: Optional[str] = None
@@ -65,7 +62,6 @@ class Filter(PropertyMixin):
     start_point: Optional[str] = None
     target_entity: Optional[Entity] = None
     _offset: Optional[str] = None
-    period: Optional[str] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -88,7 +84,6 @@ class Filter(PropertyMixin):
         self.shown_as = data.get(SHOWN_AS)
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get(BREAKDOWN_TYPE)
-        self.breakdown_value = data.get(BREAKDOWN_VALUE)
         self._compare = data.get(COMPARE, "false")
         self.insight = data.get(INSIGHT)
         self.session_type = data.get(SESSION)
@@ -96,7 +91,6 @@ class Filter(PropertyMixin):
         self.start_point = data.get(START_POINT)
         self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
         self._offset = data.get(OFFSET)
-        self.period = data.get(PERIOD)
 
         if data.get(ACTIONS):
             self.entities.extend(
@@ -171,19 +165,13 @@ class Filter(PropertyMixin):
         if self._date_from:
             if self._date_from == "all":
                 return None
-            elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
-            else:
-                return self._date_from
+            return relative_date_parse(self._date_from)
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
     def date_to(self) -> Optional[datetime.datetime]:
         if self._date_to:
-            if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
-            else:
-                return self._date_to
+            return relative_date_parse(self._date_to)
         return None
 
     @property

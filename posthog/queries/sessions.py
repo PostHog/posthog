@@ -33,13 +33,13 @@ class Sessions(BaseQuery):
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
             calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, offset)
-            calculated = convert_to_comparison(calculated, "current", filter)
+            calculated = self._convert_to_comparison(calculated, "current")
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
                 events.filter(compare_filter.date_filter_Q), compare_filter, team, offset
             )
-            converted_compared_calculated = convert_to_comparison(compared_calculated, "previous", filter)
+            converted_compared_calculated = self._convert_to_comparison(compared_calculated, "previous")
             calculated.extend(converted_compared_calculated)
         else:
             # if session_type is None, it's a list of sessions which shouldn't have any date filtering
@@ -251,24 +251,23 @@ class Sessions(BaseQuery):
         result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
         return result
 
+    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
+        for entity in trend_entity:
+            days = [i for i in range(len(entity["days"]))]
+            labels = ["{} {}".format("Day", i) for i in range(len(entity["labels"]))]
+            entity.update(
+                {
+                    "labels": labels,
+                    "days": days,
+                    "chartLabel": "{} - {}".format(entity["label"], label),
+                    "dates": entity["days"],
+                    "compare": True,
+                }
+            )
+        return trend_entity
+
     def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
         groups = ElementGroup.objects.none()
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
         return groups
-
-
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], label: str, filter: Filter) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
-        days = [i for i in range(len(entity["days"]))]
-        labels = ["{} {}".format(filter.interval or "Day", i) for i in range(len(entity["labels"]))]
-        entity.update(
-            {
-                "labels": labels,
-                "days": days,
-                "chartLabel": "{} - {}".format(entity["label"], label),
-                "dates": entity["days"],
-                "compare": True,
-            }
-        )
-    return trend_entity

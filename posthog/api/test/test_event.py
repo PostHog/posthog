@@ -20,7 +20,7 @@ class TestEvents(TransactionBaseTest):
             team=self.team,
             distinct_id="2",
             properties={"$ip": "8.8.8.8"},
-            elements=[Element(tag_name="button", text="something"), Element(tag_name="div")],
+            elements=[Element(tag_name="button", text="something")],
         )
         Event.objects.create(team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         Event.objects.create(team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
@@ -29,8 +29,6 @@ class TestEvents(TransactionBaseTest):
             response = self.client.get("/api/event/?distinct_id=2").json()
         self.assertEqual(response["results"][0]["person"], "tim@posthog.com")
         self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
-        self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
-        self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
     def test_filter_events_by_event_name(self):
         person = Person.objects.create(
@@ -102,8 +100,9 @@ class TestEvents(TransactionBaseTest):
                     text="Watch now",
                     attr_id="something",
                     href="/movie",
+                    order=0,
                 ),
-                Element(tag_name="div", href="/movie"),
+                Element(tag_name="div", href="/movie", order=1),
             ],
         )
         return sign_up
@@ -141,7 +140,10 @@ class TestEvents(TransactionBaseTest):
             distinct_id="stopped_after_pay",
             properties={"$current_url": "http://whatever.com"},
             team=self.team,
-            elements=[Element(tag_name="blabla", href="/moviedd"), Element(tag_name="blabla", href="/moviedd"),],
+            elements=[
+                Element(tag_name="blabla", href="/moviedd", order=0),
+                Element(tag_name="blabla", href="/moviedd", order=1),
+            ],
         )
         last_event = Event.objects.create(
             distinct_id="stopped_after_pay", properties={"$current_url": "http://whatever.com"}, team=self.team,

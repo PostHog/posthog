@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.element import get_all_elements, get_elements_by_elements_hash
 from ee.clickhouse.models.event import get_events
-from ee.clickhouse.models.person import get_person_by_distinct_id, get_person_distinct_ids, get_persons
+from ee.clickhouse.models.person import create_person, get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest

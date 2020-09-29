@@ -9,7 +9,7 @@ from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Action, Entity, Event, Filter, Person, Team
+from posthog.models import Action, Entity, Event, Filter, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
 
@@ -157,7 +157,11 @@ class Funnel(BaseQuery):
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
 
-    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
+    def get_steps(self) -> List[Dict[str, Any]]:
+        with connection.cursor() as cursor:
+            qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
+            cursor.execute(qstring)
+            people = namedtuplefetchall(cursor)
         steps = []
 
         average_time: Dict[int, Dict[str, Any]] = {}
@@ -168,7 +172,7 @@ class Funnel(BaseQuery):
         person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(self._filter.entities):
             relevant_people = []
-            for person in results:
+            for person in people:
                 if (
                     index > 0
                     and getattr(person, "step_{}".format(index))
@@ -200,8 +204,4 @@ class Funnel(BaseQuery):
         return steps
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        with connection.cursor() as cursor:
-            qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
-            cursor.execute(qstring)
-            results = namedtuplefetchall(cursor)
-        return self.data_to_return(results)
+        return self.get_steps()
