@@ -147,7 +147,7 @@ export function ToolbarButton(): JSX.Element {
                 style={{
                     cursor: 'pointer',
                     background: '#393939',
-                    borderRadius: 4,
+                    borderRadius: 6,
                     color: 'white',
                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                 }}
@@ -166,9 +166,9 @@ export function ToolbarButton(): JSX.Element {
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
                             cursor: 'pointer',
-                            background: 'hsl(218deg 27% 40%)',
+                            background: '#777',
                             color: 'white',
-                            borderRadius: 16,
+                            borderRadius: 10,
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
