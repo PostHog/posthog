@@ -21,14 +21,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()
                 if (response.offset) {
-                    actions.setOffset(response.offset)
+                    actions.setNextOffset(response.offset)
                 }
                 return response.result
             },
         },
     }),
     actions: () => ({
-        setOffset: (offset: number | null) => ({ offset }),
+        setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
         dateChanged: (date: Moment | null) => ({ date }),
@@ -41,10 +41,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             loadSessionsFailure: () => [],
         },
         isLoadingNext: [false, { fetchNextSessions: () => true, appendNewSessions: () => false }],
-        offset: [
+        nextOffset: [
             null as null | number,
             {
-                setOffset: (_, { offset }) => offset,
+                setNextOffset: (_, { nextOffset }) => nextOffset,
                 loadSessionsFailure: () => null,
             },
         ],
@@ -58,20 +58,20 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
-                offset: values.offset,
+                offset: values.nextOffset,
             })
             const response = await api.get(`api/insight/session/?${params}`)
             breakpoint()
             if (response.offset) {
-                actions.setOffset(response.offset)
+                actions.setNextOffset(response.offset)
             } else {
-                actions.setOffset(null)
+                actions.setNextOffset(null)
             }
             actions.appendNewSessions(response.result)
         },
         dateChanged: () => {
             actions.loadSessions(true)
-            actions.setOffset(null)
+            actions.setNextOffset(null)
         },
         previousDay: () => {
             actions.dateChanged(moment(values.selectedDate).add(-1, 'day'))

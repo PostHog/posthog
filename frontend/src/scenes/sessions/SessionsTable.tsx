@@ -11,7 +11,7 @@ import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 
 export function SessionsTable(): JSX.Element {
-    const { sessions, sessionsLoading, offset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
+    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
     const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
 
     const columns = [
@@ -107,7 +107,7 @@ export function SessionsTable(): JSX.Element {
                     textAlign: 'center',
                 }}
             >
-                {(offset || isLoadingNext) && (
+                {(nextOffset || isLoadingNext) && (
                     <Button type="primary" onClick={fetchNextSessions}>
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
