@@ -16,76 +16,88 @@ from posthog.utils import append_data, friendly_time
 SESSIONS_LIMIT = 5
 
 SESSION_SQL = """
-SELECT 
-    distinct_id, 
-    gid, 
-    groupArray(event) events, 
-    groupArray(timestamp) timestamps, 
-    dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
-    arrayReduce('min', groupArray(timestamp)) as start_time
-FROM (
-    SELECT
+    SELECT 
         distinct_id, 
-        event,
-        timestamp,
-        arraySum(arraySlice(gids, 1, idx)) AS gid
+        gid, 
+        groupArray(event) events, 
+        groupArray(timestamp) timestamps, 
+        dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
+        arrayReduce('min', groupArray(timestamp)) as start_time
     FROM (
-        SELECT 
-            groupArray(timestamp) as timestamps, 
-            groupArray(event) as events, 
-            groupArray(distinct_id) as distinct_ids, 
-            groupArray(new_session) AS gids
+        SELECT
+            distinct_id, 
+            event,
+            timestamp,
+            arraySum(arraySlice(gids, 1, idx)) AS gid
         FROM (
             SELECT 
-                distinct_id, 
-                event,
-                timestamp, 
-                neighbor(distinct_id, -1) as possible_neighbor,
-                neighbor(event, -1) as possible_prev_event, 
-                neighbor(timestamp, -1) as possible_prev, 
-                if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
+                groupArray(timestamp) as timestamps, 
+                groupArray(event) as events, 
+                groupArray(distinct_id) as distinct_ids, 
+                groupArray(new_session) AS gids
             FROM (
                 SELECT 
+                    distinct_id, 
+                    event,
                     timestamp, 
-                    distinct_id, 
-                    event 
-                FROM    
-                    events 
-                WHERE 
-                    team_id = %(team_id)s
-                    {date_from}
-                    {date_to} 
-                    {filters}
-                GROUP BY 
-                    distinct_id, 
-                    timestamp, 
-                    event 
-                ORDER BY 
-                    distinct_id, 
-                    timestamp DESC
+                    neighbor(distinct_id, -1) as possible_neighbor,
+                    neighbor(event, -1) as possible_prev_event, 
+                    neighbor(timestamp, -1) as possible_prev, 
+                    if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
+                FROM (
+                    SELECT 
+                        timestamp, 
+                        distinct_id, 
+                        event 
+                    FROM    
+                        events 
+                    WHERE 
+                        team_id = %(team_id)s
+                        {date_from}
+                        {date_to} 
+                        {filters}
+                    GROUP BY 
+                        distinct_id, 
+                        timestamp, 
+                        event 
+                    ORDER BY 
+                        distinct_id, 
+                        timestamp DESC
+                )
             )
         )
-    )
-    ARRAY JOIN
-        distinct_ids as distinct_id,
-        events as event,
-        timestamps as timestamp,
-        arrayEnumerate(gids) AS idx 
-) 
-GROUP BY 
-    distinct_id, 
-    gid
-{sessions_limit}
+        ARRAY JOIN
+            distinct_ids as distinct_id,
+            events as event,
+            timestamps as timestamp,
+            arrayEnumerate(gids) AS idx 
+    ) 
+    GROUP BY 
+        distinct_id, 
+        gid
+    {sessions_limit}
 """
 
 AVERAGE_PER_PERIOD_SQL = """
-SELECT AVG(elapsed) as total, {interval}(arrayReduce('min', timestamps)) as day_start FROM 
-({sessions}) GROUP BY {interval}(arrayReduce('min', timestamps))
+    SELECT 
+        AVG(elapsed) as total, 
+        {interval}(arrayReduce('min', timestamps)) as day_start 
+    FROM 
+        ({sessions}) 
+    GROUP BY 
+        {interval}(arrayReduce('min', timestamps))
 """
 
 AVERAGE_SQL = """
-    SELECT SUM(total), day_start FROM 
-    ({null_sql} UNION ALL {sessions}) GROUP BY day_start ORDER BY day_start
+    SELECT 
+        SUM(total), 
+        day_start 
+    FROM 
+        ({null_sql} UNION ALL {sessions}) 
+    GROUP BY 
+        day_start 
+    ORDER BY 
+        day_start
 """
 
 DIST_SQL = """
@@ -101,7 +113,7 @@ DIST_SQL = """
         countIf(elapsed > 1800 and elapsed <= 3600)  as ninth,
         countIf(elapsed > 3600)  as tength
     FROM 
-    ({sessions})
+        ({sessions})
 """.format(
     sessions=SESSION_SQL
 )
