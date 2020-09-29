@@ -22,7 +22,7 @@ from posthog.models.team import Team
 
 
 class ClickhousePerson(PersonViewSet):
-    def _filter_request(self, request: Request, team: Team) -> List:
+    def _ch_filter_request(self, request: Request, team: Team) -> List:
         result = []
 
         queryset_category_pass = ""
@@ -78,7 +78,7 @@ class ClickhousePerson(PersonViewSet):
             return Response(result)
 
         team = self.request.user.team_set.get()
-        filtered = self._filter_request(self.request, team)
+        filtered = self._ch_filter_request(self.request, team)
         results = ClickhousePersonSerializer(filtered, many=True).data
         return Response({"results": results})
 

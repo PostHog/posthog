@@ -17,8 +17,6 @@ from posthog.utils import convert_property_value
 
 
 class ClickhouseEvents(EventViewSet):
-    serializer_class = ClickhouseEventSerializer
-
     def list(self, request):
 
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
