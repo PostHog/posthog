@@ -74,7 +74,7 @@ class ClickhousePerson(PersonViewSet):
     def list(self, request):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = PersonViewSet().list(request)
+            result = super().list(request)
             return Response(result)
 
         team = self.request.user.team_set.get()
