@@ -8,7 +8,7 @@ from posthog.models import User
 
 
 class Command(BaseCommand):
-    help = "Set up review instance with demo data"
+    help = "Set up the instance for development/review with demo data"
 
     def handle(self, *args, **options):
         organization, team, user = User.objects.bootstrap(

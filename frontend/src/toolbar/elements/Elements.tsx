@@ -3,7 +3,6 @@ import './Elements.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { dockLogic } from '~/toolbar/dockLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
@@ -13,7 +12,6 @@ import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 import { humanizeNumber } from 'lib/utils'
 
 export function Elements(): JSX.Element {
-    const { domZoom, domPadding, mode } = useValues(dockLogic)
     const {
         heatmapElements,
         elementsToDisplay,
@@ -28,22 +26,20 @@ export function Elements(): JSX.Element {
 
     return (
         <>
-            {mode === 'dock' ? null : (
-                <div
-                    id="posthog-infowindow-container"
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        zIndex: 2147483021,
-                        pointerEvents: 'none',
-                    }}
-                >
-                    <InfoWindow />
-                </div>
-            )}
+            <div
+                id="posthog-infowindow-container"
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    zIndex: 2147483021,
+                    pointerEvents: 'none',
+                }}
+            >
+                <InfoWindow />
+            </div>
             <div
                 id="posthog-toolbar-elements"
                 style={{
@@ -62,8 +58,6 @@ export function Elements(): JSX.Element {
                     <HeatmapElement
                         key={`inspect-${index}`}
                         rect={rect}
-                        domPadding={domPadding}
-                        domZoom={domZoom}
                         style={{
                             pointerEvents: 'all',
                             cursor: 'pointer',
@@ -88,8 +82,6 @@ export function Elements(): JSX.Element {
                         <React.Fragment key={`heatmap-${index}`}>
                             <HeatmapElement
                                 rect={rect}
-                                domPadding={domPadding}
-                                domZoom={domZoom}
                                 style={{
                                     pointerEvents: inspectEnabled ? 'none' : 'all',
                                     zIndex: 1,
@@ -108,8 +100,6 @@ export function Elements(): JSX.Element {
                             />
                             <HeatmapLabel
                                 rect={rect}
-                                domPadding={domPadding}
-                                domZoom={domZoom}
                                 style={{
                                     pointerEvents: 'all',
                                     zIndex: 5,
@@ -140,8 +130,6 @@ export function Elements(): JSX.Element {
                             <HeatmapLabel
                                 key={`label-${loopIndex}`}
                                 rect={rect}
-                                domPadding={domPadding}
-                                domZoom={domZoom}
                                 align="left"
                                 style={{
                                     zIndex: 5,
