@@ -78,11 +78,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             actions.dateChanged(moment(values.selectedDate).add(1, 'day'))
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadSessions(true)
-        },
-    }),
     actionToUrl: ({ values }) => ({
         dateChanged: () => {
             const { selectedDateURLparam } = values
