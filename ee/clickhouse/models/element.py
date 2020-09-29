@@ -1,7 +1,9 @@
+import datetime
 import json
-from typing import List
+from typing import List, Optional
 from uuid import UUID, uuid4
 
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -14,10 +16,15 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element(element: Element, team: Team, event_uuid: UUID, elements_hash: str) -> None:
+def create_element(
+    element: Element, team: Team, event_uuid: UUID, elements_hash: str, timestamp: Optional[datetime.datetime] = None,
+) -> None:
+    if not timestamp:
+        timestamp = now()
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
+        "created_at": timestamp.isoformat(),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",

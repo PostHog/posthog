@@ -1,7 +1,18 @@
 import './Fade.scss'
 import React, { useEffect, useState } from 'react'
 
-export function Fade({ visible, children, ...props }) {
+export function Fade({
+    visible,
+    children,
+    className,
+    style = {},
+    ...props
+}: {
+    visible: boolean
+    children: React.ReactNode
+    className: string
+    style?: React.CSSProperties
+}): JSX.Element | null {
     const [shouldRender, setShouldRender] = useState(visible)
 
     useEffect(() => {
@@ -10,7 +21,7 @@ export function Fade({ visible, children, ...props }) {
         }
     }, [visible])
 
-    const onAnimationEnd = () => {
+    const onAnimationEnd = (): void => {
         if (!visible) {
             setShouldRender(false)
         }
@@ -18,8 +29,8 @@ export function Fade({ visible, children, ...props }) {
 
     return shouldRender ? (
         <div
-            className="fade-component-container"
-            style={{ animation: `${visible ? 'fadeComponentFadeIn' : 'fadeComponentFadeOut'} 0.3s` }}
+            className={`fade-component-container${className ? ` ${className}` : ''}`}
+            style={{ animation: `${visible ? 'fadeComponentFadeIn' : 'fadeComponentFadeOut'} 0.3s`, ...style }}
             onAnimationEnd={onAnimationEnd}
             {...props}
         >

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -58,10 +59,13 @@ def emit_omni_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    timestamp: datetime.datetime = datetime.datetime.now(),
+    timestamp: Optional[datetime.datetime] = None,
 ) -> UUID:
     if not uuid:
         uuid = uuid1_macless()
+
+    if not timestamp:
+        timestamp = now()
 
     data = {
         "event_uuid": str(event_uuid),
@@ -70,7 +74,7 @@ def emit_omni_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "ts": timestamp.isoformat(),
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_OMNI_PERSON, data=data)
@@ -83,17 +87,21 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
+    timestamp: Optional[datetime.datetime] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
     else:
-        uuid = str(uuid1_macless())
+        uuid = str(uuid4())
+    if not timestamp:
+        timestamp = now()
 
     data = {
         "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
+        "created_at": timestamp.isoformat(),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)

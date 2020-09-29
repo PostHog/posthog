@@ -29,7 +29,10 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         response = self.client.post("/api/personal_api_keys/", {"label": ""})
         self.assertEqual(response.status_code, 400)
         response_data = response.json()
-        self.assertDictEqual(response_data, {"label": ["This field may not be blank."]})
+        self.assertDictEqual(
+            response_data,
+            {"type": "validation_error", "code": "blank", "detail": "This field may not be blank.", "attr": "label"},
+        )
 
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
@@ -89,7 +92,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         self.assertEqual(response.status_code, 404)
         response_data = response.json()
-        self.assertDictEqual(response_data, {"detail": "Not found."})
+        self.assertDictEqual(response_data, self.ERROR_RESPONSE_NOT_FOUND)
 
 
 class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):

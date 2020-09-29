@@ -17,6 +17,7 @@ from django.views.generic.base import TemplateView
 from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
+from posthog.email import is_email_available
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import OrganizationInvite, User
@@ -158,7 +159,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         return HttpResponse(processed, status=401)
     invite.use(user)
     posthoganalytics.capture(
-        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
+        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False},
     )
 
     return {"is_new": True, "user": user}
@@ -242,9 +243,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     *(
         []
-        if settings.EMAIL_HOST
+        if is_email_available()
         else [
-            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"))
+            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
         ]
     ),
     path(
