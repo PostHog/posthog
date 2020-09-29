@@ -106,19 +106,16 @@ class ClickhouseSessions(BaseQuery):
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk}
-        try:
-            query_result = sync_execute(
-                SESSION_SQL.format(
-                    team_id=team.pk,
-                    date_from=date_from,
-                    date_to=date_to,
-                    filters="{}".format(filters) if filter.properties else "",
-                ),
-                params,
-            )
-            result = self._parse_list_results(query_result)
-        except:
-            result = []
+        query_result = sync_execute(
+            SESSION_SQL.format(
+                team_id=team.pk,
+                date_from=date_from,
+                date_to=date_to,
+                filters="{}".format(filters) if filter.properties else "",
+            ),
+            params,
+        )
+        result = self._parse_list_results(query_result)
 
         return result
 
