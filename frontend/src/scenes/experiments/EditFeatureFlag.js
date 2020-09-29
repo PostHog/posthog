@@ -159,7 +159,12 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
                     Save feature flag
                 </Button>
-                <Button className="float-right" danger onClick={() => showConfirm('delete', 'Delete feature flag?')}>
+                <Button
+                    data-attr="delete-flag"
+                    className="float-right"
+                    danger
+                    onClick={() => showConfirm('delete', 'Delete feature flag?')}
+                >
                     <DeleteOutlined></DeleteOutlined>
                 </Button>
             </Form.Item>
