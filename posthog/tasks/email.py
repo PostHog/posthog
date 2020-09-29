@@ -2,12 +2,10 @@ import datetime
 import logging
 from typing import Optional
 
-import pytz
-from django.utils import timezone
-
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import Event, PersonDistinctId, Team
 from posthog.templatetags.posthog_filters import compact_number
+from posthog.utils import get_previous_week
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +16,10 @@ def send_weekly_email_report() -> None:
     """
 
     if not is_email_available():
-        logger.info("Skipping send_weekly_email_report because email is not properly configured",)
+        logger.info("Skipping send_weekly_email_report because email is not properly configured")
         return
 
-    period_end: datetime.datetime = datetime.datetime.combine(
-        timezone.now() - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
-    )  # very end of the previous Sunday
-
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
-    )  # very start of the Monday preceding the current one
+    period_start, period_end = get_previous_week()
 
     last_week_start: datetime.datetime = period_start - datetime.timedelta(7)
     last_week_end: datetime.datetime = period_end - datetime.timedelta(7)
@@ -93,17 +85,17 @@ def send_weekly_email_report() -> None:
                 if last_week_users_count > 0
                 else None,
                 "user_distribution": {
-                    "new": not_last_week_users.filter(person__created_at__gte=period_start,).count()
+                    "new": not_last_week_users.filter(person__created_at__gte=period_start).count()
                     / active_users_count,
                     "retained": active_users.intersection(last_week_users).count() / active_users_count,
-                    "resurrected": not_last_week_users.filter(person__created_at__lt=period_start,).count()
+                    "resurrected": not_last_week_users.filter(person__created_at__lt=period_start).count()
                     / active_users_count,
                 },
-                "churned_users": {"abs": churned_count, "ratio": churned_ratio, "delta": churned_delta,},
+                "churned_users": {"abs": churned_count, "ratio": churned_ratio, "delta": churned_delta},
             },
         )
 
-        for user in team.users.all():
+        for user in team.organization.members.all():
             # TODO: Skip "unsubscribed" users
             message.add_recipient(user.email, user.first_name)
 

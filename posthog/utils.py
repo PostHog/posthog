@@ -20,7 +20,6 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework import authentication
 from sentry_sdk import push_scope
 
 
@@ -31,6 +30,26 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+
+
+def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a tuple of datetime objects representing the start and end of the immediate
+    previous week to the passed date.
+    """
+
+    if not at_date:
+        at_date = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at_date - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+    )  # very end of the previous Sunday
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+    )  # very start of the previous Monday
+
+    return (period_start, period_end)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
