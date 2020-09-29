@@ -3,13 +3,14 @@ import { kea } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
+import { dockLogic } from '~/toolbar/dockLogic'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
 import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -61,6 +62,7 @@ export const elementsLogic = kea<
                 enableInspect: () => null,
                 disableInspect: () => null,
                 createAction: () => null,
+                [toolbarTabLogic.actionTypes.setTab]: () => null,
             },
         ],
         highlightElement: [
@@ -72,6 +74,7 @@ export const elementsLogic = kea<
                 selectElement: () => null,
                 disableInspect: () => null,
                 createAction: () => null,
+                [toolbarTabLogic.actionTypes.setTab]: () => null,
             },
         ],
         selectedElement: [
@@ -80,6 +83,7 @@ export const elementsLogic = kea<
                 setSelectedElement: (_, { element }) => element,
                 disableInspect: () => null,
                 createAction: () => null,
+                [toolbarTabLogic.actionTypes.setTab]: () => null,
                 [heatmapLogic.actionTypes.disableHeatmap]: () => null,
                 [actionsTabLogic.actionTypes.selectAction]: () => null,
             },
@@ -97,18 +101,29 @@ export const elementsLogic = kea<
     selectors: {
         inspectEnabled: [
             (s) => [
+                dockLogic.selectors.mode,
                 s.inspectEnabledRaw,
+                toolbarTabLogic.selectors.tab,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (inpsectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (mode, inpsectEnabledRaw, tab, inspectingElement, buttonActionsVisible) =>
+                mode === 'dock'
+                    ? tab === 'stats'
+                        ? inpsectEnabledRaw
+                        : tab === 'actions'
+                        ? inspectingElement !== null
+                        : false
+                    : inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
-        heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
+        heatmapEnabled: [
+            () => [heatmapLogic.selectors.heatmapEnabled, toolbarTabLogic.selectors.tab],
+            (heatmapEnabled, tab) => heatmapEnabled && tab === 'stats',
+        ],
 
         heatmapElements: [
-            (s) => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (countedElements) =>
                 countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) } as ElementWithMetadata)),
         ],
@@ -119,7 +134,7 @@ export const elementsLogic = kea<
         ],
 
         inspectElements: [
-            (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (allInspectElements) =>
                 allInspectElements
                     .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
@@ -127,8 +142,12 @@ export const elementsLogic = kea<
         ],
 
         displayActionElements: [
-            () => [actionsTabLogic.selectors.buttonActionsVisible],
-            (buttonActionsVisible) => buttonActionsVisible,
+            () => [
+                dockLogic.selectors.mode,
+                toolbarTabLogic.selectors.tab,
+                actionsTabLogic.selectors.buttonActionsVisible,
+            ],
+            (mode, tab, buttonActionsVisible) => (mode === 'button' ? buttonActionsVisible : tab === 'actions'),
         ],
 
         allActionElements: [
@@ -151,7 +170,7 @@ export const elementsLogic = kea<
         ],
 
         actionElements: [
-            (s) => [s.allActionElements, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [s.allActionElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (allActionElements) =>
                 allActionElements.map((element) =>
                     element.element ? { ...element, rect: getRectForElement(element.element) } : element
@@ -185,7 +204,7 @@ export const elementsLogic = kea<
         ],
 
         actionsForElementMap: [
-            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
+            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (sortedActions): ActionElementMap => {
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
@@ -372,7 +391,9 @@ export const elementsLogic = kea<
         },
         selectElement: ({ element }) => {
             const inpsectForAction =
-                actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
+                (dockLogic.values.mode === 'dock'
+                    ? toolbarTabLogic.values.tab === 'actions'
+                    : actionsTabLogic.values.buttonActionsVisible) && actionsTabLogic.values.inspectingElement !== null
 
             if (inpsectForAction) {
                 actions.setHoverElement(null)
@@ -384,9 +405,13 @@ export const elementsLogic = kea<
             }
         },
         createAction: ({ element }) => {
-            actionsTabLogic.actions.showButtonActions()
-            toolbarButtonLogic.actions.showActionsInfo()
-            elementsLogic.actions.selectElement(null)
+            if (dockLogic.values.mode === 'button') {
+                actionsTabLogic.actions.showButtonActions()
+                toolbarButtonLogic.actions.showActionsInfo()
+                elementsLogic.actions.selectElement(null)
+            } else {
+                toolbarTabLogic.actions.setTab('actions')
+            }
             actionsTabLogic.actions.newAction(element)
         },
     }),

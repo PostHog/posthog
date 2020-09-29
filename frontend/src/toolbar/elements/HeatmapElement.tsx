@@ -2,6 +2,8 @@ import React from 'react'
 
 interface HeatmapElementProps {
     rect?: DOMRect
+    domPadding: number
+    domZoom: number
     style: Record<string, any>
     onClick: (event: React.MouseEvent) => void
     onMouseOver: (event: React.MouseEvent) => void
@@ -10,6 +12,8 @@ interface HeatmapElementProps {
 
 export function HeatmapElement({
     rect,
+    domPadding,
+    domZoom,
     style = {},
     onClick,
     onMouseOver,
@@ -22,10 +26,10 @@ export function HeatmapElement({
         <div
             style={{
                 position: 'absolute',
-                top: `${rect.top + window.pageYOffset}px`,
-                left: `${rect.left + window.pageXOffset}px`,
-                width: `${rect.right - rect.left}px`,
-                height: `${rect.bottom - rect.top}px`,
+                top: `${(rect.top - domPadding + window.pageYOffset) / domZoom}px`,
+                left: `${(rect.left - domPadding + window.pageXOffset) / domZoom}px`,
+                width: `${(rect.right - rect.left) / domZoom}px`,
+                height: `${(rect.bottom - rect.top) / domZoom}px`,
                 ...style,
             }}
             onClick={onClick}

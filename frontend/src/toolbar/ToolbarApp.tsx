@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import { dockLogic } from '~/toolbar/dockLogic'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
@@ -11,6 +12,7 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
 
     const shadowRef = useRef(null as null | { shadowRoot: ShadowRoot })
+    useMountedLogic(dockLogic({ shadowRef }))
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {

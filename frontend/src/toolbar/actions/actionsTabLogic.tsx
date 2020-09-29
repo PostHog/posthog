@@ -5,6 +5,8 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
+import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from 'types/toolbar/actions/actionsTabLogicType'
 import { ActionType, ToolbarTab } from '~/types'
@@ -127,15 +129,21 @@ export const actionsTabLogic = kea<
     listeners: ({ actions, values }) => ({
         selectAction: ({ id }) => {
             if (id) {
-                if (!toolbarLogic.values.buttonVisible) {
-                    toolbarLogic.actions.showButton()
+                const { mode } = dockLogic.values
+                if (mode === '') {
+                    dockLogic.actions.setMode('button')
                 }
-
-                if (!values.buttonActionsVisible) {
-                    actions.showButtonActions()
-                }
-                if (!toolbarButtonLogic.values.actionsInfoVisible) {
-                    toolbarButtonLogic.actions.showActionsInfo()
+                if (mode === '' || mode === 'button') {
+                    if (!values.buttonActionsVisible) {
+                        actions.showButtonActions()
+                    }
+                    if (!toolbarButtonLogic.values.actionsInfoVisible) {
+                        toolbarButtonLogic.actions.showActionsInfo()
+                    }
+                } else if (mode === 'dock') {
+                    if (toolbarTabLogic.values.tab !== 'actions') {
+                        toolbarTabLogic.actions.setTab('actions')
+                    }
                 }
             }
         },
@@ -240,5 +248,21 @@ export const actionsTabLogic = kea<
                 actions.setShowActionsTooltip(false)
             }
         },
+        // not sure why { tab: ToolbarTab } needs to be manually added...
+        [toolbarTabLogic.actionTypes.setTab]: ({ tab }) => {
+            if (tab === 'actions') {
+                actionsLogic.actions.getActions()
+            }
+        },
     }),
+
+    events: {
+        afterMount: () => {
+            const { mode } = dockLogic.values
+            const { tab } = toolbarTabLogic.values
+            if (tab === 'actions' && mode === 'dock') {
+                actionsLogic.actions.getActions()
+            }
+        },
+    },
 })

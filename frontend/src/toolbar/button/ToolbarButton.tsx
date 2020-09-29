@@ -6,6 +6,7 @@ import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -17,17 +18,15 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { QuestionOutlined } from '@ant-design/icons'
+import { Dock } from '~/toolbar/button/icons/Dock'
 import { Tooltip } from 'antd'
-
-const HELP_URL = 'https://posthog.com/docs/tutorials/toolbar'
 
 export function ToolbarButton(): JSX.Element {
     const {
         extensionPercentage,
         heatmapInfoVisible,
         toolbarListVerticalPadding,
-        helpButtonOnTop,
+        dockButtonOnTop,
         side,
         closeDistance,
         closeRotation,
@@ -57,8 +56,10 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
+    const { dock, hideButton } = useActions(dockLogic)
+
     const { isAuthenticated } = useValues(toolbarLogic)
-    const { authenticate, hideButton } = useActions(toolbarLogic)
+    const { authenticate } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
@@ -147,7 +148,7 @@ export function ToolbarButton(): JSX.Element {
                 style={{
                     cursor: 'pointer',
                     background: '#393939',
-                    borderRadius: 6,
+                    borderRadius: 4,
                     color: 'white',
                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                 }}
@@ -157,18 +158,18 @@ export function ToolbarButton(): JSX.Element {
                     <Circle
                         width={32}
                         extensionPercentage={extensionPercentage}
-                        distance={helpButtonOnTop ? 75 : 55}
-                        rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<QuestionOutlined style={{ fontSize: 22 }} />}
-                        label="Help"
+                        distance={dockButtonOnTop ? 90 : 55}
+                        rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
+                        content={<Dock style={{ height: 18, width: 18 }} />}
+                        label="Dock"
                         zIndex={2}
-                        onClick={() => window.open(HELP_URL, '_blank')?.focus()}
+                        onClick={dock}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
                             cursor: 'pointer',
-                            background: '#777',
+                            background: '#808080',
                             color: 'white',
-                            borderRadius: 10,
+                            borderRadius: 3,
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
