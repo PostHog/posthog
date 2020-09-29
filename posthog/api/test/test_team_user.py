@@ -19,9 +19,9 @@ class TestTeamUser(APIBaseTest):
         )
         return user
 
-    def create_org_team_user(self) -> Tuple[Organization, Team, User]:
+    def create_org_team_user(self, api_token: str = "token456") -> Tuple[Organization, Team, User]:
         organization: Organization = Organization.objects.create(name="Test")
-        team: Team = Team.objects.create(organization=organization, name="Test", api_token="token456")
+        team: Team = Team.objects.create(organization=organization, name="Test", api_token=api_token)
         return (organization, team, self.create_user_for_team_org(team, organization))
 
     def test_user_can_list_their_teams(self):
@@ -85,9 +85,6 @@ class TestTeamUser(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
-        print()
-        print(response_data)
-        print()
         self.assertEqual(response_data["team"]["name"], "Test 222")
         self.assertEqual(response_data["team"]["api_token"], "token_zwei")
 
@@ -166,7 +163,7 @@ class TestTeamUser(APIBaseTest):
         organization, team, user = self.create_org_team_user()
         self.client.force_login(user)
 
-        organization2, team2, user2 = self.create_org_team_user()
+        organization2, team2, user2 = self.create_org_team_user("token789")
 
         response = self.client.delete(f"/api/organization/member/{user2.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -232,7 +229,7 @@ class TestTeamSignup(APIBaseTest):
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture, mock_identify):
         response = self.client.post(
-            "/api/team/signup/",
+            "/api/organization/signup/",
             {
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
@@ -279,7 +276,8 @@ class TestTeamSignup(APIBaseTest):
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_sign_up_minimum_attrs(self, mock_capture):
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure",},
+            "/api/organization/signup/",
+            {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -328,7 +326,7 @@ class TestTeamSignup(APIBaseTest):
             body.pop(attribute)
 
             # Make sure the endpoint works with and without the trailing slash
-            response = self.client.post("/api/team/signup", body)
+            response = self.client.post("/api/organization/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.data, {attribute: ["This field is required."]})
 
@@ -340,7 +338,7 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123",},
+            "/api/organization/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -361,7 +359,8 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+            "/api/organization/signup/",
+            {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data, ["Authenticated users may not create additional teams."])
@@ -379,7 +378,8 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+            "/api/organization/signup/",
+            {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data, ["This instance does not support multiple teams."])
