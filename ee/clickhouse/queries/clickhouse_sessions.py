@@ -4,6 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
@@ -19,36 +20,50 @@ SESSION_SQL = """
     SELECT 
         distinct_id, 
         gid, 
-        groupArray(event) events, 
-        groupArray(timestamp) timestamps, 
         dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
-        arrayReduce('min', groupArray(timestamp)) as start_time
+        arrayReduce('min', groupArray(timestamp)) as start_time,
+        groupArray(uuid) uuids, 
+        groupArray(event) events, 
+        groupArray(properties) properties, 
+        groupArray(timestamp) timestamps, 
+        groupArray(elements_hash) elements_hash
     FROM (
         SELECT
             distinct_id, 
             event,
             timestamp,
+            uuid,
+            properties,
+            elements_hash,
             arraySum(arraySlice(gids, 1, idx)) AS gid
         FROM (
             SELECT 
                 groupArray(timestamp) as timestamps, 
                 groupArray(event) as events, 
+                groupArray(uuid) as uuids, 
+                groupArray(properties) as property_list, 
+                groupArray(elements_hash) as elements_hashes, 
                 groupArray(distinct_id) as distinct_ids, 
                 groupArray(new_session) AS gids
             FROM (
                 SELECT 
-                    distinct_id, 
+                    distinct_id,
+                    uuid,
                     event,
+                    properties,
+                    elements_hash,
                     timestamp, 
                     neighbor(distinct_id, -1) as possible_neighbor,
-                    neighbor(event, -1) as possible_prev_event, 
                     neighbor(timestamp, -1) as possible_prev, 
                     if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
                 FROM (
                     SELECT 
+                        any(id) as uuid,
+                        event,
+                        any(properties) as properties,
                         timestamp, 
-                        distinct_id, 
-                        event 
+                        distinct_id,
+                        any(elements_hash) as elements_hash
                     FROM    
                         events 
                     WHERE 
@@ -70,6 +85,9 @@ SESSION_SQL = """
             distinct_ids as distinct_id,
             events as event,
             timestamps as timestamp,
+            uuids as uuid,
+            property_list as properties,
+            elements_hashes as elements_hash,
             arrayEnumerate(gids) AS idx 
     ) 
     GROUP BY 
@@ -140,17 +158,33 @@ class ClickhouseSessions(BaseQuery):
     def _parse_list_results(self, results: List[Tuple]):
         final = []
         for result in results:
+            events = []
+            for i in range(len(result[4])):
+                event = [
+                    result[4][i],  # uuid
+                    result[5][i],  # event
+                    result[6][i],  # properties
+                    result[7][i],  # timestamp
+                    None,  # team_id,
+                    result[0][i],  # distinct_id
+                    result[8][i],  # elements_hash
+                    None,  # properties keys
+                    None,  # properties values
+                ]
+                events.append(ClickhouseEventSerializer(event, many=False).data)
+
             final.append(
                 {
                     "distinct_id": result[0],
                     "global_session_id": result[1],
-                    "event_count": len(result[2]),
-                    "events": result[2],
-                    "timestamps": result[3],
-                    "length": result[4],
-                    "start_time": result[5],
+                    "length": result[2],
+                    "start_time": result[3],
+                    "event_count": len(result[4]),
+                    "events": reversed(events),
+                    "properties": {},
                 }
             )
+
         return final
 
     def calculate_avg(self, filter: Filter, team: Team):
