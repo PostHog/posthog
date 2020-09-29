@@ -14,6 +14,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_stickiness import STICKINESS_PEOPLE_SQL
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.util import CH_ACTION_ENDPOINT, endpoint_enabled
 from posthog.api.action import ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -25,6 +26,10 @@ from posthog.models.team import Team
 class ClickhouseActions(ActionViewSet):
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+
+        if not endpoint_enabled(CH_ACTION_ENDPOINT, request.user.distinct_id):
+            result = super()._people(request)
+            return Response(result)
 
         team = request.user.team_set.get()
         filter = Filter(request=request)

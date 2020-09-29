@@ -123,11 +123,11 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self._calculate_trends(request)
+        result = self.calculate_trends(request)
         return Response(result)
 
     @cached_function(cache_type=TRENDS_ENDPOINT)
-    def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
+    def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
@@ -164,6 +164,22 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         return Response(result)
 
+    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
+        team = self.request.user.team
+
+        filter = Filter(request=request)
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
+
+        # add pagination
+        if filter.session_type is None:
+            offset = filter.offset + 50
+            if len(result["result"]) > 49:
+                date_from = result["result"][0]["start_time"].isoformat()
+                result.update({OFFSET: offset})
+                result.update({DATE_FROM: date_from})
+
+        return result
+
     # ******************************************
     # /insight/funnel
     # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
@@ -176,6 +192,11 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel(request)
+
+        return Response(result)
+
+    def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = request.user.team
         refresh = request.GET.get("refresh", None)
 
@@ -190,9 +211,9 @@ class InsightViewSet(viewsets.ModelViewSet):
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
-                    return Response(cached_result["result"])
+                    return cached_result["result"]
                 else:
-                    return Response(result)
+                    return result
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
 
@@ -201,8 +222,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         self._refresh_dashboard(request=request)
-
-        return Response(result)
+        return result
 
     # ******************************************
     # /insight/retention
@@ -212,11 +232,15 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_retention(request)
+        return Response({"data": result})
+
+    def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
         filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
-        return Response({"data": result})
+        return result
 
     # ******************************************
     # /insight/path
@@ -227,10 +251,14 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_path(request)
+        return Response(result)
+
+    def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
-        return Response(resp)
+        return resp
 
     # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:

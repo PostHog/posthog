@@ -25,7 +25,7 @@ def create_element(
     data = {
         "uuid": str(uuid4()),
         "event_uuid": str(event_uuid),
-        "created_at": timestamp.isoformat(),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",

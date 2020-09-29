@@ -1,5 +1,5 @@
 import json
-from typing import Union
+from typing import Any, Dict, List, Union
 
 from django.core.cache import cache
 from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
@@ -103,11 +103,20 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
+        result = self.get_by_distinct_id(request)
+        return response.Response(result)
+
+    def get_by_distinct_id(self, request):
         person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
-        return response.Response(PersonSerializer(person).data)
+        return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request) -> response.Response:
+        result = self.get_properties(request)
+
+        return response.Response(result)
+
+    def get_properties(self, request) -> List[Dict[str, Any]]:
         class JsonKeys(Func):
             function = "jsonb_object_keys"
 
@@ -115,8 +124,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         people = (
             people.annotate(keys=JsonKeys("properties")).values("keys").annotate(count=Count("id")).order_by("-count")
         )
-
-        return response.Response([{"name": event["keys"], "count": event["count"]} for event in people])
+        return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request) -> response.Response:

@@ -96,13 +96,13 @@ def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
     property_filter = ""
     if step.url and step.event:
         if step.url_matching == ActionStep.EXACT:
-            operation = "value = '{}'".format(step.url)
+            operation = "trim(BOTH '\"' FROM value) = '{}'".format(step.url)
             params.update({"prop_val_{}".format(index): step.url})
         elif step.url_matching == ActionStep.REGEX:
-            operation = "like(value, '{}')".format(step.url)
+            operation = "like(trim(BOTH '\"' FROM value), '{}')".format(step.url)
             params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
-            operation = "value LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
+            operation = "trim(BOTH '\"' FROM value) LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
             params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
         property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
         efilter = "AND event = '{}'".format(step.event)

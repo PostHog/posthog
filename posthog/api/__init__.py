@@ -1,3 +1,5 @@
+import posthoganalytics
+from django.conf import settings
 from rest_framework import decorators, exceptions, response, routers
 
 from posthog.ee import check_ee_enabled
@@ -58,8 +60,8 @@ if check_ee_enabled():
         router.register(r"action", ClickhouseActions, basename="action")
         router.register(r"event", ClickhouseEvents, basename="event")
         router.register(r"insight", ClickhouseInsights, basename="insight")
-        router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"person", ClickhousePerson, basename="person")
+        router.register(r"paths", ClickhousePathsViewSet, basename="paths")
 
     except ImportError:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
