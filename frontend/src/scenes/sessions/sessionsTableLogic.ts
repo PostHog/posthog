@@ -38,15 +38,17 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     reducers: {
         sessions: {
             appendNewSessions: (state, { sessions }) => [...state, ...sessions],
+            loadSessionsFailure: () => [],
         },
         isLoadingNext: [false, { fetchNextSessions: () => true, appendNewSessions: () => false }],
         offset: [
             null as null | number,
             {
                 setOffset: (_, { offset }) => offset,
+                loadSessionsFailure: () => null,
             },
         ],
-        selectedDate: [moment().startOf('day') as null | Moment, { dateChanged: (_, { date }) => date }],
+        selectedDate: [null as null | Moment, { dateChanged: (_, { date }) => date }],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
@@ -85,8 +87,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             return [`/sessions`, selectedDateURLparam === today ? {} : { date: selectedDateURLparam }]
         },
     }),
-    urlToAction: ({ actions }) => ({
-        '/sessions': (_: any, { date }: { date: string }) =>
-            actions.dateChanged(date ? moment(date).startOf('day') : moment().startOf('day')),
+    urlToAction: ({ actions, values }) => ({
+        '/sessions': (_: any, { date }: { date: string }) => {
+            const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
+            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
+                actions.dateChanged(newDate)
+            }
+        },
     }),
 })
