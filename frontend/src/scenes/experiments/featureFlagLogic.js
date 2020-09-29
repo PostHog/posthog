@@ -42,6 +42,14 @@ export const featureFlagLogic = kea({
                     }
                     return create
                 },
+                deleteFeatureFlag: async (featureFlag) => {
+                    try {
+                        return await api.delete('api/feature_flag/' + featureFlag.id, featureFlag)
+                    } catch (err) {
+                        toast.error('Unable to delete feature flag. Please try again later.')
+                        return false
+                    }
+                },
             },
         ],
     }),
@@ -56,6 +64,11 @@ export const featureFlagLogic = kea({
                 if (!featureFlags) return state
                 return [featureFlags, ...state]
             },
+            deleteFeatureFlag: (state, featureFlag) => {
+                if (!featureFlag) return null
+                return [...state].filter((flag) => flag.id !== featureFlag.id)
+            },
+            deleteFeatureFlagSuccess: (state) => state,
         },
     }),
     listeners: ({ props }) => ({
@@ -66,6 +79,10 @@ export const featureFlagLogic = kea({
         createFeatureFlagSuccess: ({ featureFlags }) => {
             if (!featureFlags) return null
             props.closeDrawer(), toast('Feature flag saved.')
+        },
+        deleteFeatureFlagSuccess: () => {
+            props.closeDrawer()
+            toast('Feature flag deleted successfully.')
         },
     }),
     events: ({ actions }) => ({

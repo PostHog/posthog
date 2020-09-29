@@ -38,31 +38,31 @@ function Snippet({ flagKey }) {
     )
 }
 
-function showConfirm(type, text) {
-    Modal.confirm({
-        centered: true,
-        title: text,
-        icon: <WarningOutlined style={{ color: red.primary }} />,
-        content: '',
-        okType: 'danger',
-        okText: 'Yes',
-        onOk() {
-            deleteFeatureFlag(person)
-        },
-        onCancel() {},
-    })
-}
-
 const noop = () => {}
 
 export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const [form] = Form.useForm()
-    const { updateFeatureFlag, createFeatureFlag } = useActions(logic)
+    const { updateFeatureFlag, createFeatureFlag, deleteFeatureFlag } = useActions(logic)
 
     const _editLogic = editLogic({ featureFlag })
     const { filters, rollout_percentage } = useValues(_editLogic)
     const { setFilters, setRolloutPercentage } = useActions(_editLogic)
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
+
+    function showConfirm(type, text) {
+        Modal.confirm({
+            centered: true,
+            title: text,
+            icon: <WarningOutlined style={{ color: red.primary }} />,
+            content: '',
+            okType: 'danger',
+            okText: 'Yes',
+            onOk() {
+                deleteFeatureFlag(featureFlag)
+            },
+            onCancel() {},
+        })
+    }
 
     let submitDisabled = rollout_percentage === null && (!filters?.properties || filters.properties.length === 0)
     return (
