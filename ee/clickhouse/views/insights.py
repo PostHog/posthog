@@ -80,10 +80,6 @@ class ClickhouseInsights(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled(CH_RETENTION_ENDPOINT, request.user.distinct_id):
-            result = super().calculate_retention(request)
-            return Response({"data": result})
-
         team = request.user.team_set.get()
         filter = Filter(request=request)
         result = ClickhouseRetention().run(filter, team)
