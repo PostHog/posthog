@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider } from 'antd'
+import { Input, Button, Form, Switch, Slider, Modal } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { DeleteOutlined, WarningOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 
 const editLogic = kea({
     actions: () => ({
@@ -34,6 +36,21 @@ function Snippet({ flagKey }) {
 }`}
         </CodeSnippet>
     )
+}
+
+function showConfirm(type, text) {
+    Modal.confirm({
+        centered: true,
+        title: text,
+        icon: <WarningOutlined style={{ color: red.primary }} />,
+        content: '',
+        okType: 'danger',
+        okText: 'Yes',
+        onOk() {
+            deleteFeatureFlag(person)
+        },
+        onCancel() {},
+    })
 }
 
 const noop = () => {}
@@ -141,6 +158,9 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item>
                 <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
                     Save feature flag
+                </Button>
+                <Button className="float-right" danger onClick={() => showConfirm('delete', 'Delete feature flag?')}>
+                    <DeleteOutlined></DeleteOutlined>
                 </Button>
             </Form.Item>
             <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.key !== currentValues.key}>
