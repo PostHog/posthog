@@ -14,15 +14,11 @@ const heatmapLabelStyle = {
 
 interface HeatmapLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
     rect?: DOMRect
-    domPadding: number
-    domZoom: number
     align?: 'left' | 'right'
 }
 
 export function HeatmapLabel({
     rect,
-    domPadding,
-    domZoom,
     style = {},
     align = 'right',
     children,
@@ -38,20 +34,16 @@ export function HeatmapLabel({
         <div
             style={{
                 position: 'absolute',
-                top: `${
-                    inBounds(
-                        window.pageYOffset - 1 - domPadding,
-                        rect.top - domPadding - 7 + window.pageYOffset,
-                        window.pageYOffset + window.innerHeight - 14
-                    ) / domZoom
-                }px`,
-                left: `${
-                    inBounds(
-                        window.pageXOffset,
-                        rect.left + (align === 'left' ? 10 : rect.width) - domPadding - width + window.pageXOffset,
-                        window.pageXOffset + window.innerWidth - 14
-                    ) / domZoom
-                }px`,
+                top: `${inBounds(
+                    window.pageYOffset - 1,
+                    rect.top - 7 + window.pageYOffset,
+                    window.pageYOffset + window.innerHeight - 14
+                )}px`,
+                left: `${inBounds(
+                    window.pageXOffset,
+                    rect.left + (align === 'left' ? 10 : rect.width) - width + window.pageXOffset,
+                    window.pageXOffset + window.innerWidth - 14
+                )}px`,
                 ...heatmapLabelStyle,
                 ...style,
             }}

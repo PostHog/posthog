@@ -10,11 +10,7 @@ import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { Stats } from '~/toolbar/button/icons/Stats'
 
-interface DraggableButtonProps {
-    showInvisibleButton: boolean
-}
-
-export function DraggableButton({ showInvisibleButton }: DraggableButtonProps): JSX.Element {
+export function DraggableButton(): JSX.Element {
     const {
         dragPosition,
         heatmapPosition,
@@ -46,7 +42,7 @@ export function DraggableButton({ showInvisibleButton }: DraggableButtonProps): 
                     saveDragPosition(x, y)
                 }}
             >
-                <div id="button-toolbar" className={`ph-no-capture${showInvisibleButton ? ' toolbar-invisible' : ''}`}>
+                <div id="button-toolbar" className="ph-no-capture">
                     <ToolbarButton />
                 </div>
             </Draggable>

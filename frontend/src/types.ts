@@ -82,7 +82,7 @@ export type EditorProps = {
     actionId?: number
     userIntent?: ToolbarUserIntent
     instrument?: boolean
-    distinctId?: boolean
+    distinctId?: string
     userEmail?: boolean
 }
 

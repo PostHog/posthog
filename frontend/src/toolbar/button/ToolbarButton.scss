@@ -6,10 +6,6 @@
     opacity: 1;
     transition: opacity ease 0.5s;
 
-    &.toolbar-invisible {
-        opacity: 0;
-    }
-
     .circle-button {
         transition: box-shadow 0.2s ease;
         box-shadow: 0 0.3px 0.7px rgba(0, 0, 0, 0.25), 0 0.8px 1.7px rgba(0, 0, 0, 0.18),
