@@ -28,7 +28,7 @@ class ClickhouseActions(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         if not endpoint_enabled(CH_ACTION_ENDPOINT, request.user.distinct_id):
-            result = super()._people(request)
+            result = super().get_people(request)
             return Response(result)
 
         team = request.user.team_set.get()
