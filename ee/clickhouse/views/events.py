@@ -16,7 +16,7 @@ from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
 
 
-class ClickhouseEvents(viewsets.ViewSet):
+class ClickhouseEvents(EventViewSet):
     serializer_class = ClickhouseEventSerializer
 
     def list(self, request):

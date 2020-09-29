@@ -21,7 +21,7 @@ from posthog.api.person import PersonViewSet
 from posthog.models.team import Team
 
 
-class ClickhousePerson(viewsets.ViewSet):
+class ClickhousePerson(PersonViewSet):
     def _filter_request(self, request: Request, team: Team) -> List:
         result = []
 
