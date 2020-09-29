@@ -14,7 +14,7 @@ from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
-SESSIONS_LIST_DEFAULT_LIMIT = 1
+SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
 class Sessions(BaseQuery):
