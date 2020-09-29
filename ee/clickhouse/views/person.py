@@ -64,7 +64,7 @@ class ClickhousePerson(PersonViewSet):
     def retrieve(self, request, pk=None):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = PersonViewSet().retrieve(request, pk)
+            result = super().retrieve(request, pk)
             return Response(result)
 
         qres = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
@@ -86,7 +86,7 @@ class ClickhousePerson(PersonViewSet):
     def by_distinct_id(self, request):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = PersonViewSet().get_by_distinct_id(request)
+            result = super().get_by_distinct_id(request)
             return Response(result)
 
         distinct_id = str(request.GET["distinct_id"])
@@ -98,7 +98,7 @@ class ClickhousePerson(PersonViewSet):
     def properties(self, request: Request) -> Response:
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = PersonViewSet().get_properties(request)
+            result = super().get_properties(request)
             return Response(result)
 
         team = self.request.user.team_set.get()

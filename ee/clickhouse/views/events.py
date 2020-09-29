@@ -20,7 +20,7 @@ class ClickhouseEvents(EventViewSet):
     def list(self, request):
 
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return EventViewSet().list(request)
+            return super().list(request)
 
         team = request.user.team_set.get()
         filter = Filter(request=request)
@@ -46,7 +46,7 @@ class ClickhouseEvents(EventViewSet):
     def retrieve(self, request, pk=None):
 
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return EventViewSet().retrieve(request, pk)
+            return super().retrieve(request, pk)
 
         # TODO: implement getting elements
         team = request.user.team_set.get()
@@ -62,7 +62,7 @@ class ClickhouseEvents(EventViewSet):
     def values(self, request: Request) -> Response:
 
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return Response(EventViewSet().get_values(request))
+            return Response(super().get_values(request))
 
         key = request.GET.get("key")
         team = request.user.team
