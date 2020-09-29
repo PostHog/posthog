@@ -72,6 +72,6 @@ class EmailMessage:
         finally:
             # ensure that connection has been closed
             try:
-                connection.close()
+                connection.close()  # type: ignore
             except Exception:
                 pass
