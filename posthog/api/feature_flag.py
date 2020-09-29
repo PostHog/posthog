@@ -35,7 +35,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         filters = feature_flag.filters
         if not filters:
             return True
-        if not feature_flag.filters.get("properties", []):
+        if not filters.get("properties", []):
             return True
         return False
 
