@@ -13,7 +13,7 @@ from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, friendly_time
 
-SESSIONS_LIMIT = 5
+SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 SESSION_SQL = """
     SELECT 
@@ -120,12 +120,10 @@ DIST_SQL = """
 
 # TODO: handle date and defaults
 class ClickhouseSessions(BaseQuery):
-
-    # TODO: handle offset
-    def calculate_list(self, filter: Filter, team: Team, offset: int):
+    def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
         date_from, date_to = parse_timestamps(filter)
-        params = {**params, "team_id": team.pk, "limit": SESSIONS_LIMIT + 1, "offset": 0}
+        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
         query_result = sync_execute(
             SESSION_SQL.format(
                 date_from=date_from,
@@ -251,7 +249,7 @@ class ClickhouseSessions(BaseQuery):
         return res
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-
+        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
         offset = kwargs.get("offset", 0)
 
         result: List = []
@@ -272,7 +270,7 @@ class ClickhouseSessions(BaseQuery):
         elif filter.session_type == SESSION_DIST:
             result = self.calculate_dist(filter, team)
         else:
-            result = self.calculate_list(filter, team, offset)
+            result = self.calculate_list(filter, team, limit, offset)
 
         return result
 
