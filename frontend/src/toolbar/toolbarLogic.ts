@@ -3,7 +3,6 @@ import { toolbarLogicType } from 'types/toolbar/toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
-import { dockLogic } from '~/toolbar/dockLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
@@ -16,6 +15,8 @@ export const toolbarLogic = kea<toolbarLogicType>({
         logout: true,
         processUserIntent: true,
         clearUserIntent: true,
+        showButton: true,
+        hideButton: true,
     }),
 
     reducers: ({ props }: { props: EditorProps }) => ({
@@ -24,6 +25,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         temporaryToken: [props.temporaryToken || null, { logout: () => null }],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        buttonVisible: [true, { showButton: () => true, hideButton: () => false }],
     }),
 
     selectors: ({ selectors }) => ({
@@ -43,7 +45,6 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
         processUserIntent: async () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
-                dockLogic.actions.button()
                 actionsTabLogic.actions.showButtonActions()
                 toolbarButtonLogic.actions.showActionsInfo()
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
@@ -54,7 +55,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
     events: ({ props, actions }) => ({
         async afterMount() {
             if (props.instrument) {
-                posthog.identify(props.distinctId, { email: props.userEmail })
+                posthog.identify((props as EditorProps).distinctId || null, { email: props.userEmail })
                 posthog.optIn()
             }
             if (props.userIntent) {

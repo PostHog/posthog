@@ -26,6 +26,7 @@ django-redis==4.12.1
 django-statsd==2.5.2
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
+drf-exceptions-hog==0.0.1
 fakeredis==1.4.3
 future==0.18.2
 gunicorn==20.0.4
@@ -48,7 +49,7 @@ pandas==1.0.3
 parso==0.6.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.0.10
+posthoganalytics==1.1.0
 prompt-toolkit==2.0.10
 psycopg2-binary==2.8.4
 ptyprocess==0.6.0

@@ -6,7 +6,7 @@ import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { AUTOCAPTURE, pathsLogic } from 'scenes/paths/pathsLogic'
+import { AUTOCAPTURE, PAGEVIEW, pathsLogic } from 'scenes/paths/pathsLogic'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -43,6 +43,30 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval
 }
 
+function pageUrl(d) {
+    const incomingUrls = d.targetLinks
+        .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
+        .filter((a) => a)
+        .map((a) => new URL(a))
+    const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
+
+    let name = d.name.replace(/(^[0-9]+_)/, '')
+
+    try {
+        const url = new URL(name)
+        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+    } catch {
+        // discard if invalid url
+    }
+
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+}
+
+function pathText(d) {
+    const name = d.name.replace(/(^[0-9]+_)/, '')
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+}
+
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
@@ -54,10 +78,10 @@ function NoData() {
 
 export function Paths() {
     const canvas = useRef(null)
-    const { paths, filter, pathsLoading } = useValues(pathsLogic)
+    const { paths, loadedFilter, pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
-    const [eventelements, setEventelements] = useState(null)
+    const [event, setEvent] = useState(null)
 
     useEffect(() => {
         renderPaths()
@@ -87,8 +111,8 @@ export function Paths() {
             .size([width, height])
 
         const { nodes, links } = sankey({
-            nodes: paths.nodes.map((d) => Object.assign({}, d)),
-            links: paths.links.map((d) => Object.assign({}, d)),
+            nodes: paths.nodes.map((d) => ({ ...d })),
+            links: paths.links.map((d) => ({ ...d })),
         })
 
         svg.append('g')
@@ -145,7 +169,7 @@ export function Paths() {
         link.append('g')
             .append('path')
             .attr('d', (data) => {
-                if (data.source.layer == 0) return
+                if (data.source.layer === 0) return
                 let height =
                     data.source.y1 -
                     data.source.y0 -
@@ -183,20 +207,16 @@ export function Paths() {
             .attr('dy', '0.35em')
             .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
-            .text((d) =>
-                d.name.length > 35
-                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
-                    : stripHTTP(d.name)
-            )
+            .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
             .on('click', async (node) => {
-                if (filter.path_type == AUTOCAPTURE) {
+                if (loadedFilter.path_type === AUTOCAPTURE) {
                     setModalVisible(true)
-                    setEventelements(null)
+                    setEvent(null)
                     let result = await api.get('api/event/' + node.id)
-                    setEventelements(result)
+                    setEvent(result)
                 }
             })
-            .style('cursor', filter.path_type == AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -210,7 +230,7 @@ export function Paths() {
 
     return (
         <div>
-            {filter.path_type == AUTOCAPTURE && (
+            {loadedFilter.path_type === AUTOCAPTURE && (
                 <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
             )}
             <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
@@ -238,7 +258,7 @@ export function Paths() {
                     </Button>,
                 ]}
                 bodyStyle={
-                    !eventelements
+                    !event
                         ? {
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -246,7 +266,7 @@ export function Paths() {
                         : {}
                 }
             >
-                {eventelements ? <EventElements event={eventelements}></EventElements> : <Spin />}
+                {event ? <EventElements event={event} /> : <Spin />}
             </Modal>
         </div>
     )

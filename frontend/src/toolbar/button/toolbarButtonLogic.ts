@@ -115,7 +115,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 return -60
             },
         ],
-        dockButtonOnTop: [(s) => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
+        helpButtonOnTop: [(s) => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
         side: [
             (s) => [s.dragPosition, s.windowWidth],
             ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right'),

@@ -80,6 +80,10 @@ GET_EVENTS_SQL = """
 SELECT * FROM events_with_array_props_view
 """
 
+GET_EVENTS_BY_TEAM_SQL = """
+SELECT * FROM events_with_array_props_view WHERE team_id = %(team_id)s
+"""
+
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
@@ -153,4 +157,34 @@ WHERE uuid IN
     FROM events_properties_view AS ep
     WHERE {filters} AND team_id = %(team_id)s
 ) {conditions} {limit}
+"""
+
+SELECT_ONE_EVENT_SQL = """
+SELECT * FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+"""
+
+EVENT_PROP_CLAUSE = """
+SELECT event_id
+FROM events_properties_view AS ep
+WHERE {filters} AND team_id = %(team_id)s
+"""
+
+GET_EARLIEST_TIMESTAMP_SQL = """
+SELECT timestamp from events order by timestamp limit 1
+"""
+
+NULL_SQL = """
+SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
+"""
+
+NULL_BREAKDOWN_SQL = """
+SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
+"""
+
+EVENT_JOIN_PERSON_SQL = """
+INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+"""
+
+EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
+INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """
