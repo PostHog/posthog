@@ -207,3 +207,45 @@ ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 UPDATE_PERSON_IS_IDENTIFIED = """
 ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
 """
+
+PERSON_TREND_SQL = """
+SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to}
+"""
+
+PEOPLE_THROUGH_DISTINCT_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql})
+) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 200 OFFSET %(offset)s
+"""
+
+PEOPLE_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql})
+) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 200 OFFSET %(offset)s 
+"""
+
+PEOPLE_BY_TEAM_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
+) as pdi ON person.id = pdi.person_id 
+WHERE team_id = %(team_id)s {filters} 
+GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 100 OFFSET %(offset)s 
+"""
+
+GET_PERSON_TOP_PROPERTIES = """
+SELECT key, count(1) as count FROM (
+    SELECT 
+    array_property_keys as key,
+    array_property_values as value
+    from (
+        SELECT
+            arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
+            arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+        FROM person WHERE team_id = %(team_id)s
+    )
+    ARRAY JOIN array_property_keys, array_property_values
+) GROUP BY key ORDER BY count DESC LIMIT %(limit)s
+"""

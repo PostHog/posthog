@@ -1,7 +1,8 @@
 import datetime
 import json
+from datetime import timezone
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.utils.timezone import now
 from rest_framework import serializers
@@ -14,6 +15,7 @@ from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
+from posthog.models.utils import UUIDT
 
 
 def create_element(
@@ -22,9 +24,9 @@ def create_element(
     if not timestamp:
         timestamp = now()
     data = {
-        "uuid": str(uuid4()),
+        "uuid": str(UUIDT()),
         "event_uuid": str(event_uuid),
-        "created_at": timestamp.isoformat(),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
@@ -73,7 +75,7 @@ def get_all_elements(final: bool = False):
 
 
 class ClickhouseElementSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField()
+    id = serializers.SerializerMethodField()
     text = serializers.SerializerMethodField()
     tag_name = serializers.SerializerMethodField()
     href = serializers.SerializerMethodField()
@@ -87,7 +89,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_uuid(self, element):
+    def get_id(self, element):
         return element[0]
 
     def get_event_uuid(self, element):
