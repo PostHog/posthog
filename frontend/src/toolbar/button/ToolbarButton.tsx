@@ -27,7 +27,7 @@ export function ToolbarButton(): JSX.Element {
         extensionPercentage,
         heatmapInfoVisible,
         toolbarListVerticalPadding,
-        dockButtonOnTop,
+        helpButtonOnTop,
         side,
         closeDistance,
         closeRotation,
@@ -157,8 +157,8 @@ export function ToolbarButton(): JSX.Element {
                     <Circle
                         width={32}
                         extensionPercentage={extensionPercentage}
-                        distance={dockButtonOnTop ? 90 : 55}
-                        rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
+                        distance={helpButtonOnTop ? 75 : 55}
+                        rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
                         content={<QuestionOutlined style={{ fontSize: 22 }} />}
                         label="Help"
                         zIndex={2}
@@ -166,9 +166,9 @@ export function ToolbarButton(): JSX.Element {
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
                             cursor: 'pointer',
-                            background: '#808080',
+                            background: 'hsl(218deg 27% 40%)',
                             color: 'white',
-                            borderRadius: 3,
+                            borderRadius: 16,
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
