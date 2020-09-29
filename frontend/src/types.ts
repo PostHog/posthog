@@ -124,3 +124,7 @@ export interface InsightHistory {
 export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
+
+export interface Session {
+    stub: boolean
+}

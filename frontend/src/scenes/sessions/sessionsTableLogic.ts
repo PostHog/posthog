@@ -2,12 +2,16 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import moment from 'moment'
 import { toParams } from 'lib/utils'
+import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
+import { Session } from '~/types'
 
-export const sessionsTableLogic = kea({
+type Moment = moment.Moment
+
+export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, Session>>({
     loaders: ({ actions, values }) => ({
         sessions: {
-            __default: [],
-            loadSessions: async (selectedDate) => {
+            __default: [] as Session[],
+            loadSessions: async (selectedDate?: moment.Moment) => {
                 const response = await api.get(
                     'api/insight/session' + (selectedDate ? '/?date_from=' + values.selectedDateURLparam : '')
                 )
@@ -18,11 +22,11 @@ export const sessionsTableLogic = kea({
         },
     }),
     actions: () => ({
-        setOffset: (offset) => ({ offset }),
+        setOffset: (offset: number | null) => ({ offset }),
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
-        dateChanged: (date) => ({ date }),
-        setDate: (date) => ({ date }),
+        dateChanged: (date: Moment) => ({ date }),
+        setDate: (date: Moment) => ({ date }),
     }),
     reducers: () => ({
         sessions: {
@@ -30,7 +34,7 @@ export const sessionsTableLogic = kea({
         },
         isLoadingNext: [false, { fetchNextSessions: () => true, appendNewSessions: () => false }],
         offset: [
-            null,
+            null as null | number,
             {
                 setOffset: (_, { offset }) => offset,
             },
@@ -55,6 +59,6 @@ export const sessionsTableLogic = kea({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadSessions,
+        afterMount: () => actions.loadSessions,
     }),
 })
