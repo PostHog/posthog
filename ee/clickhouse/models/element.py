@@ -1,7 +1,7 @@
 import datetime
 import json
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.utils.timezone import now
 from rest_framework import serializers
@@ -14,6 +14,7 @@ from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
+from posthog.models.utils import UUIDT
 
 
 def create_element(
@@ -22,7 +23,7 @@ def create_element(
     if not timestamp:
         timestamp = now()
     data = {
-        "uuid": str(uuid4()),
+        "uuid": str(UUIDT()),
         "event_uuid": str(event_uuid),
         "created_at": timestamp.isoformat(),
         "text": element.text or "",

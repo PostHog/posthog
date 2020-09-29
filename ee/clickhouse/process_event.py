@@ -1,6 +1,6 @@
 import datetime
-from typing import Dict, List, Optional, Union
-from uuid import UUID, uuid4
+from typing import Dict, Optional
+from uuid import UUID
 
 from celery import shared_task
 
@@ -10,6 +10,7 @@ from ee.clickhouse.models.person import emit_omni_person
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.team import Team
+from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
 
 
@@ -82,8 +83,8 @@ if check_ee_enabled():
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
         properties = data.get("properties", None)
-        person_uuid = uuid4()
-        event_uuid = uuid4()
+        person_uuid = UUIDT()
+        event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
 
         if data["event"] == "$create_alias":
