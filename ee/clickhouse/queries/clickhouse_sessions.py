@@ -13,6 +13,8 @@ from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, friendly_time
 
+SESSIONS_LIMIT = 5
+
 SESSION_SQL = """
 SELECT 
     distinct_id, 
@@ -21,47 +23,59 @@ SELECT
     groupArray(timestamp) timestamps, 
     dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
     arrayReduce('min', groupArray(timestamp)) as start_time
-FROM 
-(
+FROM (
     SELECT
-    distinct_id, 
-    event,
-    timestamp,
-    arraySum(arraySlice(gids, 1, idx)) AS gid
-    FROM
-    (
-    SELECT groupArray(timestamp) as timestamps, groupArray(event) as events, groupArray(distinct_id) as distinct_ids, groupArray(new_session) AS gids
-        FROM
-        (
+        distinct_id, 
+        event,
+        timestamp,
+        arraySum(arraySlice(gids, 1, idx)) AS gid
+    FROM (
+        SELECT 
+            groupArray(timestamp) as timestamps, 
+            groupArray(event) as events, 
+            groupArray(distinct_id) as distinct_ids, 
+            groupArray(new_session) AS gids
+        FROM (
             SELECT 
-            distinct_id, 
-            event,
-            timestamp, 
-            neighbor(distinct_id, -1) as possible_neighbor,
-            neighbor(event, -1) as possible_prev_event, 
-            neighbor(timestamp, -1) as possible_prev, 
-            if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
+                distinct_id, 
+                event,
+                timestamp, 
+                neighbor(distinct_id, -1) as possible_neighbor,
+                neighbor(event, -1) as possible_prev_event, 
+                neighbor(timestamp, -1) as possible_prev, 
+                if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
             FROM (
                 SELECT 
                     timestamp, 
                     distinct_id, 
                     event 
-                FROM events 
-                WHERE team_id = {team_id} {date_from} {date_to} 
-                {filters}
-                GROUP BY distinct_id, timestamp, event ORDER BY distinct_id, timestamp DESC
+                FROM    
+                    events 
+                WHERE 
+                    team_id = %(team_id)s
+                    {date_from}
+                    {date_to} 
+                    {filters}
+                GROUP BY 
+                    distinct_id, 
+                    timestamp, 
+                    event 
+                ORDER BY 
+                    distinct_id, 
+                    timestamp DESC
             )
         )
     )
     ARRAY JOIN
-    distinct_ids as distinct_id,
-    events as event,
-    timestamps as timestamp,
-    arrayEnumerate(gids) AS idx 
+        distinct_ids as distinct_id,
+        events as event,
+        timestamps as timestamp,
+        arrayEnumerate(gids) AS idx 
 ) 
 GROUP BY 
-distinct_id, 
-gid 
+    distinct_id, 
+    gid
+{sessions_limit}
 """
 
 AVERAGE_PER_PERIOD_SQL = """
@@ -99,13 +113,13 @@ class ClickhouseSessions(BaseQuery):
     def calculate_list(self, filter: Filter, team: Team, offset: int):
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
         date_from, date_to = parse_timestamps(filter)
-        params = {**params, "team_id": team.pk}
+        params = {**params, "team_id": team.pk, "limit": SESSIONS_LIMIT + 1, "offset": 0}
         query_result = sync_execute(
             SESSION_SQL.format(
-                team_id=team.pk,
                 date_from=date_from,
                 date_to=date_to,
                 filters="{}".format(filters) if filter.properties else "",
+                sessions_limit="LIMIT %(offset)s, %(limit)s",
             ),
             params,
         )
@@ -120,6 +134,7 @@ class ClickhouseSessions(BaseQuery):
                 {
                     "distinct_id": result[0],
                     "global_session_id": result[1],
+                    "event_count": len(result[2]),
                     "events": result[2],
                     "timestamps": result[3],
                     "length": result[4],
@@ -129,7 +144,6 @@ class ClickhouseSessions(BaseQuery):
         return final
 
     def calculate_avg(self, filter: Filter, team: Team):
-
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
@@ -142,6 +156,7 @@ class ClickhouseSessions(BaseQuery):
             date_from=parsed_date_from,
             date_to=parsed_date_to,
             filters="{}".format(filters) if filter.properties else "",
+            sessions_limit="",
         )
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
@@ -199,6 +214,7 @@ class ClickhouseSessions(BaseQuery):
             date_from=parsed_date_from,
             date_to=parsed_date_to,
             filters="{}".format(filters) if filter.properties else "",
+            sessions_limit="",
         )
 
         params = {**params, "team_id": team.pk}
