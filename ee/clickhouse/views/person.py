@@ -64,8 +64,7 @@ class ClickhousePerson(PersonViewSet):
     def retrieve(self, request, pk=None):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = super().retrieve(request, pk)
-            return Response(result)
+            return super().retrieve(request, pk)
 
         qres = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
         res = ClickhousePersonSerializer(qres[0]).data if len(qres) > 0 else []
@@ -74,8 +73,7 @@ class ClickhousePerson(PersonViewSet):
     def list(self, request):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = super().list(request)
-            return Response(result)
+            return super().list(request)
 
         team = self.request.user.team_set.get()
         filtered = self._ch_filter_request(self.request, team)
