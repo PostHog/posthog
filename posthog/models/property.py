@@ -59,9 +59,22 @@ class Property:
             )
         return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
 
+    def format_ch_property_json_extract(self) -> str:
+        value = self._parse_value(self.value)
+        if self.operator == "is_not":
+            return " JSONExtractString(properties, '{}') != '{}' ".format(self.key, value)
+
+        return " JSONExtractString(properties, '{}') {} '{}' ".format(self.key, self.operator or "=", value)
+
 
 class PropertyMixin:
     properties: List[Property] = []
+
+    def format_ch(self, team_id: int) -> str:
+        props = ""
+        for prop in self.properties:
+            props += prop.format_ch_property_json_extract()
+        return props
 
     def properties_to_Q(self, team_id: int, is_person_query: bool = False) -> Q:
         """
