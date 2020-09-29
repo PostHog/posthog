@@ -44,7 +44,7 @@ export const featureFlagLogic = kea({
                 },
                 deleteFeatureFlag: async (featureFlag) => {
                     try {
-                        return await api.delete('api/feature_flag/' + featureFlag.id, featureFlag)
+                        return await api.delete('api/feature_flag/' + featureFlag.id)
                     } catch (err) {
                         toast.error('Unable to delete feature flag. Please try again later.')
                         return false

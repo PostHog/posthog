@@ -15,12 +15,12 @@ function _FeatureFlags() {
 
     let columns = [
         {
-            title: 'name',
-            dataIndex: 'Name',
+            title: 'Name',
+            dataIndex: 'name',
         },
         {
-            title: 'key',
-            dataIndex: 'Key',
+            title: 'Key',
+            dataIndex: 'key',
         },
 
         {
