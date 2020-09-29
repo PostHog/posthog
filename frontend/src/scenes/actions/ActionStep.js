@@ -34,6 +34,10 @@ export class ActionStep extends Component {
             selection: Object.keys(props.step).filter((key) => key !== 'id' && key !== 'isNew' && props.step[key]),
             inspecting: false,
         }
+        props?.step?.event === '$pageview' &&
+            this.state.selection.indexOf('url') === -1 &&
+            this.state.selection.push('url')
+
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
 
         this.box = document.createElement('div')
