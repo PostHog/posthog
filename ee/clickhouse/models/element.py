@@ -1,5 +1,6 @@
 import datetime
 import json
+from datetime import timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -25,7 +26,7 @@ def create_element(
     data = {
         "uuid": str(UUIDT()),
         "event_uuid": str(event_uuid),
-        "created_at": timestamp.isoformat(),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
@@ -74,7 +75,7 @@ def get_all_elements(final: bool = False):
 
 
 class ClickhouseElementSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField()
+    id = serializers.SerializerMethodField()
     text = serializers.SerializerMethodField()
     tag_name = serializers.SerializerMethodField()
     href = serializers.SerializerMethodField()
@@ -88,7 +89,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_uuid(self, element):
+    def get_id(self, element):
         return element[0]
 
     def get_event_uuid(self, element):
