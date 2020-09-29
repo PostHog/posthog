@@ -11,12 +11,17 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     loaders: ({ actions, values }) => ({
         sessions: {
             __default: [] as SessionType[],
-            loadSessions: async (selectedDate?: Moment | null) => {
-                const response = await api.get(
-                    'api/insight/session' + (selectedDate ? '/?date_from=' + values.selectedDateURLparam : '')
-                )
-                if (response.offset) actions.setOffset(response.offset)
-                if (response.date_from) actions.setDate(moment(response.date_from).startOf('day'))
+            loadSessions: async () => {
+                const { selectedDateURLparam } = values
+                const params = toParams({
+                    date_from: selectedDateURLparam,
+                    date_to: selectedDateURLparam,
+                    offset: values.offset,
+                })
+                const response = await api.get(`api/insight/session/?${params}`)
+                if (response.offset) {
+                    actions.setOffset(response.offset)
+                }
                 return response.result
             },
         },
@@ -26,7 +31,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
         dateChanged: (date: Moment | null) => ({ date }),
-        setDate: (date: Moment | null) => ({ date }),
     }),
     reducers: {
         sessions: {
@@ -39,25 +43,28 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 setOffset: (_, { offset }) => offset,
             },
         ],
-        selectedDate: [
-            moment().startOf('day') as null | Moment,
-            { dateChanged: (_, { date }) => date, setDate: (_, { date }) => date },
-        ],
+        selectedDate: [moment().startOf('day') as null | Moment, { dateChanged: (_, { date }) => date }],
     },
     selectors: {
-        selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.toISOString()],
+        selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
     },
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async () => {
-            const response = await api.get(
-                'api/insight/session/?' + toParams({ date_from: values.selectedDateURLparam, offset: values.offset })
-            )
-            if (response.offset) actions.setOffset(response.offset)
-            else actions.setOffset(null)
+            const params = toParams({
+                date_from: values.selectedDateURLparam,
+                date_to: values.selectedDateURLparam,
+                offset: values.offset,
+            })
+            const response = await api.get(`api/insight/session/?${params}`)
+            if (response.offset) {
+                actions.setOffset(response.offset)
+            } else {
+                actions.setOffset(null)
+            }
             actions.appendNewSessions(response.result)
         },
-        dateChanged: ({ date }) => {
-            actions.loadSessions(date)
+        dateChanged: () => {
+            actions.loadSessions()
             actions.setOffset(null)
         },
     }),
@@ -65,5 +72,16 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         afterMount: () => {
             actions.loadSessions()
         },
+    }),
+    actionToUrl: ({ values }) => ({
+        dateChanged: () => {
+            const { selectedDateURLparam } = values
+            const today = moment().startOf('day').format('YYYY-MM-DD')
+            return [`/sessions`, selectedDateURLparam === today ? {} : { date: selectedDateURLparam }]
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/sessions': (_: any, { date }: { date: string }) =>
+            actions.dateChanged(date ? moment(date).startOf('day') : moment().startOf('day')),
     }),
 })
