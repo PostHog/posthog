@@ -67,6 +67,8 @@ else:
         password=CLICKHOUSE_PASSWORD,
         ca_certs=CLICKHOUSE_CA,
         verify=CLICKHOUSE_VERIFY,
+        connections_min=20,
+        connections_max=100,
     )
 
     def sync_execute(query, args=None):
