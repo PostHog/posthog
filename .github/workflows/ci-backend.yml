@@ -23,10 +23,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.7
+            - name: Set up Python 3.8
               uses: actions/setup-python@v1
               with:
-                  python-version: 3.7
+                  python-version: 3.8
 
             - uses: actions/cache@v1
               with:
@@ -86,10 +86,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.7
+            - name: Set up Python 3.8
               uses: actions/setup-python@v1
               with:
-                  python-version: 3.7
+                  python-version: 3.8
 
             - uses: actions/cache@v1
               with:
@@ -169,10 +169,10 @@ jobs:
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
 
-            - name: Set up Python 3.7
+            - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.7
+                  python-version: 3.8
 
             - uses: actions/cache@v2
               with:
@@ -230,10 +230,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.7
+            - name: Set up Python 3.8
               uses: actions/setup-python@v1
               with:
-                  python-version: 3.7
+                  python-version: 3.8
 
             - uses: actions/cache@v1
               with:
