@@ -22,7 +22,7 @@ class ClickhouseEvents(EventViewSet):
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
             return super().list(request)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         limit = "LIMIT 100" if not filter._date_from and not filter._date_to else ""
         conditions, condition_params = determine_event_conditions(request.GET)
@@ -49,7 +49,7 @@ class ClickhouseEvents(EventViewSet):
             return super().retrieve(request, pk)
 
         # TODO: implement getting elements
-        team = request.user.team_set.get()
+        team = request.user.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 

@@ -25,6 +25,7 @@ class TestMixin:
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
             self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+            self.organization_membership = self.user.organization_memberships.get()
         if self.TESTS_API:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
@@ -32,15 +33,14 @@ class TestMixin:
 
 
 class ErrorResponsesMixin:
-
-    ERROR_RESPONSE_UNAUTHENTICATED: Dict = {
+    ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
         "type": "authentication_error",
         "code": "not_authenticated",
         "detail": "Authentication credentials were not provided.",
         "attr": None,
     }
 
-    ERROR_RESPONSE_NOT_FOUND: Dict = {
+    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
         "type": "invalid_request",
         "code": "not_found",
         "detail": "Not found.",
@@ -48,15 +48,15 @@ class ErrorResponsesMixin:
     }
 
 
-class BaseTest(TestMixin, TestCase):
+class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     pass
 
 
-class TransactionBaseTest(TestMixin, TransactionTestCase, ErrorResponsesMixin):
+class TransactionBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
     pass
 
 
-class APIBaseTest(APITestCase, ErrorResponsesMixin):
+class APIBaseTest(ErrorResponsesMixin, APITestCase):
     """
     Test API using Django REST Framework test suite.
     """

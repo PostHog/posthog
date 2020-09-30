@@ -13,7 +13,6 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
     def test_add_organization_member(self):
         user = User.objects.create_user("test@x.com", None, "X")
         response = self.client.put(f"/api/organization/members/{user.id}", content_type="application/json")
-        self.assertEqual(response.status_code, 201)
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
         response_data = response.json()
@@ -29,18 +28,20 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
                 "level": OrganizationMembership.Level.MEMBER,
             },
         )
+        self.assertEqual(response.status_code, 201)
 
     def test_delete_organization_member(self):
         user = User.objects.create_user("test@x.com", None, "X")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
-        response = self.client.delete(f"/api/organization/members/{user.id}/")
-        self.assertEqual(response.status_code, 201)
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
-        self.assertFalse(membership_queryset.exists())
+        self.assertEqual(membership_queryset.count(), 1)
+        response = self.client.delete(f"/api/organization/members/{user.id}/")
+        self.assertEqual(membership_queryset.count(), 0)
+        self.assertEqual(response.status_code, 201)
 
     def test_change_organization_member_level(self):
-        self.user.level = OrganizationMembership.Level.ADMIN
-        self.user.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
@@ -54,7 +55,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
         response_data = response.json()
         response_data.pop("joined_at")
-        response_data.pop("update_at")
+        response_data.pop("updated_at")
         self.assertDictEqual(
             response_data,
             {
@@ -75,8 +76,9 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {"level": OrganizationMembership.Level.ADMIN},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 403)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
-        response_data = response.json()
-        self.assertDictEqual(response_data, {"status": 403, "detail": "You are not permitted to elevate member level."})
+        self.assertDictEqual(
+            response.json(), {"status": 403, "detail": "You are not permitted to elevate member level."}
+        )
+        self.assertEqual(response.status_code, 403)

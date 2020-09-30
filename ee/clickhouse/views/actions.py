@@ -31,7 +31,7 @@ class ClickhouseActions(ActionViewSet):
             result = super().get_people(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 
