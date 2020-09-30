@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import posthoganalytics
 from django.conf import settings
 
@@ -44,6 +46,11 @@ class ClickhouseTestMixin:
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_EVENT_PROP_TABLE_SQL)
+
+    # Ignore assertNumQueries in clickhouse tests
+    @contextmanager
+    def assertNumQueries(self, num, func=None, *args, **kwargs):
+        yield
 
 
 CH_PERSON_ENDPOINT = "ch-person-endpoint"

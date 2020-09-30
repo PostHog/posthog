@@ -144,7 +144,11 @@ ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT value FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+"""
+
+SELECT_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s AND trim(BOTH '\"' FROM value) LIKE %(value)s LIMIT 50
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
@@ -156,7 +160,7 @@ WHERE uuid IN
     SELECT event_id
     FROM events_properties_view AS ep
     WHERE {filters} AND team_id = %(team_id)s
-) {conditions} {limit}
+) {conditions} ORDER BY timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """

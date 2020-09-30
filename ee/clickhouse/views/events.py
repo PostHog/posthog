@@ -28,6 +28,9 @@ class ClickhouseEvents(EventViewSet):
         conditions, condition_params = determine_event_conditions(request.GET)
         prop_filters, prop_filter_params = parse_filter(filter.properties)
 
+        import ipdb
+
+        ipdb.set_trace()
         if prop_filters:
             query_result = sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
@@ -68,5 +71,5 @@ class ClickhouseEvents(EventViewSet):
         team = request.user.team
         result = []
         if key:
-            result = get_property_values_for_key(key, team)
-        return Response([{"name": json.loads(convert_property_value(value[0]))} for value in result])
+            result = get_property_values_for_key(key, team, value=request.GET.get("value"))
+        return Response([{"name": convert_property_value(value[0])} for value in result])
