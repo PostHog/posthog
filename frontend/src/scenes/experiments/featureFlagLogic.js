@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { deleteWithUndo } from 'lib/utils'
 
 export const featureFlagLogic = kea({
     key: (props) => props.id || 'new',
@@ -9,7 +10,7 @@ export const featureFlagLogic = kea({
         setFunnel: (funnel, update) => ({ funnel, update }),
     }),
 
-    loaders: () => ({
+    loaders: ({ actions }) => ({
         featureFlags: [
             [],
             {
@@ -44,7 +45,11 @@ export const featureFlagLogic = kea({
                 },
                 deleteFeatureFlag: async (featureFlag) => {
                     try {
-                        return await api.delete('api/feature_flag/' + featureFlag.id)
+                        return deleteWithUndo({
+                            endpoint: 'feature_flag',
+                            object: { name: featureFlag.name, id: featureFlag.id },
+                            callback: () => actions.loadFeatureFlags(),
+                        })
                     } catch (err) {
                         toast.error('Unable to delete feature flag. Please try again later.')
                         return false
@@ -82,7 +87,6 @@ export const featureFlagLogic = kea({
         },
         deleteFeatureFlagSuccess: () => {
             props.closeDrawer()
-            toast('Feature flag deleted successfully.')
         },
     }),
     events: ({ actions }) => ({
