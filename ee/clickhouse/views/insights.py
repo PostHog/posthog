@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
+from ee.clickhouse.queries.clickhouse_sessions import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessions
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import (
@@ -50,8 +50,17 @@ class ClickhouseInsights(InsightViewSet):
 
         team = request.user.team_set.get()
         filter = Filter(request=request)
-        response = ClickhouseSessions().run(team=team, filter=filter)
-        return Response({"result": response})
+
+        limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
+        offset = int(request.GET.get("offset", 0))
+
+        response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+
+        if len(response) > limit:
+            response.pop()
+            return Response({"result": response, "offset": offset + limit})
+        else:
+            return Response({"result": response,})
 
     @action(methods=["GET"], detail=False)
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:

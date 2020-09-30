@@ -124,3 +124,22 @@ export interface InsightHistory {
 export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
+
+export interface EventType {
+    elements: ElementType[]
+    elements_hash: string | null
+    event: string
+    id: number
+    properties: Record<string, any>
+    timestamp: string
+}
+
+export interface SessionType {
+    distinct_id: string
+    event_count: number
+    events: EventType[]
+    global_session_id: string
+    length: number
+    properties: Record<string, any>
+    start_time: string
+}

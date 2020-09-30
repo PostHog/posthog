@@ -15,6 +15,7 @@ from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Filter
 from posthog.models.action import Action
 from posthog.queries import paths, retention, sessions, stickiness, trends
+from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key, request_to_date_query
 
 
@@ -152,12 +153,14 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = self.request.user.team
 
         filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
+        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
         # add pagination
         if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
+            offset = filter.offset + limit - 1
+            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
+                result["result"].pop()
                 date_from = result["result"][0]["start_time"].isoformat()
                 result.update({OFFSET: offset})
                 result.update({DATE_FROM: date_from})
