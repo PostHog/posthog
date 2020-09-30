@@ -60,12 +60,12 @@ SESSION_SQL = """
                     if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
                 FROM (
                     SELECT 
-                        any(uuid) as uuid,
+                        uuid,
                         event,
-                        any(properties) as properties,
+                        properties,
                         timestamp, 
                         distinct_id,
-                        any(elements_hash) as elements_hash
+                        elements_hash
                     FROM    
                         events 
                     WHERE 
@@ -74,9 +74,12 @@ SESSION_SQL = """
                         {date_to} 
                         {filters}
                     GROUP BY 
-                        distinct_id, 
+                        uuid,
+                        event,
+                        properties,
                         timestamp, 
-                        event 
+                        distinct_id,
+                        elements_hash 
                     ORDER BY 
                         distinct_id, 
                         timestamp DESC
@@ -142,6 +145,12 @@ DIST_SQL = """
 class ClickhouseSessions(BaseQuery):
     def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
+
+        if not filter._date_from:
+            filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if not filter._date_to:
+            filter._date_to = filter.date_from + relativedelta(days=1)
+
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
         query = SESSION_SQL.format(
