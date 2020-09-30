@@ -57,7 +57,7 @@ SESSION_SQL = """
                     timestamp, 
                     neighbor(distinct_id, -1) as possible_neighbor,
                     neighbor(timestamp, -1) as possible_prev, 
-                    if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(timestamp), toDateTime(possible_prev)) > 30, 1, 0) as new_session
+                    if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(possible_prev), toDateTime(timestamp)) > 30, 1, 0) as new_session
                 FROM (
                     SELECT 
                         uuid,
@@ -82,7 +82,7 @@ SESSION_SQL = """
                         elements_hash 
                     ORDER BY 
                         distinct_id, 
-                        timestamp DESC
+                        timestamp
                 )
             )
         )
@@ -192,7 +192,7 @@ class ClickhouseSessions(BaseQuery):
                     "length": result[2],
                     "start_time": result[3],
                     "event_count": len(result[4]),
-                    "events": list(reversed(events)),
+                    "events": list(events),
                     "properties": {},
                 }
             )
