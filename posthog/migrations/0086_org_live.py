@@ -39,4 +39,5 @@ class Migration(migrations.Migration):
                 blank=True, related_name="teams_deprecated_relationship", to=settings.AUTH_USER_MODEL
             ),
         ),
+        migrations.RemoveField(model_name="team", name="signup_token",),
     ]
