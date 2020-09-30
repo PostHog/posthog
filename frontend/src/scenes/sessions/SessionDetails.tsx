@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Table } from 'antd'
 import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
@@ -7,6 +7,9 @@ import { eventToName } from 'lib/utils'
 import { EventType } from '~/types'
 
 export function SessionDetails({ events }: { events: EventType[] }): JSX.Element {
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(50)
+
     const columns = [
         {
             title: 'Event',
@@ -36,23 +39,34 @@ export function SessionDetails({ events }: { events: EventType[] }): JSX.Element
         {
             title: 'Time Elapsed from Previous',
             render: function RenderElapsed({ timestamp }: EventType, _: any, index: number) {
-                return <span>{index > 0 ? humanFriendlyDiff(events[index - 1]['timestamp'], timestamp) : 0}</span>
+                const realIndex = (page - 1) * pageSize + index
+                const lastEvent = realIndex > 0 ? events[realIndex - 1] : null
+                return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
             },
         },
         {
             title: 'Order',
             render: function RenderOrder(_: Event, __: any, index: number) {
-                return <span>{index + 1}</span>
+                const realIndex = (page - 1) * pageSize + index
+                return <span>{realIndex + 1}</span>
             },
         },
     ]
-
     return (
         <Table
             columns={columns}
             rowKey={(event) => event.id}
             dataSource={events}
-            pagination={{ pageSize: 50, hideOnSinglePage: true }}
+            pagination={{
+                pageSize: pageSize,
+                hideOnSinglePage: events.length < 10,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
+                onChange: (page, pageSize) => {
+                    setPage(page)
+                    setPageSize(pageSize || 50)
+                },
+            }}
             expandable={{
                 expandedRowRender: function renderExpand(event) {
                     return <EventDetails event={event} />
