@@ -9,7 +9,13 @@ export const sessionsTableLogic = kea({
             __default: [],
             loadSessions: async (selectedDate) => {
                 const response = await api.get(
-                    'api/insight/session' + (selectedDate ? '/?date_from=' + values.selectedDateURLparam : '')
+                    'api/insight/session' +
+                        (selectedDate
+                            ? '/?date_from=' +
+                              values.selectedDateURLparam +
+                              '&date_to=' +
+                              moment(values.selectedDateURLparam).add(1, 'days').toISOString()
+                            : '')
                 )
                 if (response.offset) actions.setOffset(response.offset)
                 if (response.date_from) actions.setDate(moment(response.date_from).startOf('day'))
