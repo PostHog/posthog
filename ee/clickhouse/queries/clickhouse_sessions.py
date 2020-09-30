@@ -169,7 +169,7 @@ class ClickhouseSessions(BaseQuery):
                     result[6][i],  # properties
                     result[7][i],  # timestamp
                     None,  # team_id,
-                    result[0][i],  # distinct_id
+                    result[0],  # distinct_id
                     result[8][i],  # elements_hash
                     None,  # properties keys
                     None,  # properties values
