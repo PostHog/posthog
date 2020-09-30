@@ -3,7 +3,6 @@ import asyncio
 from aioch import Client  # type: ignore
 from asgiref.sync import async_to_sync  # type: ignore
 from clickhouse_driver import Client as SyncClient  # type: ignore
-from clickhouse_pool import ChPool  # type: ignore
 
 from posthog.settings import (
     CLICKHOUSE,
@@ -20,7 +19,7 @@ from posthog.settings import (
 
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = None  # type: Client
-    ch_sync_pool = None  # type: ChPool
+    ch_sync_client = None  # type: SyncClient
 
     def async_execute(query, args=None):
         return
@@ -58,9 +57,10 @@ else:
         )
 
         def async_execute(query, args=None):
-            return sync_execute(query, args)
+            task = ch_client.execute(query, args)
+            return task
 
-    ch_sync_pool = ChPool(
+    ch_sync_client = SyncClient(
         host=CLICKHOUSE_HOST,
         database=CLICKHOUSE_DATABASE,
         secure=CLICKHOUSE_SECURE,
@@ -70,6 +70,4 @@ else:
     )
 
     def sync_execute(query, args=None):
-        with ch_sync_pool.get_client() as client:
-            result = client.execute(query, args)
-        return result
+        return ch_sync_client.execute(query, args)

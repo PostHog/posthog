@@ -11,7 +11,6 @@ celery-redbeat==0.13.0
 certifi==2019.11.28
 cffi==1.14.0
 chardet==3.0.4
-clickhouse-pool==0.4.0
 clickhouse-driver==0.1.4
 coreapi==2.3.3
 coreschema==0.0.4
