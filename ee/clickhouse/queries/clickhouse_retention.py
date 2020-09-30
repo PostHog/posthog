@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple, Union
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.sql.retention import RETENTION_SQL
@@ -53,7 +53,7 @@ class ClickhouseRetention(BaseQuery):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
-        result = ch_client.execute(
+        result = sync_execute(
             RETENTION_SQL.format(
                 target_query=target_query,
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
