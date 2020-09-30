@@ -20,7 +20,8 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from sentry_sdk import push_scope
+from rest_framework.exceptions import APIException
+from sentry_sdk import capture_exception, push_scope
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -50,6 +51,14 @@ def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[date
     )  # very start of the previous Monday
 
     return (period_start, period_end)
+
+
+def exception_reporting(exception: BaseException, context: Dict) -> None:
+    """
+    Determines which exceptions to report to Sentry and sends them.
+    """
+    if not isinstance(exception, APIException):
+        capture_exception(exception)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
