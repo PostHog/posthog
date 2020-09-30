@@ -150,13 +150,13 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> Dict[str, Any]:
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
     result = sync_execute(
         GET_PERSONS_BY_DISTINCT_IDS,
         {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
     )
     if len(result) > 0:
-        return ClickhousePersonSerializer(result, many=True).data
+        return list(ClickhousePersonSerializer(result, many=True).data)
     return []
 
 

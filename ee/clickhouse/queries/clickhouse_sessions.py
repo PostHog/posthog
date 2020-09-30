@@ -204,7 +204,7 @@ class ClickhouseSessions(BaseQuery):
 
         elements = get_elements_by_elements_hashes(element_hashes, team.pk)
 
-        grouped_elements = {}
+        grouped_elements: Dict[str, List[Dict[str, Any]]] = {}
         for element in elements:
             if not grouped_elements.get(element["elements_hash"], None):
                 grouped_elements[element["elements_hash"]] = []
@@ -226,15 +226,14 @@ class ClickhouseSessions(BaseQuery):
 
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
-        distinct_to_person = {}
+        distinct_to_person: Dict[str, Dict[str, Any]] = {}
         for person in persons:
             for distinct_id in person["distinct_ids"]:
                 distinct_to_person[distinct_id] = person
 
         for session in sessions:
-            person = distinct_to_person.get(session["distinct_id"], None)
-            if person:
-                session["properties"] = person["properties"]
+            if distinct_to_person.get(session["distinct_id"], None):
+                session["properties"] = distinct_to_person[session["distinct_id"]]["properties"]
 
     def calculate_avg(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
