@@ -97,7 +97,7 @@ class ClickhouseRetention(BaseQuery):
         elif period == "Day":
             return timedelta(days=total_intervals), PERIOD_TRUNC_DAY
         elif period == "Month":
-            return timedelta(days=total_intervals), PERIOD_TRUNC_MONTH
+            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH
         else:
             raise ValueError(f"Period {period} is unsupported.")
 
