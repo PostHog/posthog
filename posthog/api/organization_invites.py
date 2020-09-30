@@ -1,10 +1,10 @@
 from typing import Any, Dict
 
-from django.db.models import QuerySet
+from django.db.models import QuerySet, query
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 
-from posthog.api.user import UserSerializer
-from posthog.models import Organization, OrganizationInvite, OrganizationMembership
+from posthog.models import OrganizationInvite
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
@@ -57,6 +57,8 @@ class OrganizationInviteViewSet(
 ):
     serializer_class = OrganizationInviteSerializer
     pagination_class = None
+    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    queryset = OrganizationInvite.objects.none()
     lookup_field = "id"
 
     def get_queryset(self) -> QuerySet:
@@ -68,15 +70,9 @@ class OrganizationInviteViewSet(
         )
 
     def destroy(self, request, *args, **kwargs):
-        """Invite deletion with validation (admin permissions)."""
+        """Invite deletion with validation."""
         invite_to_delete = self.get_object()
-        try:
-            if (
-                OrganizationMembership.objects.get(user=request.user, organization=request.user.organization).level
-                < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.PermissionDenied({"detail": "You are not permitted to delete organization invites."})
-        except OrganizationMembership.DoesNotExist:
-            raise exceptions.NotFound({"detail": "User does not exist or does not belong to the organization."})
+        if invite_to_delete.organization not in request.user.organizations:
+            raise exceptions.NotFound("You don't belong to the organization this invite is for.")
         invite_to_delete.delete()
         return response.Response(status=status.HTTP_204_NO_CONTENT)

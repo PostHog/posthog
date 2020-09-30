@@ -59,11 +59,11 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertDictEqual(
             response_data,
             {
-                "membership_id": updated_membership.id,
+                "membership_id": str(updated_membership.id),
                 "user_id": user.id,
                 "user_first_name": user.first_name,
                 "user_email": user.email,
-                "level": OrganizationMembership.Level.ADMIN,
+                "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
 

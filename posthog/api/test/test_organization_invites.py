@@ -18,6 +18,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "max_uses": None,
                 "uses": 0,
                 "target_email": None,
+                "created_by_email": self.user.email,
                 "created_by_id": self.user.id,
                 "created_by_first_name": self.user.first_name,
             },

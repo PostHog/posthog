@@ -1,8 +1,8 @@
-from django.db.models import QuerySet
+from django.db.models import QuerySet, query
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 
-from posthog.api.user import UserSerializer
-from posthog.models import Organization, OrganizationMembership, User, organization
+from posthog.models import OrganizationMembership
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
 class OrganizationMembershipSerializer(serializers.ModelSerializer):
@@ -20,6 +20,8 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMembershipSerializer
     pagination_class = None
+    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    queryset = OrganizationMembership.objects.none()
     lookup_field = "user_id"
 
     def get_queryset(self) -> QuerySet:
@@ -37,10 +39,10 @@ class OrganizationMemberViewSet(
                 request.user.organization_memberships.get(organization=request.user.organization).level
                 < OrganizationMembership.Level.ADMIN
             ):
-                raise exceptions.PermissionDenied({"detail": "You are not permitted to delete organization members."})
+                raise exceptions.PermissionDenied("You are not permitted to delete organization members.")
         except OrganizationMembership.DoesNotExist:
-            raise exceptions.NotFound({"detail": "User does not exist or does not belong to the organization."})
+            raise exceptions.NotFound("User does not exist or does not belong to the organization.")
         if member_to_delete == request.user:
-            raise exceptions.ValidationError({"detail": "Cannot delete yourself."})
+            raise exceptions.ValidationError("Cannot delete yourself.")
         OrganizationMembership.objects.get(organization=request.user.organization, user=member_to_delete)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
