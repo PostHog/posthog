@@ -4,8 +4,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import ClickhouseElementSerializer, get_elements_by_elements_hashes
+from ee.clickhouse.models.element import get_elements_by_elements_hashes
 from ee.clickhouse.models.event import ClickhouseEventSerializer
+from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
@@ -151,7 +152,9 @@ class ClickhouseSessions(BaseQuery):
         )
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
-        result = self._add_elements(team, result)
+
+        self._add_elements(team, result)
+        self._add_person_properties(team, result)
 
         return result
 
@@ -188,15 +191,18 @@ class ClickhouseSessions(BaseQuery):
         return final
 
     def _add_elements(self, team=Team, sessions=List[Tuple]):
-        hash_ids = {}
+        element_hash_dict = {}
         for session in sessions:
             for event in session["events"]:
                 if event.get("elements_hash"):
-                    hash_ids[event["elements_hash"]] = True
+                    element_hash_dict[event["elements_hash"]] = True
 
-        hash_id_list = list(hash_ids.keys())
+        element_hashes = list(element_hash_dict.keys())
 
-        elements = get_elements_by_elements_hashes(hash_id_list, team.pk)
+        if len(element_hashes) == 0:
+            return
+
+        elements = get_elements_by_elements_hashes(element_hashes, team.pk)
 
         grouped_elements = {}
         for element in elements:
@@ -209,7 +215,26 @@ class ClickhouseSessions(BaseQuery):
                 if event["elements_hash"] and grouped_elements.get(event["elements_hash"], None):
                     event["elements"] = grouped_elements[event["elements_hash"]]
 
-        return sessions
+    def _add_person_properties(self, team=Team, sessions=List[Tuple]):
+        distinct_id_hash = {}
+        for session in sessions:
+            distinct_id_hash[session["distinct_id"]] = True
+        distinct_ids = list(distinct_id_hash.keys())
+
+        if len(distinct_ids) == 0:
+            return
+
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+
+        distinct_to_person = {}
+        for person in persons:
+            for distinct_id in person["distinct_ids"]:
+                distinct_to_person[distinct_id] = person
+
+        for session in sessions:
+            person = distinct_to_person.get(session["distinct_id"], None)
+            if person:
+                session["properties"] = person["properties"]
 
     def calculate_avg(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
