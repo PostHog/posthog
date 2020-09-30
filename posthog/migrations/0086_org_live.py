@@ -39,5 +39,9 @@ class Migration(migrations.Migration):
                 blank=True, related_name="teams_deprecated_relationship", to=settings.AUTH_USER_MODEL
             ),
         ),
-        migrations.RemoveField(model_name="team", name="signup_token",),
+        migrations.AlterField(
+            model_name="person",
+            name="uuid",
+            field=models.UUIDField(db_index=True, default=posthog.models.utils.UUIDT, editable=False),
+        ),
     ]

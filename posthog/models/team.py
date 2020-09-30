@@ -115,6 +115,7 @@ class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
+    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     objects = TeamManager()
 

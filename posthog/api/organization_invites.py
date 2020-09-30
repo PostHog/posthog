@@ -68,11 +68,3 @@ class OrganizationInviteViewSet(
             .select_related("last_used_by")
             .order_by("-created_at")
         )
-
-    def destroy(self, request, *args, **kwargs):
-        """Invite deletion with validation."""
-        invite_to_delete = self.get_object()
-        if invite_to_delete.organization not in request.user.organizations:
-            raise exceptions.NotFound("You don't belong to the organization this invite is for.")
-        invite_to_delete.delete()
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
