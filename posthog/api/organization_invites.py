@@ -8,10 +8,10 @@ from posthog.models import Organization, OrganizationInvite, OrganizationMembers
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
-    last_used_by_id = serializers.CharField(source="last_used_by.id", read_only=True)
+    last_used_by_id = serializers.IntegerField(source="last_used_by.id", read_only=True)
     last_used_by_email = serializers.CharField(source="last_used_by.email", read_only=True)
     last_used_by_first_name = serializers.CharField(source="last_used_by.first_name", read_only=True)
-    created_by_id = serializers.CharField(source="created_by.id", read_only=True)
+    created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
     created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
 
