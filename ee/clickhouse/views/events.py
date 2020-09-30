@@ -9,6 +9,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import get_elements_by_elements_hash
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
 from posthog.api.event import EventViewSet
@@ -24,13 +25,14 @@ class ClickhouseEvents(EventViewSet):
 
         team = request.user.team_set.get()
         filter = Filter(request=request)
+        if request.GET.get("after"):
+            filter._date_from = request.GET["after"]
+        if request.GET.get("before"):
+            filter._date_to = request.GET["before"]
         limit = "LIMIT 100" if not filter._date_from and not filter._date_to else ""
         conditions, condition_params = determine_event_conditions(request.GET)
         prop_filters, prop_filter_params = parse_filter(filter.properties)
 
-        import ipdb
-
-        ipdb.set_trace()
         if prop_filters:
             query_result = sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),

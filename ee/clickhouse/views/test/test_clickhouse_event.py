@@ -4,12 +4,12 @@ from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_event import test_event_api_factory
-from posthog.models import Action, ActionStep, Person
+from posthog.models import Action, ActionStep, Event, Person
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+    return Event(pk=create_event(**kwargs))
 
 
 def _create_action(**kwargs):

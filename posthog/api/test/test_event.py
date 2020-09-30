@@ -205,11 +205,13 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
             team2 = Team.objects.create()
             event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
-            # response = self.client.get("/api/event/values/?key=random_prop").json()
+            response = self.client.get("/api/event/values/?key=random_prop").json()
 
-            # keys = [resp['name'].replace(" ", "") for resp in response]
-            # self.assertCountEqual(keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}'])
-            # self.assertEqual(len(response), 6)
+            keys = [resp["name"].replace(" ", "") for resp in response]
+            self.assertCountEqual(
+                keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}']
+            )
+            self.assertEqual(len(response), 6)
 
             response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
             self.assertEqual(response[0]["name"], "qwerty")
@@ -233,20 +235,20 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             ActionStep.objects.create(action=action, event="sign up")
             action.calculate_events()
 
-            response = self.client.get("/api/event/?after=2020-01-09&action_id=%s" % action.pk).json()
+            response = self.client.get("/api/event/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk).json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event1.pk)
 
-            response = self.client.get("/api/event/?before=2020-01-09&action_id=%s" % action.pk).json()
+            response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk).json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
             # without action
-            response = self.client.get("/api/event/?after=2020-01-09").json()
+            response = self.client.get("/api/event/?after=2020-01-09T00:00:00.000Z").json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event1.pk)
 
-            response = self.client.get("/api/event/?before=2020-01-09").json()
+            response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z").json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
