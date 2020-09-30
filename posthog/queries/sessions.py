@@ -121,11 +121,11 @@ class Sessions(BaseQuery):
                                     EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
                                     MIN(timestamp) as start_time,\
                                     array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events\
-                                        FROM ({}) as count GROUP BY 1) as sessions\
-                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = {}\
+                                        FROM ({base_query}) as count GROUP BY 1) as sessions\
+                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = {team_id}\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
                                         ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT 50".format(
-            base_query, team.pk
+            base_query=base_query, team_id=team.id
         )
 
         with connection.cursor() as cursor:
