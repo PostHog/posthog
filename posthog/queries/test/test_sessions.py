@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Event, Filter
+from posthog.models import Event, Filter, Person, Team
 from posthog.queries.sessions import Sessions
 
 
@@ -21,7 +21,10 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
-
+            team_2 = Team.objects.create()
+            Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
+            # Test team leakage
+            Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
 

@@ -97,7 +97,7 @@ class Sessions(BaseQuery):
             SELECT *,\
                 SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                 SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                FROM (SELECT id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                FROM (SELECT id, team_id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                     OR previous_timestamp IS NULL \
                     THEN 1 ELSE 0 END AS new_session \
                     FROM ({}) AS inner_sessions\
@@ -126,15 +126,15 @@ class Sessions(BaseQuery):
                                     EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
                                     MIN(timestamp) as start_time,\
                                     array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events\
-                                        FROM ({}) as count GROUP BY 1) as sessions\
-                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
+                                        FROM ({base_query}) as count GROUP BY 1) as sessions\
+                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
                                         ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT %s".format(
             base_query
         )
 
         with connection.cursor() as cursor:
-            params = params + (offset, limit,)
+            params = params + (team.pk, offset, limit,)
             cursor.execute(session_list, params)
             sessions = dict_from_cursor_fetchall(cursor)
 

@@ -47,7 +47,7 @@ def _capture_ee(
         pk=team_id
     )
 
-    if not team.anonymize_ips:
+    if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     store_names_and_properties(team=team, event=event, properties=properties)
