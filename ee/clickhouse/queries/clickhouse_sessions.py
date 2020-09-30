@@ -148,7 +148,7 @@ class ClickhouseSessions(BaseQuery):
 
         if not filter._date_from:
             filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        if not filter._date_to:
+        if not filter._date_to and filter.date_from:
             filter._date_to = filter.date_from + relativedelta(days=1)
 
         date_from, date_to = parse_timestamps(filter)
