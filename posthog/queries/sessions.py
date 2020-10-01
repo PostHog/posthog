@@ -118,19 +118,42 @@ class Sessions(BaseQuery):
     def _session_list(
         self, base_query: str, params: Tuple[Any, ...], team: Team, filter: Filter, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
-        session_list = "SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
-                                (SELECT\
-                                    global_session_id,\
-                                    count(1) as event_count,\
-                                    MAX(distinct_id) as distinct_id,\
-                                    EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
-                                    MIN(timestamp) as start_time,\
-                                    array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events\
-                                        FROM ({base_query}) as count GROUP BY 1) as sessions\
-                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s\
-                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
-                                        ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT %s".format(
-            base_query
+
+        session_list = """
+            SELECT 
+                * 
+            FROM (
+                SELECT 
+                    global_session_id,
+                    properties,
+                    start_time,
+                    length,
+                    sessions.distinct_id,
+                    event_count,
+                    events 
+                FROM (
+                    SELECT
+                        global_session_id,
+                        count(1) as event_count,
+                        MAX(distinct_id) as distinct_id,
+                        EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,
+                        MIN(timestamp) as start_time,
+                        array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events
+                    FROM 
+                        ({base_query}) as count 
+                    GROUP BY 1
+                ) as sessions
+                LEFT OUTER JOIN 
+                    posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s
+                LEFT OUTER JOIN 
+                    posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
+                ORDER BY 
+                    start_time DESC
+            ) as ordered_sessions 
+            OFFSET %s 
+            LIMIT %s
+        """.format(
+            base_query=base_query
         )
 
         with connection.cursor() as cursor:

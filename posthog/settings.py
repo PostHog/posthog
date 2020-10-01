@@ -406,6 +406,10 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
 }
 
+EXCEPTIONS_HOG = {
+    "EXCEPTION_REPORTING": "posthog.utils.exception_reporting",
+}
+
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
 EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
