@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
@@ -74,6 +74,7 @@ class ClickhouseRetention(BaseQuery):
         for res in result:
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
+        date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
         labels_format = "%a. %-d %B"
         hourly_format = "%-H:%M %p"
         parsed = [
