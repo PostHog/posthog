@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import pytz
+from django.forms.models import model_to_dict
 
 from posthog.api.test.base import BaseTest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -236,6 +237,12 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
                 ("person1", self._date(10, month=1)),
                 ("person1", self._date(15)),
                 ("person1", self._date(18)),
+                ("alias1", self._date(5, 9)),
+                ("person1", self._date(6)),
+                ("person2", self._date(1)),
+                ("person2", self._date(2)),
+                ("person2", self._date(3)),
+                ("person2", self._date(6)),
                 ("person2", self._date(13)),
             ]
         )
