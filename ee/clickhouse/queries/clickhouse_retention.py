@@ -75,6 +75,7 @@ class ClickhouseRetention(BaseQuery):
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
         labels_format = "%a. %-d %B"
+        hourly_format = "%-H:%M %p"
         parsed = [
             {
                 "values": [
@@ -82,7 +83,9 @@ class ClickhouseRetention(BaseQuery):
                     for day in range(total_intervals - first_day)
                 ],
                 "label": "Day {}".format(first_day),
-                "date": (date_from + timedelta(days=first_day)).strftime(labels_format),
+                "date": (date_from + self._determineTimedelta(first_day, period)[0]).strftime(
+                    labels_format + (hourly_format if period == "Hour" else "")
+                ),
             }
             for first_day in range(total_intervals)
         ]
