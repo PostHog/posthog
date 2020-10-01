@@ -2,6 +2,7 @@ from contextlib import contextmanager
 
 import posthoganalytics
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.elements import DROP_ELEMENTS_TABLE_SQL, ELEMENTS_TABLE_SQL
@@ -49,7 +50,7 @@ class ClickhouseTestMixin:
 
     # Ignore assertNumQueries in clickhouse tests
     @contextmanager
-    def assertNumQueries(self, num, func=None, *args, using="default", **kwargs):  # type: ignore
+    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):  # type: ignore
         yield
 
 
