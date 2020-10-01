@@ -1,62 +1,21 @@
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
-from posthog.models import Team
-from posthog.utils import get_ip_address, cors_response
-from typing import Dict, Union, Optional, List, Any
-from posthog.tasks.process_event import process_event
-from datetime import datetime
-from dateutil import parser
-from sentry_sdk import push_scope
-import lzstring  # type: ignore
 import re
-import json
-import secrets
-import base64
-import gzip
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
 
+from dateutil import parser
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
-def _load_data(request) -> Optional[Union[Dict, List]]:
-    if request.method == "POST":
-        if request.content_type == "application/json":
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-    if not data:
-        return None
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.ee import check_ee_enabled
+from posthog.models import Team
+from posthog.tasks.process_event import process_event
+from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
-    # add the data in sentry's scope in case there's an exception
-    with push_scope() as scope:
-        scope.set_context("data", data)
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
-
-    if compression == "gzip":
-        data = gzip.decompress(data)
-
-    if compression == "lz64":
-        if isinstance(data, str):
-            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
-        else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
-
-    #  Is it plain json?
-    try:
-        data = json.loads(data)
-    except json.JSONDecodeError:
-        # if not, it's probably base64 encoded from other libraries
-        data = json.loads(
-            base64.b64decode(data.replace(" ", "+") + "===")
-            .decode("utf8", "surrogatepass")
-            .encode("utf-16", "surrogatepass")
-        )
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data
+if settings.EE_AVAILABLE:
+    from ee.clickhouse.process_event import process_event_ee
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -111,32 +70,57 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 @csrf_exempt
 def get_event(request):
     now = timezone.now()
-    data = _load_data(request)
+    try:
+        data_from_request = load_data_from_request(request)
+        data = data_from_request["data"]
+    except TypeError:
+        return cors_response(
+            request,
+            JsonResponse(
+                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
+                status=400,
+            ),
+        )
     if not data:
-        return cors_response(request, HttpResponse("1"))
+        return cors_response(
+            request,
+            JsonResponse(
+                {
+                    "code": "validation",
+                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                },
+                status=400,
+            ),
+        )
     sent_at = _get_sent_at(data, request)
+
     token = _get_token(data, request)
+    is_personal_api_key = False
+    if not token:
+        token = PersonalAPIKeyAuthentication.find_key(
+            request, data_from_request["body"], data if isinstance(data, dict) else None
+        )
+        is_personal_api_key = True
     if not token:
         return cors_response(
             request,
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "No api_key set. You can find your API key in the /setup page in posthog",
+                    "message": "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
                 },
                 status=400,
             ),
         )
 
-    try:
-        team_id = Team.objects.get_cached_from_token(token).pk
-    except Team.DoesNotExist:
+    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+    if team is None:
         return cors_response(
             request,
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "API key is incorrect. You can find your API key in the /setup page in PostHog.",
+                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
                 },
                 status=400,
             ),
@@ -161,17 +145,41 @@ def get_event(request):
             return cors_response(
                 request,
                 JsonResponse(
-                    {"code": "validation", "message": "You need to set a distinct_id.", "item": event,}, status=400,
+                    {
+                        "code": "validation",
+                        "message": "You need to set user distinct ID field `distinct_id`.",
+                        "item": event,
+                    },
+                    status=400,
                 ),
             )
+        if "event" not in event:
+            return cors_response(
+                request,
+                JsonResponse(
+                    {"code": "validation", "message": "You need to set event name field `event`.", "item": event,},
+                    status=400,
+                ),
+            )
+
         process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri("/")[:-1],
             data=event,
-            team_id=team_id,
+            team_id=team.id,
             now=now,
             sent_at=sent_at,
         )
+        if check_ee_enabled():
+            process_event_ee.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
 
     return cors_response(request, JsonResponse({"status": 1}))

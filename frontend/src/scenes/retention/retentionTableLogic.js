@@ -8,6 +8,18 @@ export const dateOptions = {
     h: 'Hour',
     d: 'Day',
     w: 'Week',
+    m: 'Month',
+}
+
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+
+function cleanRetentionParams(filters, properties) {
+    return {
+        ...filters,
+        properties: properties,
+        insight: ViewType.RETENTION,
+    }
 }
 
 export const retentionTableLogic = kea({
@@ -20,7 +32,7 @@ export const retentionTableLogic = kea({
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['start_entity'] = values.startEntity
                 const urlParams = toParams(params)
-                return await api.get(`api/action/retention/?${urlParams}`)
+                return await api.get(`api/insight/retention/?${urlParams}`)
             },
         },
         people: {
@@ -40,6 +52,9 @@ export const retentionTableLogic = kea({
             },
         },
     }),
+    connect: {
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+    },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         dateChanged: (date) => ({ date }),
@@ -115,9 +130,9 @@ export const retentionTableLogic = kea({
     events: ({ actions }) => ({
         afterMount: actions.loadRetention,
     }),
-    actionToUrl: ({ values }) => ({
-        setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
+    actionToUrl: ({ actions, values }) => ({
+        [actions.setFilters]: () => {
+            return ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }]
         },
         dateChanged: () => {
             return [router.values.location.pathname, values.propertiesForUrl]
@@ -126,7 +141,6 @@ export const retentionTableLogic = kea({
             return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
-
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
             try {
@@ -140,8 +154,13 @@ export const retentionTableLogic = kea({
                 return
             }
 
-            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
-                actions.setProperties(searchParams.properties || {})
+            if (!objectsEqual(searchParams.properties || [], values.properties)) {
+                actions.setProperties(searchParams.properties || [])
+            }
+            if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
+                actions.setFilters({
+                    [`${searchParams.target.type}`]: [searchParams.target],
+                })
             }
             if (!objectsEqual(searchParams.date_from || {}, values.selectedDate.format('YYYY-MM-DD'))) {
                 searchParams.date_from && actions.dateChanged(moment(searchParams.date_from))
@@ -152,14 +171,17 @@ export const retentionTableLogic = kea({
         },
     }),
     listeners: ({ actions, values }) => ({
-        setProperties: () => actions.loadRetention(),
-        dateChanged: () => {
+        setProperties: () => {
             actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
-        setPeriod: () => {
+        setFilters: () => {
             actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
-        setFilters: () => actions.loadRetention(),
+        loadRetentionSuccess: () => {
+            actions.createInsight(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {

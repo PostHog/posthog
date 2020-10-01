@@ -1,9 +1,11 @@
 import json
-from posthog.models import Filter, DashboardItem
-from posthog.utils import generate_cache_key
-from django.core.cache import cache
-import json
 from datetime import datetime
+
+from django.core.cache import cache
+
+from posthog.models import DashboardItem, Filter
+from posthog.utils import generate_cache_key
+
 from .utils import generate_cache_key
 
 TRENDS_ENDPOINT = "Trends"
@@ -19,7 +21,7 @@ def cached_function(cache_type: str, expiry=30):
 
             # prepare caching params
             request = args[1]
-            team = request.user.team_set.get()
+            team = request.user.team
             payload = None
             dashboard_item_id = None
             refresh = request.GET.get("refresh", None)

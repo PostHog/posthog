@@ -1,23 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
-import { Card, Loading, stripHTTP } from 'lib/utils'
-import { DateFilter } from 'lib/components/DateFilter'
-import { Row, Modal, Button, Spin, Select } from 'antd'
+import { useValues } from 'kea'
+import { Loading, stripHTTP } from 'lib/utils'
+import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
-import { useActions, useValues } from 'kea'
-import { hot } from 'react-hot-loader/root'
-import {
-    pathsLogic,
-    PAGEVIEW,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
-    pathOptionsToLabels,
-    pathOptionsToProperty,
-} from 'scenes/paths/pathsLogic'
-import { userLogic } from 'scenes/userLogic'
+import { AUTOCAPTURE, PAGEVIEW, pathsLogic } from 'scenes/paths/pathsLogic'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -54,6 +43,30 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval
 }
 
+function pageUrl(d) {
+    const incomingUrls = d.targetLinks
+        .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
+        .filter((a) => a)
+        .map((a) => new URL(a))
+    const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
+
+    let name = d.name.replace(/(^[0-9]+_)/, '')
+
+    try {
+        const url = new URL(name)
+        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+    } catch {
+        // discard if invalid url
+    }
+
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+}
+
+function pathText(d) {
+    const name = d.name.replace(/(^[0-9]+_)/, '')
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+}
+
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
@@ -63,15 +76,12 @@ function NoData() {
     )
 }
 
-export const Paths = hot(_Paths)
-function _Paths() {
+export function Paths() {
     const canvas = useRef(null)
-    const { paths, filter, pathsLoading } = useValues(pathsLogic)
-    const { setFilter } = useActions(pathsLogic)
-    const { customEventNames } = useValues(userLogic)
+    const { paths, loadedFilter, pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
-    const [eventelements, setEventelements] = useState(null)
+    const [event, setEvent] = useState(null)
 
     useEffect(() => {
         renderPaths()
@@ -101,8 +111,8 @@ function _Paths() {
             .size([width, height])
 
         const { nodes, links } = sankey({
-            nodes: paths.nodes.map((d) => Object.assign({}, d)),
-            links: paths.links.map((d) => Object.assign({}, d)),
+            nodes: paths.nodes.map((d) => ({ ...d })),
+            links: paths.links.map((d) => ({ ...d })),
         })
 
         svg.append('g')
@@ -159,7 +169,7 @@ function _Paths() {
         link.append('g')
             .append('path')
             .attr('d', (data) => {
-                if (data.source.layer == 0) return
+                if (data.source.layer === 0) return
                 let height =
                     data.source.y1 -
                     data.source.y0 -
@@ -197,20 +207,16 @@ function _Paths() {
             .attr('dy', '0.35em')
             .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
-            .text((d) =>
-                d.name.length > 35
-                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
-                    : stripHTTP(d.name)
-            )
+            .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
             .on('click', async (node) => {
-                if (filter.type == AUTOCAPTURE) {
+                if (loadedFilter.path_type === AUTOCAPTURE) {
                     setModalVisible(true)
-                    setEventelements(null)
+                    setEvent(null)
                     let result = await api.get('api/event/' + node.id)
-                    setEventelements(result)
+                    setEvent(result)
                 }
             })
-            .style('cursor', filter.type == AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -224,82 +230,22 @@ function _Paths() {
 
     return (
         <div>
-            <h1 className="page-header">Paths</h1>
-            <PropertyFilters pageKey="Paths" />
-            <Card
-                title={
-                    <Row justify="space-between">
-                        <Row>
-                            <Row align="middle">
-                                Path Type:
-                                <Select
-                                    value={filter.type || PAGEVIEW}
-                                    bordered={false}
-                                    defaultValue={PAGEVIEW}
-                                    dropdownMatchSelectWidth={false}
-                                    onChange={(value) => setFilter({ type: value, start: null })}
-                                    style={{ paddingTop: 2 }}
-                                >
-                                    {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
-                                        return (
-                                            <Select.Option key={index} value={value}>
-                                                {name}
-                                            </Select.Option>
-                                        )
-                                    })}
-                                </Select>
-                            </Row>
-
-                            <Row align="middle">
-                                Start:
-                                <PropertyValue
-                                    endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
-                                    outerOptions={
-                                        filter.type === CUSTOM_EVENT &&
-                                        customEventNames.map((name) => ({
-                                            name,
-                                        }))
-                                    }
-                                    onSet={(value) => setFilter({ start: value })}
-                                    propertyKey={pathOptionsToProperty[filter.type]}
-                                    type="event"
-                                    style={{ width: 200, paddingTop: 2 }}
-                                    bordered={false}
-                                    value={filter.start}
-                                    placeholder={'Select start element'}
-                                ></PropertyValue>
-                            </Row>
-                        </Row>
-                        <Row align="middle">
-                            <DateFilter
-                                onChange={(date_from, date_to) =>
-                                    setFilter({
-                                        date_from,
-                                        date_to,
-                                    })
-                                }
-                                dateFrom={filter.date_from}
-                                dateTo={filter.date_to}
-                            />
-                        </Row>
-                    </Row>
-                }
-            >
-                {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
-                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                    {!pathsLoading && paths && paths.nodes.length === 0 ? (
-                        <NoData />
-                    ) : (
-                        pathsLoading && (
-                            <div className="loading-overlay mt-5">
-                                <div />
-                                <Loading />
-                                <br />
-                            </div>
-                        )
-                    )}
-                </div>
-            </Card>
+            {loadedFilter.path_type === AUTOCAPTURE && (
+                <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+            )}
+            <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                {!pathsLoading && paths && paths.nodes.length === 0 ? (
+                    <NoData />
+                ) : (
+                    pathsLoading && (
+                        <div className="loading-overlay mt-5">
+                            <div />
+                            <Loading />
+                            <br />
+                        </div>
+                    )
+                )}
+            </div>
             <Modal
                 visible={modalVisible}
                 onOk={() => setModalVisible(false)}
@@ -312,7 +258,7 @@ function _Paths() {
                     </Button>,
                 ]}
                 bodyStyle={
-                    !eventelements
+                    !event
                         ? {
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -320,7 +266,7 @@ function _Paths() {
                         : {}
                 }
             >
-                {eventelements ? <EventElements event={eventelements}></EventElements> : <Spin />}
+                {event ? <EventElements event={event} /> : <Spin />}
             </Modal>
         </div>
     )

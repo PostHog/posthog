@@ -8,7 +8,7 @@ export function ActionSelectTab({ entityType, chooseEntityType, allTypes }) {
                 <div
                     key={index}
                     style={{
-                        backgroundColor: entityType == type ? '#eeeeee' : 'white',
+                        backgroundColor: entityType == type ? 'white' : '#eeeeee',
                         flex: 1,
                         display: 'flex',
                         justifyContent: 'center',

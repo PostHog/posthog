@@ -1,30 +1,23 @@
 import './commands'
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('cypress-terminal-report/src/installLogsCollector')()
+
 beforeEach(() => {
     cy.visit('/')
 
     cy.url().then((url) => {
-        if (url.includes('setup_admin')) {
-            cy.get('#inputCompany').type('company').should('have.value', 'company')
-
-            cy.get('#inputName').type('name').should('have.value', 'name')
-
-            cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-
-            cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
-
-            cy.get('.btn').click()
-
-            cy.visit('/demo')
-            cy.visit('/')
+        if (url.includes('preflight')) {
+            cy.get('.text-center > .ant-btn-default').click()
+            cy.get('[style="margin-bottom: 64px;"] > .ant-btn').click()
+            cy.wait(200)
+            signUp()
+        } else if (url.includes('signup')) {
+            signUp()
         } else if (url.includes('login')) {
-            cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-
-            cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
-
-            cy.get('.btn').click()
+            logIn()
         }
-        cy.wait(2000)
+        cy.wait(200)
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=select-platform-Web]').length) {
                 cy.get('[data-attr=select-platform-Web]').click()
@@ -36,6 +29,34 @@ beforeEach(() => {
         })
     })
 })
+
+const signUp = () => {
+    cy.get('#signupCompanyName').type('Hedgehogs, Inc.').should('have.value', 'Hedgehogs, Inc.')
+
+    cy.get('#signupFirstName').type('name').should('have.value', 'name')
+
+    cy.get('#signupEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+
+    cy.get('#signupPassword').type('Test1234').should('have.value', 'Test1234')
+
+    cy.get('button[data-attr="signup"]').click()
+
+    cy.wait(3000)
+
+    cy.visit('/demo')
+
+    cy.wait(1000)
+
+    cy.visit('/')
+}
+
+const logIn = () => {
+    cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+
+    cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
+
+    cy.get('.btn').click()
+}
 
 Cypress.on('uncaught:exception', () => {
     return false

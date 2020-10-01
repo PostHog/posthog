@@ -1,5 +1,5 @@
+from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
-from django.contrib.postgres.fields import JSONField, ArrayField
 
 
 class Element(models.Model):

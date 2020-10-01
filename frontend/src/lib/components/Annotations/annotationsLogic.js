@@ -10,20 +10,20 @@ export const annotationsLogic = kea({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
         actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel, ['globalAnnotations']],
+        values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
-        createAnnotation: (content, date_marker, apply_all = false) => ({
+        createAnnotation: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
             created_at: moment(),
-            apply_all,
+            scope,
         }),
-        createAnnotationNow: (content, date_marker, apply_all = false) => ({
+        createAnnotationNow: (content, date_marker, scope = 'dashboard_item') => ({
             content,
             date_marker,
             created_at: moment(),
-            apply_all,
+            scope,
         }),
         deleteAnnotation: (id) => ({ id }),
         clearAnnotationsToCreate: true,
@@ -38,7 +38,7 @@ export const annotationsLogic = kea({
                     ...(before ? { before } : {}),
                     ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
-                    apply_all: false,
+                    scope: 'dashboard_item',
                     deleted: false,
                 }
                 const response = await api.get('api/annotation/?' + toParams(params))
@@ -48,9 +48,9 @@ export const annotationsLogic = kea({
     }),
     reducers: () => ({
         annotations: {
-            createAnnotationNow: (state, { content, date_marker, created_at, apply_all }) => [
+            createAnnotationNow: (state, { content, date_marker, created_at, scope }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all },
+                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', scope },
             ],
             deleteAnnotation: (state, { id }) => {
                 if (id >= 0) {
@@ -63,7 +63,7 @@ export const annotationsLogic = kea({
         annotationsToCreate: [
             [],
             {
-                createAnnotation: (state, { content, date_marker, created_at, apply_all }) => [
+                createAnnotation: (state, { content, date_marker, created_at, scope }) => [
                     ...state,
                     {
                         id: getNextKey(state),
@@ -71,7 +71,7 @@ export const annotationsLogic = kea({
                         date_marker,
                         created_at,
                         created_by: 'local',
-                        apply_all,
+                        scope,
                     },
                 ],
                 clearAnnotationsToCreate: () => [],
@@ -93,8 +93,8 @@ export const annotationsLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         annotationsList: [
-            () => [selectors.annotationsToCreate, selectors.annotations, selectors.globalAnnotations],
-            (annotationsToCreate, annotations, globalAnnotations) => {
+            () => [selectors.annotationsToCreate, selectors.annotations, selectors.activeGlobalAnnotations],
+            (annotationsToCreate, annotations, activeGlobalAnnotations) => {
                 const result = [
                     ...annotationsToCreate.map((val) => ({
                         ...val,
@@ -104,7 +104,7 @@ export const annotationsLogic = kea({
                         ...val,
                         id: parseInt(val.id),
                     })),
-                    ...globalAnnotations.map((val) => ({
+                    ...activeGlobalAnnotations.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),
@@ -123,13 +123,13 @@ export const annotationsLogic = kea({
         ],
     }),
     listeners: ({ actions, props }) => ({
-        createAnnotationNow: async ({ content, date_marker, created_at, apply_all }) => {
+        createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
             await api.create('api/annotation', {
                 content,
                 date_marker: moment(date_marker),
                 created_at,
                 dashboard_item: props.pageKey,
-                apply_all,
+                scope,
             })
             actions.loadAnnotations({})
         },

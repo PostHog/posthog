@@ -1,13 +1,27 @@
-from .base import BaseTest
-from posthog.models import Element, ElementGroup, Team, Event
-from django.utils.timezone import now
-from dateutil.relativedelta import relativedelta
-
 import json
+
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+
+from posthog.models import Element, ElementGroup, Event, Team
+
+from .base import BaseTest
 
 
 class TestElement(BaseTest):
     TESTS_API = True
+
+    def test_element_automatic_order(self):
+        elements = [
+            Element(tag_name="a", href="https://posthog.com/about", text="click here"),
+            Element(tag_name="span"),
+            Element(tag_name="div"),
+        ]
+        ElementGroup.objects.create(team=self.team, elements=elements)
+
+        self.assertEqual(elements[0].order, 0)
+        self.assertEqual(elements[1].order, 1)
+        self.assertEqual(elements[2].order, 2)
 
     def test_event_property_values(self):
         group = ElementGroup.objects.create(
@@ -53,7 +67,7 @@ class TestElement(BaseTest):
             team=self.team,
             event="$autocapture",
             properties={"$current_url": "http://example.com/something_else"},
-            elements=[Element(tag_name="img", order=0)],
+            elements=[Element(tag_name="img")],
         )
 
         with self.assertNumQueries(6):

@@ -10,5 +10,8 @@
 !yarn.lock
 !webpack.config.js
 !postcss.config.js
+!.kearc
+!tsconfig.json
 !frontend/src
+!frontend/types
 !frontend/public

@@ -1,7 +1,12 @@
 describe('Trends actions & events', () => {
     beforeEach(() => {
         // given
-        cy.visit('/')
+        cy.visit('/insights')
+    })
+
+    it('Insight History Panel Rendered', () => {
+        cy.get('[data-attr=insight-history-button]').click()
+        cy.get('[data-attr=insight-history-panel]').should('exist')
     })
 
     it('Add a pageview action filter', () => {
@@ -30,19 +35,21 @@ describe('Trends actions & events', () => {
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
+        cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('#rc_select_6').click()
         cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
 
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply interval filter', () => {
@@ -106,8 +113,11 @@ describe('Trends actions & events', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
+        cy.get('.ant-input').type('Pageviews')
+        cy.get('form > .ant-select > .ant-select-selector').click()
+        cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add panel to dashboard').click()
-        cy.wait(700) // not ideal but toast has a delay render
+        cy.wait(300) // not ideal but toast has a delay render
         cy.get('[data-attr=success-toast]').should('exist')
     })
 })

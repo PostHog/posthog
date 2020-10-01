@@ -12,17 +12,18 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 
 import ast
 import os
+import shutil
 import sys
-from typing import List, Optional
 from distutils.util import strtobool
-
-import sentry_sdk
-from sentry_sdk.integrations.django import DjangoIntegration
+from typing import Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 import dj_database_url
+import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
-
-VERSION = "1.11.0"
+from sentry_sdk.integrations.celery import CeleryIntegration
+from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
 
 
 def get_env(key):
@@ -48,12 +49,18 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
     return default_value
 
 
+def print_warning(warning_lines: Sequence[str]):
+    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)))
+
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv
+TEST = "test" in sys.argv  # type: bool
 
+# Canonical base URL (used for email links)
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
 if DEBUG:
@@ -61,19 +68,33 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
-SECURE_SSL_REDIRECT = False
+# This is set as a cross-domain cookie with a random value.
+# Its existence is used by the toolbar to see that we are logged in.
+TOOLBAR_COOKIE_NAME = "phtoolbar"
 
-if not DEBUG and not TEST:
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
+# SSL & cookie defaults
+if os.environ.get("SECURE_COOKIES", None) is None:
+    # Default to True if in production
+    secure_cookies = not DEBUG and not TEST
+else:
+    secure_cookies = get_bool_from_env("SECURE_COOKIES", True)
+
+TOOLBAR_COOKIE_SECURE = secure_cookies
+SESSION_COOKIE_SECURE = secure_cookies
+CSRF_COOKIE_SECURE = secure_cookies
+SECURE_SSL_REDIRECT = secure_cookies
+
+if not TEST:
     if os.environ.get("SENTRY_DSN"):
+        # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
-            dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
+            dsn=os.environ["SENTRY_DSN"],
+            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
+            request_bodies="always",
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = False
 
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
@@ -84,6 +105,61 @@ ASYNC_EVENT_ACTION_MAPPING = False
 if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
     ASYNC_EVENT_ACTION_MAPPING = True
 
+
+# Clickhouse Settings
+CLICKHOUSE_TEST_DB = "posthog_test"
+
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
+CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
+CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG)
+CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
+CLICKHOUSE_REPLICATION = get_bool_from_env("CLICKHOUSE_REPLICATION", False)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_bool_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False)
+CLICKHOUSE_ASYNC = get_bool_from_env("CLICKHOUSE_ASYNC", False)
+
+_clickhouse_http_protocol = "http://"
+_clickhouse_http_port = "8123"
+if CLICKHOUSE_SECURE:
+    _clickhouse_http_protocol = "https://"
+    _clickhouse_http_port = "8443"
+
+CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+
+IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+
+_kafka_hosts = KAFKA_URL.split(",")
+
+KAFKA_HOSTS_LIST = []
+for host in _kafka_hosts:
+    url = urlparse(host)
+    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+
+POSTGRES = "postgres"
+CLICKHOUSE = "clickhouse"
+
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
+
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
 TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
@@ -93,12 +169,17 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
+DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
+
+# Metrics - StatsD
+STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
 
 # Application definition
 
@@ -116,28 +197,45 @@ INSTALLED_APPS = [
     "social_django",
 ]
 
+
 MIDDLEWARE = [
-    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "posthog.middleware.CsrfOrKeyViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-# Load debug_toolbar if we can (DEBUG and Dev modes)
-try:
-    import debug_toolbar
+if STATSD_HOST:
+    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
+    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-    INSTALLED_APPS.append("debug_toolbar")
-    MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+EE_AVAILABLE = False
+
+# Append Enterprise Edition as an app if available
+try:
+    from ee.apps import EnterpriseConfig
 except ImportError:
     pass
+else:
+    HOOK_EVENTS: Dict[str, str] = {}
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    EE_AVAILABLE = True
+
+# Use django-extensions if it exists
+try:
+    import django_extensions
+except ImportError:
+    pass
+else:
+    INSTALLED_APPS.append("django_extensions")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
@@ -244,34 +342,23 @@ if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
     )
 
 if not REDIS_URL:
-    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
-    print("️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨")
-    print("⚠️")
-    print("️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!")
-    print("⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+).")
-    print("⚠️ Please configure it now to avoid future surprises!")
-    print("⚠️")
-    print("⚠️ See here for more information!")
-    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
-    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
-
     raise ImproperlyConfigured(
-        f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
+        "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
+        "If upgrading from PostHog 1.0.10 or earlier, see here: "
+        "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
-
+CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
+CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",},
 ]
 
 
@@ -308,19 +395,29 @@ APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "posthog.auth.PersonalAPIKeyAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
-    "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
+    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "PAGE_SIZE": 100,
+}
+
+EXCEPTIONS_HOG = {
+    "EXCEPTION_REPORTING": "posthog.utils.exception_reporting",
 }
 
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
-EMAIL_PORT = os.environ.get("EMAIL_PORT")
+EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "tim@posthog.com")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
 
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
@@ -339,3 +436,43 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+if DEBUG and not TEST:
+    print_warning(
+        (
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
+        )
+    )
+
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+
+if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+    print_warning(
+        (
+            "You are using the default SECRET_KEY in a production environment!",
+            "For the safety of your instance, you must generate and set a unique key.",
+            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+        )
+    )
+    sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
+
+
+def show_toolbar(request):
+    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+
+
+DEBUG_TOOLBAR_CONFIG = {
+    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
+}
+
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *

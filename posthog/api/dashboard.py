@@ -1,29 +1,21 @@
-from rest_framework import request, response, serializers, viewsets, authentication
+import secrets
+from datetime import datetime
+from distutils.util import strtobool
+from typing import Any, Dict, List
+
+from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
+from django.db.models import Prefetch, QuerySet
+from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
+from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
+
+from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.models import Dashboard, DashboardItem, Filter
-from typing import Dict, Any, List
-from django.db.models import QuerySet, Prefetch
-from django.shortcuts import get_object_or_404
-from datetime import datetime
-from posthog.utils import render_template, generate_cache_key
-from django.contrib.auth.models import AnonymousUser
-from django.http import HttpRequest
-from django.core.cache import cache
-from django.utils.timezone import now
-import secrets
-
-
-class PublicTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
-            dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
-            )
-            if not dashboard.exists():
-                raise AuthenticationFailed(detail="Dashboard doesn't exist")
-            return (AnonymousUser(), None)
-        return None
+from posthog.utils import generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -36,7 +28,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = request.user.team_set.get()
+        team = request.user.team
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if request.data.get("items"):
@@ -68,6 +60,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
     serializer_class = DashboardSerializer
     authentication_classes = [
         PublicTokenAuthentication,
+        PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
@@ -88,7 +81,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
             else:
                 raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")
 
-        return queryset.filter(team=self.request.user.team_set.get())
+        return queryset.filter(team=self.request.user.team)
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -118,17 +111,26 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "funnel",
+            "created_at",
+            "saved",
+            "created_by",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+
         request = self.context["request"]
-        team = request.user.team_set.get()
+        team = request.user.team
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if validated_data["dashboard"].team == team:
-            validated_data.pop("last_refresh", None)
-            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
+        if not validated_data.get("dashboard", None):
+            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            return dashboard_item
+        elif validated_data["dashboard"].team == team:
+            filter_data = validated_data.pop("filters", None)
+            filters = Filter(data=filter_data) if filter_data else None
+            dashboard_item = DashboardItem.objects.create(
+                team=team, last_refresh=now(), filters=filters.to_dict() if filters else {}, **validated_data
+            )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
@@ -139,7 +141,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         filter = Filter(data=dashboard_item.filters)
         cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
         result = cache.get(cache_key)
-        if not result:
+        if not result or result.get("task_id", None):
             return None
         return result["result"]
 
@@ -152,11 +154,32 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get()).order_by("order")
+            queryset = self._filter_request(self.request, queryset)
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("order")
+
+        return queryset.filter(team=self.request.user.team)
+
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "saved":
+                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+            elif key == "user":
+                queryset = queryset.filter(created_by=request.user)
+            elif key == "insight":
+                queryset = queryset.filter(filters__insight=request.GET["insight"])
+
+        return queryset
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):
-        team = request.user.team_set.get()
+        team = request.user.team
 
         for data in request.data["items"]:
             self.queryset.filter(team=team, pk=data["id"]).update(layouts=data["layouts"])

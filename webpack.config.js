@@ -4,7 +4,6 @@ const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
-const WebpackBar = require('webpackbar')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
@@ -29,7 +28,7 @@ function createEntry(entry) {
                 entry === 'main'
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
-                    ? './frontend/src/toolbar/index.js'
+                    ? './frontend/src/toolbar/index.tsx'
                     : entry === 'editor'
                     ? './frontend/src/editor/index.js'
                     : entry === 'shared_dashboard'
@@ -46,6 +45,8 @@ function createEntry(entry) {
             publicPath:
                 process.env.NODE_ENV === 'production'
                     ? '/static/'
+                    : process.env.JS_URL
+                    ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                     : process.env.IS_PORTER
                     ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
@@ -56,6 +57,7 @@ function createEntry(entry) {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+                types: path.resolve(__dirname, 'frontend', 'types'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
@@ -160,11 +162,13 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
-            noInfo: true,
             stats: 'minimal',
-            public: process.env.IS_PORTER
-                ? `https://${process.env.PORTER_WEBPACK_HOST}`
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`,
+            disableHostCheck: !!process.env.LOCAL_HTTPS,
+            public: process.env.JS_URL
+                ? new URL(process.env.JS_URL).host
+                : process.env.IS_PORTER
+                ? `${process.env.PORTER_WEBPACK_HOST}`
+                : `${webpackDevServerHost}:8234`,
             allowedHosts: process.env.IS_PORTER
                 ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
                 : [],
@@ -175,7 +179,6 @@ function createEntry(entry) {
         },
         plugins: [
             // common plugins for all entrypoints
-            new WebpackBar(),
         ].concat(
             entry === 'main'
                 ? [

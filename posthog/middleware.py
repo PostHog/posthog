@@ -1,8 +1,12 @@
-from django.conf import settings
-from django.core.exceptions import MiddlewareNotUsed
-from django.http import HttpResponse, HttpRequest
 from ipaddress import ip_address, ip_network
+
+from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.exceptions import MiddlewareNotUsed
+from django.http import HttpRequest, HttpResponse
+from django.middleware.csrf import CsrfViewMiddleware
+
+from .auth import PersonalAPIKeyAuthentication
 
 
 class AllowIP(object):
@@ -54,15 +58,54 @@ class AllowIP(object):
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
             return response
         return HttpResponse(
-            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy"
+            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy",
+            status=403,
         )
 
 
-class SameSiteSessionMiddleware(SessionMiddleware):
+class ToolbarCookieMiddleware(SessionMiddleware):
     def process_response(self, request, response):
-        response = super(SameSiteSessionMiddleware, self).process_response(request, response)
+        response = super(ToolbarCookieMiddleware, self).process_response(request, response)
 
-        if settings.SESSION_COOKIE_NAME in response.cookies:
-            response.cookies[settings.SESSION_COOKIE_NAME]["samesite"] = "None"
+        # skip adding the toolbar 3rd party cookie on API requests
+        if request.path.startswith("/api/") or request.path.startswith("/e/") or request.path.startswith("/decide/"):
+            return response
+
+        toolbar_cookie_name = settings.TOOLBAR_COOKIE_NAME  # type: str
+        toolbar_cookie_secure = settings.TOOLBAR_COOKIE_SECURE  # type: bool
+
+        if (
+            toolbar_cookie_name not in response.cookies
+            and request.user
+            and request.user.is_authenticated
+            and request.user.toolbar_mode == "toolbar"
+        ):
+            response.set_cookie(
+                toolbar_cookie_name,  # key
+                "yes",  # value
+                365 * 24 * 60 * 60,  # max_age = one year
+                None,  # expires
+                "/",  # path
+                None,  # domain
+                toolbar_cookie_secure,  # secure
+                True,  # httponly
+                "Lax",  # samesite, can't be set to "None" here :(
+            )
+            response.cookies[toolbar_cookie_name]["samesite"] = "None"  # must set explicitly
 
         return response
+
+
+class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
+    """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
+
+    def process_view(self, request, callback, callback_args, callback_kwargs):
+        result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
+        # if super().process_view did not find a valid CSRF token, try looking for a personal API key
+        if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
+            return self._accept(request)
+        return result
+
+    def _accept(self, request):
+        request.csrf_processing_done = True
+        return None

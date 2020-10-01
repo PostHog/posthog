@@ -1,23 +1,64 @@
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from django.conf import settings
-from django.db.models import Q
-from typing import Dict, Any, List, Union, Tuple
-from django.template.loader import get_template
-from django.http import HttpResponse, JsonResponse, HttpRequest
-from dateutil import parser
-from typing import Tuple, Optional
-from rest_framework import request, authentication
-from rest_framework.exceptions import AuthenticationFailed
-from urllib.parse import urlsplit, urlparse
-from django.apps import apps
-
+import base64
 import datetime
-import json
-import re
-import os
-import pytz
+import gzip
 import hashlib
+import json
+import os
+import re
+import subprocess
+import time
+import uuid
+from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urljoin, urlparse
+
+import lzstring  # type: ignore
+import pytz
+import redis
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse
+from django.template.loader import get_template
+from django.utils import timezone
+from rest_framework.exceptions import APIException
+from sentry_sdk import capture_exception, push_scope
+
+
+def absolute_uri(url: Optional[str] = None) -> str:
+    """
+    Returns an absolutely-formatted URL based on the `SITE_URL` config.
+    """
+    if not url:
+        return settings.SITE_URL
+    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+
+
+def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a tuple of datetime objects representing the start and end of the immediate
+    previous week to the passed date.
+    """
+
+    if not at_date:
+        at_date = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at_date - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+    )  # very end of the previous Sunday
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+    )  # very start of the previous Monday
+
+    return (period_start, period_end)
+
+
+def exception_reporting(exception: BaseException, context: Dict) -> None:
+    """
+    Determines which exceptions to report to Sentry and sends them.
+    """
+    if not isinstance(exception, APIException):
+        capture_exception(exception)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -35,7 +76,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = now()
+    date = timezone.now()
     if not match:
         return date
     if match.group("type") == "h":
@@ -83,6 +124,36 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
     return resp
 
 
+def get_git_branch() -> Optional[str]:
+    """
+    Returns the symbolic name of the current active branch. Will return None in case of failure.
+    Example: get_git_branch()
+        => "master"
+    """
+
+    try:
+        return (
+            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+            .decode("utf-8")
+            .strip()
+        )
+    except Exception:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    """
+    Returns the short hash of the last commit.
+    Example: get_git_commit()
+        => "4ff54c8d"
+    """
+
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
+    except Exception:
+        return None
+
+
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
 
@@ -90,34 +161,33 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context = {}
     template = get_template(template_name)
     try:
-        context.update({"opt_out_capture": request.user.team_set.get().opt_out_capture})
+        context["opt_out_capture"] = request.user.team.opt_out_capture
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.all()
         # if there's one team on the instance, and they've set opt_out
         # we'll opt out anonymous users too
         if team.count() == 1:
-            context.update(
-                {
-                    "opt_out_capture": team.first().opt_out_capture,  # type: ignore
-                }
-            )
+            context["opt_out_capture"] = (team.first().opt_out_capture,)  # type: ignore
 
     if os.environ.get("OPT_OUT_CAPTURE"):
-        context.update({"opt_out_capture": True})
+        context["opt_out_capture"] = True
+
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET",):
+        context["github_auth"] = True
+
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET",):
+        context["gitlab_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
-        context.update({"sentry_dsn": os.environ["SENTRY_DSN"]})
+        context["sentry_dsn"] = os.environ["SENTRY_DSN"]
 
-    attach_social_auth(context)
+    if settings.DEBUG and not settings.TEST:
+        context["debug"] = True
+        context["git_rev"] = get_git_commit()
+        context["git_branch"] = get_git_branch()
+
     html = template.render(context, request=request)
     return HttpResponse(html)
-
-
-def attach_social_auth(context):
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
-        context.update({"github_auth": True})
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
-        context.update({"gitlab_auth": True})
 
 
 def friendly_time(seconds: float):
@@ -160,7 +230,7 @@ def get_ip_address(request: HttpRequest) -> str:
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
     else:
-        ip = request.META.get("REMOTE_ADDR")  ### Real IP address of client Machine
+        ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
     return ip
 
 
@@ -199,29 +269,92 @@ def cors_response(request, response):
     return response
 
 
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            user_model = apps.get_model(app_label="posthog", model_name="User")
-            user = user_model.objects.filter(temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesnt exist")
-            return (user.first(), None)
-        return None
-
-
 def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+
+
+def get_redis_heartbeat() -> Union[str, int]:
+
+    if settings.REDIS_URL:
+        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    else:
+        return "offline"
+
+    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
+    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
+
+    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
+        return worker_heartbeat
+    return "offline"
+
+
+def base64_to_json(data) -> Dict:
+    return json.loads(
+        base64.b64decode(data.replace(" ", "+") + "===")
+        .decode("utf8", "surrogatepass")
+        .encode("utf-16", "surrogatepass")
+    )
+
+
+# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
+def load_data_from_request(request):
+    data_res: Dict[str, Any] = {"data": {}, "body": None}
+    if request.method == "POST":
+        if request.content_type == "application/json":
+            data = request.body
+            try:
+                data_res["body"] = {**json.loads(request.body)}
+            except:
+                pass
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+    if not data:
+        return None
+
+    # add the data in sentry's scope in case there's an exception
+    with push_scope() as scope:
+        scope.set_context("data", data)
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    )
+    compression = compression.lower()
+
+    if compression == "gzip":
+        data = gzip.decompress(data)
+
+    if compression == "lz64":
+        if isinstance(data, str):
+            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        else:
+            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+
+    #  Is it plain json?
+    try:
+        data = json.loads(data)
+    except json.JSONDecodeError:
+        # if not, it's probably base64 encoded from other libraries
+        data = base64_to_json(data)
+    data_res["data"] = data
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
+    return data_res
+
+
+class SingletonDecorator:
+    def __init__(self, klass):
+        self.klass = klass
+        self.instance = None
+
+    def __call__(self, *args, **kwds):
+        if self.instance == None:
+            self.instance = self.klass(*args, **kwds)
+        return self.instance
+
+
+def get_machine_id() -> str:
+    """A MAC address-dependent ID. Useful for PostHog instance analytics."""
+    # MAC addresses are 6 bits long, so overflow shouldn't happen
+    # hashing here as we don't care about the actual address, just it being rather consistent
+    return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()

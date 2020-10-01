@@ -12,25 +12,20 @@ describe('People', () => {
         cy.get('span').should('contain', 'New Cohort')
     })
 
+    it('All tabs work', () => {
+        cy.get('.form-control').type('has:email').type('{enter}').should('have.value', 'has:email')
+        cy.wait(200)
+        cy.get('.ant-tabs-nav-list > :nth-child(2)').click()
+        cy.get('[data-row-key="100"] > :nth-child(2) > .ph-no-capture').should('contain', '@')
+        cy.get('.ant-tabs-nav-list > :nth-child(3)').click()
+        cy.wait(200)
+        cy.get('.ant-empty-img-simple').should('exist')
+    })
+
     it('All people route works', () => {
         cy.get('[data-attr=menu-item-cohorts]').click()
         cy.get('[data-attr=menu-item-all-people]').click()
 
         cy.get('h1').should('contain', 'Users')
-    })
-
-    it('Retention route works', () => {
-        cy.get('[data-attr=menu-item-retention]').click()
-
-        cy.get('h1').should('contain', 'Retention')
-    })
-
-    it('Apply 1 overall filter', () => {
-        cy.get('[data-attr=menu-item-retention]').click()
-        cy.get('[data-attr=new-prop-filter-RetentionTable]').click()
-        cy.get('[data-attr=prop-filter-person-0]').click()
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click()
-        cy.get('[data-attr=retention-table').should('exist')
     })
 })

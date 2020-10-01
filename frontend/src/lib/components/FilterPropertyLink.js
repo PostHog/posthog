@@ -36,7 +36,7 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
 }
 FilterPropertyLink.propTypes = {
     property: PropTypes.string.isRequired,
-    value: PropTypes.string,
+    value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     filters: PropTypes.object.isRequired,
     onClick: PropTypes.func,
 }

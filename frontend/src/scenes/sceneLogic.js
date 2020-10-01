@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
+import { ErrorNetwork } from '~/layout/ErrorNetwork'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -12,24 +13,25 @@ export const scenes = {
     sessions: () => import(/* webpackChunkName: 'events' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
-    retention: () => import(/* webpackChunkName: 'retention' */ './retention/Retention'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
-    funnel: () => import(/* webpackChunkName: 'funnel' */ './funnels/Funnel'),
-    editFunnel: () => import(/* webpackChunkName: 'editFunnel' */ './funnels/Funnel'),
-    funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
-    trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
-    paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
+    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
     annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
     team: () => import(/* webpackChunkName: 'team' */ './team/Team'),
+    licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
+    preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
+    signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
 }
 
+/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+export const unauthenticatedRoutes = ['preflight', 'signup']
+
 export const redirects = {
-    '/': '/trends',
+    '/': '/insights',
 }
 
 export const routes = {
@@ -39,23 +41,21 @@ export const routes = {
     '/action': 'action',
     '/actions/live': 'liveActions',
     '/actions': 'actions',
-    '/trends': 'trends',
-    '/funnel': 'funnels',
-    '/funnel/new': 'editFunnel',
-    '/funnel/:id': 'funnel',
-    '/paths': 'paths',
+    '/insights': 'insights',
     '/setup': 'setup',
     '/events': 'events',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
     '/people': 'people',
     '/people/new_cohort': 'people',
-    '/people/retention': 'retention',
     '/people/cohorts': 'cohorts',
     '/experiments/feature_flags': 'featureFlags',
     '/sessions': 'sessions',
     '/annotations': 'annotations',
     '/team': 'team',
+    '/setup/licenses': 'licenses',
+    '/preflight': 'preflight',
+    '/signup': 'signup',
 }
 
 export const sceneLogic = kea({
@@ -79,8 +79,11 @@ export const sceneLogic = kea({
         ],
         loadedScenes: [
             {
-                '404': {
+                404: {
                     component: Error404,
+                },
+                '4xx': {
+                    component: ErrorNetwork,
                 },
             },
             {
@@ -132,7 +135,26 @@ export const sceneLogic = kea({
             let loadedScene = values.loadedScenes[scene]
 
             if (!loadedScene) {
-                const importedScene = await scenes[scene]()
+                let importedScene
+                try {
+                    importedScene = await scenes[scene]()
+                } catch (error) {
+                    if (error.name === 'ChunkLoadError') {
+                        console.error('Error loading webpack chunk!')
+
+                        if (scene !== null) {
+                            // we were on another page (not the first loaded scene)
+                            console.error('Reloading!')
+                            window.location.reload()
+                        } else {
+                            // first scene, show an error page
+                            console.error("Redirecting to the 'Network Error' page!")
+                            actions.setScene('4xx', {})
+                            return
+                        }
+                    }
+                    throw error
+                }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene
 

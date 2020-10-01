@@ -1,11 +1,13 @@
-from .base import BaseTest, TransactionBaseTest
-from posthog.models import Dashboard, Filter, DashboardItem
-from posthog.api.action import calculate_trends
-from posthog.decorators import TRENDS_ENDPOINT
+import json
+
 from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
-import json
+
+from posthog.decorators import TRENDS_ENDPOINT
+from posthog.models import Dashboard, DashboardItem, Filter, User
+
+from .base import BaseTest, TransactionBaseTest
 
 
 class TestDashboard(TransactionBaseTest):
@@ -124,6 +126,32 @@ class TestDashboard(TransactionBaseTest):
         )
         items_response = self.client.get("/api/dashboard_item/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_items_history_per_user(self):
+        test_user = User.objects.create_and_join(self.organization, self.team, "test@test.com", None)
+
+        item = DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+
+        # Make sure the endpoint works with and without the trailing slash
+        self.client.post(
+            "/api/dashboard_item", data={"filters": {"hello": "test"}}, content_type="application/json",
+        ).json()
+
+        response = self.client.get("/api/dashboard_item/?user=true").json()
+        self.assertEqual(response["count"], 1)
+
+    def test_dashboard_items_history_saved(self):
+
+        self.client.post(
+            "/api/dashboard_item/", data={"filters": {"hello": "test"}, "saved": True}, content_type="application/json",
+        ).json()
+
+        self.client.post(
+            "/api/dashboard_item/", data={"filters": {"hello": "test"}}, content_type="application/json",
+        ).json()
+
+        response = self.client.get("/api/dashboard_item/?user=true&saved=true").json()
+        self.assertEqual(response["count"], 1)
 
     def test_dashboard_item_layout(self):
         dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)

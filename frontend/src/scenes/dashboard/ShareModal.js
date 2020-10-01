@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Modal, Switch, Button } from 'antd'
 import { useActions, useValues } from 'kea'
-import { CopyToClipboard } from 'lib/components/CopyToClipboard'
+import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 
 export function ShareModal({ logic, onCancel }) {
     const { dashboard } = useValues(logic)
@@ -31,9 +31,10 @@ export function ShareModal({ logic, onCancel }) {
                 <span>
                     Your dashboard is visible to everyone with the link.
                     {dashboard.share_token && (
-                        <CopyToClipboard
-                            url={url + '/shared_dashboard/' + dashboard.share_token}
+                        <CopyToClipboardInput
                             data-attr="share-dashboard-link"
+                            value={url + '/shared_dashboard/' + dashboard.share_token}
+                            description="link"
                         />
                     )}
                 </span>

@@ -141,15 +141,15 @@ $body-color: #37352f;
     position: relative;
     .copy-icon {
         position: absolute;
-        top: 8px;
-        right: 8px;
+        top: 1em;
+        right: 1em;
         padding: 2px;
         color: white;
         background-color: inherit;
         cursor: pointer;
         &:hover {
-            transition: all 0.2s ease-in-out;
-            transform: scale(1.1);
+            transition: all 0.2s ease;
+            transform: scale(1.2);
         }
     }
 }
@@ -179,6 +179,7 @@ pre.code {
     height: 720px;
     svg {
         height: 100% !important;
+        width: 100%;
     }
 }
 .secondary {
@@ -204,6 +205,22 @@ h5.modal-title {
 
 h1.page-header {
     font-size: 24px;
+}
+
+h1.title {
+    // New implementation of h1.page-hader
+    font-size: 32px;
+    font-weight: bold;
+}
+
+h2.subtitle {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.page-caption {
+    color: rgba(0, 0, 0, 0.6);
+    font-size: 14px;
 }
 
 button.no-style {
@@ -296,13 +313,19 @@ label.disabled {
     }
 }
 
+.property-key-info {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
 .property-key-info-logo {
     margin-right: 6px;
     display: inline-block;
     vertical-align: top;
     height: 19px;
-    width: 15px;
-    background-image: url('/static/posthog-logo.png');
+    width: 19px;
+    background-image: url('../public/posthog-icon.svg');
     background-size: cover;
 }
 .ant-select-selection-item .property-key-info-logo {
@@ -311,4 +334,139 @@ label.disabled {
 
 .Toastify__progress-bar--default {
     background: var(--success) !important;
+}
+
+#bottom-notice {
+    z-index: 1000000000;
+    display: flex;
+    flex-direction: row;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    background: #000;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    &.warning div {
+        height: auto;
+        background: #f00;
+    }
+    &.tricolor {
+        div:nth-child(1) {
+            background: #1d4aff;
+        }
+        div:nth-child(2) {
+            background: #f54e00;
+        }
+        div:nth-child(3) {
+            background: #f9bd2b;
+        }
+    }
+    div {
+        flex-basis: 0;
+        flex-grow: 1;
+        height: 1.5rem;
+        text-align: center;
+    }
+    span {
+        display: none;
+    }
+    button {
+        border: none;
+        background: transparent;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: bold;
+    }
+    @media screen and (min-width: 750px) {
+        font-size: 1rem;
+        line-height: 2rem;
+        div {
+            height: 2rem;
+        }
+        span {
+            display: inline;
+        }
+        button {
+            width: 2rem;
+            height: 2rem;
+            font-size: 1.25rem;
+        }
+    }
+}
+
+.button-border {
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.clickable:hover {
+    background-color: gainsboro;
+}
+
+.space-top {
+    margin-top: 32px;
+}
+
+.breadcrumbs {
+    .selected {
+        color: #35416b;
+        font-weight: bold;
+    }
+}
+
+.ph-input-group {
+    padding-bottom: 16px;
+    color: #000000;
+
+    label {
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    .caption {
+        color: #666666;
+        font-size: 10px;
+    }
+
+    &.errored {
+        .caption {
+            color: $red;
+        }
+        .ant-input-password {
+            border-color: $red;
+        }
+    }
+}
+
+.btn-action {
+    background-color: #f0f0f0 !important;
+}
+
+@media screen and (max-width: 480px) {
+    h1.title {
+        line-height: 1.1em;
+        font-size: 28px;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .signup-form {
+        h1.title {
+            img {
+                display: none;
+            }
+        }
+        .main-img {
+            margin-top: 0 !important;
+            height: 200px;
+        }
+    }
 }

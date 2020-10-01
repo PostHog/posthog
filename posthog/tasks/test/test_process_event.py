@@ -1,20 +1,24 @@
+from datetime import timedelta
+from typing import Any, Optional
+from unittest.mock import patch
+
+from django.conf import settings
 from django.test import TransactionTestCase
 from django.utils.timezone import now
-from datetime import timedelta
 from freezegun import freeze_time
-from posthog.api.test.base import BaseTest
+
+from posthog.api.test.base import BaseTest, TransactionBaseTest
 from posthog.models import (
-    Event,
     Action,
     ActionStep,
-    Person,
+    Element,
     ElementGroup,
+    Event,
+    Person,
     Team,
     User,
-    Element,
 )
 from posthog.tasks.process_event import process_event
-from unittest.mock import patch, call
 
 
 class ProcessEvent(BaseTest):
@@ -25,8 +29,10 @@ class ProcessEvent(BaseTest):
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
+        self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
+        self.team.save()
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(30 if settings.EE_AVAILABLE else 28):  # extra queries to check for hooks
             process_event(
                 2,
                 "",
@@ -48,7 +54,7 @@ class ProcessEvent(BaseTest):
             )
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
-        event = Event.objects.get()
+        event = Event.objects.order_by("-pk")[0]
         self.assertEqual(event.event, "$autocapture")
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         self.assertEqual(elements[0].tag_name, "a")
@@ -185,6 +191,26 @@ class ProcessEvent(BaseTest):
 
         event = Event.objects.get()
         self.assertEqual(event.properties["$ip"], "11.12.13.14")
+
+    def test_ip_override(self) -> None:
+        user = self._create_user("tim")
+        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+        process_event(
+            "asdfasdfasdf",
+            "11.12.13.14",
+            "",
+            {
+                "event": "$pageview",
+                "properties": {"$ip": "1.0.0.1", "distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
+            },
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        event = Event.objects.get()
+        self.assertEqual(event.properties["$ip"], "1.0.0.1")
 
     def test_anonymized_ip_capture(self) -> None:
         self.team.anonymize_ips = True
@@ -443,15 +469,42 @@ class ProcessEvent(BaseTest):
         self.assertEqual(len(Element.objects.get().href), 2048)
         self.assertEqual(len(Element.objects.get().text), 400)
 
+    @patch("posthog.tasks.process_event.posthoganalytics.capture")
+    def test_capture_first_team_event(self, mock: Any) -> None:
+        """
+        Assert that we report to posthoganalytics the first event ingested by a team.
+        """
+        organization, team, user = User.objects.bootstrap(
+            "Test", "testuser@posthog.com", None, team_fields={"api_token": 456}
+        )
 
-class TestIdentify(TransactionTestCase):
-    def setUp(self) -> None:
-        user: User = User.objects.create_user("tim@posthog.com")
-        if not hasattr(self, "team"):
-            self.team: Team = Team.objects.create(api_token="token123")
-        self.team.users.add(user)
-        self.team.save()
-        self.client.force_login(user)
+        process_event(
+            2,
+            "",
+            "",
+            {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": 1,
+                    "token": team.api_token,
+                    "$elements": [{"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},],
+                },
+            },
+            team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        mock.assert_called_once_with(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.refresh_from_db()
+        self.assertEqual(team.ingested_event, True)
+
+
+class TestIdentify(TransactionBaseTest):
+    TESTS_API: bool = True
+    TESTS_EMAIL: str = "tim@posthog.com"
+    TESTS_PASSWORD: Optional[str] = None
 
     def test_distinct_with_anonymous_id(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
@@ -609,3 +662,34 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(people[1].distinct_ids, ["1", "2"])
         self.assertEqual(people[0].team, team2)
         self.assertEqual(people[0].distinct_ids, ["2"])
+
+    def test_set_is_identified(self) -> None:
+        distinct_id = "777"
+        person_before_event = Person.objects.create(team=self.team, distinct_ids=[distinct_id])
+        self.assertFalse(person_before_event.is_identified)
+        process_event(
+            distinct_id,
+            "",
+            "",
+            {"event": "$identify", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
+        self.assertTrue(person_after_event.is_identified)
+
+    def test_team_event_properties(self) -> None:
+        self.assertListEqual(self.team.event_properties_numerical, [])
+        process_event(
+            "xxx",
+            "",
+            "",
+            {"event": "purchase", "properties": {"price": 299.99, "name": "AirPods Pro"},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        self.team.refresh_from_db()
+        self.assertListEqual(self.team.event_properties, ["price", "name", "$ip"])
+        self.assertListEqual(self.team.event_properties_numerical, ["price"])

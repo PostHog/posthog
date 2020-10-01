@@ -1,13 +1,10 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-/* global require, module, process */
+/* eslint-env node */
+
+const plugins = [require('autoprefixer')] // postCSS modules here
+
+if (process.env.NODE_ENV === 'production') plugins.push(require('cssnano'))
 
 module.exports = {
-    plugins:
-        process.env.NODE_ENV === 'production'
-            ? [
-                  require('autoprefixer'),
-                  require('cssnano'),
-                  // More postCSS modules here if needed
-              ]
-            : [require('autoprefixer')],
+    plugins,
 }

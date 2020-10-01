@@ -1,12 +1,14 @@
-from posthog.tasks.update_cache import update_cache_item, update_cached_items
-from posthog.api.test.base import BaseTest
-from posthog.models import Filter, DashboardItem, Dashboard, Funnel
-from posthog.utils import generate_cache_key
-from django.core.cache import cache
-from freezegun import freeze_time
-from unittest.mock import patch, MagicMock
-from django.utils.timezone import now
 import json
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
+from django.utils.timezone import now
+from freezegun import freeze_time
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Dashboard, DashboardItem, Filter, Funnel
+from posthog.tasks.update_cache import update_cache_item, update_cached_items
+from posthog.utils import generate_cache_key
 
 
 class TestUpdateCache(BaseTest):
@@ -24,13 +26,12 @@ class TestUpdateCache(BaseTest):
         }
         filter = Filter(data=filter_dict)
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
-        funnel = Funnel.objects.create(
-            team=self.team,
-            name="funnel",
-            filters={"events": [{"id": "user signed up", "type": "events", "order": 0},],},
-        )
+        funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
+
         item = DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-        funnel_item = DashboardItem.objects.create(dashboard=shared_dashboard, funnel=funnel, team=self.team)
+        funnel_item = DashboardItem.objects.create(
+            dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
+        )
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = DashboardItem.objects.create(
@@ -49,7 +50,7 @@ class TestUpdateCache(BaseTest):
         )
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
-        funnel_key = generate_cache_key("funnel_{}_{}".format(funnel.pk, self.team.pk))
+        funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         update_cached_items()
 
         # pass the caught calls straight to the function
@@ -61,4 +62,4 @@ class TestUpdateCache(BaseTest):
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_to_cache.pk).last_refresh)
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh)
         self.assertEqual(cache.get(item_key)["result"][0]["count"], 0)
-        self.assertEqual(cache.get(funnel_key)["result"]["steps"][0]["count"], 0)
+        self.assertEqual(cache.get(funnel_key)["result"][0]["count"], 0)

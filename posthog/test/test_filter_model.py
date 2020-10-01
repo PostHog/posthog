@@ -1,9 +1,11 @@
-from posthog.api.test.base import BaseTest
-from posthog.models import Filter, Property, Event, Person, Element
-from django.db.models import Q
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 import json
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.utils import timezone
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Cohort, Element, Event, Filter, Person
 
 
 class TestFilter(BaseTest):
@@ -17,13 +19,25 @@ class TestFilter(BaseTest):
         self.assertEqual(filter.properties[1].operator, None)
         self.assertEqual(filter.properties[1].value, "Mac")
 
+    def test_to_dict(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "display": "ActionsLineGraph",
+                "compare": True,
+                "interval": "",
+                "actions": [],
+            }
+        ).to_dict()
+        self.assertEqual(list(filter.keys()), ["events", "display", "compare"])
+
 
 class TestSelectors(BaseTest):
     def test_selectors(self):
         event1 = Event.objects.create(
             team=self.team,
             event="$autocapture",
-            elements=[Element.objects.create(tag_name="a", order=0), Element.objects.create(tag_name="div", order=1),],
+            elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
         )
         event2 = Event.objects.create(team=self.team, event="$autocapture")
         filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
@@ -81,11 +95,13 @@ class TestPropertiesToQ(BaseTest):
         Event.objects.create(
             team=self.team, event="$pageview", properties={"$current_url": "https://whatever.com"},
         )
+        event3 = Event.objects.create(team=self.team, event="$pageview", properties={"$current_url": None},)
         filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
-        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk)).order_by("id")
         self.assertEqual(events[0], event1)
         self.assertEqual(events[1], event2)
-        self.assertEqual(len(events), 2)
+        self.assertEqual(events[2], event3)
+        self.assertEqual(len(events), 3)
 
     def test_multiple(self):
         event2 = Event.objects.create(
@@ -120,6 +136,21 @@ class TestPropertiesToQ(BaseTest):
         events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
+
+    def test_person_cohort_properties(self):
+        person1_distinct_id = "person1"
+        person1 = Person.objects.create(team=self.team, distinct_ids=[person1_distinct_id], properties={"group": 1})
+        cohort1 = Cohort.objects.create(team=self.team, groups={}, name="cohort1")
+        cohort1.people.add(person1)
+
+        filters = {"cohort": [{"key": "1", "value": "true"}]}
+
+        matched_person = (
+            Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+            .filter(Filter(data=filters).properties_to_Q(team_id=self.team.pk, is_person_query=True))
+            .exists()
+        )
+        self.assertTrue(matched_person)
 
     def test_boolean_filters(self):
         event1 = Event.objects.create(team=self.team, event="$pageview")

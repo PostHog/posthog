@@ -5,6 +5,17 @@ import PropTypes from 'prop-types'
 import { Spin } from 'antd'
 import moment from 'moment'
 
+const SI_PREFIXES = [
+    { value: 1e18, symbol: 'E' },
+    { value: 1e15, symbol: 'P' },
+    { value: 1e12, symbol: 'T' },
+    { value: 1e9, symbol: 'G' },
+    { value: 1e6, symbol: 'M' },
+    { value: 1e3, symbol: 'k' },
+    { value: 1, symbol: '' },
+]
+const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
+
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
         (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
@@ -18,7 +29,7 @@ export let toParams = (obj) => {
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter((item) => item[1])
+        .filter((item) => item[1] != undefined && item[1] != null)
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -208,8 +219,32 @@ export function isOperatorFlag(operator) {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function formatPropertyLabel(item, cohorts, keyMapping) {
+    const { value, key, operator, type } = item
+    return type === 'cohort'
+        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+              (isOperatorFlag(operator)
+                  ? ` ${operatorMap[operator]}`
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+}
+
 export const formatProperty = (property) => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
+}
+
+// Format a label that gets returned from the /insights api
+export const formatLabel = (label, action) => {
+    let math = 'Total'
+    if (action.math === 'dau') label += ` (${action.math.toUpperCase()}) `
+    else label += ` (${math}) `
+    if (action && action.properties && !_.isEmpty(action.properties)) {
+        label += ` (${action.properties
+            .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
+            .join(', ')})`
+    }
+
+    return label
 }
 
 export const deletePersonData = (person, callback) => {
@@ -218,6 +253,12 @@ export const deletePersonData = (person, callback) => {
             toast('Person succesfully deleted.')
             if (callback) callback()
         })
+}
+
+export const savePersonData = (person) => {
+    api.update('api/person/' + person.id, person).then(() => {
+        toast('Person Updated')
+    })
 }
 
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
@@ -308,7 +349,7 @@ export function humanFriendlyDetailedTime(date, withSeconds = false) {
     } else if (moment(date).isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
-    if (withSeconds) formatString += ':s a'
+    if (withSeconds) formatString += ':ss a'
     else formatString += ' a'
     return moment(date).format(formatString)
 }
@@ -348,4 +389,56 @@ export function determineDifferenceType(firstDate, secondDate) {
     else if (first.diff(second, 'days') !== 0) return 'day'
     else if (first.diff(second, 'hours') !== 0) return 'hour'
     else return 'minute'
+}
+
+export const dateMapping = {
+    Today: ['dStart'],
+    Yesterday: ['-1d', 'dStart'],
+    'Last 24 hours': ['-24h'],
+    'Last 48 hours': ['-48h'],
+    'Last week': ['-7d'],
+    'Last 2 weeks': ['-14d'],
+    'Last 30 days': ['-30d'],
+    'Last 90 days': ['-90d'],
+    'This month': ['mStart'],
+    'Previous month': ['-1mStart', '-1mEnd'],
+    'Year to date': ['yStart'],
+    'All time': ['all'],
+}
+
+export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
+
+export function dateFilterToText(date_from, date_to) {
+    if (isDate.test(date_from)) return `${date_from} - ${date_to}`
+    if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
+    if (date_from === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
+    let name = 'Last 7 days'
+    Object.entries(dateMapping).map(([key, value]) => {
+        if (value[0] === date_from && value[1] === date_to) name = key
+    })[0]
+    return name
+}
+
+export function humanizeNumber(number, digits = 1) {
+    // adapted from https://stackoverflow.com/a/9462382/624476
+    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
+    for (const currentPrefix of SI_PREFIXES) {
+        if (number >= currentPrefix.value) {
+            matchingPrefix = currentPrefix
+            break
+        }
+    }
+    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
+}
+
+export function copyToClipboard(value, description) {
+    const descriptionAdjusted = description ? description.trim() + ' ' : ''
+    try {
+        navigator.clipboard.writeText(value)
+        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
+        return true
+    } catch (e) {
+        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
+        return false
+    }
 }

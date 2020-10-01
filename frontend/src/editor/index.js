@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import ReactDOM from 'react-dom'
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import root from 'react-shadow'
 import { ActionEdit } from '~/scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
@@ -118,7 +118,7 @@ class _App extends Component {
                 <Draggable handle=".drag-bar">
                     <div className="box">
                         <div className="drag-bar">
-                            <img className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
+                            <img className="logo" src={this.props.apiURL + 'static/favicon-32x32.png'} />
                             <h3>PostHog</h3>
                             <br />
                         </div>

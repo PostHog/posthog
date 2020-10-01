@@ -1,5 +1,6 @@
 venv
 env
+.venv
 *.pyc
 staticfiles
 .env
@@ -16,6 +17,7 @@ node_modules
 frontend/.cache/
 .mypy_cache
 frontend/dist/*
+frontend/types/*
 frontend/yarn-error.log
 .idea
 celerybeat-schedule
@@ -24,3 +26,4 @@ yarn-error.log
 .yalc
 yalc.lock
 cypress/screenshots/*
+docker-compose.prod.yml

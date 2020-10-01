@@ -5,8 +5,6 @@ import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
-    ForkOutlined,
-    FunnelPlotOutlined,
     SettingOutlined,
     RiseOutlined,
     PlusOutlined,
@@ -18,19 +16,19 @@ import {
     FundOutlined,
     ExperimentOutlined,
     ClockCircleOutlined,
-    RetweetOutlined,
     MessageOutlined,
     TeamOutlined,
+    LockOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
-import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { HogIcon } from 'lib/icons/HogIcon'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import whiteLogo from './../../public/posthog-logo-white.svg'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -48,10 +46,9 @@ function Logo() {
 // to show the right page in the sidebar
 const sceneOverride = {
     action: 'actions',
-    funnel: 'funnels',
-    editFunnel: 'funnels',
     person: 'people',
     dashboard: 'dashboards',
+    featureFlags: 'experiments',
 }
 
 // to show the open submenu
@@ -60,9 +57,9 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
-    retention: 'people',
     setup: 'settings',
     annotations: 'settings',
+    licenses: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -118,11 +115,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     <Menu.Item
                         key="toolbar"
-                        style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
+                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
                         onClick={() => setToolbarModalOpen(true)}
                         data-attr="menu-item-toolbar"
                     >
-                        <HogIcon style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }} />
+                        <div className="sidebar-toolbar-imitation">
+                            <HogIcon />
+                        </div>
                         <span className="sidebar-label">Launch Toolbar!</span>
                     </Menu.Item>
 
@@ -147,10 +146,10 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
-                    <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
+                    <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
                         <RiseOutlined />
-                        <span className="sidebar-label">{'Trends'}</span>
-                        <Link to={'/trends'} onClick={collapseSidebar} />
+                        <span className="sidebar-label">{'Insights'}</span>
+                        <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
                     </Menu.Item>
 
                     <Menu.SubMenu
@@ -211,25 +210,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Cohorts'}</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="retention" style={itemStyle} data-attr="menu-item-retention">
-                            <RetweetOutlined />
-                            <span className="sidebar-label">{'Retention'}</span>
-                            <Link to={'/people/retention'} onClick={collapseSidebar} />
-                        </Menu.Item>
                     </Menu.SubMenu>
-
-                    <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
-                        <FunnelPlotOutlined />
-                        <span className="sidebar-label">{'Funnels'}</span>
-                        <Link to={'/funnel'} onClick={collapseSidebar} />
-                    </Menu.Item>
-
-                    <Menu.Item key="paths" style={itemStyle} data-attr="menu-item-paths">
-                        <ForkOutlined />
-                        <span className="sidebar-label">{'Paths'}</span>
-                        <Link to={'/paths'} onClick={collapseSidebar} />
-                    </Menu.Item>
-
                     <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
                         <ExperimentOutlined />
                         <span className="sidebar-label">{'Experiments'}</span>
@@ -259,6 +240,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Annotations'}</span>
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
+                        {!user.is_multi_tenancy && user.ee_available && (
+                            <Menu.Item key="licenses" style={itemStyle} data-attr="menu-item-licenses">
+                                <LockOutlined />
+                                <span className="sidebar-label">Licenses</span>
+                                <Link to={'/setup/licenses'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                     </Menu.SubMenu>
 
                     <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">

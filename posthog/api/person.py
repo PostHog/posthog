@@ -1,15 +1,18 @@
-from posthog.models import Event, Team, Person, PersonDistinctId, Cohort, Filter
-from posthog.utils import convert_property_value
-from rest_framework import serializers, viewsets, response, request
+import json
+from typing import Any, Dict, List, Union
+
+from django.core.cache import cache
+from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
-from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, Func
-from .event import EventSerializer
-from typing import Union
+
+from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team
+from posthog.utils import convert_property_value
+
 from .base import CursorPagination as BaseCursorPagination
-import json
-from django.core.cache import cache
+from .event import EventSerializer
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -45,7 +48,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     pagination_class = CursorPagination
 
     def paginate_queryset(self, queryset):
-        if "text/csv" in self.request.accepted_media_type or not self.paginator:
+        if self.request.accepted_renderer.format == "csv" or not self.paginator:
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
@@ -64,7 +67,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(properties__icontains=" ".join(contains))
                 | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
-            )
+            ).distinct("id")
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
@@ -72,11 +75,20 @@ class PersonViewSet(viewsets.ModelViewSet):
                 Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
 
+        queryset_category_pass = None
+        category = request.query_params.get("category")
+        if category == "identified":
+            queryset_category_pass = queryset.filter
+        elif category == "anonymous":
+            queryset_category_pass = queryset.exclude
+        if queryset_category_pass is not None:
+            queryset = queryset_category_pass(is_identified=True)
+
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team_set.get()
+        team = request.user.team
         person = Person.objects.get(team=team, pk=pk)
         events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
         events.delete()
@@ -85,17 +97,26 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         queryset = queryset.filter(team=team)
         return self._filter_request(self.request, queryset, team)
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
+        result = self.get_by_distinct_id(request)
+        return response.Response(result)
+
+    def get_by_distinct_id(self, request):
         person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
-        return response.Response(PersonSerializer(person, context={"request": request}).data)
+        return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request) -> response.Response:
+        result = self.get_properties(request)
+
+        return response.Response(result)
+
+    def get_properties(self, request) -> List[Dict[str, Any]]:
         class JsonKeys(Func):
             function = "jsonb_object_keys"
 
@@ -103,8 +124,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         people = (
             people.annotate(keys=JsonKeys("properties")).values("keys").annotate(count=Count("id")).order_by("-count")
         )
-
-        return response.Response([{"name": event["keys"], "count": event["count"]} for event in people])
+        return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request) -> response.Response:

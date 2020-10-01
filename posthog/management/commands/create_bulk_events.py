@@ -1,32 +1,30 @@
-import random
+import io
 import json
-import uuid
-import psycopg2
+import random
+import time
+from pathlib import Path
+from typing import Iterator, List, Optional
 from urllib.parse import urlparse
-from django.conf import settings
 
+import psycopg2
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
+from django.core import serializers
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
-from django.core import serializers
-
-from dateutil.relativedelta import relativedelta
-from pathlib import Path
-from typing import List
-import time
-from typing import Iterator, Optional
-import io
 
 from posthog.models import (
-    Event,
-    Element,
-    Team,
-    Person,
-    PersonDistinctId,
-    Funnel,
     Action,
     ActionStep,
+    Element,
+    Event,
+    Funnel,
     FunnelStep,
+    Person,
+    PersonDistinctId,
+    Team,
 )
+from posthog.models.utils import UUIDT
 
 
 def clean_csv_value(value: Optional[any]) -> str:
@@ -133,7 +131,7 @@ class Command(BaseCommand):
         demo_data_index = 0
 
         for index, person in enumerate(Person.objects.filter(team=team)):
-            distinct_id = str(uuid.uuid4())
+            distinct_id = str(UUIDT())
             distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
 
             if index % 3 == 0:

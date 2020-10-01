@@ -1,11 +1,14 @@
-from posthog.models import Funnel, DashboardItem
+import datetime
+import json
+from typing import Any, Dict, List
+
+from django.db.models import QuerySet
+from django.utils import timezone
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
-from django.db.models import QuerySet
-from typing import List, Dict, Any
-import json
-from posthog.decorators import cached_function, FUNNEL_ENDPOINT
-import datetime
+
+from posthog.decorators import FUNNEL_ENDPOINT, cached_function
+from posthog.models import DashboardItem, Funnel
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
@@ -31,7 +34,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context["request"]
-        funnel = Funnel.objects.create(team=request.user.team_set.get(), created_by=request.user, **validated_data)
+        funnel = Funnel.objects.create(team=request.user.team, created_by=request.user, **validated_data)
         return funnel
 
 
@@ -43,7 +46,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get())
+        return queryset.filter(team=self.request.user.team)
 
     def retrieve(self, request, pk=None):
         data = self._retrieve(request, pk)
@@ -55,5 +58,5 @@ class FunnelViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=timezone.now())
         return serializer.data
