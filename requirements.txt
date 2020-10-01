@@ -85,3 +85,4 @@ Werkzeug==1.0.0
 whitenoise==5.0.1
 zipp==3.1.0
 pyyaml==5.3.1
+drf-nested-routers==0.91
