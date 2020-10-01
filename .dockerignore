@@ -1,6 +1,7 @@
 *
 !bin
 !requirements.txt
+!requirements/dev.txt
 !posthog
 !staticfiles
 !manage.py
