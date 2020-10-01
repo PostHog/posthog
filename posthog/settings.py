@@ -57,8 +57,8 @@ def print_warning(warning_lines: Sequence[str]):
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv  # type: bool
+TEST: bool = "test" in sys.argv or get_bool_from_env("TEST", False)
+DEBUG: bool = not TEST and get_bool_from_env("DEBUG", False)
 
 # Canonical base URL (used for email links)
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
