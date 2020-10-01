@@ -137,7 +137,7 @@ class TestPropertiesToQ(BaseTest):
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
-    def test_cohort_properties(self):
+    def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(team=self.team, distinct_ids=[person1_distinct_id], properties={"group": 1})
         cohort1 = Cohort.objects.create(team=self.team, groups={}, name="cohort1")
