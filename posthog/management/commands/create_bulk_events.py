@@ -24,7 +24,7 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
-from posthog.models.utils import uuid1_macless
+from posthog.models.utils import UUIDT
 
 
 def clean_csv_value(value: Optional[any]) -> str:
@@ -131,7 +131,7 @@ class Command(BaseCommand):
         demo_data_index = 0
 
         for index, person in enumerate(Person.objects.filter(team=team)):
-            distinct_id = str(uuid1_macless())
+            distinct_id = str(UUIDT())
             distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
 
             if index % 3 == 0:

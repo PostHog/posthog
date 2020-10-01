@@ -100,7 +100,6 @@ def _capture(
                 nth_child=el.get("nth_child"),
                 nth_of_type=el.get("nth_of_type"),
                 attributes={key: value for key, value in el.items() if key.startswith("attr__")},
-                order=index,
             )
             for index, el in enumerate(elements)
         ]
@@ -117,7 +116,7 @@ def _capture(
         team.ingested_event = True
         team.save()
 
-    if not team.anonymize_ips:
+    if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     Event.objects.create(

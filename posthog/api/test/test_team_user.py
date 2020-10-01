@@ -118,12 +118,28 @@ class TestTeamUser(APIBaseTest):
         email: str = user.email
         response = self.client.patch(f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "invalid_request",
+                "code": "method_not_allowed",
+                "detail": 'Method "PATCH" not allowed.',
+                "attr": None,
+            },
+        )
 
         # Cannot update users
         response = self.client.put(f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), {"detail": 'Method "PUT" not allowed.'})
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "invalid_request",
+                "code": "method_not_allowed",
+                "detail": 'Method "PUT" not allowed.',
+                "attr": None,
+            },
+        )
 
         user.refresh_from_db()
         self.assertEqual(user.email, email)
@@ -132,7 +148,15 @@ class TestTeamUser(APIBaseTest):
         count: int = User.objects.count()
         response = self.client.post(f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), {"detail": 'Method "POST" not allowed.'})
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "invalid_request",
+                "code": "method_not_allowed",
+                "detail": 'Method "POST" not allowed.',
+                "attr": None,
+            },
+        )
         self.assertEqual(User.objects.count(), count)
 
     def test_unauthenticated_user_cannot_list_or_delete_team_users(self):
@@ -142,7 +166,7 @@ class TestTeamUser(APIBaseTest):
         response = self.client.get("/api/team/user/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data: Dict = response.json()
-        self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
+        self.assertEqual(response_data, self.ERROR_RESPONSE_UNAUTHENTICATED)
 
         # response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
         # self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -175,7 +199,7 @@ class TestTeamSignup(APIBaseTest):
         team: Team = user.team
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com"},
         )
 
         # Assert that the user was properly created
@@ -258,7 +282,15 @@ class TestTeamSignup(APIBaseTest):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/team/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.data, {attribute: ["This field is required."]})
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "required",
+                    "detail": "This field is required.",
+                    "attr": attribute,
+                },
+            )
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -268,11 +300,17 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123",},
+            "/api/team/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data, {"password": ["This password is too short. It must contain at least 8 characters."]}
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "password_too_short",
+                "detail": "This password is too short. It must contain at least 8 characters.",
+                "attr": "password",
+            },
         )
 
         self.assertEqual(User.objects.count(), count)
@@ -287,10 +325,18 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["Authenticated users may not create additional teams."])
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Authenticated users may not create additional teams.",
+                "attr": None,
+            },
+        )
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
@@ -305,10 +351,18 @@ class TestTeamSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure",},
+            "/api/team/signup/", {"first_name": "John", "email": "invalid@posthog.com", "password": "notsecure"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data, ["This instance does not support multiple teams."])
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This instance does not support multiple teams.",
+                "attr": None,
+            },
+        )
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)

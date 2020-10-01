@@ -1,21 +1,12 @@
 import React from 'react'
-import { useValues } from 'kea'
-import { dockLogic } from '~/toolbar/dockLogic'
 
 // draw a beam around an element
 export function FocusRect({ rect }: { rect: DOMRect }): JSX.Element {
-    const { domZoom, domPadding } = useValues(dockLogic)
-
-    const widths = [
-        0,
-        (rect.left + window.pageXOffset - domPadding) / domZoom,
-        (rect.left + window.pageXOffset + rect.width - domPadding) / domZoom,
-        window.innerWidth,
-    ]
+    const widths = [0, rect.left + window.pageXOffset, rect.left + window.pageXOffset + rect.width, window.innerWidth]
     const heights = [
         0,
-        (rect.top + window.pageYOffset - domPadding) / domZoom,
-        (rect.top + window.pageYOffset + rect.height - domPadding) / domZoom,
+        rect.top + window.pageYOffset,
+        rect.top + window.pageYOffset + rect.height,
         document.body.scrollHeight,
     ]
 

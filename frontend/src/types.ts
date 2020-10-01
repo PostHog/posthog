@@ -83,7 +83,7 @@ export type EditorProps = {
     actionId?: number
     userIntent?: ToolbarUserIntent
     instrument?: boolean
-    distinctId?: boolean
+    distinctId?: string
     userEmail?: boolean
 }
 
@@ -126,7 +126,26 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-interface OrganizationBilling {
+export interface EventType {
+    elements: ElementType[]
+    elements_hash: string | null
+    event: string
+    id: number
+    properties: Record<string, any>
+    timestamp: string
+}
+
+export interface SessionType {
+    distinct_id: string
+    event_count: number
+    events: EventType[]
+    global_session_id: string
+    length: number
+    properties: Record<string, any>
+    start_time: string
+}
+
+export interface OrganizationBilling {
     plan: PlanInterface
     current_usage: { value: number; formatted: string } | null
     should_setup_billing: boolean

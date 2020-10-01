@@ -34,7 +34,7 @@ def determine_compared_filter(filter: Filter) -> Filter:
     return compared_filter
 
 
-def _convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
         days = [i for i in range(len(entity["days"]))]
         labels = [
@@ -58,13 +58,13 @@ def handle_compare(entity: Entity, filter: Filter, func: Callable, team_id: int)
     entities_list = []
     trend_entity = func(entity=entity, filter=filter, team_id=team_id)
     if filter.compare:
-        trend_entity = _convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
+        trend_entity = convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
         entities_list.extend(trend_entity)
 
         compared_filter = determine_compared_filter(filter)
         compared_trend_entity = func(entity=entity, filter=compared_filter, team_id=team_id)
 
-        compared_trend_entity = _convert_to_comparison(
+        compared_trend_entity = convert_to_comparison(
             compared_trend_entity, compared_filter, "{} - {}".format(entity.name, "previous"),
         )
         entities_list.extend(compared_trend_entity)

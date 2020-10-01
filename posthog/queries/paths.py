@@ -22,7 +22,7 @@ class Paths(BaseQuery):
         event: Optional[str] = "$pageview"
         event_filter = {"event": event}
         path_type = "properties->> '$current_url'"
-        start_comparator = "{} ~".format(path_type)
+        start_comparator = "{} =".format(path_type)
 
         # determine requested type
         if requested_type:
@@ -30,7 +30,7 @@ class Paths(BaseQuery):
                 event = SCREEN_EVENT
                 event_filter = {"event": event}
                 path_type = "properties->> '$screen_name'"
-                start_comparator = "{} ~".format(path_type)
+                start_comparator = "{} =".format(path_type)
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 event_filter = {"event": event}
@@ -52,7 +52,7 @@ class Paths(BaseQuery):
 
         marked_plus = "\
             SELECT *, MIN(mark) OVER (\
-                    PARTITION BY distinct_id\
+                    PARTITION BY person_id\
                     , session ORDER BY timestamp\
                     ) AS max from ({}) as marked order by session\
         ".format(
@@ -85,12 +85,16 @@ class Paths(BaseQuery):
         sessions = (
             Event.objects.add_person_id(team.pk)
             .filter(team=team, **(event_filter), **date_query)
-            .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
+            .filter(
+                ~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"])
+                if event is None
+                else Q()
+            )
             .filter(filter.properties_to_Q(team_id=team.pk) if filter and filter.properties else Q())
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),
-                    partition_by=F("distinct_id"),
+                    partition_by=F("person_id"),
                     order_by=F("timestamp").asc(),
                 )
             )
@@ -110,7 +114,7 @@ class Paths(BaseQuery):
 
         sessionified = "\
         SELECT events_notated.*, SUM(new_session) OVER (\
-            ORDER BY distinct_id\
+            ORDER BY person_id\
                     ,timestamp\
             ) AS session\
         FROM ({}) as events_notated\
@@ -126,7 +130,7 @@ class Paths(BaseQuery):
         final = "\
         SELECT {} as path_type, id, sessionified.session\
             ,ROW_NUMBER() OVER (\
-                    PARTITION BY distinct_id\
+                    PARTITION BY person_id\
                     ,session ORDER BY timestamp\
                     ) AS event_number\
         FROM ({}) as sessionified\
@@ -146,17 +150,16 @@ class Paths(BaseQuery):
             final
         )
 
-        cursor = connection.cursor()
-        cursor.execute(
-            "\
+        query = "\
         SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from ({}) as counts\
         where source_event is not null and target_event is not null\
         group by source_event, target_event order by count desc limit 20\
         ".format(
-                counts
-            ),
-            sessions_sql_params,
+            counts
         )
+
+        cursor = connection.cursor()
+        cursor.execute(query, sessions_sql_params)
         rows = cursor.fetchall()
 
         for row in rows:

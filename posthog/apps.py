@@ -14,6 +14,7 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+        posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":

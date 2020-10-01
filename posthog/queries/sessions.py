@@ -14,6 +14,8 @@ from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
+SESSIONS_LIST_DEFAULT_LIMIT = 50
+
 
 class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
@@ -24,6 +26,7 @@ class Sessions(BaseQuery):
             .order_by("-timestamp")
         )
 
+        limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = filter.offset
 
         if not filter.date_to:
@@ -32,24 +35,26 @@ class Sessions(BaseQuery):
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
-            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, offset)
-            calculated = self._convert_to_comparison(calculated, "current")
+            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, limit, offset)
+            calculated = convert_to_comparison(calculated, "current", filter)
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
-                events.filter(compare_filter.date_filter_Q), compare_filter, team, offset
+                events.filter(compare_filter.date_filter_Q), compare_filter, team, limit, offset
             )
-            converted_compared_calculated = self._convert_to_comparison(compared_calculated, "previous")
+            converted_compared_calculated = convert_to_comparison(compared_calculated, "previous", filter)
             calculated.extend(converted_compared_calculated)
         else:
             # if session_type is None, it's a list of sessions which shouldn't have any date filtering
             if filter.session_type is not None:
                 events = events.filter(filter.date_filter_Q)
-            calculated = self.calculate_sessions(events, filter, team, offset)
+            calculated = self.calculate_sessions(events, filter, team, limit, offset)
 
         return calculated
 
-    def calculate_sessions(self, events: QuerySet, filter: Filter, team: Team, offset: int) -> List[Dict[str, Any]]:
+    def calculate_sessions(
+        self, events: QuerySet, filter: Filter, team: Team, limit: int, offset: int
+    ) -> List[Dict[str, Any]]:
 
         # format date filter for session view
         _date_gte = Q()
@@ -92,7 +97,7 @@ class Sessions(BaseQuery):
             SELECT *,\
                 SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                 SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                FROM (SELECT id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                FROM (SELECT id, team_id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                     OR previous_timestamp IS NULL \
                     THEN 1 ELSE 0 END AS new_session \
                     FROM ({}) AS inner_sessions\
@@ -106,30 +111,53 @@ class Sessions(BaseQuery):
         elif filter.session_type == SESSION_DIST:
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team, filter, offset)
+            result = self._session_list(all_sessions, sessions_sql_params, team, filter, limit, offset)
 
         return result
 
     def _session_list(
-        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: Filter, offset: int
+        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: Filter, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
-        session_list = "SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
-                                (SELECT\
-                                    global_session_id,\
-                                    count(1) as event_count,\
-                                    MAX(distinct_id) as distinct_id,\
-                                    EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
-                                    MIN(timestamp) as start_time,\
-                                    array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events\
-                                        FROM ({}) as count GROUP BY 1) as sessions\
-                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
-                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
-                                        ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT 50".format(
-            base_query
+
+        session_list = """
+            SELECT 
+                * 
+            FROM (
+                SELECT 
+                    global_session_id,
+                    properties,
+                    start_time,
+                    length,
+                    sessions.distinct_id,
+                    event_count,
+                    events 
+                FROM (
+                    SELECT
+                        global_session_id,
+                        count(1) as event_count,
+                        MAX(distinct_id) as distinct_id,
+                        EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,
+                        MIN(timestamp) as start_time,
+                        array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events
+                    FROM 
+                        ({base_query}) as count 
+                    GROUP BY 1
+                ) as sessions
+                LEFT OUTER JOIN 
+                    posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s
+                LEFT OUTER JOIN 
+                    posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
+                ORDER BY 
+                    start_time DESC
+            ) as ordered_sessions 
+            OFFSET %s 
+            LIMIT %s
+        """.format(
+            base_query=base_query
         )
 
         with connection.cursor() as cursor:
-            params = params + (offset,)
+            params = params + (team.pk, offset, limit,)
             cursor.execute(session_list, params)
             sessions = dict_from_cursor_fetchall(cursor)
 
@@ -251,23 +279,24 @@ class Sessions(BaseQuery):
         result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
         return result
 
-    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
-        for entity in trend_entity:
-            days = [i for i in range(len(entity["days"]))]
-            labels = ["{} {}".format("Day", i) for i in range(len(entity["labels"]))]
-            entity.update(
-                {
-                    "labels": labels,
-                    "days": days,
-                    "chartLabel": "{} - {}".format(entity["label"], label),
-                    "dates": entity["days"],
-                    "compare": True,
-                }
-            )
-        return trend_entity
-
     def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
         groups = ElementGroup.objects.none()
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
         return groups
+
+
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], label: str, filter: Filter) -> List[Dict[str, Any]]:
+    for entity in trend_entity:
+        days = [i for i in range(len(entity["days"]))]
+        labels = ["{} {}".format(filter.interval or "Day", i) for i in range(len(entity["labels"]))]
+        entity.update(
+            {
+                "labels": labels,
+                "days": days,
+                "chartLabel": "{} - {}".format(entity["label"], label),
+                "dates": entity["days"],
+                "compare": True,
+            }
+        )
+    return trend_entity

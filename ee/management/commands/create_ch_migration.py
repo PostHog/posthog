@@ -6,7 +6,7 @@ from django.utils.timezone import now
 MIGRATION_PATH = "ee/clickhouse/migrations"
 
 FILE_DEFAULT = """
-from infi.clickhouse_orm import migrations
+from infi.clickhouse_orm import migrations # type: ignore
 class Migration(migrations.Migration):
     operations = [
     ]

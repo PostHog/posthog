@@ -89,7 +89,7 @@ def user(request):
             "posthog_version": VERSION,
             "available_features": request.user.available_features,
             "billing_plan": request.user.billing_plan,
-            "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
+            "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": request.user.ee_available,
         }
     )

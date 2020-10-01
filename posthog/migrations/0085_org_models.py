@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.uuid1_macless, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=64)),
@@ -121,7 +121,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="team",
             name="uuid",
-            field=models.UUIDField(default=posthog.models.utils.uuid1_macless, editable=False, unique=True),
+            field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="user",
@@ -139,7 +139,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.uuid1_macless, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
                     ),
                 ),
                 ("level", models.PositiveSmallIntegerField(choices=[(1, "member"), (8, "administrator")], default=1),),
@@ -171,7 +171,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.uuid1_macless, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
                     ),
                 ),
                 ("uses", models.PositiveIntegerField(default=0)),

@@ -9,6 +9,7 @@ from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
+from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
@@ -188,6 +189,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
 
+@xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
     return render_template(
