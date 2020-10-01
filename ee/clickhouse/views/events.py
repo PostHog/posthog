@@ -40,7 +40,7 @@ class ClickhouseEvents(EventViewSet):
             filter._date_from = request.GET["after"]
         if request.GET.get("before"):
             filter._date_to = request.GET["before"]
-        limit = "LIMIT 101" if not filter._date_from and not filter._date_to else ""
+        limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
         prop_filters, prop_filter_params = parse_filter(filter.properties)
 
