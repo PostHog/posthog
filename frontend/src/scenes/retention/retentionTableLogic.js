@@ -76,9 +76,12 @@ export const retentionTableLogic = kea({
         selectedDate: [moment().subtract(11, 'days').startOf('day'), { dateChanged: (_, { date }) => date }],
         period: ['d', { setPeriod: (_, { period }) => period }],
         filters: [
-            {},
             {
-                setFilters: (_, { filters }) => filters,
+                date_from: moment().subtract(11, 'days'),
+                period: 'd',
+            },
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         people: {
