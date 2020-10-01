@@ -156,8 +156,8 @@ FROM
 INNER JOIN person_distinct_id as pid ON ewap.distinct_id = pid.distinct_id
 INNER JOIN person ON pid.person_id = person.id
 where ewap.team_id = %(team_id)s
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
-ORDER BY timestamp desc {limit}
+AND ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
@@ -173,8 +173,8 @@ WHERE uuid IN
     FROM events_properties_view AS ep
     WHERE team_id = %(team_id)s AND {filters}
 )
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
-ORDER BY timestamp DESC {limit}
+AND ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
