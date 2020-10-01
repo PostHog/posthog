@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
 import PropTypes from 'prop-types'
 import defaultImg from './../../../public/plan-default.svg'
 
-const Plan = (props) => {
-    const { plan, onUpgrade } = props
+function Plan({ plan, onUpgrade }) {
     return (
         <Card>
             <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
@@ -28,30 +27,9 @@ const Plan = (props) => {
 }
 
 function Billing(props) {
-    const logic = billingLogic()
-    const { plans, billingSubscription, billingSubscriptionLoading } = useValues(logic)
-    const { loadPlans, subscribe } = useActions(logic)
-    const [state, setState] = useState({ percentage: 0 })
+    const { plans, billingSubscription, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
+    const { loadPlans, subscribe } = useActions(billingLogic)
     const { user } = props
-
-    const strokeColor = (percentage) => {
-        let color = '#1890FF'
-        if (percentage === null || percentage === undefined) {
-            /* No event limit set */
-            color = {
-                from: '#1890FF',
-                to: '#52C41A',
-            }
-        }
-
-        if (percentage > 0.65 && percentage < 0.8) {
-            color = '#F7A501'
-        }
-        if (percentage > 0.8) {
-            color = '#F54E00'
-        }
-        return color
-    }
 
     const handleBillingSubscribe = (plan) => {
         subscribe(plan.key)
@@ -59,15 +37,6 @@ function Billing(props) {
 
     useEffect(() => {
         if (!user.billing?.plan || user.billing?.should_setup_billing) loadPlans()
-        if (!user.billing?.current_usage || !user.billing.plan) return
-        if (!user.billing.plan.allowance) {
-            /* Plan is unlimited */
-            setState({ ...state, percentage: null })
-            return
-        }
-        const percentage =
-            Math.round((user.billing.current_usage.value / user.billing.plan.allowance.value) * 100) / 100
-        setState({ ...state, percentage })
     }, [user])
 
     useEffect(() => {
@@ -95,9 +64,9 @@ function Billing(props) {
                         )}
                         <Progress
                             type="line"
-                            percent={state.percentage !== null ? state.percentage * 100 : 100}
-                            strokeColor={strokeColor(state.percentage)}
-                            status={state.percentage !== null ? 'normal' : 'success'}
+                            percent={percentage !== null ? percentage * 100 : 100}
+                            strokeColor={strokeColor}
+                            status={percentage !== null ? 'normal' : 'success'}
                         />
                     </>
                 )}
