@@ -2,7 +2,7 @@ import asyncio
 
 from aioch import Client  # type: ignore
 from asgiref.sync import async_to_sync  # type: ignore
-from clickhouse_driver import Client as SyncClient  # type: ignore
+from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool  # type: ignore
 
 from posthog.settings import (

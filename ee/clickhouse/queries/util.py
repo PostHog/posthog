@@ -12,7 +12,7 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
     date_from = None
     date_to = None
 
-    if filter.date_from:
+    if filter._date_from and filter.date_from:
         date_from = "and timestamp >= '{}'".format(
             filter.date_from.strftime(
                 "%Y-%m-%d{}".format(
@@ -21,14 +21,18 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
             )
         )
     else:
-        earliest_date = sync_execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
-        date_from = "and timestamp >= '{}'".format(
-            earliest_date.strftime(
-                "%Y-%m-%d{}".format(
-                    " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+        try:
+            earliest_date = sync_execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
+        except IndexError:
+            date_from = ""
+        else:
+            date_from = "and timestamp >= '{}'".format(
+                earliest_date.strftime(
+                    "%Y-%m-%d{}".format(
+                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+                    )
                 )
             )
-        )
 
     if filter.date_to:
         _date_to = filter.date_to

@@ -26,7 +26,7 @@ def create_event(
     properties: Optional[Dict] = {},
     elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
-) -> None:
+) -> str:
 
     if not timestamp:
         timestamp = now()
@@ -52,6 +52,7 @@ def create_event(
     }
     p = ClickhouseProducer()
     p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+    return str(event_uuid)
 
 
 def get_events():
@@ -91,23 +92,40 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return dt.astimezone().isoformat()
 
     def get_person(self, event):
-        return event[5]
+        if len(event) < 13:
+            return event[5]
+        props = json.loads(event[12])
+        return props.get("email", event[5])
 
     def get_elements(self, event):
-        return []
+        if not event[6] or not self.context["elements"] or event[6] not in self.context["elements"]:
+            return []
+        return self.context["elements"][event[6]]
 
     def get_elements_hash(self, event):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, str]) -> Tuple[str, Dict]:
+def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params = {}
     for idx, (k, v) in enumerate(conditions.items()):
+        if not isinstance(v, str):
+            continue
         if k == "after":
+            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"
-            params.update({"after": v})
+            params.update({"after": timestamp})
         elif k == "before":
+            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp < %(before)s"
-            params.update({"before": v})
+            params.update({"before": timestamp})
+        elif k == "person_id":
+            result += """AND distinct_id IN (
+                SELECT distinct_id FROM person_distinct_id WHERE person_id = %(person_id)s AND team_id = %(team_id)s
+            )"""
+            params.update({"person_id": v})
+        elif k == "distinct_id":
+            result += "AND distinct_id = %(distinct_id)s"
+            params.update({"distinct_id": v})
     return result, params
