@@ -38,13 +38,12 @@ export function ToolbarSettings() {
                 The Toolbar gives you access to heatmaps, stats and allows you to create actions, without ever leaving
                 your own website or app! Make sure you're using the snippet or the latest <code>posthog-js</code>{' '}
                 version.
-            </p>
-            <p>
-                To ask questions and to provide feedback during the beta program, please{' '}
+                <br />
+                To ask anything and to provide feedback during the beta program,{' '}
                 <a href="https://github.com/PostHog/posthog/issues/1129" target="_blank" rel="noreferrer noopener">
-                    click here
+                    visit GitHub
                 </a>
-                !
+                .
             </p>
         </div>
     )

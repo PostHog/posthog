@@ -48,8 +48,10 @@ function _Setup() {
             variable instead of hard-coding.
             <Divider />
             <h2 id="urls">Permitted Domains/URLs</h2>
-            These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
-            where you'll be able to create Actions.
+            <p>
+                These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
+                where you'll be able to create Actions.
+            </p>
             <EditAppUrls />
             <Divider />
             <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
