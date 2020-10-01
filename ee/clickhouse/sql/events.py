@@ -154,7 +154,7 @@ FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
 AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
-ORDER BY timestamp desc {limit}
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
@@ -167,8 +167,8 @@ WHERE uuid IN
     FROM events_properties_view AS ep
     WHERE team_id = %(team_id)s AND {filters}
 )
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
-ORDER BY timestamp DESC {limit}
+AND ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
