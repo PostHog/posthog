@@ -98,7 +98,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return props.get("email", event[5])
 
     def get_elements(self, event):
-        if not event[6] or event[6] not in self.context["elements"]:
+        if not event[6] or not self.context["elements"] or event[6] not in self.context["elements"]:
             return []
         return self.context["elements"][event[6]]
 
