@@ -149,12 +149,9 @@ SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
 SELECT
-    ewap.*,
-    person.properties
+    ewap.*
 FROM
     events_with_array_props_view ewap
-INNER JOIN person_distinct_id as pid ON ewap.distinct_id = pid.distinct_id
-INNER JOIN person ON pid.person_id = person.id
 where ewap.team_id = %(team_id)s
 AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
 ORDER BY timestamp desc {limit}
@@ -162,11 +159,8 @@ ORDER BY timestamp desc {limit}
 
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
-    ewap.*,
-    person.properties
+    ewap.*
 FROM events_with_array_props_view AS ewap
-INNER JOIN person_distinct_id as pid ON ewap.distinct_id = pid.distinct_id
-INNER JOIN person ON pid.person_id = person.id
 WHERE uuid IN
 (
     SELECT event_id

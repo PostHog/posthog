@@ -16,6 +16,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             person = person_factory(
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
+            person = person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
 
             event1 = event_factory(
                 event="$autocapture",

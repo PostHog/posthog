@@ -92,9 +92,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return dt.astimezone().isoformat()
 
     def get_person(self, event):
-        if len(event) < 13:
+        if not self.context["people"] or event[5] not in self.context["elements"]:
             return event[5]
-        props = json.loads(event[12])
+        props = json.loads(self.context["properties"])
         return props.get("email", event[5])
 
     def get_elements(self, event):

@@ -29,6 +29,16 @@ class ClickhouseEvents(EventViewSet):
             grouped_elements[element["elements_hash"]].append(element)
         return grouped_elements
 
+    def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
+        distinct_ids = [event[5] for event in query_result]
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+
+        distinct_to_person: Dict[str, Dict[str, Any]] = {}
+        for person in persons:
+            for distinct_id in person["distinct_ids"]:
+                distinct_to_person[distinct_id] = person
+        return distinct_id_to_person
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
@@ -56,7 +66,12 @@ class ClickhouseEvents(EventViewSet):
             )
 
         result = ClickhouseEventSerializer(
-            query_result, many=True, context={"elements": self._get_elements(query_result, team), "people": None}
+            query_result,
+            many=True,
+            context={
+                "elements": self._get_elements(query_result, team),
+                "people": self._get_people(query_result, team),
+            },
         ).data
 
         if len(query_result) > 100:
