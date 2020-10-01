@@ -113,32 +113,43 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
         }
     }
 
-    while (loopElement?.parentElement) {
-        // return when we find a click target
-        if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+    while (loopElement) {
+        let parent = loopElement.parentNode
+        // 11 = DOCUMENT_FRAGMENT_NODE
+        if (parent && parent.nodeType === 11) {
+            parent = (parent as ShadowRoot).host
+        }
+        if (!parent) {
             return loopElement
         }
+
+        // return when we find a click target
+        if (loopElement.matches?.(CLICK_TARGET_SELECTOR)) {
+            return loopElement
+        }
+
         const compStyles = window.getComputedStyle(loopElement)
         if (compStyles.getPropertyValue('cursor') === 'pointer') {
-            const parentStyles = loopElement.parentElement ? window.getComputedStyle(loopElement.parentElement) : null
+            const parentStyles = parent && parent.nodeType === 1 ? window.getComputedStyle(parent as HTMLElement) : null
             if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
                 return loopElement
             }
         }
 
-        loopElement = loopElement.parentElement
+        loopElement = parent as HTMLElement
     }
-    return null
+
+    return element
 }
 
 export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function getAllClickTargets(): HTMLElement[] {
-    const elements = (document.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
+export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
+    const elements = (startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
 
-    const allElements = [...((document.querySelectorAll('*') as unknown) as HTMLElement[])]
+    const allElements = [...((startNode.querySelectorAll('*') as unknown) as HTMLElement[])]
     const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
@@ -150,7 +161,13 @@ export function getAllClickTargets(): HTMLElement[] {
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
-    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e))
+    const shadowElements = allElements
+        .filter((el) => el.shadowRoot && el.getAttribute('id') !== '__POSTHOG_TOOLBAR__')
+        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
+        .reduce((a, b) => [...a, ...b], [])
+    const selectedElements = [...elements, ...pointerElements, ...shadowElements]
+        .map((e) => trimElement(e))
+        .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
     return uniqueElements
