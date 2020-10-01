@@ -96,16 +96,20 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return props.get("email", event[5])
 
     def get_elements(self, event):
-        return []
+        if not event[6] or event[6] not in self.context["elements"]:
+            return []
+        return self.context["elements"][event[6]]
 
     def get_elements_hash(self, event):
         return event[6]
 
 
-def determine_event_conditions(conditions: Dict[str, str]) -> Tuple[str, Dict]:
+def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params = {}
     for idx, (k, v) in enumerate(conditions.items()):
+        if not isinstance(v, str):
+            continue
         if k == "after":
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s"

@@ -29,4 +29,5 @@ def _create_person(**kwargs):
 class ClickhouseTestEventApi(
     ClickhouseTestMixin, test_event_api_factory(_create_event, _create_person, _create_action)  # type: ignore
 ):
-    pass
+    def test_live_action_events(self):
+        pass

@@ -171,7 +171,7 @@ WHERE uuid IN
 (
     SELECT event_id
     FROM events_properties_view AS ep
-    WHERE team_id = %(team_id)s {filters}
+    WHERE team_id = %(team_id)s AND {filters}
 )
 AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
 ORDER BY timestamp DESC {limit}

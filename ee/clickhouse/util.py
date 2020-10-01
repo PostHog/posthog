@@ -49,7 +49,7 @@ class ClickhouseTestMixin:
 
     # Ignore assertNumQueries in clickhouse tests
     @contextmanager
-    def assertNumQueries(self, num, func=None, *args, **kwargs):
+    def assertNumQueries(self, num, func=None, *args, using=None, **kwargs):
         yield
 
 

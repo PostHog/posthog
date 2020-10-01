@@ -105,6 +105,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def _movie_event(self, distinct_id: str):
             sign_up = event_factory(
+                event="$autocapture",
                 distinct_id=distinct_id,
                 team=self.team,
                 elements=[
@@ -254,9 +255,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def test_pagination(self):
             events = []
+            person_factory(team=self.team, distinct_ids=["1"])
             for index in range(0, 150):
-                events.append(Event(team=self.team, event="some event", distinct_id="1"))
-            Event.objects.bulk_create(events)
+                event_factory(team=self.team, event="some event", distinct_id="1")
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
