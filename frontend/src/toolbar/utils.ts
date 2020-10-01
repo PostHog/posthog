@@ -93,6 +93,18 @@ export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
 
+export function getParent(element: HTMLElement): HTMLElement | null {
+    const parent = element.parentNode
+    // 11 = DOCUMENT_FRAGMENT_NODE
+    if (parent?.nodeType === window.Node.DOCUMENT_FRAGMENT_NODE) {
+        return (parent as ShadowRoot).host as HTMLElement
+    }
+    if (parent?.nodeType === window.Node.ELEMENT_NODE) {
+        return parent as HTMLElement
+    }
+    return null
+}
+
 export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
@@ -114,11 +126,7 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
     }
 
     while (loopElement) {
-        let parent = loopElement.parentNode
-        // 11 = DOCUMENT_FRAGMENT_NODE
-        if (parent && parent.nodeType === 11) {
-            parent = (parent as ShadowRoot).host
-        }
+        const parent = getParent(loopElement)
         if (!parent) {
             return loopElement
         }
@@ -130,13 +138,13 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
 
         const compStyles = window.getComputedStyle(loopElement)
         if (compStyles.getPropertyValue('cursor') === 'pointer') {
-            const parentStyles = parent && parent.nodeType === 1 ? window.getComputedStyle(parent as HTMLElement) : null
+            const parentStyles = parent ? window.getComputedStyle(parent) : null
             if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
                 return loopElement
             }
         }
 
-        loopElement = parent as HTMLElement
+        loopElement = parent
     }
 
     return element
