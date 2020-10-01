@@ -12,7 +12,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
 
     def test_add_organization_member(self):
         user = User.objects.create_user("test@x.com", None, "X")
-        response = self.client.put(f"/api/organization/members/{user.id}", content_type="application/json")
+        response = self.client.put(f"/api/organizations/@current/members/{user.id}", content_type="application/json")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
         response_data = response.json()
@@ -35,9 +35,9 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         OrganizationMembership.objects.create(user=user, organization=self.organization)
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
-        response = self.client.delete(f"/api/organization/members/{user.id}/")
-        self.assertEqual(membership_queryset.count(), 0)
+        response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(membership_queryset.count(), 0)
 
     def test_change_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -46,7 +46,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organization/members/{user.id}",
+            f"/api/organizations/@current/members/{user.id}",
             {"level": OrganizationMembership.Level.ADMIN},
             content_type="application/json",
         )
@@ -72,7 +72,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organization/members/{user.id}/",
+            f"/api/organizations/@current/members/{user.id}/",
             {"level": OrganizationMembership.Level.ADMIN},
             content_type="application/json",
         )

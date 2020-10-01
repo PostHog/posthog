@@ -1,9 +1,7 @@
-import posthoganalytics
-from django.conf import settings
-from rest_framework import decorators, exceptions, response, routers
+from rest_framework import decorators, exceptions, response
+from rest_framework_nested import routers
 
 from posthog.ee import check_ee_enabled
-from posthog.settings import print_warning
 
 from . import (
     action,
@@ -15,8 +13,9 @@ from . import (
     feature_flag,
     funnel,
     insight,
-    organization_invites,
-    organization_members,
+    organization,
+    organization_invite,
+    organization_member,
     paths,
     person,
     personal_api_key,
@@ -25,7 +24,13 @@ from . import (
 
 class OptionalTrailingSlashRouter(routers.DefaultRouter):
     def __init__(self, *args, **kwargs):
-        super().__init__()
+        super().__init__(*args, **kwargs)
+        self.trailing_slash = r"/?"
+
+
+class NestedOptionalTrailingSlashRouter(routers.NestedDefaultRouter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
 
 
@@ -45,13 +50,15 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
-router.register(
-    r"organization/members", organization_members.OrganizationMemberViewSet, basename="organization_members"
-)
-router.register(
-    r"organization/invites", organization_invites.OrganizationInviteViewSet, basename="organization_invites"
-)
 router.register(r"insight", insight.InsightViewSet)
+router.register(r"organizations", organization.OrganizationViewSet)
+organizations_router = NestedOptionalTrailingSlashRouter(router, r"organizations", lookup="organization")
+organizations_router.register(
+    r"members", organization_member.OrganizationMemberViewSet, basename="organization_members"
+)
+organizations_router.register(
+    r"invites", organization_invite.OrganizationInviteViewSet, basename="organization_invites"
+)
 
 if check_ee_enabled():
     try:

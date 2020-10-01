@@ -11,7 +11,7 @@ export const invitesLogic = kea({
         invites: {
             __default: [],
             loadInvites: async () => {
-                return await api.get('api/organization/invites/')
+                return await api.get('api/organizations/@current/invites/')
             },
             createInvite: async (mode: InviteCreationMode, maxUses?: number, targetEmail?: string) => {
                 let payload
@@ -25,11 +25,11 @@ export const invitesLogic = kea({
                     default:
                         break
                 }
-                const newInvite = await api.create('api/organization/invites/', payload)
+                const newInvite = await api.create('api/organizations/@current/invites/', payload)
                 return [newInvite, ...values.invites]
             },
             deleteInvite: async (invite) => {
-                await api.delete(`api/organization/invites/${invite.id}/`)
+                await api.delete(`api/organizations/@current/invites/${invite.id}/`)
                 toast(
                     <div>
                         <h1 className="text-success">

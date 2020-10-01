@@ -60,10 +60,15 @@ class OrganizationInviteViewSet(
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
     queryset = OrganizationInvite.objects.none()
     lookup_field = "id"
+    ordering_fields = ["created_by"]
+    ordering = ["-created_by"]
 
     def get_queryset(self) -> QuerySet:
+        organization_id = self.kwargs["organization_pk"]
+        if organization_id == "@current":
+            organization_id = self.request.user.organization.id
         return (
-            OrganizationInvite.objects.filter(organization=self.request.user.organization)
+            OrganizationInvite.objects.filter(organization_id=organization_id)
             .select_related("created_by")
             .select_related("last_used_by")
             .order_by("-created_at")

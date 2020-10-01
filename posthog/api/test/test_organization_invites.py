@@ -5,7 +5,7 @@ from .base import APIBaseTest
 
 class TestOrganizationInvitesAPI(APIBaseTest):
     def test_add_organization_invite(self):
-        response = self.client.post("/api/organization/invites/")
+        response = self.client.post("/api/organizations/@current/invites/")
         self.assertEqual(response.status_code, 201)
         self.assertTrue(OrganizationInvite.objects.exists())
         response_data = response.json()
@@ -25,7 +25,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
     def test_add_organization_invite_with_max_uses(self):
-        response = self.client.post("/api/organization/invites/", {"max_uses": 3})
+        response = self.client.post("/api/organizations/@current/invites/", {"max_uses": 3})
         self.assertEqual(response.status_code, 201)
         self.assertTrue(OrganizationInvite.objects.exists())
         response_data = response.json()
@@ -46,7 +46,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     def test_delete_organization_member(self):
         invite = OrganizationInvite.objects.create(organization=self.organization)
-        response = self.client.delete(f"/api/organization/invites/{invite.id}")
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         self.assertIsNone(response.data)
         self.assertEqual(response.status_code, 204)
         self.assertFalse(OrganizationInvite.objects.exists())

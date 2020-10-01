@@ -7,7 +7,7 @@ export const signupLogic = kea({
             [],
             {
                 createAccount: async (payload) => {
-                    return await api.create('api/organization/signup/', payload)
+                    return await api.create('api/organizations/@current/signup/', payload)
                 },
             },
         ],

@@ -9,10 +9,10 @@ export const membersLogic = kea({
         members: {
             __default: [],
             loadMembers: async () => {
-                return await api.get('api/organization/members/')
+                return await api.get('api/organizations/@current/members/')
             },
             removeMember: async (member) => {
-                const result = await api.delete(`api/organization/members/${member.user_id}/`)
+                const result = await api.delete(`api/organizations/@current/members/${member.user_id}/`)
                 actions.loadMembers()
                 toast(
                     <div>
