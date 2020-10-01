@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 import posthoganalytics
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS
 
@@ -26,15 +27,18 @@ from ee.clickhouse.sql.person import (
 
 class ClickhouseTestMixin:
     def tearDown(self):
-        self._destroy_event_tables()
-        sync_execute(DROP_ELEMENTS_TABLE_SQL)
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+        try:
+            self._destroy_event_tables()
+            sync_execute(DROP_ELEMENTS_TABLE_SQL)
+            sync_execute(DROP_PERSON_TABLE_SQL)
+            sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
 
-        self._create_event_tables()
-        sync_execute(ELEMENTS_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
-        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+            self._create_event_tables()
+            sync_execute(ELEMENTS_TABLE_SQL)
+            sync_execute(PERSONS_TABLE_SQL)
+            sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        except ServerException:
+            pass
 
     def _destroy_event_tables(self):
         sync_execute(DROP_EVENTS_TABLE_SQL)

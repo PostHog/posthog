@@ -83,7 +83,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def _signup_event(self, distinct_id: str):
             sign_up = event_factory(
-                event="random event",
+                event="$autocapture",
                 distinct_id=distinct_id,
                 team=self.team,
                 elements=[Element(tag_name="button", text="Sign up!")],
@@ -92,7 +92,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def _pay_event(self, distinct_id: str):
             sign_up = event_factory(
-                event="random event",
+                event="$autocapture",
                 distinct_id=distinct_id,
                 team=self.team,
                 elements=[
@@ -123,15 +123,19 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def test_live_action_events(self):
             action_sign_up = Action.objects.create(team=self.team, name="signed up")
-            ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
+            ActionStep.objects.create(event="$autocapture", action=action_sign_up, tag_name="button", text="Sign up!")
             # 2 steps that match same element might trip stuff up
-            ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
+            ActionStep.objects.create(event="$autocapture", action=action_sign_up, tag_name="button", text="Sign up!")
 
             action_credit_card = Action.objects.create(team=self.team, name="paid")
-            ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
+            ActionStep.objects.create(
+                event="$autocapture", action=action_credit_card, tag_name="button", text="Pay $10"
+            )
 
             action_watch_movie = Action.objects.create(team=self.team, name="watch movie")
-            ActionStep.objects.create(action=action_watch_movie, text="Watch now", selector="div > a.watch_movie")
+            ActionStep.objects.create(
+                event="$autocapture", action=action_watch_movie, text="Watch now", selector="div > a.watch_movie"
+            )
 
             # events
             person_stopped_after_signup = person_factory(distinct_ids=["stopped_after_signup"], team=self.team)
@@ -145,7 +149,10 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             # Test filtering of deleted actions
             deleted_action_watch_movie = Action.objects.create(team=self.team, name="watch movie", deleted=True)
             ActionStep.objects.create(
-                action=deleted_action_watch_movie, text="Watch now", selector="div > a.watch_movie",
+                event="$autocapture",
+                action=deleted_action_watch_movie,
+                text="Watch now",
+                selector="div > a.watch_movie",
             )
             deleted_action_watch_movie.calculate_events()
 
