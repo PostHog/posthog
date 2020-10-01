@@ -24,7 +24,7 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
         try:
             earliest_date = sync_execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
         except IndexError:
-            date_from = None
+            date_from = ""
         else:
             date_from = "and timestamp >= '{}'".format(
                 earliest_date.strftime(
