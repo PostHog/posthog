@@ -349,7 +349,7 @@ export function humanFriendlyDetailedTime(date, withSeconds = false) {
     } else if (moment(date).isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
-    if (withSeconds) formatString += ':s a'
+    if (withSeconds) formatString += ':ss a'
     else formatString += ' a'
     return moment(date).format(formatString)
 }

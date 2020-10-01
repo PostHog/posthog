@@ -78,7 +78,10 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return str(event[0])
 
     def get_properties(self, event):
-        return dict(zip(event[8], event[9]))
+        if len(event) >= 10 and event[8] and event[9]:
+            return dict(zip(event[8], event[9]))
+        else:
+            return json.loads(event[2])
 
     def get_event(self, event):
         return event[1]
