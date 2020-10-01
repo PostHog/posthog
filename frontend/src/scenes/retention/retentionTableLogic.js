@@ -2,6 +2,8 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import moment from 'moment'
 
 export const dateOptions = {
@@ -10,9 +12,6 @@ export const dateOptions = {
     w: 'Week',
     m: 'Month',
 }
-
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 function cleanRetentionParams(filters, properties) {
     return {
@@ -27,10 +26,11 @@ export const retentionTableLogic = kea({
         retention: {
             __default: {},
             loadRetention: async () => {
-                let params = { properties: values.properties }
+                let params = {}
+                params['properties'] = values.properties
                 if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
-                if (values.startEntity) params['start_entity'] = values.startEntity
+                if (values.startEntity) params['target_entity'] = values.startEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/insight/retention/?${urlParams}`)
             },
@@ -57,8 +57,6 @@ export const retentionTableLogic = kea({
     },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
-        dateChanged: (date) => ({ date }),
-        setPeriod: (period) => ({ period }),
         setFilters: (filters) => ({ filters }),
         loadMore: (selectedIndex) => ({ selectedIndex }),
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
@@ -73,11 +71,12 @@ export const retentionTableLogic = kea({
                 setProperties: (_, { properties }) => properties,
             },
         ],
-        selectedDate: [moment().subtract(11, 'days').startOf('day'), { dateChanged: (_, { date }) => date }],
-        period: ['d', { setPeriod: (_, { period }) => period }],
         filters: [
             {
-                date_from: moment().subtract(11, 'days'),
+                startEntity: {
+                    events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                },
+                selectedDate: moment().subtract(11, 'days'),
                 period: 'd',
             },
             {
@@ -103,30 +102,35 @@ export const retentionTableLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
-            () => [selectors.properties, selectors.selectedDate, selectors.period],
-            (properties, selectedDate, period) => {
-                let result = {}
+            () => [selectors.properties],
+            (properties) => {
                 if (Object.keys(properties).length > 0) {
-                    result['properties'] = properties
+                    return { properties }
+                } else {
+                    return ''
                 }
-                if (selectedDate) {
-                    result['date_from'] = selectedDate.format('YYYY-MM-DD')
-                }
-                if (selectedDate) {
-                    result['period'] = period
-                }
-
-                return result
             },
         ],
         startEntity: [
             () => [selectors.filters],
             (filters) => {
-                const result = Object.keys(filters).reduce(function (r, k) {
-                    return r.concat(filters[k])
+                const result = Object.keys(filters.startEntity).reduce(function (r, k) {
+                    return r.concat(filters.startEntity[k])
                 }, [])
 
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
+            },
+        ],
+        selectedDate: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.selectedDate
+            },
+        ],
+        period: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.period
             },
         ],
     }),
@@ -136,12 +140,6 @@ export const retentionTableLogic = kea({
     actionToUrl: ({ actions, values }) => ({
         [actions.setFilters]: () => {
             return ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }]
-        },
-        dateChanged: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
-        },
-        setPeriod: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
     urlToAction: ({ actions, values }) => ({
@@ -164,12 +162,6 @@ export const retentionTableLogic = kea({
                 actions.setFilters({
                     [`${searchParams.target.type}`]: [searchParams.target],
                 })
-            }
-            if (!objectsEqual(searchParams.date_from || {}, values.selectedDate.format('YYYY-MM-DD'))) {
-                searchParams.date_from && actions.dateChanged(moment(searchParams.date_from))
-            }
-            if (searchParams.period !== values.period) {
-                searchParams.period && actions.setPeriod(searchParams.period)
             }
         },
     }),

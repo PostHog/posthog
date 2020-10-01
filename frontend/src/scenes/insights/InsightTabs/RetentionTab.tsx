@@ -11,15 +11,15 @@ import { DatePicker, Select } from 'antd'
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const [open, setOpen] = useState<boolean>(false)
-    const { filters, startEntity } = useValues(retentionTableLogic)
+    const { filters, startEntity, selectedDate, period } = useValues(retentionTableLogic)
     const { setFilters } = useActions(retentionTableLogic)
 
     const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
-            setFilters(filters)
+            setFilters({ startEntity: filters })
             setOpen(false)
         },
-        filters: filters,
+        filters: filters.startEntity,
         typeKey: 'retention-table',
         singleMode: true,
     })
@@ -58,8 +58,8 @@ export function RetentionTab(): JSX.Element {
             <div>
                 <DatePicker
                     className="mb-2"
-                    value={filters.date_from}
-                    onChange={(date): void => setFilters({ date_from: date })}
+                    value={selectedDate}
+                    onChange={(date): void => setFilters({ selectedDate: date })}
                     allowClear={false}
                 />
             </div>
@@ -67,7 +67,7 @@ export function RetentionTab(): JSX.Element {
             <h4 className="secondary">Period</h4>
             <div>
                 <Select
-                    value={dateOptions[filters.period]}
+                    value={dateOptions[period]}
                     onChange={(value): void => setFilters({ period: value })}
                     dropdownMatchSelectWidth={false}
                 >
