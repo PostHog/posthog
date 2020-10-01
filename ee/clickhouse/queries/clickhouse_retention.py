@@ -74,7 +74,9 @@ class ClickhouseRetention(BaseQuery):
         for res in result:
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
-        date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
+        if period == "Week":
+            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
+
         labels_format = "%a. %-d %B"
         hourly_format = "%-H:%M %p"
         parsed = [
