@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react'
 import { useValues, useActions } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
-import PropTypes from 'prop-types'
 import defaultImg from './../../../public/plan-default.svg'
+import { PlanInterface } from '~/types'
 
-function Plan({ plan, onUpgrade }) {
+function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: PlanInterface) => void }): JSX.Element {
     return (
         <Card>
             <img src={plan.image_url || defaultImg} alt="" height={100} width={100} />
@@ -26,21 +27,23 @@ function Plan({ plan, onUpgrade }) {
     )
 }
 
-function Billing(props) {
+export function Billing(): JSX.Element {
     const { plans, billingSubscription, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
     const { loadPlans, subscribe } = useActions(billingLogic)
-    const { user } = props
+    const { user } = useValues(userLogic)
 
-    const handleBillingSubscribe = (plan) => {
+    const handleBillingSubscribe = (plan: PlanInterface): void => {
         subscribe(plan.key)
     }
 
     useEffect(() => {
-        if (!user.billing?.plan || user.billing?.should_setup_billing) loadPlans()
+        if (!user?.billing?.plan || user?.billing?.should_setup_billing) loadPlans()
     }, [user])
 
     useEffect(() => {
-        if (billingSubscription?.subscription_url) window.location.href = billingSubscription.subscription_url
+        if (billingSubscription?.subscription_url) {
+            window.location.href = billingSubscription.subscription_url
+        }
     }, [billingSubscription])
 
     return (
@@ -50,16 +53,16 @@ function Billing(props) {
             </h1>
             <div className="space-top"></div>
             <Card title="Current usage">
-                {user.billing?.current_usage && (
+                {user?.billing?.current_usage && (
                     <>
                         Your organization has used <b>{user.billing.current_usage.formatted}</b> events this month.{' '}
-                        {user.billing.plan?.allowance && (
+                        {user?.billing.plan?.allowance && (
                             <>
                                 Your current plan has an allowance of up to{' '}
-                                <b>{user.billing.plan.allowance.formatted}</b> events per month.
+                                <b>{user?.billing.plan.allowance.formatted}</b> events per month.
                             </>
                         )}
-                        {user.billing.plan && !user.billing.plan.allowance && (
+                        {user?.billing.plan && !user?.billing.plan.allowance && (
                             <>Your current plan has an unlimited event allowance.</>
                         )}
                         <Progress
@@ -70,7 +73,7 @@ function Billing(props) {
                         />
                     </>
                 )}
-                {!user.billing?.current_usage && (
+                {!user?.billing?.current_usage && (
                     <div>
                         Currently we do not have information about your usage. Please check back again in a few minutes
                         or{' '}
@@ -83,7 +86,7 @@ function Billing(props) {
             </Card>
             <div className="space-top"></div>
             <Card title="Billing plan">
-                {user.billing.plan && !user.billing.should_setup_billing && (
+                {user?.billing.plan && !user?.billing.should_setup_billing && (
                     <>
                         Your organization is currently on the <b>{user.billing.plan.name}</b>. We're working on allowing
                         self-serve billing management, in the meantime, please{' '}
@@ -91,14 +94,14 @@ function Billing(props) {
                         change or cancel your subscription.
                     </>
                 )}
-                {user.billing.plan && user.billing.should_setup_billing && (
+                {user?.billing.plan && user?.billing.should_setup_billing && (
                     <>
-                        Your organization is currently enrolled in the <b>{user.billing.plan.name}</b>, but billing
-                        details have not been set up. Please <a href={user.billing.subscription_url}>set them up now</a>{' '}
-                        or change your plan.{' '}
+                        Your organization is currently enrolled in the <b>{user?.billing.plan.name}</b>, but billing
+                        details have not been set up. Please{' '}
+                        <a href={user?.billing.subscription_url}>set them up now</a> or change your plan.{' '}
                     </>
                 )}
-                {!user.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
+                {!user?.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
                 {plans?.results?.length > 0 && (
                     <>
                         Choose a plan from the list below to initiate a subscription.{' '}
@@ -110,7 +113,7 @@ function Billing(props) {
                             .
                         </b>
                         <Row gutter={16} className="space-top">
-                            {plans.results.map((plan) => (
+                            {plans.results.map((plan: PlanInterface) => (
                                 <Col sm={24 / plans.results.length} key={plan.key} className="text-center">
                                     {billingSubscriptionLoading && (
                                         <Spin>
@@ -130,14 +133,3 @@ function Billing(props) {
         </>
     )
 }
-
-Billing.propTypes = {
-    user: PropTypes.object.isRequired,
-}
-
-Plan.propTypes = {
-    plan: PropTypes.object.isRequired,
-    onUpgrade: PropTypes.func.isRequired,
-}
-
-export default Billing

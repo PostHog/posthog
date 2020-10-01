@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from 'types/scenes/billing/billingLogicType'
+import { BillingSubscription } from '~/types'
 
 export const billingLogic = kea<billingLogicType>({
     loaders: () => ({
@@ -14,7 +15,7 @@ export const billingLogic = kea<billingLogicType>({
             },
         ],
         billingSubscription: [
-            {},
+            null as BillingSubscription | null,
             {
                 subscribe: async (plan) => {
                     return await api.create('billing/subscribe', { plan })
@@ -44,10 +45,10 @@ export const billingLogic = kea<billingLogicType>({
                     }
                 }
 
-                if (percentage > 0.65 && percentage < 0.8) {
+                if (percentage && percentage > 0.65 && percentage < 0.8) {
                     color = '#F7A501'
                 }
-                if (percentage > 0.8) {
+                if (percentage && percentage > 0.8) {
                     color = '#F54E00'
                 }
                 return color
