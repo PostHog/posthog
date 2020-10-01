@@ -48,10 +48,13 @@ class ClickhouseTestMixin:
         sync_execute(MAT_EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_EVENT_PROP_TABLE_SQL)
 
-    # Ignore assertNumQueries in clickhouse tests
     @contextmanager
-    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):  # type: ignore
+    def _assertNumQueries(self, func):
         yield
+
+    # Ignore assertNumQueries in clickhouse tests
+    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
+        return self._assertNumQueries(func)
 
 
 CH_PERSON_ENDPOINT = "ch-person-endpoint"
