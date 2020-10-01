@@ -4,7 +4,7 @@ from django.db.models import Model
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 
-from posthog.models import OrganizationMembership, organization
+from posthog.models import OrganizationMembership
 
 
 class OrganizationMemberPermissions(BasePermission):
