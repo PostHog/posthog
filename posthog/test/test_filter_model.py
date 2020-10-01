@@ -140,11 +140,14 @@ class TestPropertiesToQ(BaseTest):
     def test_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(team=self.team, distinct_ids=[person1_distinct_id], properties={"group": 1})
-        cohort1 = Cohort.objects.create(team=self.team, name="cohort1", people=[person1])
+        cohort1 = Cohort.objects.create(team=self.team, groups={}, name="cohort1")
+        cohort1.people.add(person1)
+
+        filters = {"cohort": [{"key": "1", "value": "true"}]}
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team.pk, is_person_query=True))
+            .filter(Filter(data=filters).properties_to_Q(team_id=self.team.pk, is_person_query=True))
             .exists()
         )
         self.assertTrue(matched_person)
