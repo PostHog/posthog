@@ -2,15 +2,16 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from 'types/scenes/billing/billingLogicType'
-import { BillingSubscription } from '~/types'
+import { BillingSubscription, PlanInterface } from '~/types'
 
 export const billingLogic = kea<billingLogicType>({
     loaders: () => ({
         plans: [
-            [],
+            [] as PlanInterface[],
             {
                 loadPlans: async () => {
-                    return await api.get('plans?self_serve=1')
+                    const response = await api.get('plans?self_serve=1')
+                    return response.results
                 },
             },
         ],
@@ -54,5 +55,21 @@ export const billingLogic = kea<billingLogicType>({
                 return color
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            const user = userLogic.values.user
+            if (!user?.billing?.plan || user?.billing?.should_setup_billing) {
+                actions.loadPlans()
+            }
+        },
+    }),
+    listeners: ({ values }) => ({
+        subscribeSuccess: () => {
+            const { subscription_url } = values.billingSubscription
+            if (subscription_url) {
+                window.location.href = subscription_url
+            }
+        },
     }),
 })

@@ -92,12 +92,7 @@ function App() {
                     <TopContent user={user} />
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
-                    {user.billing?.should_setup_billing && (
-                        <BillingToolbar
-                            billingUrl={user.billing.subscription_url}
-                            message={user.billing?.plan?.custom_setup_billing_message}
-                        />
-                    )}
+                    <BillingToolbar />
                     {!user.has_events && image ? (
                         <SendEventsOverlay image={image} user={user} />
                     ) : (

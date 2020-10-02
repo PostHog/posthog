@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
@@ -28,23 +28,13 @@ function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: Plan
 }
 
 export function Billing(): JSX.Element {
-    const { plans, billingSubscription, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
-    const { loadPlans, subscribe } = useActions(billingLogic)
+    const { plans, billingSubscriptionLoading, percentage, strokeColor } = useValues(billingLogic)
+    const { subscribe } = useActions(billingLogic)
     const { user } = useValues(userLogic)
 
     const handleBillingSubscribe = (plan: PlanInterface): void => {
         subscribe(plan.key)
     }
-
-    useEffect(() => {
-        if (!user?.billing?.plan || user?.billing?.should_setup_billing) loadPlans()
-    }, [user])
-
-    useEffect(() => {
-        if (billingSubscription?.subscription_url) {
-            window.location.href = billingSubscription.subscription_url
-        }
-    }, [billingSubscription])
 
     return (
         <>
@@ -102,7 +92,7 @@ export function Billing(): JSX.Element {
                     </>
                 )}
                 {!user?.billing.plan && <>Your organization does not have a billing plan set up yet.</>}
-                {plans?.results?.length > 0 && (
+                {plans?.length > 0 && (
                     <>
                         Choose a plan from the list below to initiate a subscription.{' '}
                         <b>
@@ -113,8 +103,8 @@ export function Billing(): JSX.Element {
                             .
                         </b>
                         <Row gutter={16} className="space-top">
-                            {plans.results.map((plan: PlanInterface) => (
-                                <Col sm={24 / plans.results.length} key={plan.key} className="text-center">
+                            {plans.map((plan: PlanInterface) => (
+                                <Col sm={24 / plans.length} key={plan.key} className="text-center">
                                     {billingSubscriptionLoading && (
                                         <Spin>
                                             <Plan plan={plan} onUpgrade={handleBillingSubscribe} />
