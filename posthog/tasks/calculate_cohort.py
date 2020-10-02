@@ -31,13 +31,3 @@ def calculate_cohorts() -> None:
         logger.info(" - Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - cohort_start)))
 
     logger.info("Calculating all cohorts took {:.2f} seconds".format(time.time() - start_time))
-
-
-def calculate_cohorts_ch(cohort: Cohort) -> None:
-    if check_ee_enabled():
-        try:
-            from ee.clickhouse.models.cohort import populate_cohort_person_table
-
-            populate_cohort_person_table(cohort)
-        except:
-            logger.error("Could not update clickhouse cohort tables")
