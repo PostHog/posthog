@@ -37,7 +37,7 @@ FROM
         event,
         properties,
         elements_hash,
-        if(is_new_session, generateUUIDv4(), NULL) AS session_uuid,
+        if(is_new_session, uuid, NULL) AS session_uuid,
         is_new_session,
         is_end_session,
         if(is_end_session AND is_new_session, 0, if(is_new_session AND (NOT is_end_session), dateDiff('second', toDateTime(timestamp), toDateTime(neighbor(timestamp, 1))), NULL)) AS session_duration_seconds,
