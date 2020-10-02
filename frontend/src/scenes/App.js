@@ -11,7 +11,7 @@ import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
-import BillingToolbar from 'lib/components/BillingToolbar'
+import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
@@ -92,9 +92,7 @@ function App() {
                     <TopContent user={user} />
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
-                    {user.billing?.should_setup_billing && (
-                        <BillingToolbar billingUrl={user.billing.subscription_url} />
-                    )}
+                    <BillingToolbar />
                     {!user.has_events && image ? (
                         <SendEventsOverlay image={image} user={user} />
                     ) : (

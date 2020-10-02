@@ -10,6 +10,7 @@ export interface UserType {
     posthog_version: string
     team: TeamType
     toolbar_mode: string
+    billing: OrganizationBilling
 }
 
 export interface PersonalAPIKeyType {
@@ -142,4 +143,26 @@ export interface SessionType {
     length: number
     properties: Record<string, any>
     start_time: string
+}
+
+export interface OrganizationBilling {
+    plan: PlanInterface
+    current_usage: { value: number; formatted: string } | null
+    should_setup_billing: boolean
+    stripe_checkout_session: string
+    subscription_url: string
+}
+
+export interface PlanInterface {
+    key: string
+    name: string
+    custom_setup_billing_message: string
+    image_url: string
+    self_serve: boolean
+    allowance: null | Record<string, string | number>
+}
+
+export interface BillingSubscription {
+    subscription_url: string
+    stripe_checkout_session: string
 }
