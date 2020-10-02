@@ -38,7 +38,7 @@ class ClickhouseEvents(EventViewSet):
         for person in persons:
             for distinct_id in person["distinct_ids"]:
                 distinct_to_person[distinct_id] = person
-        return distinct_id_to_person
+        return distinct_to_person
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
