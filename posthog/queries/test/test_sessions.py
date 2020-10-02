@@ -42,12 +42,15 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
+            # 4 minutes
             with freeze_time("2012-01-14T03:25:34.000Z"):
                 event_factory(team=self.team, event="2nd action", distinct_id="1")
                 event_factory(team=self.team, event="2nd action", distinct_id="2")
+
             with freeze_time("2012-01-15T03:59:34.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="1")
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
+            # 2 minutes
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
