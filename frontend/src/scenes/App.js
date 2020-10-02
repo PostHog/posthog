@@ -17,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 const darkerScenes = {
     dashboard: true,
@@ -56,6 +57,12 @@ function App() {
         // If user is already logged in, redirect away from unauthenticated routes like signup
         if (user && unauthenticatedRoutes.includes(scene)) replace('/')
     }, [scene, user])
+
+    useEffect(() => {
+        if (user && !user.opt_out_capture) {
+            posthog.init('sTMFPsFhdP1Ssg', { api_host: 'https://app.posthog.com' })
+        }
+    }, [user])
 
     if (!user) {
         return (
