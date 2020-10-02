@@ -18,6 +18,79 @@ from posthog.utils import append_data, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
 
+SESSIONS_NO_EVENTS_SQL = """
+SELECT
+    distinct_id,
+    uuid,
+    event,
+    properties,
+    elements_hash,
+    session_uuid,
+    session_duration_seconds,
+    timestamp,
+    session_end_ts
+FROM
+(
+    SELECT
+        distinct_id,
+        uuid,
+        event,
+        properties,
+        elements_hash,
+        if(is_new_session, uuid, NULL) AS session_uuid,
+        is_new_session,
+        is_end_session,
+        if(is_end_session AND is_new_session, 0, if(is_new_session AND (NOT is_end_session), dateDiff('second', toDateTime(timestamp), toDateTime(neighbor(timestamp, 1))), NULL)) AS session_duration_seconds,
+        timestamp,
+        if(is_end_session AND is_new_session, timestamp, if(is_new_session AND (NOT is_end_session), neighbor(timestamp, 1), NULL)) AS session_end_ts
+    FROM
+    (
+        SELECT
+            distinct_id,
+            uuid,
+            event,
+            properties,
+            elements_hash,
+            timestamp,
+            neighbor(distinct_id, -1) AS start_possible_neighbor,
+            neighbor(timestamp, -1) AS start_possible_prev_ts,
+            if((start_possible_neighbor != distinct_id) OR (dateDiff('minute', toDateTime(start_possible_prev_ts), toDateTime(timestamp)) > 30), 1, 0) AS is_new_session,
+            neighbor(distinct_id, 1) AS end_possible_neighbor,
+            neighbor(timestamp, 1) AS end_possible_prev_ts,
+            if((end_possible_neighbor != distinct_id) OR (dateDiff('minute', toDateTime(timestamp), toDateTime(end_possible_prev_ts)) > 30), 1, 0) AS is_end_session
+        FROM
+        (
+            SELECT
+                uuid,
+                event,
+                properties,
+                timestamp,
+                distinct_id,
+                elements_hash
+            FROM events
+            WHERE 
+                team_id = %(team_id)s
+                {date_from}
+                {date_to} 
+                {filters}
+            GROUP BY
+                uuid,
+                event,
+                properties,
+                timestamp,
+                distinct_id,
+                elements_hash
+            ORDER BY
+                distinct_id ASC,
+                timestamp ASC
+        )
+    )
+    WHERE (is_new_session AND (NOT is_end_session)) OR (is_end_session AND (NOT is_new_session)) OR (is_end_session AND is_new_session)
+)
+WHERE is_new_session
+{sessions_limit}
+"""
+
 SESSION_SQL = """
     SELECT 
         distinct_id, 
@@ -103,12 +176,12 @@ SESSION_SQL = """
 
 AVERAGE_PER_PERIOD_SQL = """
     SELECT 
-        AVG(elapsed) as total, 
-        {interval}(arrayReduce('min', timestamps)) as day_start 
+        AVG(session_duration_seconds) as total, 
+        {interval}(timestamp) as day_start 
     FROM 
         ({sessions}) 
     GROUP BY 
-        {interval}(arrayReduce('min', timestamps))
+        {interval}(timestamp)
 """
 
 AVERAGE_SQL = """
@@ -125,20 +198,20 @@ AVERAGE_SQL = """
 
 DIST_SQL = """
     SELECT 
-        countIf(elapsed = 0)  as first,
-        countIf(elapsed > 0 and elapsed <= 3)  as second,
-        countIf(elapsed > 3 and elapsed <= 10)  as third,
-        countIf(elapsed > 10 and elapsed <= 30)  as fourth,
-        countIf(elapsed > 30 and elapsed <= 60)  as fifth,
-        countIf(elapsed > 60 and elapsed <= 180)  as sixth,
-        countIf(elapsed > 180 and elapsed <= 600)  as sevent,
-        countIf(elapsed > 600 and elapsed <= 1800)  as eighth,
-        countIf(elapsed > 1800 and elapsed <= 3600)  as ninth,
-        countIf(elapsed > 3600)  as tength
+        countIf(session_duration_seconds = 0)  as first,
+        countIf(session_duration_seconds > 0 and session_duration_seconds <= 3)  as second,
+        countIf(session_duration_seconds > 3 and session_duration_seconds <= 10)  as third,
+        countIf(session_duration_seconds > 10 and session_duration_seconds <= 30)  as fourth,
+        countIf(session_duration_seconds > 30 and session_duration_seconds <= 60)  as fifth,
+        countIf(session_duration_seconds > 60 and session_duration_seconds <= 180)  as sixth,
+        countIf(session_duration_seconds > 180 and session_duration_seconds <= 600)  as sevent,
+        countIf(session_duration_seconds > 600 and session_duration_seconds <= 1800)  as eighth,
+        countIf(session_duration_seconds > 1800 and session_duration_seconds <= 3600)  as ninth,
+        countIf(session_duration_seconds > 3600)  as tenth
     FROM 
         ({sessions})
 """.format(
-    sessions=SESSION_SQL
+    sessions=SESSIONS_NO_EVENTS_SQL
 )
 
 # TODO: handle date and defaults
@@ -252,7 +325,7 @@ class ClickhouseSessions(BaseQuery):
         interval_notation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
 
-        avg_query = SESSION_SQL.format(
+        avg_query = SESSIONS_NO_EVENTS_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
@@ -273,7 +346,6 @@ class ClickhouseSessions(BaseQuery):
         params = {**params, "team_id": team.pk}
         response = sync_execute(final_query, params)
         values = self.clean_values(filter, response)
-
         time_series_data = append_data(values, interval=filter.interval, math=None)
         # calculate average
         total = sum(val[1] for val in values)
