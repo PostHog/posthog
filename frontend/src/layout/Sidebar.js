@@ -30,6 +30,7 @@ import { HogIcon } from 'lib/icons/HogIcon'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from './../../public/posthog-logo-white.svg'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -76,6 +77,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const { location } = useValues(router)
     const { push } = useActions(router)
     const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
@@ -243,7 +245,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
 
-                        {window.posthog && window.posthog.isFeatureEnabled('billing-management-page') && (
+                        {featureFlags && featureFlags['billing-management-page'] && (
                             <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
