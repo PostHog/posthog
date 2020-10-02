@@ -127,4 +127,7 @@ def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> 
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})
+        elif k == "event":
+            result += "AND event = %(event)s"
+            params.update({"event": v})
     return result, params
