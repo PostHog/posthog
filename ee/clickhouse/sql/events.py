@@ -161,13 +161,9 @@ SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
     ewap.*
 FROM events_with_array_props_view AS ewap
-WHERE uuid IN
-(
-    SELECT event_id
-    FROM events_properties_view AS ep
-    WHERE team_id = %(team_id)s AND {filters}
-)
-AND ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+WHERE 
+ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+{filters}
 ORDER BY ewap.timestamp DESC {limit}
 """
 
