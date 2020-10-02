@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_cohort_table_name
+from ee.clickhouse.models.cohort import format_cohort_table_name, format_filter_query
 from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
 from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL
 from posthog.models.cohort import Cohort
@@ -27,8 +27,10 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
 
         if prop.type == "cohort":
             cohort = Cohort.objects.get(pk=prop.value)
-            clause = COHORT_DISTINCT_ID_FILTER_SQL.format(table_name=format_cohort_table_name(cohort))
-            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
+            person_id_query, cohort_filter_params = format_filter_query(cohort)
+            params = {**params, **cohort_filter_params}
+            clause = COHORT_DISTINCT_ID_FILTER_SQL.format(query=person_id_query)
+            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=person_id_query)
 
         else:
             filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(

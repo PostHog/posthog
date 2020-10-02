@@ -9,9 +9,7 @@ SELECT * FROM events WHERE distinct_id IN (
 """
 
 COHORT_DISTINCT_ID_FILTER_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
-    SELECT person_id FROM {table_name}
-)
+SELECT distinct_id FROM person_distinct_id WHERE person_id IN ({query})
 """
 
 

@@ -1,5 +1,7 @@
+from typing import Dict, Tuple
+
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_table_name
+from ee.clickhouse.models.action import format_action_filter, format_action_table_name
 from ee.clickhouse.sql.clickhouse import DROP_TABLE_IF_EXISTS_SQL
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -28,13 +30,20 @@ def populate_cohort_person_table(cohort: Cohort) -> None:
     sync_execute(final_query)
 
 
-def format_filter_query(cohort: Cohort) -> str:
+def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
     filters = []
+    params = {}
     for group in cohort.groups:
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
-            table_name = format_action_table_name(action)
-            filters.append("(" + FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL.format(table_name=table_name) + ")")
+            action_filter_query, action_params = format_action_filter(action)
+            extract_person = "SELECT person_id FROM person_distinct_id WHERE distinct_id IN ( \
+                SELECT distinct_id FROM events WHERE uuid IN ({query})\
+            )".format(
+                query=action_filter_query
+            )
+            params = {**params, **action_params}
+            filters.append("(" + extract_person + ")")
         elif group.get("properties"):
             filter = Filter(data=group)
             prop_filter = filter.format_ch(team_id=cohort.team.pk)
@@ -43,4 +52,4 @@ def format_filter_query(cohort: Cohort) -> str:
     separator = " OR person_id IN "
     joined_filter = separator.join(filters)
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=joined_filter)
-    return person_id_query
+    return person_id_query, params

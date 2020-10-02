@@ -18,7 +18,6 @@ def calculate_cohort(cohort_id: int) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
     cohort.calculate_people()
-    calculate_cohorts_ch(cohort)
     logger.info("Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
 
 
