@@ -31,7 +31,7 @@ export function elementToQuery(element: HTMLElement): string | undefined {
     }
 
     // Turn tags into lower cases
-    return simmer(element)?.replace(/(^[A-Z]+| [A-Z]+)/g, (d: string) => d.toLowerCase())
+    return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
 }
 
 export function elementToActionStep(element: HTMLElement): ActionStepType {
@@ -81,8 +81,12 @@ export function elementToSelector(element: ElementType): string {
     return selector
 }
 
+export function getToolbarElement(): HTMLElement | null {
+    return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
+}
+
 export function getShadowRoot(): ShadowRoot | null {
-    return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot || null
+    return getToolbarElement()?.shadowRoot || null
 }
 
 export function getShadowRootPopupContainer(): HTMLElement {
@@ -109,7 +113,8 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
     }
-    if (element && element.getAttribute('id') === '__POSTHOG_TOOLBAR__') {
+    const toolbarElement = getToolbarElement()
+    if (toolbarElement && isParentOf(element, toolbarElement)) {
         return null
     }
 
@@ -128,7 +133,7 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
     while (loopElement) {
         const parent = getParent(loopElement)
         if (!parent) {
-            return loopElement
+            return null
         }
 
         // return when we find a click target
@@ -147,7 +152,7 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
         loopElement = parent
     }
 
-    return element
+    return null
 }
 
 export function inBounds(min: number, value: number, max: number): number {
@@ -205,7 +210,7 @@ export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): b
         if (loopElement !== element && loopElement === possibleParent) {
             return true
         }
-        loopElement = loopElement.parentElement
+        loopElement = getParent(loopElement)
     }
 
     return false
