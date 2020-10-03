@@ -2,6 +2,7 @@ import Simmer from '@mariusandra/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
+import { querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -216,7 +217,7 @@ export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): b
     return false
 }
 
-export function getElementForStep(step: ActionStepForm): HTMLElement | null {
+export function getElementForStep(step: ActionStepForm, allElements?: HTMLElement[]): HTMLElement | null {
     if (!step) {
         return null
     }
@@ -238,7 +239,7 @@ export function getElementForStep(step: ActionStepForm): HTMLElement | null {
 
     let elements = [] as HTMLElement[]
     try {
-        elements = [...((document.querySelectorAll(selector || '*') as unknown) as HTMLElement[])]
+        elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
         throw e
