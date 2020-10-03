@@ -995,10 +995,15 @@
     prop-types "^15.6.2"
     scheduler "^0.19.0"
 
-"@mariusandra/query-selector-shadow-dom@0.7.2-posthog", "@mariusandra/query-selector-shadow-dom@^0.7.2-posthog":
+"@mariusandra/query-selector-shadow-dom@0.7.2-posthog":
   version "0.7.2-posthog"
   resolved "https://registry.yarnpkg.com/@mariusandra/query-selector-shadow-dom/-/query-selector-shadow-dom-0.7.2-posthog.tgz#133a043b0a43b358f99d371a80b6c31ff0865c5a"
   integrity sha512-lRgyns8UVpJAbzQNTHeuz2Yyn0NBkeL2S8U4WoFg/BDKwm5o3FjkRiHIGINb2umANVRo68/4UumIlPn9CwjwOw==
+
+"@mariusandra/query-selector-shadow-dom@0.7.2-posthog.2":
+  version "0.7.2-posthog.2"
+  resolved "https://registry.yarnpkg.com/@mariusandra/query-selector-shadow-dom/-/query-selector-shadow-dom-0.7.2-posthog.2.tgz#9f32cced63db384e33b6423d2cb539257019401b"
+  integrity sha512-TodRWt0WvumbIdbGZMj7VQ300GpuX5gA2vZCla7Y/1D8UBbNXLAwyrKl6flUjPopvvnRp3PhNbYgWVsFXi+V3w==
 
 "@mariusandra/react-grid-layout@0.18.3":
   version "0.18.3"
