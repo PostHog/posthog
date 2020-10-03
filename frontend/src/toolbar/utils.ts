@@ -298,12 +298,31 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
     }
 
     if (isNew) {
+        const hasSelector = !!step.selector
         if (step.tag_name === 'a') {
-            return { ...step, href_selected: true, selector_selected: true, text_selected: false, url_selected: false }
+            return {
+                ...step,
+                href_selected: true,
+                selector_selected: hasSelector,
+                text_selected: false,
+                url_selected: false,
+            }
         } else if (step.tag_name === 'button') {
-            return { ...step, text_selected: true, selector_selected: true, href_selected: false, url_selected: false }
+            return {
+                ...step,
+                text_selected: true,
+                selector_selected: hasSelector,
+                href_selected: false,
+                url_selected: false,
+            }
         } else {
-            return { ...step, selector_selected: true, text_selected: false, url_selected: false, href_selected: false }
+            return {
+                ...step,
+                selector_selected: hasSelector,
+                text_selected: false,
+                url_selected: false,
+                href_selected: false,
+            }
         }
     }
 
