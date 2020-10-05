@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
@@ -41,12 +42,12 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     if not at:
         at = timezone.now()
 
-    period_end: timezone.datetime = timezone.datetime.combine(
-        at - timezone.timedelta(timezone.now().weekday() + 1), timezone.time.max, tzinfo=pytz.UTC,
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
-    period_start: timezone.datetime = timezone.datetime.combine(
-        period_end - timezone.timedelta(6), timezone.time.min, tzinfo=pytz.UTC,
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)

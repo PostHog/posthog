@@ -13,7 +13,7 @@ from posthog.version import VERSION
 logger = logging.getLogger(__name__)
 
 
-def status_report() -> None:
+def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
@@ -73,8 +73,10 @@ def status_report() -> None:
             )
             team_report["events_count_by_name"] = {result.name: result.count for result in namedtuplefetchall(cursor)}
         report["teams"][team.id] = team_report
-    posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-    disabled = posthoganalytics.disabled
-    posthoganalytics.disabled = False
-    posthoganalytics.capture(get_machine_id(), "instance status report", report)
-    posthoganalytics.disabled = disabled
+    if not dry_run:
+        posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+        disabled = posthoganalytics.disabled
+        posthoganalytics.disabled = False
+        posthoganalytics.capture(get_machine_id(), "instance status report", report)
+        posthoganalytics.disabled = disabled
+    return report
