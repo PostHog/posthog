@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { Framework, PlatformType } from 'scenes/onboarding/types'
 import { onboardingLogicType } from 'types/scenes/onboarding/onboardingLogicType'
-import { MOBILE, WEB } from 'scenes/onboarding/constants'
+import { API, MOBILE, WEB } from 'scenes/onboarding/constants'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 
@@ -64,15 +64,17 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
             },
         ],
         totalSteps: [
-            (s) => [s.platform, s.customEvent],
-            (platform, customEvent) => {
-                if (platform === WEB && !customEvent) {
-                    return 3
+            (s) => [s.platform, s.framework, s.customEvent, s.verify],
+            (platform, framework, customEvent, verify) => {
+                // if missing parts of the URL
+                if (verify) {
+                    return 5 - (platform ? 0 : 1) - (framework ? 0 : 1) - (customEvent ? 0 : 1)
                 }
-                if (platform === MOBILE) {
-                    return 4
+                if (framework === API && !platform) {
+                    return 4 - (customEvent ? 0 : 1)
                 }
-                return 5
+
+                return (platform === WEB && !customEvent) || platform === MOBILE ? 4 : 5
             },
         ],
     },
@@ -86,12 +88,28 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
 
     urlToAction: ({ actions }) => ({
         '/onboarding': () => actions.setState(null, false, null, false),
-        '/onboarding(/:platform)(/:framework)(/:verify)': ({ platform, framework, verify }: Record<string, string>) => {
+        '/onboarding/verify': (_: any, { platform, framework }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
                 platform === 'web-custom',
-                framework === 'verify' ? null : framework,
-                !!verify || framework === 'verify'
+                framework,
+                true
+            )
+        },
+        '/onboarding/api': (_: any, { platform }: Record<string, string>) => {
+            actions.setState(
+                platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
+                platform === 'web-custom',
+                API,
+                false
+            )
+        },
+        '/onboarding(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
+            actions.setState(
+                platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
+                platform === 'web-custom',
+                framework,
+                false
             )
         },
     }),
@@ -116,10 +134,45 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     }),
 })
 
-function getUrl(values: typeof onboardingLogic['values']): string | [string, Record<string, boolean | string | null>] {
+function getUrl(values: typeof onboardingLogic['values']): string | [string, Record<string, undefined | string>] {
     const { platform, framework, customEvent, verify } = values
 
     let url = '/onboarding'
+
+    if (verify) {
+        url += '/verify'
+        return [
+            url,
+            {
+                platform:
+                    platform === WEB
+                        ? customEvent
+                            ? 'web-custom'
+                            : 'web'
+                        : platform === MOBILE
+                        ? 'mobile'
+                        : undefined,
+                framework: framework?.toLowerCase() || undefined,
+            },
+        ]
+    }
+
+    if (framework === API) {
+        url += '/api'
+        return [
+            url,
+            {
+                platform:
+                    platform === WEB
+                        ? customEvent
+                            ? 'web-custom'
+                            : 'web'
+                        : platform === MOBILE
+                        ? 'mobile'
+                        : undefined,
+            },
+        ]
+    }
 
     if (platform === MOBILE) {
         url += '/mobile'
@@ -134,10 +187,6 @@ function getUrl(values: typeof onboardingLogic['values']): string | [string, Rec
 
     if (framework) {
         url += `/${framework.toLowerCase()}`
-    }
-
-    if (verify) {
-        url += '/verify'
     }
 
     return url
