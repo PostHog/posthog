@@ -74,7 +74,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                     return 4 - (customEvent ? 0 : 1)
                 }
 
-                return (platform === WEB && !customEvent) || platform === MOBILE ? 4 : 5
+                return platform === WEB && !customEvent ? 3 : platform === MOBILE ? 4 : 5
             },
         ],
     },
