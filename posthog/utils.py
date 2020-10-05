@@ -33,21 +33,20 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
-    Returns a tuple of datetime objects representing the start and end of the immediate
-    previous week to the passed date.
+    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
     """
 
-    if not at_date:
-        at_date = timezone.now()
+    if not at:
+        at = timezone.now()
 
-    period_end: datetime.datetime = datetime.datetime.combine(
-        at_date - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+    period_end: timezone.datetime = timezone.datetime.combine(
+        at - timezone.timedelta(timezone.now().weekday() + 1), timezone.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+    period_start: timezone.datetime = timezone.datetime.combine(
+        period_end - timezone.timedelta(6), timezone.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)

@@ -46,30 +46,30 @@ def status_report() -> None:
                 sql.SQL(
                     """
                 SELECT COUNT(DISTINCT person_id) as persons_count
-                FROM posthog_event JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) WHERE posthog_event.team_id = %s AND posthog_event.created_at >= %s AND posthog_event.created_at < %s
+                FROM posthog_event JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) WHERE posthog_event.team_id = %s AND posthog_event.created_at >= %s AND posthog_event.created_at <= %s
             """
                 ),
-                (team.id, report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
+                (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"]),
             )
             team_report["persons_count_active_in_period"] = cursor.fetchone()[0]
             cursor.execute(
                 sql.SQL(
                     """
                 SELECT properties->>'$lib' as lib, COUNT(*) as count
-                FROM posthog_event WHERE team_id = %s AND created_at >= %s AND created_at < %s GROUP BY lib
+                FROM posthog_event WHERE team_id = %s AND created_at >= %s AND created_at <= %s GROUP BY lib
             """
                 ),
-                (team.id, report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
+                (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"]),
             )
             team_report["events_count_by_lib"] = {result.lib: result.count for result in namedtuplefetchall(cursor)}
             cursor.execute(
                 sql.SQL(
                     """
                 SELECT event as name, COUNT(*) as count
-                FROM posthog_event WHERE team_id = %s AND created_at >= %s AND created_at < %s GROUP BY name
+                FROM posthog_event WHERE team_id = %s AND created_at >= %s AND created_at <= %s GROUP BY name
             """
                 ),
-                (team.id, report["period"]["start_inclusive"], report["period"]["end_exclusive"]),
+                (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"]),
             )
             team_report["events_count_by_name"] = {result.name: result.count for result in namedtuplefetchall(cursor)}
         report["teams"][team.id] = team_report
