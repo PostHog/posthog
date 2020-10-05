@@ -1,11 +1,11 @@
 import { kea } from 'kea'
-import { Framework, PlatformType } from 'scenes/onboarding/types'
-import { onboardingLogicType } from 'types/scenes/onboarding/onboardingLogicType'
-import { API, MOBILE, WEB } from 'scenes/onboarding/constants'
+import { Framework, PlatformType } from 'scenes/ingestion/types'
+import { ingestionLogicType } from 'types/scenes/ingestion/ingestionLogicType'
+import { API, MOBILE, WEB } from 'scenes/ingestion/constants'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 
-export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>({
+export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     actions: {
         setPlatform: (platform: PlatformType) => ({ platform }),
         setCustomEvent: (customEvent: boolean) => ({ customEvent }),
@@ -87,8 +87,8 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     }),
 
     urlToAction: ({ actions }) => ({
-        '/onboarding': () => actions.setState(null, false, null, false),
-        '/onboarding/verify': (_: any, { platform, framework }: Record<string, string>) => {
+        '/ingestion': () => actions.setState(null, false, null, false),
+        '/ingestion/verify': (_: any, { platform, framework }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
                 platform === 'web-custom',
@@ -96,7 +96,7 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
                 true
             )
         },
-        '/onboarding/api': (_: any, { platform }: Record<string, string>) => {
+        '/ingestion/api': (_: any, { platform }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
                 platform === 'web-custom',
@@ -104,7 +104,7 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
                 false
             )
         },
-        '/onboarding(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
+        '/ingestion(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
                 platform === 'web-custom',
@@ -119,7 +119,7 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
             const { user } = userLogic.values
             if (user) {
                 // make the change immediately before the request comes back
-                // this way we are not re-redirected to the onboarding page
+                // this way we are not re-redirected to the ingestion page
                 userLogic.actions.setUser({
                     ...user,
                     team: {
@@ -134,10 +134,10 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     }),
 })
 
-function getUrl(values: typeof onboardingLogic['values']): string | [string, Record<string, undefined | string>] {
+function getUrl(values: typeof ingestionLogic['values']): string | [string, Record<string, undefined | string>] {
     const { platform, framework, customEvent, verify } = values
 
-    let url = '/onboarding'
+    let url = '/ingestion'
 
     if (verify) {
         url += '/verify'

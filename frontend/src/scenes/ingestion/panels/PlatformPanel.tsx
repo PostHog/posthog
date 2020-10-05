@@ -1,14 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/onboarding/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row } from 'antd'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { platforms } from 'scenes/onboarding/constants'
-import { PlatformType } from 'scenes/onboarding/types'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { platforms } from 'scenes/ingestion/constants'
+import { PlatformType } from 'scenes/ingestion/types'
 
 export function PlatformPanel(): JSX.Element {
-    const { setPlatform } = useActions(onboardingLogic)
-    const { index } = useValues(onboardingLogic)
+    const { setPlatform } = useActions(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
 
     return (
         <CardContainer index={index}>

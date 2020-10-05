@@ -2,15 +2,15 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
-import { CardContainer } from 'scenes/onboarding/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row, Spin } from 'antd'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 export function VerificationPanel(): JSX.Element {
     const { loadUser } = useActions(userLogic)
     const { user } = useValues(userLogic)
-    const { setVerify, completeOnboarding } = useActions(onboardingLogic)
-    const { index, totalSteps } = useValues(onboardingLogic)
+    const { setVerify, completeOnboarding } = useActions(ingestionLogic)
+    const { index, totalSteps } = useValues(ingestionLogic)
 
     useInterval(() => {
         !user?.has_events && loadUser()

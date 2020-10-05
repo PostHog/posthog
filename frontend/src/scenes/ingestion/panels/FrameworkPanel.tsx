@@ -1,13 +1,13 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/onboarding/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { List, Row } from 'antd'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { API, mobileFrameworks, WEB, webFrameworks } from 'scenes/onboarding/constants'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { API, mobileFrameworks, WEB, webFrameworks } from 'scenes/ingestion/constants'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setCustomEvent, setPlatform, setFramework } = useActions(onboardingLogic)
-    const { platform, index, totalSteps } = useValues(onboardingLogic)
+    const { setCustomEvent, setPlatform, setFramework } = useActions(ingestionLogic)
+    const { platform, index, totalSteps } = useValues(ingestionLogic)
     const frameworks = platform === WEB ? webFrameworks : mobileFrameworks
 
     return (

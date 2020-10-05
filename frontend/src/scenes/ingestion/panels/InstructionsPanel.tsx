@@ -1,4 +1,4 @@
-import { CardContainer } from 'scenes/onboarding/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import {
     AndroidInstructions,
     APIInstructions,
@@ -12,12 +12,12 @@ import {
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
-} from 'scenes/onboarding/frameworks'
+} from 'scenes/ingestion/frameworks'
 import { Row } from 'antd'
 import React from 'react'
-import { API, MOBILE, PURE_JS, WEB } from 'scenes/onboarding/constants'
+import { API, MOBILE, PURE_JS, WEB } from 'scenes/ingestion/constants'
 import { useActions, useValues } from 'kea'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 const frameworksSnippet = {
     PURE_JS: JSInstructions,
@@ -35,8 +35,8 @@ const frameworksSnippet = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, totalSteps, platform, framework } = useValues(onboardingLogic)
-    const { setFramework, setVerify } = useActions(onboardingLogic)
+    const { index, totalSteps, platform, framework } = useValues(ingestionLogic)
+    const { setFramework, setVerify } = useActions(ingestionLogic)
 
     if (!framework) {
         return <></>

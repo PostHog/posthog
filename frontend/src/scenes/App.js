@@ -58,9 +58,9 @@ function App() {
             return
         }
 
-        // redirect to onboarding if not completed
-        if (user && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/onboarding')) {
-            replace('/onboarding')
+        // redirect to ingestion if not completed
+        if (user && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+            replace('/ingestion')
             return
         }
     }, [scene, user])
@@ -76,7 +76,7 @@ function App() {
         )
     }
 
-    if (scene === 'onboarding' || !scene) {
+    if (scene === 'ingestion' || !scene) {
         return (
             <>
                 <Scene user={user} {...params} />

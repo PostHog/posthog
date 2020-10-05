@@ -1,13 +1,13 @@
-import { CardContainer } from 'scenes/onboarding/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Row } from 'antd'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 export function AutocapturePanel(): JSX.Element {
-    const { index, totalSteps } = useValues(onboardingLogic)
-    const { setPlatform, setCustomEvent, setVerify } = useActions(onboardingLogic)
+    const { index, totalSteps } = useValues(ingestionLogic)
+    const { setPlatform, setCustomEvent, setVerify } = useActions(ingestionLogic)
     return (
         <CardContainer
             index={index}
