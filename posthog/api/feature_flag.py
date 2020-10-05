@@ -32,7 +32,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag):
-        return not feature_flag.filters
+        filters = feature_flag.filters
+        if not filters:
+            return True
+        if not filters.get("properties", []):
+            return True
+        return False
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
@@ -41,7 +46,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("key-exists")
+            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
         return feature_flag
 
@@ -49,7 +54,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             return super().update(instance, validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("key-exists")
+            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
 
 class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -60,4 +65,4 @@ class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team).order_by("-created_at",)
+        return queryset.filter(team=self.request.user.team).order_by("-created_at")

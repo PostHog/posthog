@@ -1,0 +1,63 @@
+{% load posthog_assets %}
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        {% include "email/styles.html" %} {% block head %} {% endblock %}
+    </head>
+    <body>
+        <div class="preheader">{% block preheader %}{% endblock %}</div>
+        <table class="main">
+            <tr>
+                <td>
+                    <div class="header">
+                        {% block header %}
+                        <h1>
+                            <a href="{% absolute_uri %}"
+                                ><img
+                                    src="{% absolute_asset_url 'posthog-logo.png' %}"
+                                    width="160px"
+                                    height="31px"
+                                    alt="PostHog"
+                                    class="logo"
+                            /></a>
+                        </h1>
+                        {% endblock %}
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    {% block content %}
+                    <div class="container">
+                        <div class="inner">
+                            {% block main %}
+                            <p>Main body.</p>
+                            {% endblock %}
+                        </div>
+                    </div>
+                    {% endblock %}
+                    <div class="container">
+                        <div class="footer">
+                            {% block footer %}
+                            <div>
+                                We'll allow you to change your notification settings soon, in the meantime, please reach
+                                out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you want to unsubscribe.
+                            </div>
+                            <div class="socialLinks spacingTop">
+                                <a href="https://github.com/posthog/">GitHub</a><span>|</span
+                                ><a href="https://twitter.com/posthoghq">Twitter</a><span>|</span
+                                ><a href="https://medium.com/posthog">Medium</a><span>|</span
+                                ><a href="https://posthog.com/slack">Slack</a>
+                            </div>
+                            {% endblock %}
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>

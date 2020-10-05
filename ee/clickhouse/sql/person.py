@@ -1,6 +1,6 @@
 from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
-from .clickhouse import STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -16,12 +16,11 @@ PERSONS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} 
 (
     id UUID,
-    created_at datetime,
+    created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    _timestamp UInt64,
-    _offset UInt64
+    is_identified Boolean
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -30,10 +29,15 @@ PERSONS_TABLE_SQL = (
     + """Order By (team_id, id)
 {storage_policy}
 """
-).format(table_name=PERSONS_TABLE, engine=table_engine(PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY)
+).format(
+    table_name=PERSONS_TABLE,
+    engine=table_engine(PERSONS_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
+    storage_policy=STORAGE_POLICY,
+)
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON)
+    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON), extra_fields=""
 )
 
 PERSONS_TABLE_MV_SQL = """
@@ -64,9 +68,8 @@ CREATE TABLE {table_name}
     distinct_id VARCHAR,
     properties VARCHAR,
     is_identified Boolean,
-    ts DateTime, 
-    _timestamp UInt64,
-    _offset UInt64
+    ts DateTime64
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -76,11 +79,14 @@ OMNI_PERSONS_TABLE_SQL = (
 {storage_policy}
 """
 ).format(
-    table_name=OMNI_PERSONS_TABLE, engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"), storage_policy=STORAGE_POLICY
+    table_name=OMNI_PERSONS_TABLE,
+    engine=table_engine(OMNI_PERSONS_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
+    storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_OMNI_PERSONS_TABLE_SQL = OMNI_PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON)
+    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON), extra_fields=""
 )
 
 OMNI_PERSONS_TABLE_MV_SQL = """
@@ -114,9 +120,8 @@ CREATE TABLE {table_name}
     id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int64,
-    _timestamp UInt64,
-    _offset UInt64
+    team_id Int64
+    {extra_fields}
 ) ENGINE = {engine} 
 """
 
@@ -128,11 +133,12 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID)
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields=""
 )
 
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
@@ -160,6 +166,29 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 
 GET_PERSON_BY_DISTINCT_ID = """
 SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+"""
+
+GET_PERSONS_BY_DISTINCT_IDS = """
+SELECT 
+    p.id,
+    p.created_at,
+    p.team_id,
+    p.properties,
+    p.is_identified,
+    groupArray(pid.distinct_id) as distinct_ids
+FROM 
+    person as p 
+INNER JOIN 
+    person_distinct_id as pid on p.id = pid.person_id 
+WHERE 
+    team_id = %(team_id)s 
+    AND distinct_id IN (%(distinct_ids)s)
+GROUP BY
+    p.id,
+    p.created_at,
+    p.team_id,
+    p.properties,
+    p.is_identified
 """
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
@@ -200,4 +229,46 @@ ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 
 UPDATE_PERSON_IS_IDENTIFIED = """
 ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
+"""
+
+PERSON_TREND_SQL = """
+SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to}
+"""
+
+PEOPLE_THROUGH_DISTINCT_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql})
+) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 200 OFFSET %(offset)s
+"""
+
+PEOPLE_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql})
+) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 200 OFFSET %(offset)s 
+"""
+
+PEOPLE_BY_TEAM_SQL = """
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
+) as pdi ON person.id = pdi.person_id 
+WHERE team_id = %(team_id)s {filters} 
+GROUP BY id, created_at, team_id, properties, is_identified
+LIMIT 100 OFFSET %(offset)s 
+"""
+
+GET_PERSON_TOP_PROPERTIES = """
+SELECT key, count(1) as count FROM (
+    SELECT 
+    array_property_keys as key,
+    array_property_values as value
+    from (
+        SELECT
+            arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
+            arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+        FROM person WHERE team_id = %(team_id)s
+    )
+    ARRAY JOIN array_property_keys, array_property_values
+) GROUP BY key ORDER BY count DESC LIMIT %(limit)s
 """

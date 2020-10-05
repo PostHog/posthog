@@ -26,6 +26,7 @@ export const scenes = {
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
     signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
     onboarding: () => import(/* webpackChunkName: 'onboarding' */ './onboarding/OnboardingWizard'),
+    billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
@@ -59,6 +60,7 @@ export const routes = {
     '/signup': 'signup',
     '/onboarding': 'onboarding',
     '/onboarding/*': 'onboarding',
+    '/billing': 'billing',
 }
 
 export const sceneLogic = kea({

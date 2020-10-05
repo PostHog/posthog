@@ -1,5 +1,5 @@
-from posthog.models.utils import uuid1_macless
+from posthog.models.utils import UUIDT
 
 
 def generate_clickhouse_uuid() -> str:
-    return str(uuid1_macless())
+    return str(UUIDT())

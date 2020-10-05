@@ -1,10 +1,11 @@
 import datetime
 import json
-from typing import Any, Dict, List, Optional, Union
-from uuid import UUID, uuid4
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -15,6 +16,7 @@ from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
     GET_PERSON_SQL,
+    GET_PERSONS_BY_DISTINCT_IDS,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
     PERSON_DISTINCT_ID_EXISTS_SQL,
@@ -28,6 +30,7 @@ from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.utils import UUIDT
 
 if settings.EE_AVAILABLE and check_ee_enabled():
 
@@ -57,10 +60,13 @@ def emit_omni_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    timestamp: datetime.datetime = datetime.datetime.now(),
+    timestamp: Optional[datetime.datetime] = None,
 ) -> UUID:
     if not uuid:
-        uuid = uuid4()
+        uuid = UUIDT()
+
+    if not timestamp:
+        timestamp = now()
 
     data = {
         "event_uuid": str(event_uuid),
@@ -82,28 +88,32 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
+    timestamp: Optional[datetime.datetime] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
     else:
-        uuid = str(uuid4())
+        uuid = str(UUIDT())
+    if not timestamp:
+        timestamp = now()
 
     data = {
         "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
     return uuid
 
 
-def update_person_properties(team_id: int, id: int, properties: Dict) -> None:
+def update_person_properties(team_id: int, id: str, properties: Dict) -> None:
     sync_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
 
 
-def update_person_is_identified(team_id: int, id: int, is_identified: bool) -> None:
+def update_person_is_identified(team_id: int, id: str, is_identified: bool) -> None:
     sync_execute(
         UPDATE_PERSON_IS_IDENTIFIED, {"team_id": team_id, "id": id, "is_identified": "1" if is_identified else "0"}
     )
@@ -137,8 +147,17 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data
-
     return {}
+
+
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
+    result = sync_execute(
+        GET_PERSONS_BY_DISTINCT_IDS,
+        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+    )
+    if len(result) > 0:
+        return list(ClickhousePersonSerializer(result, many=True).data)
+    return []
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
@@ -172,6 +191,13 @@ class ClickhousePersonSerializer(serializers.Serializer):
     team_id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     is_identified = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    distinct_ids = serializers.SerializerMethodField()
+
+    def get_name(self, person):
+        props = json.loads(person[3])
+        email = props.get("email", None)
+        return email or person[0]
 
     def get_id(self, person):
         return person[0]
@@ -186,9 +212,11 @@ class ClickhousePersonSerializer(serializers.Serializer):
         return json.loads(person[3])
 
     def get_is_identified(self, person):
-        if person and len(person) >= 5:
-            return person[4]
-        return False
+        return person[4]
+
+    # all queries might not retrieve distinct_ids
+    def get_distinct_ids(self, person):
+        return person[5] if len(person) > 5 else []
 
 
 class ClickhousePersonDistinctIdSerializer(serializers.Serializer):
