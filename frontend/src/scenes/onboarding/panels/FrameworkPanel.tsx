@@ -6,16 +6,16 @@ import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { API, mobileFrameworks, WEB, webFrameworks } from 'scenes/onboarding/constants'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setCustomEvent, setPlatformType, setFramework } = useActions(onboardingLogic)
-    const { platformType, index, totalSteps } = useValues(onboardingLogic)
-    const frameworks = platformType === WEB ? webFrameworks : mobileFrameworks
+    const { setCustomEvent, setPlatform, setFramework } = useActions(onboardingLogic)
+    const { platform, index, totalSteps } = useValues(onboardingLogic)
+    const frameworks = platform === WEB ? webFrameworks : mobileFrameworks
 
     return (
         <CardContainer
             index={index}
             totalSteps={totalSteps}
             onBack={() => {
-                platformType === WEB ? setCustomEvent(false) : setPlatformType(null)
+                platform === WEB ? setCustomEvent(false) : setPlatform(null)
             }}
         >
             <p className="prompt-text">

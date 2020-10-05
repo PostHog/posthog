@@ -6,7 +6,7 @@ export const VERIFICATION = 'VERIFICATION'
 
 export const WEB = 'Web'
 export const MOBILE = 'Mobile'
-export const platformTypes = [WEB, MOBILE]
+export const platforms = [WEB, MOBILE]
 
 export const PURE_JS = 'PURE_JS'
 export const NODEJS = 'NODEJS'

@@ -7,14 +7,14 @@ import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
 export function AutocapturePanel(): JSX.Element {
     const { index, totalSteps } = useValues(onboardingLogic)
-    const { setPlatformType, setCustomEvent, setVerify } = useActions(onboardingLogic)
+    const { setPlatform, setCustomEvent, setVerify } = useActions(onboardingLogic)
     return (
         <CardContainer
             index={index}
             totalSteps={totalSteps}
             nextButton={true}
             onSubmit={() => setVerify(true)}
-            onBack={() => setPlatformType(null)}
+            onBack={() => setPlatform(null)}
         >
             <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                 <h2 style={{ color: 'black', marginLeft: 8 }}>{'Autocapture'}</h2>

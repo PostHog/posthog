@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/onboarding/CardContainer'
 import { Button, Row } from 'antd'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { platformTypes } from 'scenes/onboarding/constants'
+import { platforms } from 'scenes/onboarding/constants'
 import { PlatformType } from 'scenes/onboarding/types'
 
-export function PlatformTypePanel(): JSX.Element {
-    const { setPlatformType } = useActions(onboardingLogic)
+export function PlatformPanel(): JSX.Element {
+    const { setPlatform } = useActions(onboardingLogic)
     const { index } = useValues(onboardingLogic)
 
     return (
@@ -18,15 +18,15 @@ export function PlatformTypePanel(): JSX.Element {
                 multi-deployments later)
             </p>
             <Row>
-                {platformTypes.map((type) => (
+                {platforms.map((platform) => (
                     <Button
                         type="primary"
-                        data-attr={'select-platform-' + type}
-                        key={type}
+                        data-attr={'select-platform-' + platform}
+                        key={platform}
                         style={{ marginRight: 10 }}
-                        onClick={() => setPlatformType(type as PlatformType)}
+                        onClick={() => setPlatform(platform as PlatformType)}
                     >
-                        {type}
+                        {platform}
                     </Button>
                 ))}
             </Row>

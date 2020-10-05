@@ -8,7 +8,7 @@ import { MOBILE, WEB } from 'scenes/onboarding/constants'
 import { useValues } from 'kea'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { FrameworkPanel } from 'scenes/onboarding/panels/FrameworkPanel'
-import { PlatformTypePanel } from 'scenes/onboarding/panels/PlatformTypePanel'
+import { PlatformPanel } from 'scenes/onboarding/panels/PlatformPanel'
 
 export function OnboardingContainer({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -22,7 +22,7 @@ export function OnboardingContainer({ children }: { children: React.ReactNode })
 }
 
 export default function OnboardingWizard(): JSX.Element {
-    const { platformType, framework, customEvent, verify } = useValues(onboardingLogic)
+    const { platform, framework, customEvent, verify } = useValues(onboardingLogic)
 
     if (verify) {
         return (
@@ -40,15 +40,15 @@ export default function OnboardingWizard(): JSX.Element {
         )
     }
 
-    if (!platformType) {
+    if (!platform) {
         return (
             <OnboardingContainer>
-                <PlatformTypePanel />
+                <PlatformPanel />
             </OnboardingContainer>
         )
     }
 
-    if (platformType === WEB && !customEvent) {
+    if (platform === WEB && !customEvent) {
         return (
             <OnboardingContainer>
                 <AutocapturePanel />
@@ -56,7 +56,7 @@ export default function OnboardingWizard(): JSX.Element {
         )
     }
 
-    if (platformType === MOBILE || (platformType === WEB && customEvent)) {
+    if (platform === MOBILE || (platform === WEB && customEvent)) {
         return (
             <OnboardingContainer>
                 <FrameworkPanel />

@@ -35,7 +35,7 @@ const frameworksSnippet = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, totalSteps, platformType, framework } = useValues(onboardingLogic)
+    const { index, totalSteps, platform, framework } = useValues(onboardingLogic)
     const { setFramework, setVerify } = useActions(onboardingLogic)
 
     if (!framework) {
@@ -92,14 +92,14 @@ export function InstructionsPanel(): JSX.Element {
             onSubmit={() => setVerify(true)}
             onBack={() => setFramework(null)}
         >
-            {platformType === WEB ? (
+            {platform === WEB ? (
                 <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
                     <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
                 </Row>
             ) : (
                 <h2>Setup</h2>
             )}
-            {platformType === WEB ? (
+            {platform === WEB ? (
                 <>
                     <p className="prompt-text">
                         {
@@ -109,7 +109,7 @@ export function InstructionsPanel(): JSX.Element {
                     <FrameworkSnippet />
                 </>
             ) : null}
-            {platformType === MOBILE ? <FrameworkSnippet /> : null}
+            {platform === MOBILE ? <FrameworkSnippet /> : null}
         </CardContainer>
     )
 }

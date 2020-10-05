@@ -7,12 +7,12 @@ import { router } from 'kea-router'
 
 export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>({
     actions: {
-        setPlatformType: (type: PlatformType) => ({ type }),
+        setPlatform: (platform: PlatformType) => ({ platform }),
         setCustomEvent: (customEvent: boolean) => ({ customEvent }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
-        setState: (type: PlatformType, customEvent: boolean, framework: string | null, verify: boolean) => ({
-            type,
+        setState: (platform: PlatformType, customEvent: boolean, framework: string | null, verify: boolean) => ({
+            platform,
             customEvent,
             framework,
             verify,
@@ -21,14 +21,18 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     },
 
     reducers: {
-        platformType: [
+        platform: [
             null as null | PlatformType,
-            { setPlatformType: (_, { type }) => type, setCustomEvent: () => WEB, setState: (_, { type }) => type },
+            {
+                setPlatform: (_, { platform }) => platform,
+                setCustomEvent: () => WEB,
+                setState: (_, { platform }) => platform,
+            },
         ],
         customEvent: [
             false,
             {
-                setPlatformType: () => false,
+                setPlatform: () => false,
                 setCustomEvent: (_, { customEvent }) => customEvent,
                 setState: (_, { customEvent }) => customEvent,
             },
@@ -43,7 +47,7 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
         verify: [
             false,
             {
-                setPlatformType: () => false,
+                setPlatform: () => false,
                 setCustomEvent: () => false,
                 setFramework: () => false,
                 setVerify: (_, { verify }) => verify,
@@ -54,18 +58,18 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
 
     selectors: {
         index: [
-            (s) => [s.platformType, s.customEvent, s.framework, s.verify],
-            (platformType, customEvent, framework, verify) => {
-                return (verify ? 1 : 0) + (framework ? 1 : 0) + (platformType ? 1 : 0) + (customEvent ? 1 : 0)
+            (s) => [s.platform, s.customEvent, s.framework, s.verify],
+            (platform, customEvent, framework, verify) => {
+                return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0) + (customEvent ? 1 : 0)
             },
         ],
         totalSteps: [
-            (s) => [s.platformType, s.customEvent],
-            (platformType, customEvent) => {
-                if (platformType === WEB && !customEvent) {
+            (s) => [s.platform, s.customEvent],
+            (platform, customEvent) => {
+                if (platform === WEB && !customEvent) {
                     return 3
                 }
-                if (platformType === MOBILE) {
+                if (platform === MOBILE) {
                     return 4
                 }
                 return 5
@@ -74,7 +78,7 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     },
 
     actionToUrl: ({ values }) => ({
-        setPlatformType: () => getUrl(values),
+        setPlatform: () => getUrl(values),
         setCustomEvent: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
@@ -82,10 +86,10 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
 
     urlToAction: ({ actions }) => ({
         '/onboarding': () => actions.setState(null, false, null, false),
-        '/onboarding(/:type)(/:framework)(/:verify)': ({ type, framework, verify }: Record<string, string>) => {
+        '/onboarding(/:platform)(/:framework)(/:verify)': ({ platform, framework, verify }: Record<string, string>) => {
             actions.setState(
-                type === 'mobile' ? MOBILE : type === 'web' || type === 'web-custom' ? WEB : null,
-                type === 'web-custom',
+                platform === 'mobile' ? MOBILE : platform === 'web' || platform === 'web-custom' ? WEB : null,
+                platform === 'web-custom',
                 framework === 'verify' ? null : framework,
                 !!verify || framework === 'verify'
             )
@@ -112,16 +116,16 @@ export const onboardingLogic = kea<onboardingLogicType<PlatformType, Framework>>
     }),
 })
 
-function getUrl(values: typeof onboardingLogic['values']): string {
-    const { platformType, framework, customEvent, verify } = values
+function getUrl(values: typeof onboardingLogic['values']): string | [string, Record<string, boolean | string | null>] {
+    const { platform, framework, customEvent, verify } = values
 
     let url = '/onboarding'
 
-    if (platformType === MOBILE) {
+    if (platform === MOBILE) {
         url += '/mobile'
     }
 
-    if (platformType === WEB) {
+    if (platform === WEB) {
         url += '/web'
         if (customEvent) {
             url += '-custom'
