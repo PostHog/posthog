@@ -23,6 +23,27 @@ const PaletteContainer = styled.div`
     border-radius: 10px;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+`
+
+const ResultsGroup = styled.div`
+    background-color: #4d4d4d;
+    height: 22px;
+    width: 100%;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    padding-left: 16px;
+    padding-right: 16px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: bold;
+`
+
+const Title = styled.div`
+    font-weight: bold;
+    font-size: 14px;
+    color: #ffffff;
+    padding-top: 8px;
+    padding-left: 16px;
 `
 
 const ResultsContainer = styled.div`
@@ -46,7 +67,7 @@ interface BoxProps {
 
 export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
-    const [state] = useState({ error: null })
+    const [state] = useState({ error: null, title: null })
 
     useHotkeys('esc', () => {
         onClose()
@@ -66,15 +87,23 @@ export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | fa
     return (
         visible && (
             <PaletteContainer ref={boxRef}>
+                {state.title && <Title>{state.title}</Title>}
                 <CommandSearch onClose={onClose}></CommandSearch>
                 {state.error && <PaletteError>{state.error}</PaletteError>}
                 <ResultsContainer>
+                    <ResultsGroup>On this page</ResultsGroup>
                     <CommandResult
                         Icon={UserOutlined}
                         text="type an email address to go straight to that person’s page"
                         isHint
                     />
                     <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" focused />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
+                    <ResultsGroup>Global</ResultsGroup>
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
                 </ResultsContainer>
             </PaletteContainer>
         )
