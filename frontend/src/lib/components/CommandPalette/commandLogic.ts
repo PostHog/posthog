@@ -1,14 +1,18 @@
 import { kea } from 'kea'
 
-interface CommandResult {
-    icon: JSX.Element
+export interface CommandResult {
+    icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent typs
     text: string
-    executor: () => void
+    executor: (utils: Utils) => void
 }
 
-type CommandResolver = (argument: string) => CommandResult[]
+export interface Utils {
+    pushUrl?: (url: string) => void // kea-router URL push
+}
 
-interface Command {
+export type CommandResolver = (argument: string) => CommandResult[]
+
+export interface Command {
     prefixes?: string[] // command synonyms, e.g. "go to"
     resolver: CommandResolver // resolver based on arguments (prefix excluded)
 }
