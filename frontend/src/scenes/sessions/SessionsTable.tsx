@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Modal } from 'antd'
+import { Table, Button, Spin, Space } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -8,25 +8,12 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
-import { CaretLeftOutlined, CaretRightOutlined, PlayCircleOutlined } from '@ant-design/icons'
-import { green } from '@ant-design/colors'
-import SessionsPlayer from './SessionsPlayer'
-import { eventWithTime } from 'rrweb/typings/types'
+import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
+import SessionsPlayerButton from './SessionsPlayerButton'
 
 export function SessionsTable(): JSX.Element {
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
     const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
-
-    function showSessionPlayer(events: eventWithTime[]): void {
-        Modal.info({
-            centered: true,
-            content: <SessionsPlayer events={events}></SessionsPlayer>,
-            icon: null,
-            okType: 'primary',
-            okText: 'Done',
-            width: 1000,
-        })
-    }
 
     const columns = [
         {
@@ -86,29 +73,17 @@ export function SessionsTable(): JSX.Element {
             },
             ellipsis: true,
         },
-        {
+    ]
+
+    if ((window as any).posthog && (window as any).posthog.isFeatureEnabled('session-recording-player')) {
+        columns.push({
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
-                const snapshotEventsData: eventWithTime[] = session.events
-                    .filter((event) => event.event === '$snapshot')
-                    .map((event) => event.properties?.data)
-                if (snapshotEventsData.length < 2) return
-
-                return (
-                    <span>
-                        <PlayCircleOutlined
-                            style={{ color: green.primary }}
-                            onClick={(event: React.MouseEvent) => {
-                                event.stopPropagation()
-                                showSessionPlayer(snapshotEventsData)
-                            }}
-                        ></PlayCircleOutlined>
-                    </span>
-                )
+                return <SessionsPlayerButton session={session}></SessionsPlayerButton>
             },
             ellipsis: true,
-        },
-    ]
+        })
+    }
 
     return (
         <div className="events" data-attr="events-table">

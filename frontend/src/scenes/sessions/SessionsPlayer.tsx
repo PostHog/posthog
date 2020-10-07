@@ -3,7 +3,7 @@ import rrwebPlayer from 'rrweb-player'
 import 'rrweb-player/dist/style.css'
 import { eventWithTime } from 'rrweb/typings/types'
 
-export default function PasswordStrength({ events }: { events: eventWithTime[] }): JSX.Element {
+export default function SessionsPlayer({ events }: { events: eventWithTime[] }): JSX.Element {
     const target = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
