@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 
-export function CommandBoxContainer({ children }: React.PropsWithChildren<unknown>): JSX.Element {
+export function CommandPaletteContainer({ children }: React.PropsWithChildren<unknown>): JSX.Element {
     const [showBox, setShowBox] = useState<boolean>(false)
 
     useHotkeys('ctrl+l', () => {
@@ -15,7 +15,7 @@ export function CommandBoxContainer({ children }: React.PropsWithChildren<unknow
 
     return (
         <div>
-            <CommandBox visible={showBox} onClickOutside={closeBox} />
+            <CommandPalette visible={showBox} onClickOutside={closeBox} />
             {children}
         </div>
     )
@@ -26,7 +26,7 @@ interface BoxProps {
     onClickOutside: () => void
 }
 
-function CommandBox({ visible, onClickOutside }: BoxProps): JSX.Element {
+function CommandPalette({ visible, onClickOutside }: BoxProps): JSX.Element {
     const boxRef = useRef()
 
     const _onClickOutside = (event: MouseEvent): void => {
