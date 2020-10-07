@@ -2,6 +2,7 @@ import datetime
 import importlib
 import os
 import tempfile
+import traceback
 import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -39,7 +40,11 @@ def import_plugin(plugin):
     try:
         importlib.import_module(plugin_module_name)
     except Exception as e:
-        return
+        print('🔻 Can not import plugin "{}"'.format(plugin))
+        trace_back = traceback.format_exc()
+        message = str(e) + " " + str(trace_back)
+        print(message)
+        return None
     return plugin_module_name
 
 
@@ -55,7 +60,8 @@ def load_plugins(plugins):
         req_file = os.path.join(ABS_PLUGIN_PATH, plugin, "requirements.txt")
         install(req_file)
         module = import_plugin(plugin)
-        modules.append(module)
+        if module:
+            modules.append(module)
 
 
 def download_plugin(repo):
