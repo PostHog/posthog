@@ -1,5 +1,5 @@
 import { useOutsideClickHandler } from 'lib/utils'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useCommands } from './commandLogic'
@@ -7,7 +7,7 @@ import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
-import { DashboardFilled } from '@ant-design/icons'
+import { DashboardOutlined, UserOutlined } from '@ant-design/icons'
 
 const PaletteContainer = styled.div`
     z-index: 9999;
@@ -30,6 +30,14 @@ const ResultsContainer = styled.div`
     padding-top: 8px;
 `
 
+const PaletteError = styled.div`
+    color: #ec6f48;
+    font-size: 14px;
+    padding-top: 8px;
+    padding-left: 32px;
+    padding-right: 32px;
+`
+
 interface BoxProps {
     visible: boolean
     onClickOutside: () => void
@@ -38,6 +46,7 @@ interface BoxProps {
 
 export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
+    const [state] = useState({ error: null })
 
     useHotkeys('esc', () => {
         onClose()
@@ -58,8 +67,14 @@ export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | fa
         visible && (
             <PaletteContainer ref={boxRef}>
                 <CommandSearch onClose={onClose}></CommandSearch>
+                {state.error && <PaletteError>{state.error}</PaletteError>}
                 <ResultsContainer>
-                    <CommandResult Icon={DashboardFilled} text="go to dashboard AARRR" />
+                    <CommandResult
+                        Icon={UserOutlined}
+                        text="type an email address to go straight to that person’s page"
+                        isHint
+                    />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" focused />
                 </ResultsContainer>
             </PaletteContainer>
         )

@@ -2,7 +2,8 @@ import React from 'react'
 import styled from 'styled-components'
 
 interface Props {
-    focused: boolean
+    focused?: boolean
+    isHint?: boolean
 }
 
 const ResultContainer = styled.div<Props>`
@@ -15,6 +16,7 @@ const ResultContainer = styled.div<Props>`
     color: rgba(255, 255, 255, 0.95);
     font-size: 16px;
     position: relative;
+    cursor: pointer;
 
     ${({ focused }) =>
         focused &&
@@ -31,6 +33,13 @@ const ResultContainer = styled.div<Props>`
             width: 7px;
         }
         `}
+
+    ${({ isHint }) =>
+        isHint &&
+        `
+        color: rgba(255, 255, 255, 0.7) !important;  
+        cursor: default !important;
+`}
 `
 
 const IconContainer = styled.span`
@@ -40,12 +49,13 @@ const IconContainer = styled.span`
 interface CommandResultProps {
     Icon: any
     text: string
-    focused: boolean
+    focused?: boolean
+    isHint?: boolean
 }
 
-export function CommandResult({ Icon, text, focused }: CommandResultProps): JSX.Element {
+export function CommandResult({ Icon, text, focused, isHint }: CommandResultProps): JSX.Element {
     return (
-        <ResultContainer focused={focused}>
+        <ResultContainer focused={focused} isHint={isHint}>
             <IconContainer>
                 <Icon />
             </IconContainer>{' '}
