@@ -11,6 +11,7 @@ import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import { green } from '@ant-design/colors'
 import SessionsPlayer from './SessionsPlayer'
+import { eventWithTime } from 'rrweb/typings/types';
 
 export function SessionsTable(): JSX.Element {
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
@@ -18,8 +19,7 @@ export function SessionsTable(): JSX.Element {
 
 
 
-    function showSessionPlayer(events: Array<Object>) {
-        
+    function showSessionPlayer(events: eventWithTime[]): void {
         Modal.info({
             centered: true,
             title: "Sessions Player",
@@ -101,7 +101,7 @@ export function SessionsTable(): JSX.Element {
                         <PlayCircleOutlined 
                             style={{color: green.primary }}
                             onClick={() => {
-                                const snapshotEventsData: Array<Event> = session.events.filter(event => event.event === "$snapshot").map(event => event.properties?.data)
+                                const snapshotEventsData: eventWithTime[] = session.events.filter(event => event.event === "$snapshot").map(event => event.properties?.data)
                                 if (snapshotEventsData.length > 2) {
                                     showSessionPlayer(snapshotEventsData)
                                 }
