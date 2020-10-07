@@ -1,6 +1,5 @@
 import React from 'react'
 import { Input, Row } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { useRef } from 'react'
 import { useEffect } from 'react'
@@ -51,9 +50,9 @@ export function CommandSearch({ onClose }: Props): JSX.Element {
                 onKeyDown={handle}
                 onChange={(e): void => setInput(e.target.value)}
                 size="large"
-                placeholder="What would you like to do? (e.g. Go to default dashboard)"
-                prefix={<SearchOutlined style={{ marginRight: 10 }}></SearchOutlined>}
+                placeholder="what would you like to do?"
                 bordered={false}
+                style={{ color: 'rgba(255, 255, 255, 0.9)' }}
             ></Input>
         </Row>
     )
