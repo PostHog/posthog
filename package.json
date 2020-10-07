@@ -31,6 +31,7 @@
         "@mariusandra/react-grid-layout": "0.18.3",
         "@mariusandra/simmerjs": "0.7.1-posthog.1",
         "@types/react-syntax-highlighter": "^11.0.4",
+        "@types/styled-components": "^5.1.3",
         "@types/zxcvbn": "^4.4.0",
         "antd": "^4.1.1",
         "babel-preset-nano-react-app": "^0.1.0",
@@ -64,7 +65,7 @@
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
         "sass": "^1.26.2",
-        "styled-components": "^5.0.1",
+        "styled-components": "^5.2.0",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
