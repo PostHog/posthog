@@ -27,8 +27,9 @@
     "dependencies": {
         "@babel/core": "^7.10.4",
         "@babel/runtime": "^7.10.4",
+        "@mariusandra/query-selector-shadow-dom": "0.7.2-posthog.2",
         "@mariusandra/react-grid-layout": "0.18.3",
-        "@mariusandra/simmerjs": "0.6.1-posthog.1",
+        "@mariusandra/simmerjs": "0.7.1-posthog.1",
         "@types/react-syntax-highlighter": "^11.0.4",
         "@types/zxcvbn": "^4.4.0",
         "antd": "^4.1.1",

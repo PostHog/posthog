@@ -2,6 +2,7 @@ import Simmer from '@mariusandra/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
+import { querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -31,7 +32,7 @@ export function elementToQuery(element: HTMLElement): string | undefined {
     }
 
     // Turn tags into lower cases
-    return simmer(element)?.replace(/(^[A-Z]+| [A-Z]+)/g, (d: string) => d.toLowerCase())
+    return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
 }
 
 export function elementToActionStep(element: HTMLElement): ActionStepType {
@@ -81,8 +82,12 @@ export function elementToSelector(element: ElementType): string {
     return selector
 }
 
+export function getToolbarElement(): HTMLElement | null {
+    return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
+}
+
 export function getShadowRoot(): ShadowRoot | null {
-    return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot || null
+    return getToolbarElement()?.shadowRoot || null
 }
 
 export function getShadowRootPopupContainer(): HTMLElement {
@@ -93,11 +98,24 @@ export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
 
+export function getParent(element: HTMLElement): HTMLElement | null {
+    const parent = element.parentNode
+    // 11 = DOCUMENT_FRAGMENT_NODE
+    if (parent?.nodeType === window.Node.DOCUMENT_FRAGMENT_NODE) {
+        return (parent as ShadowRoot).host as HTMLElement
+    }
+    if (parent?.nodeType === window.Node.ELEMENT_NODE) {
+        return parent as HTMLElement
+    }
+    return null
+}
+
 export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
     }
-    if (element && element.getAttribute('id') === '__POSTHOG_TOOLBAR__') {
+    const toolbarElement = getToolbarElement()
+    if (toolbarElement && isParentOf(element, toolbarElement)) {
         return null
     }
 
@@ -113,21 +131,28 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
         }
     }
 
-    while (loopElement?.parentElement) {
+    while (loopElement) {
+        const parent = getParent(loopElement)
+        if (!parent) {
+            return null
+        }
+
         // return when we find a click target
-        if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+        if (loopElement.matches?.(CLICK_TARGET_SELECTOR)) {
             return loopElement
         }
+
         const compStyles = window.getComputedStyle(loopElement)
         if (compStyles.getPropertyValue('cursor') === 'pointer') {
-            const parentStyles = loopElement.parentElement ? window.getComputedStyle(loopElement.parentElement) : null
+            const parentStyles = parent ? window.getComputedStyle(parent) : null
             if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
                 return loopElement
             }
         }
 
-        loopElement = loopElement.parentElement
+        loopElement = parent
     }
+
     return null
 }
 
@@ -135,10 +160,10 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function getAllClickTargets(): HTMLElement[] {
-    const elements = (document.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
+export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
+    const elements = (startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
 
-    const allElements = [...((document.querySelectorAll('*') as unknown) as HTMLElement[])]
+    const allElements = [...((startNode.querySelectorAll('*') as unknown) as HTMLElement[])]
     const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
@@ -150,7 +175,13 @@ export function getAllClickTargets(): HTMLElement[] {
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
-    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e))
+    const shadowElements = allElements
+        .filter((el) => el.shadowRoot && el.getAttribute('id') !== '__POSTHOG_TOOLBAR__')
+        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
+        .reduce((a, b) => [...a, ...b], [])
+    const selectedElements = [...elements, ...pointerElements, ...shadowElements]
+        .map((e) => trimElement(e))
+        .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
     return uniqueElements
@@ -180,13 +211,13 @@ export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): b
         if (loopElement !== element && loopElement === possibleParent) {
             return true
         }
-        loopElement = loopElement.parentElement
+        loopElement = getParent(loopElement)
     }
 
     return false
 }
 
-export function getElementForStep(step: ActionStepForm): HTMLElement | null {
+export function getElementForStep(step: ActionStepForm, allElements?: HTMLElement[]): HTMLElement | null {
     if (!step) {
         return null
     }
@@ -208,7 +239,7 @@ export function getElementForStep(step: ActionStepForm): HTMLElement | null {
 
     let elements = [] as HTMLElement[]
     try {
-        elements = [...((document.querySelectorAll(selector || '*') as unknown) as HTMLElement[])]
+        elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
         throw e
@@ -268,12 +299,31 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
     }
 
     if (isNew) {
+        const hasSelector = !!step.selector
         if (step.tag_name === 'a') {
-            return { ...step, href_selected: true, selector_selected: true, text_selected: false, url_selected: false }
+            return {
+                ...step,
+                href_selected: true,
+                selector_selected: hasSelector,
+                text_selected: false,
+                url_selected: false,
+            }
         } else if (step.tag_name === 'button') {
-            return { ...step, text_selected: true, selector_selected: true, href_selected: false, url_selected: false }
+            return {
+                ...step,
+                text_selected: true,
+                selector_selected: hasSelector,
+                href_selected: false,
+                url_selected: false,
+            }
         } else {
-            return { ...step, selector_selected: true, text_selected: false, url_selected: false, href_selected: false }
+            return {
+                ...step,
+                selector_selected: hasSelector,
+                text_selected: false,
+                url_selected: false,
+                href_selected: false,
+            }
         }
     }
 

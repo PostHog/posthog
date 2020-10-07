@@ -10,6 +10,7 @@ import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { collectAllElementsDeep } from '@mariusandra/query-selector-shadow-dom'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -135,9 +136,10 @@ export const elementsLogic = kea<
             (s) => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
             (displayActionElements, selectedEditedAction): ElementWithMetadata[] => {
                 if (displayActionElements && selectedEditedAction?.steps) {
+                    const allElements = collectAllElementsDeep('', document, null)
                     const steps: ElementWithMetadata[] = []
                     selectedEditedAction.steps.forEach((step, index) => {
-                        const element = getElementForStep(step)
+                        const element = getElementForStep(step, allElements)
                         if (element) {
                             steps.push({
                                 element,
@@ -187,12 +189,13 @@ export const elementsLogic = kea<
         actionsForElementMap: [
             (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, toolbarLogic.selectors.buttonVisible],
             (sortedActions): ActionElementMap => {
+                const allElements = collectAllElementsDeep('', document, null)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
                     action.steps
                         ?.filter((step) => step.event === '$autocapture')
                         .forEach((step) => {
-                            const element = getElementForStep(step)
+                            const element = getElementForStep(step, allElements)
                             if (element) {
                                 const rect = getRectForElement(element)
                                 let array = actionsForElementMap.get(element)
