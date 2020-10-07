@@ -1,6 +1,5 @@
 import React from 'react'
 import { Input, Row } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { useRef } from 'react'
 import { useEffect } from 'react'
@@ -11,7 +10,6 @@ interface Props {
 export function CommandSearch({ onClose }: Props): JSX.Element {
     const ref = useRef()
     const [input, setInput] = useState('')
-    const [isSequence, setIsSequence] = useState(false)
 
     const handle = (event: KeyboardEvent): void => {
         if (event.key === 'Escape') {
@@ -20,11 +18,7 @@ export function CommandSearch({ onClose }: Props): JSX.Element {
             // if 'esc' is pressed once, delete text. If pressed twice, close window
             if (input) setInput('')
             else onClose()
-        } else {
-            if (event.key === 'k' && isSequence) onClose()
-            else if (event.key === 'Control' || event.key === 'Meta') setIsSequence(true)
-            else setIsSequence(false)
-        }
+        } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) onClose()
     }
 
     // focus on text input by default
@@ -51,9 +45,9 @@ export function CommandSearch({ onClose }: Props): JSX.Element {
                 onKeyDown={handle}
                 onChange={(e): void => setInput(e.target.value)}
                 size="large"
-                placeholder="What would you like to do? (e.g. Go to default dashboard)"
-                prefix={<SearchOutlined style={{ marginRight: 10 }}></SearchOutlined>}
+                placeholder="what would you like to do?"
                 bordered={false}
+                style={{ color: 'rgba(255, 255, 255, 0.9)' }}
             ></Input>
         </Row>
     )

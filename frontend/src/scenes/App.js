@@ -2,7 +2,7 @@ import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
-import React, { useState, useEffect, lazy, Suspense, useRef } from 'react'
+import React, { useState, useEffect, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
@@ -42,7 +42,6 @@ const urlBackgroundMap = {
 }
 
 function App() {
-    const ref = useRef()
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
@@ -65,10 +64,6 @@ function App() {
     useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
         setIsBoxShown((prevShowBox) => !prevShowBox)
     })
-
-    useEffect(() => {
-        ref.current?.focus()
-    }, [])
 
     if (!user) {
         return (
@@ -93,7 +88,7 @@ function App() {
     }
 
     return (
-        <div ref={ref}>
+        <>
             <Layout className="bg-white">
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout
@@ -117,7 +112,7 @@ function App() {
                 </Layout>
             </Layout>
             <CommandPalette visible={isBoxShown} onClose={() => setIsBoxShown(false)} />
-        </div>
+        </>
     )
 }
 
