@@ -2,6 +2,7 @@ import { useOutsideClickHandler, isMacintosh } from 'lib/utils'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { CommandSearch } from './CommandSearch'
 
 interface BoxProps {
     visible: boolean
@@ -29,6 +30,7 @@ export function CommandPalette({ visible }: BoxProps): JSX.Element | false {
         closeBox()
     })
 
+    // prevent scrolling when box is open
     useEffect(() => {
         if (visible) document.body.style.overflow = 'hidden'
         else document.body.style.overflow = 'unset'
@@ -50,7 +52,9 @@ export function CommandPalette({ visible }: BoxProps): JSX.Element | false {
                     backgroundColor: 'white',
                     borderRadius: 10,
                 }}
-            />
+            >
+                <CommandSearch></CommandSearch>
+            </div>
         )
     )
 }
