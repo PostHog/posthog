@@ -22,16 +22,11 @@ export function SessionsTable(): JSX.Element {
     function showSessionPlayer(events: eventWithTime[]): void {
         Modal.info({
             centered: true,
-            title: "Sessions Player",
             content: <SessionsPlayer events={events}></SessionsPlayer>,
             icon: null,
             okType: 'primary',
             okText: 'Done',
             width: 1000,
-            onOk() {
-                console.log("nothing")
-            },
-            onCancel() {},
         })
     }
 

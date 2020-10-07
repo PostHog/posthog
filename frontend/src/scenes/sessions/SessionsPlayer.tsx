@@ -11,10 +11,11 @@ export default function PasswordStrength({ events }: { events: eventWithTime[]})
       new rrwebPlayer({
         target: target.current, 
         // @ts-ignore
-        data: {
+        props: {
+          width: 900,
           events,
           autoPlay: true,
-        },
+        }
       });
     }
 }, [])
