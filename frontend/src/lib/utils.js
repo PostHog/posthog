@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
@@ -441,4 +441,24 @@ export function copyToClipboard(value, description) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
         return false
     }
+}
+
+export function useOutsideClickHandler(ref, handleClickOutside) {
+    useEffect(() => {
+        function handleClick(event) {
+            if (ref.current && !ref.current.contains(event.target)) handleClickOutside()
+        }
+        document.addEventListener('mousedown', handleClick)
+        return () => {
+            document.removeEventListener('mousedown', handleClick)
+        }
+    }, [ref, handleClickOutside])
+}
+
+export function clamp(value, min, max) {
+    return value > max ? max : value < min ? min : value
+}
+
+export function isMacintosh() {
+    return navigator.platform.indexOf('Mac') > -1
 }
