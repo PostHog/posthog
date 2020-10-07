@@ -8,6 +8,10 @@ import { createActionFromEvent } from './createActionFromEvent'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
+    for (let key of Object.keys(event.properties)) {
+        if (key[0] === '_') delete event.properties[key]
+    }
+
     return (
         <>
             <Button

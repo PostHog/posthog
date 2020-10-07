@@ -24,7 +24,7 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
 
     const snapshotEventsData: eventWithTime[] = session.events
         .filter((event) => event.event === '$snapshot')
-        .map((event) => event.properties?.data)
+        .map((event) => event.properties?._data)
     if (snapshotEventsData.length < 2) return null
 
     return (

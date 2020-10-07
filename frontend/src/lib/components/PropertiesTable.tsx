@@ -25,7 +25,6 @@ function PropertyDisplay({ properties }: { properties: any }): JSX.Element {
     if (properties === null) propertiesType = 'null'
     else if (propertiesType === 'string' && moment(properties).isValid())
         propertiesType = 'string, parsable as datetime'
-    console.log(propertiesType)
     return typeToIcon[propertiesType] ? (
         <>
             <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>
