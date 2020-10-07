@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space } from 'antd'
+import { Table, Button, Spin, Space, Modal } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -8,11 +8,32 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
-import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
+import { CaretLeftOutlined, CaretRightOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { green } from '@ant-design/colors'
+import SessionsPlayer from './SessionsPlayer'
 
 export function SessionsTable(): JSX.Element {
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
     const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
+
+
+
+    function showSessionPlayer(events: Array<Object>) {
+        
+        Modal.info({
+            centered: true,
+            title: "Sessions Player",
+            content: <SessionsPlayer events={events}></SessionsPlayer>,
+            icon: null,
+            okType: 'primary',
+            okText: 'Done',
+            width: 1000,
+            onOk() {
+                console.log("nothing")
+            },
+            onCancel() {},
+        })
+    }
 
     const columns = [
         {
@@ -67,6 +88,25 @@ export function SessionsTable(): JSX.Element {
                         session.events[session.events.length - 1].properties?.$current_url
                             ? stripHTTP(session.events[session.events.length - 1].properties.$current_url)
                             : 'N/A'}
+                    </span>
+                )
+            },
+            ellipsis: true,
+        },
+        {
+            title: 'Play Session',
+            render: function RenderEndPoint(session: SessionType) {
+                return (
+                    <span>
+                        <PlayCircleOutlined 
+                            style={{color: green.primary }}
+                            onClick={() => {
+                                const snapshotEventsData: Array<Event> = session.events.filter(event => event.event === "$snapshot").map(event => event.properties?.data)
+                                if (snapshotEventsData.length > 2) {
+                                    showSessionPlayer(snapshotEventsData)
+                                }
+                            }}
+                        ></PlayCircleOutlined>
                     </span>
                 )
             },
