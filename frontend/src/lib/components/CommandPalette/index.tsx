@@ -21,10 +21,9 @@ export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | fa
         onClose()
     })
 
-    // prevent scrolling when box is open
     useEffect(() => {
-        if (visible) document.body.style.overflow = 'hidden'
-        else document.body.style.overflow = 'unset'
+        // prevent scrolling when box is open
+        document.body.style.overflow = visible ? 'hidden' : ''
     }, [visible])
 
     return (

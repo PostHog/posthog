@@ -4622,6 +4622,11 @@ funnel-graph-js@^1.4.1:
   resolved "https://registry.yarnpkg.com/funnel-graph-js/-/funnel-graph-js-1.4.2.tgz#b82150189e8afa59104d881d5dcf55a28d715342"
   integrity sha512-9bnmcBve7RDH9dTF9BLuUpuisKkDka3yrfhs+Z/106ZgJvqIse1RfKQWjW+QdAlTrZqC9oafen7t/KuJKv9ohA==
 
+fuse.js@^6.4.1:
+  version "6.4.1"
+  resolved "https://registry.yarnpkg.com/fuse.js/-/fuse.js-6.4.1.tgz#76f1b4ab9cd021b854a68381b35628033d27507e"
+  integrity sha512-+hAS7KYgLXontDh/vqffs7wIBw0ceb9Sx8ywZQhOsiQGcSO5zInGhttWOUYQYlvV/yYMJOacQ129Xs3mP3+oZQ==
+
 gensync@^1.0.0-beta.1:
   version "1.0.0-beta.1"
   resolved "https://registry.yarnpkg.com/gensync/-/gensync-1.0.0-beta.1.tgz#58f4361ff987e5ff6e1e7a210827aa371eaac269"
