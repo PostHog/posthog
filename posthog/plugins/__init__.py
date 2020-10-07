@@ -5,7 +5,7 @@ import tempfile
 import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import pip
 import requests
@@ -74,12 +74,27 @@ def get_plugin_modules():
     return PluginBaseClass.__subclasses__()
 
 
-def exec_event_plugins(event):
+def exec_plugins(event):
     mods = get_plugin_modules()
-    for p in mods:
-        f = getattr(p, "process_event")
-        event = f(event)
+    for mod in mods:
+        event = exec_plugin(mod, event, "process_event")
+        if event.event == "$identify":
+            event = exec_plugin(mod, event, "process_identify")
+        if event.event == "$create_alias":
+            event = exec_plugin(mod, event, "process_alias")
+
+
+def exec_plugin(module, event, method="process_event"):
+    f = getattr(module, method)
+    event = f(event)
     return event
+
+
+def schedule_tasks():
+    mods = get_plugin_modules()
+    for mod in mods:
+        f = getattr(mod, "schedule_jobs")
+        f()
 
 
 @dataclass
@@ -94,13 +109,17 @@ class PosthogEvent:
 
 class PluginBaseClass(ABC):
     @abstractmethod
-    def process_event(self, event):
+    def schedule_jobs(self, sender):
         pass
 
     @abstractmethod
-    def process_person(self, event):
+    def process_event(self, event: PosthogEvent):
         pass
 
     @abstractmethod
-    def process_identify(self, event):
+    def process_alias(self, event: PosthogEvent):
+        pass
+
+    @abstractmethod
+    def process_identify(self, event: PosthogEvent):
         pass

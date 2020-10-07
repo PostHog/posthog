@@ -21,6 +21,7 @@ RUN mkdir /code/requirements/
 COPY requirements/dev.txt /code/requirements/
 RUN pip install -r requirements/dev.txt --compile
 
+COPY posthog.json /code/
 COPY package.json /code/
 COPY yarn.lock /code/
 COPY webpack.config.js /code/
