@@ -11,7 +11,6 @@ interface Props {
 export function CommandSearch({ onClose }: Props): JSX.Element {
     const ref = useRef()
     const [input, setInput] = useState('')
-    const [isSequence, setIsSequence] = useState(false)
 
     const handle = (event: KeyboardEvent): void => {
         if (event.key === 'Escape') {
@@ -20,11 +19,7 @@ export function CommandSearch({ onClose }: Props): JSX.Element {
             // if 'esc' is pressed once, delete text. If pressed twice, close window
             if (input) setInput('')
             else onClose()
-        } else {
-            if (event.key === 'k' && isSequence) onClose()
-            else if (event.key === 'Control' || event.key === 'Meta') setIsSequence(true)
-            else setIsSequence(false)
-        }
+        } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) onClose()
     }
 
     // focus on text input by default
