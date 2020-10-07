@@ -521,6 +521,12 @@ class TestSelectors(BaseTest):
             selector1.parts[1].__dict__, {"data": {"attr_id": "5"}, "direct_descendant": True, "unique_order": 0},
         )
 
+    def test_selector_with_spaces(self):
+        selector1 = Selector("span    ")
+        self.assertEqual(
+            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0},
+        )
+
     def test_class(self):
         selector1 = Selector("div.classone.classtwo > span")
         self.assertEqual(
