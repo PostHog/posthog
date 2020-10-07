@@ -8,8 +8,10 @@ import { createActionFromEvent } from './createActionFromEvent'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
+    let displayableEventProperties = {}
+
     for (let key of Object.keys(event.properties)) {
-        if (key[0] === '_') delete event.properties[key]
+        if (key[0] !== '_') displayableEventProperties[key] = event.properties[key]
     }
 
     return (
@@ -31,7 +33,7 @@ export function EventDetails({ event }) {
                     <PropertiesTable
                         properties={{
                             Timestamp: moment(event.timestamp).toISOString(),
-                            ...event.properties,
+                            ...displayableEventProperties,
                         }}
                     />
                 </TabPane>
