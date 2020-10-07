@@ -56,4 +56,4 @@ const commandGoTo: Command = {
     },
 }
 
-export const commands: Command[] = [commandGoTo]
+export const globalCommands: Command[] = [commandGoTo]

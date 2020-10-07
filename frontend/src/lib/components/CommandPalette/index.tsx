@@ -2,6 +2,8 @@ import { useOutsideClickHandler, isMacintosh } from 'lib/utils'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { useCommands } from './commandLogic'
+import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 
 export function CommandPalette(): JSX.Element | false {
@@ -24,6 +26,8 @@ export function CommandPalette(): JSX.Element | false {
     useOutsideClickHandler(boxRef, () => {
         closeBox()
     })
+
+    useCommands(globalCommands)
 
     useEffect(() => {
         // prevent scrolling when box is open
