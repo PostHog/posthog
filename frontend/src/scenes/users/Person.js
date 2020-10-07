@@ -141,7 +141,7 @@ function _Person({ _: distinctId, id }) {
             {activeTab === 'events' ? (
                 <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
             ) : (
-                <SessionsTable></SessionsTable>
+                <SessionsTable />
             )}
         </div>
     ) : null
