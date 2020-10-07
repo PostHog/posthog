@@ -17,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
+import { CommandBoxContainer } from 'lib/components/CommandBox'
 
 const darkerScenes = {
     dashboard: true,
@@ -80,28 +81,30 @@ function App() {
     }
 
     return (
-        <Layout className="bg-white">
-            <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
-            <Layout
-                className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
-                    !sidebarCollapsed ? ' with-open-sidebar' : ''
-                }`}
-                style={{ minHeight: '100vh' }}
-            >
-                <div className="content py-3 layout-top-content">
-                    <TopContent user={user} />
-                </div>
-                <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
-                    <BillingToolbar />
-                    {!user.has_events && image ? (
-                        <SendEventsOverlay image={image} user={user} />
-                    ) : (
-                        <Scene user={user} {...params} />
-                    )}
-                    <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-                </Layout.Content>
+        <CommandBoxContainer>
+            <Layout className="bg-white">
+                <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+                <Layout
+                    className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
+                        !sidebarCollapsed ? ' with-open-sidebar' : ''
+                    }`}
+                    style={{ minHeight: '100vh' }}
+                >
+                    <div className="content py-3 layout-top-content">
+                        <TopContent user={user} />
+                    </div>
+                    <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
+                        <BillingToolbar />
+                        {!user.has_events && image ? (
+                            <SendEventsOverlay image={image} user={user} />
+                        ) : (
+                            <Scene user={user} {...params} />
+                        )}
+                        <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                    </Layout.Content>
+                </Layout>
             </Layout>
-        </Layout>
+        </CommandBoxContainer>
     )
 }
 
