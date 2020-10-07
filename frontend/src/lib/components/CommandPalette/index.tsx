@@ -4,12 +4,7 @@ import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { CommandSearch } from './CommandSearch'
 
-interface BoxProps {
-    visible: boolean
-    onClickOutside: () => void
-}
-
-export function CommandPalette({ visible }: BoxProps): JSX.Element | false {
+export function CommandPalette(): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
 
     const [isBoxShown, setIsBoxShown] = useState<boolean>(false)
@@ -30,11 +25,10 @@ export function CommandPalette({ visible }: BoxProps): JSX.Element | false {
         closeBox()
     })
 
-    // prevent scrolling when box is open
     useEffect(() => {
-        if (visible) document.body.style.overflow = 'hidden'
-        else document.body.style.overflow = 'unset'
-    }, [visible])
+        // prevent scrolling when box is open
+        document.body.style.overflow = isBoxShown ? 'hidden' : ''
+    }, [isBoxShown])
 
     return (
         isBoxShown && (
