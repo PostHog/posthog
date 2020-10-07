@@ -95,6 +95,8 @@ def exec_plugins(event):
         if event.event == "$create_alias":
             event = exec_plugin(mod, event, "process_alias")
 
+    return event
+
 
 def exec_plugin(module, event, method="process_event"):
     f = getattr(module, method)

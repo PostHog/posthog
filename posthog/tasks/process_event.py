@@ -233,14 +233,15 @@ def process_event(
         timestamp=handle_timestamp(data, now, sent_at),
     )
 
-    e = exec_plugins(plugin_event)
+    event = exec_plugins(plugin_event)
 
-    _capture(
-        ip=e.ip,
-        site_url=e.site_url,
-        team_id=e.team_id,
-        event=e.event,
-        distinct_id=e.distinct_id,
-        properties=e.properties,
-        timestamp=handle_timestamp(data, now, sent_at),
-    )
+    if event:
+        _capture(
+            ip=event.ip,
+            site_url=event.site_url,
+            team_id=event.team_id,
+            event=event.event,
+            distinct_id=event.distinct_id,
+            properties=event.properties,
+            timestamp=handle_timestamp(data, now, sent_at),
+        )
