@@ -98,7 +98,7 @@ def exec_plugins(event):
 
 def exec_plugin(module, event, method="process_event"):
     f = getattr(module, method)
-    event = f(event)
+    event = f(module, event)
     return event
 
 
