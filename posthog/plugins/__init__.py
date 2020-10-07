@@ -1,8 +1,11 @@
+import datetime
 import importlib
 import os
 import tempfile
 import zipfile
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Dict
 
 import pip
 import requests
@@ -65,6 +68,28 @@ def download_plugin(repo):
         with zipfile.ZipFile(f, "r") as zip_ref:
             plugin_path = os.path.join(PATH, PLUGIN_PATH)
             zip_ref.extractall(plugin_path)
+
+
+def get_plugin_modules():
+    return PluginBaseClass.__subclasses__()
+
+
+def exec_event_plugins(event):
+    mods = get_plugin_modules()
+    for p in mods:
+        f = getattr(p, "process_event")
+        event = f(event)
+    return event
+
+
+@dataclass
+class PosthogEvent:
+    ip: str
+    site_url: str
+    event: str
+    distinct_id: str
+    properties: Dict[Any, Any]
+    timestamp: datetime.datetime
 
 
 class PluginBaseClass(ABC):
