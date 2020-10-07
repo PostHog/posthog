@@ -5,7 +5,7 @@ import { useHotkeys } from 'react-hotkeys-hook'
 export function CommandPaletteContainer({ children }: React.PropsWithChildren<unknown>): JSX.Element {
     const [showBox, setShowBox] = useState<boolean>(false)
 
-    useHotkeys('ctrl+l', () => {
+    useHotkeys(isMacintosh() ? 'cmd+k' : 'ctrl+k', () => {
         setShowBox((prevShowBox) => !prevShowBox)
     })
 
@@ -66,4 +66,8 @@ function CommandPalette({ visible, onClickOutside }: BoxProps): JSX.Element {
     ) : (
         <></>
     )
+}
+
+function isMacintosh(): boolean {
+    return navigator.platform.indexOf('Mac') > -1
 }
