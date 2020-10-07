@@ -1,26 +1,25 @@
-import React, {useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import rrwebPlayer from 'rrweb-player'
 import 'rrweb-player/dist/style.css'
-import { eventWithTime } from 'rrweb/typings/types';
+import { eventWithTime } from 'rrweb/typings/types'
 
-export default function PasswordStrength({ events }: { events: eventWithTime[]}): JSX.Element {
-  const target = useRef<HTMLDivElement | null>(null)
+export default function PasswordStrength({ events }: { events: eventWithTime[] }): JSX.Element {
+    const target = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    if (target.current) {
-      new rrwebPlayer({
-        target: target.current, 
-        // @ts-ignore
-        props: {
-          width: 900,
-          events,
-          autoPlay: true,
+    useEffect(() => {
+        if (target.current) {
+            new rrwebPlayer({
+                target: target.current,
+                // eslint-disable-next-line
+                // @ts-ignore
+                props: {
+                    width: 900,
+                    events,
+                    autoPlay: true,
+                },
+            })
         }
-      });
-    }
-}, [])
+    }, [])
 
-    return (
-        <div ref={target} id='sessions-player'></div>
-    )
+    return <div ref={target} id="sessions-player"></div>
 }

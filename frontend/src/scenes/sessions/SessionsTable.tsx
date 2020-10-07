@@ -11,13 +11,11 @@ import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import { green } from '@ant-design/colors'
 import SessionsPlayer from './SessionsPlayer'
-import { eventWithTime } from 'rrweb/typings/types';
+import { eventWithTime } from 'rrweb/typings/types'
 
 export function SessionsTable(): JSX.Element {
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
     const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
-
-
 
     function showSessionPlayer(events: eventWithTime[]): void {
         Modal.info({
@@ -91,15 +89,18 @@ export function SessionsTable(): JSX.Element {
         {
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
+                const snapshotEventsData: eventWithTime[] = session.events
+                    .filter((event) => event.event === '$snapshot')
+                    .map((event) => event.properties?.data)
+                if (snapshotEventsData.length < 2) return
+
                 return (
                     <span>
-                        <PlayCircleOutlined 
-                            style={{color: green.primary }}
-                            onClick={() => {
-                                const snapshotEventsData: eventWithTime[] = session.events.filter(event => event.event === "$snapshot").map(event => event.properties?.data)
-                                if (snapshotEventsData.length > 2) {
-                                    showSessionPlayer(snapshotEventsData)
-                                }
+                        <PlayCircleOutlined
+                            style={{ color: green.primary }}
+                            onClick={(event: React.MouseEvent) => {
+                                event.stopPropagation()
+                                showSessionPlayer(snapshotEventsData)
                             }}
                         ></PlayCircleOutlined>
                     </span>
