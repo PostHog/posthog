@@ -2,12 +2,11 @@ import { useOutsideClickHandler } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { useCommands } from './commandLogic'
+import { useCommands, useCommandsSearch } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
-import { DashboardOutlined, UserOutlined } from '@ant-design/icons'
 
 const PaletteContainer = styled.div`
     z-index: 9999;
@@ -26,7 +25,7 @@ const PaletteContainer = styled.div`
     overflow: hidden;
 `
 
-const ResultsGroup = styled.div`
+/*const ResultsGroup = styled.div`
     background-color: #4d4d4d;
     height: 22px;
     width: 100%;
@@ -36,7 +35,7 @@ const ResultsGroup = styled.div`
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.9);
     font-weight: bold;
-`
+`*/
 
 const Title = styled.div`
     font-weight: bold;
@@ -68,6 +67,7 @@ interface BoxProps {
 export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
     const [state] = useState({ error: null, title: null })
+    const [input, setInput] = useState('')
 
     useHotkeys('esc', () => {
         onClose()
@@ -84,14 +84,16 @@ export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | fa
         document.body.style.overflow = visible ? 'hidden' : ''
     }, [visible])
 
+    const commandsSearch = useCommandsSearch()
+
     return (
         visible && (
             <PaletteContainer ref={boxRef}>
                 {state.title && <Title>{state.title}</Title>}
-                <CommandSearch onClose={onClose}></CommandSearch>
+                <CommandSearch onClose={onClose} input={input} setInput={setInput} />
                 {state.error && <PaletteError>{state.error}</PaletteError>}
                 <ResultsContainer>
-                    <ResultsGroup>On this page</ResultsGroup>
+                    {/*<ResultsGroup>On this page</ResultsGroup>
                     <CommandResult
                         Icon={UserOutlined}
                         text="type an email address to go straight to that person’s page"
@@ -103,7 +105,15 @@ export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | fa
                     <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
                     <ResultsGroup>Global</ResultsGroup>
                     <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
+                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />*/}
+                    {commandsSearch(input).map((result, index) => (
+                        <CommandResult
+                            key={`command-result-${index}`}
+                            Icon={result.icon}
+                            text={result.text}
+                            executor={result.executor}
+                        />
+                    ))}
                 </ResultsContainer>
             </PaletteContainer>
         )

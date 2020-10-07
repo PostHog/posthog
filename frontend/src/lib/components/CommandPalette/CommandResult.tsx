@@ -1,9 +1,13 @@
+import { useActions } from 'kea'
 import React from 'react'
 import styled from 'styled-components'
+import { router } from 'kea-router'
+import { CommandExecutor } from './commandLogic'
 
 interface Props {
     focused?: boolean
     isHint?: boolean
+    onClick?: CommandExecutor
 }
 
 const ResultContainer = styled.div<Props>`
@@ -49,16 +53,25 @@ const IconContainer = styled.span`
 interface CommandResultProps {
     Icon: any
     text: string
+    executor: CommandExecutor
     focused?: boolean
     isHint?: boolean
 }
 
-export function CommandResult({ Icon, text, focused, isHint }: CommandResultProps): JSX.Element {
+export function CommandResult({ Icon, text, executor, focused, isHint }: CommandResultProps): JSX.Element {
+    const { push } = useActions(router)
+
     return (
-        <ResultContainer focused={focused} isHint={isHint}>
+        <ResultContainer
+            focused={focused}
+            isHint={isHint}
+            onClick={() => {
+                executor({ push })
+            }}
+        >
             <IconContainer>
                 <Icon />
-            </IconContainer>{' '}
+            </IconContainer>
             {text}
         </ResultContainer>
     )

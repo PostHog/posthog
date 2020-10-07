@@ -1,29 +1,29 @@
-import React from 'react'
+import React, { useRef, useEffect, Dispatch, SetStateAction, useCallback } from 'react'
 import { Input, Row } from 'antd'
-import { useState } from 'react'
-import { useRef } from 'react'
-import { useEffect } from 'react'
 
 interface Props {
+    input: string
+    setInput: Dispatch<SetStateAction<string>>
     onClose: () => void
 }
-export function CommandSearch({ onClose }: Props): JSX.Element {
-    const ref = useRef()
-    const [input, setInput] = useState('')
+export function CommandSearch({ input, setInput, onClose }: Props): JSX.Element {
+    const inputRef = useRef<Input | null>(null)
 
-    const handle = (event: KeyboardEvent): void => {
-        if (event.key === 'Escape') {
-            event.preventDefault()
-
-            // if 'esc' is pressed once, delete text. If pressed twice, close window
-            if (input) setInput('')
-            else onClose()
-        } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) onClose()
-    }
+    const handle = useCallback(
+        (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                // If 'esc' is pressed once, delete text. If pressed twice, close window
+                if (input) setInput('')
+                else onClose()
+            } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) onClose()
+        },
+        [input, setInput]
+    )
 
     // focus on text input by default
     useEffect((): void => {
-        ref.current?.focus()
+        inputRef.current?.focus()
     }, [])
 
     return (
@@ -40,7 +40,7 @@ export function CommandSearch({ onClose }: Props): JSX.Element {
             }}
         >
             <Input
-                ref={ref}
+                ref={inputRef}
                 value={input}
                 onKeyDown={handle}
                 onChange={(e): void => setInput(e.target.value)}
