@@ -8,8 +8,14 @@
             });
         </script>
         <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+        <link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css"
+/>
+<script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
     </head>
     <body>
+        
 <div class='container'>
     <div class='alert alert-warning'>
         <strong>Welcome to the PostHog demo environment!</strong><br />
@@ -157,5 +163,12 @@
 
 </div>
 
+    <script>
+        rrweb.record({
+            emit(data) {
+                posthog.capture('$snapshot', {data})
+            },
+        });
+    </script>
     </body>
 </html>
