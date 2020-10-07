@@ -1,9 +1,11 @@
+import json
 import os
 
 import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
+from posthog.plugins import load_plugins
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
 
@@ -15,6 +17,13 @@ class PostHogConfig(AppConfig):
     def ready(self):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+
+        # Load plugins
+        with open("posthog.json", "r") as f:
+            conf = json.loads(f.read())
+        plugins = conf["plugins"]
+        load_plugins(plugins)
+
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
