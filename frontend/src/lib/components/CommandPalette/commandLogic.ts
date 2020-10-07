@@ -1,5 +1,5 @@
-import { kea, useActions } from 'kea'
-import { useEffect } from 'react'
+import { kea, useActions, useValues } from 'kea'
+import { useCallback, useEffect } from 'react'
 
 export interface CommandResult {
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
@@ -15,7 +15,7 @@ export type CommandResolver = (argument: string) => CommandResult[]
 
 export interface Command {
     key: string // Unique command identification key
-    prefixes?: string[] // Command synonyms, e.g. "go to". Prefix-less case is empty string '' (e.g. Dashboard names)
+    prefixes?: string[] // Command synonyms, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
     resolver: CommandResolver // Resolver based on arguments (prefix excluded)
 }
 
@@ -26,6 +26,8 @@ export type CommandRegistrations = {
 export type CommandPrefixLUT = {
     [prefix: string]: CommandResolver[]
 }
+
+export type RegExpResolverPairs = [RegExp | null, CommandResolver][]
 
 export const commandLogic = kea({
     actions: () => ({
@@ -53,20 +55,18 @@ export const commandLogic = kea({
         ],
     }),
     selectors: () => ({
-        prefixLookupTable: [
+        regexpResolverPairs: [
             (selectors) => [selectors.commandRegistrations],
             (commandRegistrations: CommandRegistrations) => {
-                const newLookupTable: CommandPrefixLUT = {}
+                const array: RegExpResolverPairs = []
                 for (const command of Object.values(commandRegistrations)) {
-                    if (command.prefixes) {
-                        for (const prefix of command.prefixes) {
-                            newLookupTable[prefix] = [...(newLookupTable[prefix] ?? []), command.resolver]
-                        }
-                    } else {
-                        newLookupTable[''] = [...(newLookupTable[''] ?? []), command.resolver]
-                    }
+                    if (command.prefixes)
+                        array.push([
+                            new RegExp(`^\\s*(${command.prefixes.join('|')})(?:\\s+(.*)|$)`, 'i'),
+                            command.resolver,
+                        ])
+                    else array.push([null, command.resolver])
                 }
-                return newLookupTable
             },
         ],
     }),
@@ -81,4 +81,26 @@ export function useCommands(commands: Command[]): void {
             for (const command of commands) deregisterCommand(command.key)
         }
     }, [commands])
+}
+
+export function useCommandsSearch(prefixLookupTable: CommandPrefixLUT): (argument: string) => CommandResult[] {
+    const { regexpResolverPairs } = useValues(commandLogic)
+
+    return useCallback(
+        (argument: string): CommandResult[] => {
+            const results: CommandResult[] = []
+            for (const [regexp, command] of regexpResolverPairs) {
+                if (regexp) {
+                    // prefix-based case
+                    const match = argument.match(regexp)
+                    if (match && match[1]) results.push(...command.resolver(match[2]))
+                } else {
+                    // raw argument command
+                    results.push(...command.resolver(argument))
+                }
+            }
+            return results
+        },
+        [prefixLookupTable]
+    )
 }
