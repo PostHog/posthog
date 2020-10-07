@@ -12,14 +12,6 @@ from posthog.models import FeatureFlag, Team
 from posthog.utils import base64_to_json, cors_response, load_data_from_request
 
 
-def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
-    # JS Integration reloadFeatureFlags call
-    if request.content_type == "application/x-www-form-urlencoded":
-        return base64_to_json(request.POST["data"])
-
-    return load_data_from_request(request)
-
-
 def _get_token(data, request):
     if request.POST.get("api_key"):
         return request.POST["api_key"]
