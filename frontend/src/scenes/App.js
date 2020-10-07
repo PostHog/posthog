@@ -17,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
-import { CommandPaletteContainer } from 'lib/components/CommandPalette'
+import { CommandPalette } from 'lib/components/CommandPalette'
 
 const darkerScenes = {
     dashboard: true,
@@ -81,7 +81,7 @@ function App() {
     }
 
     return (
-        <CommandPaletteContainer>
+        <>
             <Layout className="bg-white">
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout
@@ -104,7 +104,8 @@ function App() {
                     </Layout.Content>
                 </Layout>
             </Layout>
-        </CommandPaletteContainer>
+            <CommandPalette />
+        </>
     )
 }
 
