@@ -2,7 +2,7 @@ import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
-import React, { useState, useEffect, lazy, Suspense } from 'react'
+import React, { useState, useEffect, lazy, Suspense, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
@@ -18,6 +18,8 @@ import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
+import { isMac } from 'lib/utils'
+import { useHotkeys } from 'react-hotkeys-hook'
 
 const darkerScenes = {
     dashboard: true,
@@ -40,11 +42,13 @@ const urlBackgroundMap = {
 }
 
 function App() {
+    const ref = useRef()
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
+    const [isBoxShown, setIsBoxShown] = useState(false)
 
     const [image, setImage] = useState(null)
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
@@ -57,6 +61,14 @@ function App() {
         // If user is already logged in, redirect away from unauthenticated routes like signup
         if (user && unauthenticatedRoutes.includes(scene)) replace('/')
     }, [scene, user])
+
+    useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
+        setIsBoxShown((prevShowBox) => !prevShowBox)
+    })
+
+    useEffect(() => {
+        ref.current?.focus()
+    }, [])
 
     if (!user) {
         return (
@@ -81,7 +93,7 @@ function App() {
     }
 
     return (
-        <>
+        <div ref={ref}>
             <Layout className="bg-white">
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout
@@ -104,8 +116,8 @@ function App() {
                     </Layout.Content>
                 </Layout>
             </Layout>
-            <CommandPalette />
-        </>
+            <CommandPalette visible={isBoxShown} onClose={() => setIsBoxShown(false)} />
+        </div>
     )
 }
 

@@ -1,41 +1,37 @@
-import { useOutsideClickHandler, isMacintosh } from 'lib/utils'
-import React, { useCallback, useEffect, useState } from 'react'
+import { useOutsideClickHandler } from 'lib/utils'
+import React, { useEffect } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useCommands } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 
-export function CommandPalette(): JSX.Element | false {
+interface BoxProps {
+    visible: boolean
+    onClickOutside: () => void
+    onClose: () => void
+}
+
+export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    const [isBoxShown, setIsBoxShown] = useState<boolean>(false)
-
-    const closeBox = useCallback(() => {
-        setIsBoxShown(false)
-    }, [setIsBoxShown])
-
-    useHotkeys(isMacintosh() ? 'cmd+k' : 'ctrl+k', () => {
-        setIsBoxShown((prevShowBox) => !prevShowBox)
-    })
-
     useHotkeys('esc', () => {
-        closeBox()
+        onClose()
     })
 
     useOutsideClickHandler(boxRef, () => {
-        closeBox()
+        onClose()
     })
 
     useCommands(globalCommands)
 
     useEffect(() => {
         // prevent scrolling when box is open
-        document.body.style.overflow = isBoxShown ? 'hidden' : ''
-    }, [isBoxShown])
+        document.body.style.overflow = visible ? 'hidden' : ''
+    }, [visible])
 
     return (
-        isBoxShown && (
+        visible && (
             <div
                 ref={boxRef}
                 style={{
@@ -51,7 +47,7 @@ export function CommandPalette(): JSX.Element | false {
                     borderRadius: 10,
                 }}
             >
-                <CommandSearch></CommandSearch>
+                <CommandSearch onClose={onClose}></CommandSearch>
             </div>
         )
     )
