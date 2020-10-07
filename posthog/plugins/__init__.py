@@ -45,7 +45,10 @@ def import_plugin(plugin):
 
 def load_plugins(plugins):
     for repo in plugins:
-        download_plugin(repo)
+        if repo.startswith("http:") or repo.startswith("https:"):
+            download_plugin(repo)
+        else:
+            symlink_plugin(repo)
 
     plugins = get_installed_plugins()
     for plugin in plugins:
@@ -68,6 +71,15 @@ def download_plugin(repo):
         with zipfile.ZipFile(f, "r") as zip_ref:
             plugin_path = os.path.join(PATH, PLUGIN_PATH)
             zip_ref.extractall(plugin_path)
+
+
+def symlink_plugin(path):
+    real_path = os.path.realpath(path)
+    path_parts = os.path.split(real_path)
+    plugin_path = os.path.join(PATH, PLUGIN_PATH, path_parts[-1])
+    if os.path.exists(plugin_path) or os.path.islink(plugin_path):
+        os.unlink(plugin_path)
+    os.symlink(real_path, plugin_path)
 
 
 def get_plugin_modules():
@@ -103,6 +115,7 @@ class PosthogEvent:
     site_url: str
     event: str
     distinct_id: str
+    team_id: int
     properties: Dict[Any, Any]
     timestamp: datetime.datetime
 
