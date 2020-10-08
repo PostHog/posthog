@@ -57,7 +57,20 @@ class TestDecide(BaseTest):
         self.team.save()
         response = self.client.get("/decide", HTTP_ORIGIN="http://127.0.0.1:8000").json()
         self.assertEqual(response["isAuthenticated"], True)
+        self.assertEqual(response["sessionRecording"], False)
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    def test_user_session_recording_opt_in(self):
+        self.team.session_recording_opt_in = True
+        self.team.save()
+
+        response = self.client.post(
+            "/decide/",
+            {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id"})},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+        ).json()
+        self.assertEqual(response["sessionRecording"], True)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     def test_feature_flags(self):
