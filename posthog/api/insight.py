@@ -18,6 +18,7 @@ from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key, request_to_date_query
 
+
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
 
