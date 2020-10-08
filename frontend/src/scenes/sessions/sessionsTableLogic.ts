@@ -18,7 +18,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     date_from: selectedDateURLparam,
                     date_to: selectedDateURLparam,
                     offset: 0,
-                    distinct_id: props.personIds[0],
+                    distinct_id: props.personIds ? props.personIds[0] : '',
                 })
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()

@@ -12,7 +12,7 @@ import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 
 interface SessionsTableProps {
-    personIds: Array<string> | null
+    personIds?: Array<string> | null
 }
 
 export function SessionsTable({ personIds }: SessionsTableProps): JSX.Element {
