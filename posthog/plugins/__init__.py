@@ -2,6 +2,7 @@ import datetime
 import importlib
 import json
 import os
+import pickle
 import re
 import shutil
 import tempfile
@@ -195,11 +196,14 @@ class PluginCache:
 
     def set(self, key: str, value: Any):
         key = self.format_key(key)
+        value = pickle.dumps(value)
         self.redis.set(key, value)
 
     def get(self, key) -> Any:
         key = self.format_key(key)
-        return self.redis.get(key)
+        str_value = self.redis.get(key)
+        value = pickle.loads(str_value)
+        return value
 
 
 class PluginBaseClass:
