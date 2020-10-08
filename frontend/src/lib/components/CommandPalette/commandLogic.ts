@@ -98,16 +98,17 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
     },
 })
 
-export function useCommands(commands: Command[]): void {
+export function useCommands(commands: Command[], condition: boolean = true): void {
     const { registerCommand, deregisterCommand } = useActions(commandLogic)
     useEffect(() => {
-        for (const command of commands) {
-            registerCommand(command)
-        }
+        if (condition)
+            for (const command of commands) {
+                registerCommand(command)
+            }
         return () => {
             for (const command of commands) deregisterCommand(command.key)
         }
-    }, [commands])
+    }, [commands, condition])
 }
 
 /*function resolveCommand(command: Command, resultsArray: CommandResult[], argument?: string, prefixApplied?: string): CommandResult[] {
