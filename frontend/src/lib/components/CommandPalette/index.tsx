@@ -56,7 +56,6 @@ export function CommandPalette(): JSX.Element | null {
     const { setSearchInput: setInput } = useActions(commandLogic)
     const { searchInput: input, commandSearchResults } = useValues(commandLogic)
     const boxRef = useRef<HTMLDivElement | null>(null)
-    const [input, setInput] = useState('')
     const [isPaletteShown, setIsPaletteShown] = useState(false)
     const { user } = useValues(userLogic)
 
