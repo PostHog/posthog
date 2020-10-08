@@ -28,7 +28,7 @@ const ResultContainer = styled.div<Props>`
         background-color: #666666;
 
         &:before {
-            background-color: #FEB641; 
+            background-color: #1890ff; 
             content: '';
             position: absolute;
             left: 0;
@@ -45,10 +45,10 @@ const ResultContainer = styled.div<Props>`
         
 `};
     &:hover {
-        background-color: #666666;
+        background-color: rgba(0, 0, 0, 0.35);
 
         &:before {
-            background-color: #feb641;
+            background-color: #1890ff;
             content: '';
             position: absolute;
             left: 0;

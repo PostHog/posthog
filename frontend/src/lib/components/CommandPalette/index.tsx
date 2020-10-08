@@ -30,7 +30,6 @@ const CommandPaletteBox = styled.div`
     min-height: 200px;
     max-height: 60%;
     box-shadow: 1px 4px 6px rgba(0, 0, 0, 0.1);
-    background-color: #373737;
     border-radius: 10px;
     overflow: hidden;
 `
@@ -97,7 +96,7 @@ export function CommandPalette(): JSX.Element | false {
     return (
         isPaletteShown && (
             <CommandPaletteContainer>
-                <CommandPaletteBox ref={boxRef}>
+                <CommandPaletteBox ref={boxRef} className="bg-dark">
                     {state.title && <Title>{state.title}</Title>}
                     <CommandSearch
                         onClose={() => {
