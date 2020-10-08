@@ -8,16 +8,17 @@ import { SessionType } from '~/types'
 type Moment = moment.Moment
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType>>({
-    loaders: ({ actions, values }) => ({
+    loaders: ({ actions, values, props }) => ({
         sessions: {
             __default: [] as SessionType[],
             loadSessions: async (_: any, breakpoint) => {
                 const { selectedDateURLparam } = values
+                console.log(props.personIds)
                 const params = toParams({
                     date_from: selectedDateURLparam,
                     date_to: selectedDateURLparam,
                     offset: 0,
-                    distinct_id: window && window.location.href.includes('person') ? 'hello' : false,
+                    distinct_id: props.personIds[0],
                 })
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()

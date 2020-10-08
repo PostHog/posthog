@@ -156,16 +156,6 @@ class InsightViewSet(viewsets.ModelViewSet):
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-        print("###############")
-
         if "distinct_id" in request.GET and request.GET["distinct_id"]:
             result["result"] = [
                 session
@@ -173,9 +163,6 @@ class InsightViewSet(viewsets.ModelViewSet):
                 if result["result"][i]["distinct_id"] == request.GET["distinct_id"]
             ]
 
-        # print(result['result'][1])
-        # print(request.GET['offset'])
-        # add pagination
         if filter.session_type is None:
             offset = filter.offset + limit - 1
             if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:

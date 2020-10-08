@@ -11,9 +11,14 @@ import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 
-export function SessionsTable(): JSX.Element {
-    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
-    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
+interface SessionsTableProps {
+    personIds: Array<string> | null
+}
+
+export function SessionsTable({ personIds }: SessionsTableProps): JSX.Element {
+    const logic = sessionsTableLogic({ personIds })
+    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(logic)
+    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(logic)
 
     const columns = [
         {
