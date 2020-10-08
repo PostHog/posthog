@@ -205,6 +205,8 @@ class PluginCache:
     def get(self, key) -> Any:
         key = self.format_key(key)
         str_value = self.redis.get(key)
+        if not str_value:
+            return None
         value = pickle.loads(str_value)
         return value
 
