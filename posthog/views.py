@@ -56,6 +56,13 @@ def status(request):
     stats_response: Dict[str, Union[int, str]] = {}
     stats_response["worker_heartbeat"] = get_redis_heartbeat()
 
+    health_response: Dict[str, str] = {}
+    health_response["status"] = "ok"
+
     return JsonResponse(
-        {"preflight_check": {"django": True, "redis": redis, "db": db}, "stats": stats_response, "health": "ok",}
+        {
+            "preflight_check": {"django": True, "redis": redis, "db": db},
+            "stats": stats_response,
+            "health": health_response,
+        }
     )
