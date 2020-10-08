@@ -166,7 +166,7 @@
     <script>
         rrweb.record({
             emit(data) {
-                posthog.capture('$snapshot', {"_data": data})
+                posthog.capture('$snapshot', {"$snapshot_data": data})
             },
         });
     </script>
