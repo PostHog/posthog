@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { useValues } from 'kea'
-import { useCommandsSearch, CommandResult as CommandResultType } from './commandLogic'
+import { useMountedLogic, useValues, useActions } from 'kea'
+import { CommandResult as CommandResultType, commandLogic } from './commandLogic'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
-import { GlobalCommands } from './GlobalCommands'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -52,6 +51,10 @@ const ResultsContainer = styled.div`
 `
 
 export function CommandPalette(): JSX.Element | null {
+    useMountedLogic(commandLogic)
+
+    const { setSearchInput: setInput } = useActions(commandLogic)
+    const { searchInput: input, commandSearchResults } = useValues(commandLogic)
     const boxRef = useRef<HTMLDivElement | null>(null)
     const [input, setInput] = useState('')
     const [isPaletteShown, setIsPaletteShown] = useState(false)
@@ -88,19 +91,17 @@ export function CommandPalette(): JSX.Element | null {
     }, [isPaletteShown])
 
     useEffect(() => {
-        if (Object.keys(commandsSearch(input)).length - 1 > activeResultIndex) {
+        if (commandSearchResults.length - 1 > activeResultIndex) {
             setActiveResultIndex(0)
         }
     }, [input])
-
-    const commandsSearch = useCommandsSearch()
 
     const _handleKeyDown = useCallback(
         (e: KeyboardEvent) => {
             if (isPaletteShown) {
                 if (e.key === 'ArrowDown') {
                     setActiveResultIndex((prevIndex) => {
-                        if (prevIndex === Object.keys(commandsSearch(input)).length - 1) return prevIndex
+                        if (prevIndex === commandSearchResults.length - 1) return prevIndex
                         else return prevIndex + 1
                     })
                 } else if (e.key === 'ArrowUp') {
@@ -117,9 +118,9 @@ export function CommandPalette(): JSX.Element | null {
     useEventListener('keydown', _handleKeyDown)
 
     const _handleEnterDown = useCallback(
-        (event: KeyboardEvent) => {
-            if (event.key === 'Enter') {
-                handleCommandSelection(commandsSearch(input)[activeResultIndex])
+        (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+                handleCommandSelection(commandSearchResults[activeResultIndex])
             }
         },
         [activeResultIndex, input]
@@ -129,13 +130,12 @@ export function CommandPalette(): JSX.Element | null {
 
     return (
         <>
-            <GlobalCommands />
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
                     <CommandPaletteBox ref={boxRef} className="bg-dark">
                         <CommandSearch setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
                         <ResultsContainer>
-                            {commandsSearch(input).map((result, index) => (
+                            {commandSearchResults.map((result, index) => (
                                 <CommandResult
                                     focused={activeResultIndex === index}
                                     key={`command-result-${index}`}
