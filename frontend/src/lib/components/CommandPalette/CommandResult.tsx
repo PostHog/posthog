@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import React from 'react'
 import styled from 'styled-components'
 import { router } from 'kea-router'
-import { CommandExecutor } from './commandLogic'
+import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
 
 interface Props {
     focused?: boolean
@@ -51,14 +51,13 @@ const IconContainer = styled.span`
 `
 
 interface CommandResultProps {
-    Icon: any
-    text: string
-    executor: CommandExecutor
+    result: CommandResultType
+    setIsPaletteShown: (newState: boolean) => void
     focused?: boolean
     isHint?: boolean
 }
 
-export function CommandResult({ Icon, text, executor, focused, isHint }: CommandResultProps): JSX.Element {
+export function CommandResult({ result, focused, isHint, setIsPaletteShown }: CommandResultProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
@@ -66,13 +65,14 @@ export function CommandResult({ Icon, text, executor, focused, isHint }: Command
             focused={focused}
             isHint={isHint}
             onClick={() => {
-                executor({ push })
+                result.executor({ push })
+                setIsPaletteShown(false)
             }}
         >
             <IconContainer>
-                <Icon />
+                <result.icon />
             </IconContainer>
-            {text}
+            {result.prefixApplied} <b>{result.text}</b>
         </ResultContainer>
     )
 }

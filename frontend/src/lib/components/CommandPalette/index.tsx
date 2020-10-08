@@ -2,29 +2,31 @@ import { useOutsideClickHandler } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { isMac } from 'lib/utils'
 import { useCommands, useCommandsSearch } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
 
-const PaletteContainer = styled.div`
-    z-index: 9999;
+const CommandPaletteContainer = styled.div`
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 700px;
-    min-height: 200px;
-    max-height: 60%;
-    box-shadow: 1px 4px 6px rgba(0, 0, 0, 0.1);
-    background-color: #373737;
-    border-radius: 10px;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+`
+
+const CommandPaletteBox = styled.div`
+    position: absolute;
+    top: 30%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 `
-
 /*const ResultsGroup = styled.div`
     background-color: #4d4d4d;
     height: 22px;
@@ -58,64 +60,66 @@ const PaletteError = styled.div`
     padding-right: 32px;
 `
 
-interface BoxProps {
-    visible: boolean
-    onClickOutside: () => void
-    onClose: () => void
-}
-
-export function CommandPalette({ visible, onClose }: BoxProps): JSX.Element | false {
+export function CommandPalette(): JSX.Element | false {
     const boxRef = useRef<HTMLDivElement | null>(null)
     const [state] = useState({ error: null, title: null })
     const [input, setInput] = useState('')
+    const [isPaletteShown, setIsPaletteShown] = useState(false)
+
+    useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
+        setIsPaletteShown(!isPaletteShown)
+    })
 
     useHotkeys('esc', () => {
-        onClose()
+        setIsPaletteShown(false)
     })
 
     useOutsideClickHandler(boxRef, () => {
-        onClose()
+        setIsPaletteShown(false)
     })
 
     useCommands(globalCommands)
 
     useEffect(() => {
         // prevent scrolling when box is open
-        document.body.style.overflow = visible ? 'hidden' : ''
-    }, [visible])
+        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
+    }, [isPaletteShown])
 
     const commandsSearch = useCommandsSearch()
 
     return (
-        visible && (
-            <PaletteContainer ref={boxRef}>
-                {state.title && <Title>{state.title}</Title>}
-                <CommandSearch onClose={onClose} input={input} setInput={setInput} />
-                {state.error && <PaletteError>{state.error}</PaletteError>}
-                <ResultsContainer>
-                    {/*<ResultsGroup>On this page</ResultsGroup>
+        isPaletteShown && (
+            <CommandPaletteContainer>
+                <CommandPaletteBox ref={boxRef} className="card bg-dark">
+                    {state.title && <Title>{state.title}</Title>}
+                    <CommandSearch
+                        onClose={() => {
+                            setIsPaletteShown(false)
+                        }}
+                        input={input}
+                        setInput={setInput}
+                    />
+                    {state.error && <PaletteError>{state.error}</PaletteError>}
+                    <ResultsContainer>
+                        {/*<ResultsGroup>On this page</ResultsGroup>
                     <CommandResult
                         Icon={UserOutlined}
                         text="type an email address to go straight to that person’s page"
                         isHint
                     />
                     <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" focused />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
                     <ResultsGroup>Global</ResultsGroup>
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" />*/}
-                    {commandsSearch(input).map((result, index) => (
-                        <CommandResult
-                            key={`command-result-${index}`}
-                            Icon={result.icon}
-                            text={result.text}
-                            executor={result.executor}
-                        />
-                    ))}
-                </ResultsContainer>
-            </PaletteContainer>
+                    <CommandResult Icon={DashboardOutlined} text="go to Dashboard AARRR" />*/}
+                        {commandsSearch(input).map((result, index) => (
+                            <CommandResult
+                                key={`command-result-${index}`}
+                                result={result}
+                                setIsPaletteShown={setIsPaletteShown}
+                            />
+                        ))}
+                    </ResultsContainer>
+                </CommandPaletteBox>
+            </CommandPaletteContainer>
         )
     )
 }

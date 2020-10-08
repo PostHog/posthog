@@ -45,7 +45,7 @@ export function CommandSearch({ input, setInput, onClose }: Props): JSX.Element 
                 onKeyDown={handle}
                 onChange={(e): void => setInput(e.target.value)}
                 size="large"
-                placeholder="what would you like to do?"
+                placeholder="What would you like to do?"
                 bordered={false}
                 style={{ color: 'rgba(255, 255, 255, 0.9)' }}
             ></Input>

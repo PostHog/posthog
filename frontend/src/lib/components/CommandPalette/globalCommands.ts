@@ -52,8 +52,12 @@ const commandGoToFuse = new Fuse(COMMAND_GO_TO_RESULTS, { keys: ['key'] })
 const commandGoTo: Command = {
     key: 'go-to',
     prefixes: ['go to', '/d'],
-    resolver: (argument) => {
-        return argument ? commandGoToFuse.search(argument).map((result) => result.item) : COMMAND_GO_TO_RESULTS
+    resolver: (argument, prefixApplied) => {
+        return argument
+            ? commandGoToFuse.search(argument).map((result) => {
+                  return { ...result.item, prefixApplied }
+              })
+            : COMMAND_GO_TO_RESULTS
     },
 }
 

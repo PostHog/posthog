@@ -18,8 +18,6 @@ import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
-import { isMac } from 'lib/utils'
-import { useHotkeys } from 'react-hotkeys-hook'
 
 const darkerScenes = {
     dashboard: true,
@@ -47,7 +45,6 @@ function App() {
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
-    const [isBoxShown, setIsBoxShown] = useState(false)
 
     const [image, setImage] = useState(null)
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
@@ -60,10 +57,6 @@ function App() {
         // If user is already logged in, redirect away from unauthenticated routes like signup
         if (user && unauthenticatedRoutes.includes(scene)) replace('/')
     }, [scene, user])
-
-    useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
-        setIsBoxShown((prevShowBox) => !prevShowBox)
-    })
 
     if (!user) {
         return (
@@ -111,7 +104,7 @@ function App() {
                     </Layout.Content>
                 </Layout>
             </Layout>
-            <CommandPalette visible={isBoxShown} onClose={() => setIsBoxShown(false)} />
+            <CommandPalette />
         </>
     )
 }
