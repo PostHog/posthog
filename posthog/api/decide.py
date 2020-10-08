@@ -1,6 +1,6 @@
 import json
 import secrets
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,14 +10,6 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import FeatureFlag, Team
 from posthog.utils import base64_to_json, cors_response, load_data_from_request
-
-
-def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
-    # JS Integration reloadFeatureFlags call
-    if request.content_type == "application/x-www-form-urlencoded":
-        return base64_to_json(request.POST["data"])
-
-    return load_data_from_request(request)
 
 
 def _get_token(data, request):
@@ -32,17 +24,40 @@ def _get_token(data, request):
     return None
 
 
-def feature_flags(request: HttpRequest) -> Dict[str, Any]:
-    feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
-    try:
-        data_from_request = load_data_from_request(request)
-        data = data_from_request["data"]
-    except (json.decoder.JSONDecodeError, TypeError):
-        feature_flags_data["has_malformed_json"] = True
-        return feature_flags_data
+def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
+    response: Dict[str, Any] = {}
 
+    team = request.user.team
+    permitted_domains = ["127.0.0.1", "localhost"]
+
+    for url in team.app_urls:
+        hostname = parse_domain(url)
+        if hostname:
+            permitted_domains.append(hostname)
+
+    if (parse_domain(request.headers.get("Origin")) in permitted_domains) or (
+        parse_domain(request.headers.get("Referer")) in permitted_domains
+    ):
+        response = {"isAuthenticated": True}
+        editor_params = {}
+
+        if request.user.toolbar_mode == "toolbar":
+            editor_params["toolbarVersion"] = "toolbar"
+
+        if settings.JS_URL:
+            editor_params["jsURL"] = settings.JS_URL
+
+        response["editorParams"] = editor_params
+        return response, not request.user.temporary_token
+    else:
+        return {}, False
+
+
+# May raise exception if request body is malformed
+def find_team_by_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
+    data = data_from_request["data"]
     if not data:
-        return feature_flags_data
+        return None
 
     token = _get_token(data, request)
     is_personal_api_key = False
@@ -51,17 +66,21 @@ def feature_flags(request: HttpRequest) -> Dict[str, Any]:
             request, data_from_request["body"], data if isinstance(data, dict) else None
         )
         is_personal_api_key = True
-    if not token:
-        return feature_flags_data
-    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+
+    if token:
+        return Team.objects.get_cached_from_token(token, is_personal_api_key)
+
+    return None
+
+
+def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
         # distinct_id will always be a string, but data can have non-string values ("Any")
         if feature_flag.distinct_id_matches(data["distinct_id"]):
             flags_enabled.append(feature_flag.key)
-    feature_flags_data["flags_enabled"] = flags_enabled
-    return feature_flags_data
+    return flags_enabled
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -83,35 +102,19 @@ def get_decide(request: HttpRequest):
             response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
 
     if request.user.is_authenticated:
-        team = request.user.team
-        permitted_domains = ["127.0.0.1", "localhost"]
+        r, update_user_token = decide_editor_params(request)
+        response.update(r)
+        if update_user_token:
+            request.user.temporary_token = secrets.token_urlsafe(32)
+            request.user.save()
 
-        for url in team.app_urls:
-            hostname = parse_domain(url)
-            if hostname:
-                permitted_domains.append(hostname)
-
-        if (parse_domain(request.headers.get("Origin")) in permitted_domains) or (
-            parse_domain(request.headers.get("Referer")) in permitted_domains
-        ):
-            response["isAuthenticated"] = True
-            editor_params = {}
-
-            if request.user.toolbar_mode == "toolbar":
-                editor_params["toolbarVersion"] = "toolbar"
-
-            if settings.JS_URL:
-                editor_params["jsURL"] = settings.JS_URL
-
-            response["editorParams"] = editor_params
-
-            if not request.user.temporary_token:
-                request.user.temporary_token = secrets.token_urlsafe(32)
-                request.user.save()
     response["featureFlags"] = []
+    response["sessionRecording"] = False
+
     if request.method == "POST":
-        feature_flags_data = feature_flags(request)
-        if feature_flags_data["has_malformed_json"]:
+        try:
+            data_from_request = load_data_from_request(request)
+        except (json.decoder.JSONDecodeError, TypeError):
             return cors_response(
                 request,
                 JsonResponse(
@@ -119,5 +122,9 @@ def get_decide(request: HttpRequest):
                     status=400,
                 ),
             )
-        response["featureFlags"] = feature_flags_data["flags_enabled"]
+
+        team = find_team_by_token(request, data_from_request)
+        if team:
+            response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
+            response["sessionRecording"] = team.session_recording_opt_in
     return cors_response(request, JsonResponse(response))
