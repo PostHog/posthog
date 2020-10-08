@@ -166,7 +166,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         print("###############")
         print("###############")
 
-        if "distinct_id" in request.GET:
+        if "distinct_id" in request.GET and request.GET["distinct_id"]:
             result["result"] = [
                 session
                 for i, session in enumerate(result["result"])

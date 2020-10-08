@@ -17,7 +17,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     date_from: selectedDateURLparam,
                     date_to: selectedDateURLparam,
                     offset: 0,
-                    // distinct_id: 'hello'
+                    distinct_id: window && window.location.href.includes('person') ? 'hello' : false,
                 })
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()
@@ -85,7 +85,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         dateChanged: () => {
             const { selectedDateURLparam } = values
             const today = moment().startOf('day').format('YYYY-MM-DD')
-            if (!window.location.href.includes('person')) {
+            if (window && !window.location.href.includes('person')) {
                 return [`/sessions`, selectedDateURLparam === today ? {} : { date: selectedDateURLparam }]
             }
         },
@@ -97,7 +97,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 actions.dateChanged(newDate)
             }
         },
-        '/person': (_: any, { date }: { date: string }) => {
+        '/person/*': (_: any, { date }: { date: string }) => {
             const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
             if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
                 actions.dateChanged(newDate)

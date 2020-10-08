@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useValues, useActions } from 'kea'
 import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PersonTable } from './PersonTable'
@@ -8,6 +9,7 @@ import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 
 const { TabPane } = Tabs
 
@@ -16,6 +18,9 @@ export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
+
+    const {} = useValues(sessionsTableLogic)
+    const {} = useActions(sessionsTableLogic)
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
@@ -141,7 +146,7 @@ function _Person({ _: distinctId, id }) {
             {activeTab === 'events' ? (
                 <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
             ) : (
-                <SessionsTable />
+                <SessionsTable personId={person.id} />
             )}
         </div>
     ) : null
