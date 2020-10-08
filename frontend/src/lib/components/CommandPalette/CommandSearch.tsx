@@ -1,9 +1,9 @@
-import React, { useRef, useEffect, Dispatch, SetStateAction, useCallback } from 'react'
+import React, { useRef, useEffect, useCallback } from 'react'
 import { Input, Row } from 'antd'
 
 interface Props {
     input: string
-    setInput: Dispatch<SetStateAction<string>>
+    setInput: (input: string) => void
     onClose: () => void
 }
 export function CommandSearch({ input, setInput, onClose }: Props): JSX.Element {

@@ -1,7 +1,25 @@
-import { kea, useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { kea } from 'kea'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import Fuse from 'fuse.js'
+import { router } from 'kea-router'
+import {
+    FundOutlined,
+    RiseOutlined,
+    ContainerOutlined,
+    AimOutlined,
+    SyncOutlined,
+    ClockCircleOutlined,
+    UserOutlined,
+    UsergroupAddOutlined,
+    ExperimentOutlined,
+    SettingOutlined,
+    MessageOutlined,
+    TeamOutlined,
+    BookOutlined,
+    FunnelPlotOutlined,
+    GatewayOutlined,
+    InteractionOutlined,
+} from '@ant-design/icons'
 
 export type CommandExecutor = () => void
 
@@ -24,6 +42,7 @@ export interface Command {
     key: string // Unique command identification key
     prefixes?: string[] // Command prefixes, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
     resolver: CommandResolver | CommandResultTemplate[] // Resolver based on arguments (prefix excluded)
+    scope: string
 }
 
 export type CommandRegistrations = {
@@ -34,10 +53,13 @@ export type RegExpCommandPairs = [RegExp | null, Command][]
 
 const RESULTS_MAX = 5
 
+export const GLOBAL_COMMAND_SCOPE = 'global'
+
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     actions: {
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
+        setSearchInput: (input: string) => ({ input }),
     },
     reducers: {
         commandRegistrations: [
@@ -54,6 +76,12 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 },
             },
         ],
+        searchInput: [
+            '',
+            {
+                setSearchInput: (_, { input }) => input,
+            },
+        ],
     },
     selectors: {
         regexpCommandPairs: [
@@ -68,25 +96,207 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 return array
             },
         ],
+        commandSearchResults: [
+            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput],
+            (regexpCommandPairs: RegExpCommandPairs, argument: string) => {
+                const directResults: CommandResult[] = []
+                const prefixedResults: CommandResult[] = []
+                for (const [regexp, command] of regexpCommandPairs) {
+                    if (regexp) {
+                        const match = argument.match(regexp)
+                        if (match && match[1]) {
+                            resolveCommand(command, prefixedResults, match[2], match[1])
+                        }
+                    }
+                    resolveCommand(command, directResults, argument)
+                }
+                const fuse = new Fuse(directResults.concat(prefixedResults), {
+                    keys: ['display', 'synonyms'],
+                })
+                return fuse
+                    .search(argument)
+                    .slice(0, RESULTS_MAX)
+                    .map((result) => result.item)
+            },
+        ],
     },
-})
 
-export function useCommands(commands: Command[], condition: boolean = true): void {
-    /*
-        condition: will register or de-register the command depending on the value (to conditionally add commands),
-        to remove a command pass a `false` value (avoid `undefined`).
-    */
-    const { registerCommand, deregisterCommand } = useActions(commandLogic)
-    useEffect(() => {
-        if (condition)
-            for (const command of commands) {
-                registerCommand(command)
+    events: ({ actions }) => ({
+        afterMount: () => {
+            const { push } = router.actions
+            const results: CommandResultTemplate[] = [
+                {
+                    key: 'dashboards',
+                    icon: FundOutlined,
+                    display: 'Go to Dashboards',
+                    executor: () => {
+                        push('/dashboard')
+                    },
+                },
+                {
+                    key: 'insights',
+                    icon: RiseOutlined,
+                    display: 'Go to Insights',
+                    executor: () => {
+                        push('/insights')
+                    },
+                },
+                {
+                    key: 'trends',
+                    icon: RiseOutlined,
+                    display: 'Go to Trends',
+                    executor: () => {
+                        // TODO: Fix me
+                        push('/insights?insight=TRENDS')
+                    },
+                },
+                {
+                    key: 'sessions',
+                    icon: ClockCircleOutlined,
+                    display: 'Go to Sessions',
+                    executor: () => {
+                        // TODO: Fix me
+                        push('/insights?insight=SESSIONS')
+                    },
+                },
+                {
+                    key: 'funnels',
+                    icon: FunnelPlotOutlined,
+                    display: 'Go to Funnels',
+                    executor: () => {
+                        // TODO: Fix me
+                        push('/insights?insight=FUNNELS')
+                    },
+                },
+                {
+                    key: 'retention',
+                    icon: GatewayOutlined,
+                    display: 'Go to Retention',
+                    executor: () => {
+                        // TODO: Fix me
+                        push('/insights?insight=RETENTION')
+                    },
+                },
+                {
+                    key: 'user_paths',
+                    icon: InteractionOutlined,
+                    display: 'Go to User Paths',
+                    executor: () => {
+                        // TODO: Fix me
+                        push('/insights?insight=PATHS')
+                    },
+                },
+                {
+                    key: 'events',
+                    icon: ContainerOutlined,
+                    display: 'Go to Events',
+                    executor: () => {
+                        push('/events')
+                    },
+                },
+                {
+                    key: 'actions',
+                    icon: AimOutlined,
+                    display: 'Go to Actions',
+                    executor: () => {
+                        push('/actions')
+                    },
+                },
+                {
+                    key: 'actions/live',
+                    icon: SyncOutlined,
+                    display: 'Go to Live Actions',
+                    executor: () => {
+                        push('/actions/live')
+                    },
+                },
+                {
+                    key: 'sessions',
+                    icon: ClockCircleOutlined,
+                    display: 'Go to Live Sessions',
+                    executor: () => {
+                        push('/sessions')
+                    },
+                },
+                {
+                    key: 'people',
+                    icon: UserOutlined,
+                    display: 'Go to People',
+                    synonyms: ['people'],
+                    executor: () => {
+                        push('/people')
+                    },
+                },
+                {
+                    key: 'cohorts',
+                    icon: UsergroupAddOutlined,
+                    display: 'Go to Cohorts',
+                    executor: () => {
+                        push('/people/cohorts')
+                    },
+                },
+                {
+                    key: 'experiments/feature_flags',
+                    icon: ExperimentOutlined,
+                    display: 'Go to Experiments',
+                    synonyms: ['feature flags', 'a/b test'],
+                    executor: () => {
+                        push('/experiments/feature_flags')
+                    },
+                },
+                {
+                    key: 'setup',
+                    icon: SettingOutlined,
+                    display: 'Go to Setup',
+                    synonyms: ['settings', 'configuration'],
+                    executor: () => {
+                        push('/setup')
+                    },
+                },
+                {
+                    key: 'annotations',
+                    icon: MessageOutlined,
+                    display: 'Go to Annotations',
+                    executor: () => {
+                        push('/annotations')
+                    },
+                },
+                {
+                    key: 'team',
+                    icon: TeamOutlined,
+                    display: 'Go to Team',
+                    executor: () => {
+                        push('/team')
+                    },
+                },
+                {
+                    key: 'docs',
+                    icon: BookOutlined,
+                    display: 'Go to Documentation',
+                    synonyms: ['technical docs'],
+                    executor: () => {
+                        window.open('https://posthog.com/docs')
+                    },
+                },
+            ]
+
+            const globalCommands: Command[] = [
+                {
+                    key: GLOBAL_COMMAND_SCOPE,
+                    prefixes: [],
+                    resolver: results,
+                    scope: GLOBAL_COMMAND_SCOPE,
+                },
+            ]
+            for (const command of globalCommands) {
+                actions.registerCommand(command)
             }
-        return () => {
-            for (const command of commands) deregisterCommand(command.key)
-        }
-    }, [commands, condition])
-}
+        },
+        beforeUnmount: () => {
+            actions.deregisterCommand(GLOBAL_COMMAND_SCOPE)
+        },
+    }),
+})
 
 function resolveCommand(
     command: Command,
@@ -99,33 +309,5 @@ function resolveCommand(
         ...results.map((result) => {
             return { ...result, command } as CommandResult
         })
-    )
-}
-
-export function useCommandsSearch(): (argument: string) => CommandResult[] {
-    const { regexpCommandPairs } = useValues(commandLogic)
-
-    return useCallback(
-        (argument: string): CommandResult[] => {
-            const directResults: CommandResult[] = []
-            const prefixedResults: CommandResult[] = []
-
-            for (const [regexp, command] of regexpCommandPairs) {
-                if (directResults.length + prefixedResults.length >= RESULTS_MAX) break
-                if (regexp) {
-                    const match = argument.match(regexp)
-                    if (match && match[1]) {
-                        resolveCommand(command, prefixedResults, match[2], match[1])
-                    }
-                }
-                resolveCommand(command, directResults, argument)
-            }
-            const fuse = new Fuse(directResults.concat(prefixedResults).slice(0, RESULTS_MAX), {
-                keys: ['key', 'synonyms', 'display'],
-                threshold: 0.5,
-            })
-            return fuse.search(argument).map((result) => result.item)
-        },
-        [regexpCommandPairs]
     )
 }
