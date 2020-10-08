@@ -9,40 +9,24 @@ interface ContainerProps {
 }
 
 const ResultContainer = styled.div<ContainerProps>`
-    height: 60px;
+    height: 4rem;
     width: 100%;
-    padding-left: 32px;
-    padding-right: 32px;
+    padding: 0 2rem;
     display: flex;
     align-items: center;
     color: rgba(255, 255, 255, 0.95);
     font-size: 16px;
     position: relative;
     cursor: pointer;
-
-    ${({ focused }) =>
-        focused &&
-        `
-        background-color: rgba(0, 0, 0, 0.35);
-
-        &:before {
-            background-color: #1890ff; 
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 7px;
-        }
-        `}
     ${({ isHint }) =>
         isHint &&
         `
         color: rgba(255, 255, 255, 0.7) !important;  
         cursor: default !important;
         
-`};
-    &:hover {
+    `};
+    &:hover,
+    &:focus {
         background-color: rgba(0, 0, 0, 0.35);
 
         &:before {
