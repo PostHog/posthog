@@ -41,19 +41,6 @@ const ResultContainer = styled.div<ContainerProps>`
         cursor: default !important;
         
     `};
-    &:hover,
-    &:focus {
-        background-color: rgba(0, 0, 0, 0.35);
-
-        &:before {
-            background-color: #1890ff;
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 7px;
-        }
     }
 `
 
