@@ -7,7 +7,7 @@ class TestPreflight(BaseTest):
     def test_preflight_request(self):
         self.client.logout()  # make sure it works anonymously
 
-        response = self.client.get("/_preflight/")
+        response = self.client.get("/_status/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response = response.json()
         self.assertEqual(response["django"], True)
@@ -16,9 +16,9 @@ class TestPreflight(BaseTest):
     def test_preflight_request_no_redis(self):
 
         with self.settings(REDIS_URL=None):
-            response = self.client.get(
-                "/_preflight"
-            )  # Make sure the endpoint works with and without the trailing slash
+            response = self.client.get("/_status")  # Make sure the endpoint works with and without the trailing slash
 
+        response = response.json()
+        response = response["preflight_check"]
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"django": True, "redis": False, "db": True})
