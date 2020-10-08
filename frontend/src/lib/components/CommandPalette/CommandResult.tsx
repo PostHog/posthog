@@ -37,13 +37,12 @@ const ResultContainer = styled.div<Props>`
             width: 7px;
         }
         `}
-
     ${({ isHint }) =>
         isHint &&
         `
         color: rgba(255, 255, 255, 0.7) !important;  
         cursor: default !important;
-`}
+`};
 `
 
 const IconContainer = styled.span`
@@ -72,7 +71,7 @@ export function CommandResult({ result, focused, isHint, setIsPaletteShown }: Co
             <IconContainer>
                 <result.icon />
             </IconContainer>
-            {result.prefixApplied} <b>{result.text}</b>
+            {result.prefixApplied} {result.text}
         </ResultContainer>
     )
 }

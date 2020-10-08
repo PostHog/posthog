@@ -34,7 +34,7 @@ export interface CommandSearchEntry {
     command: Command
 }
 
-const DIRECT_RESULTS_MAX = 2
+const DIRECT_RESULTS_MAX = 15
 const PREFIXED_RESULTS_MAX = 3
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
