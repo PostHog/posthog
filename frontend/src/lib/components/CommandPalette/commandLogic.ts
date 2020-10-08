@@ -43,7 +43,7 @@ export type CommandRegistrations = {
 
 export type RegExpCommandPairs = [RegExp | null, Command][]
 
-const RESULTS_MAX = 8
+const RESULTS_MAX = 5
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     actions: {
@@ -106,12 +106,19 @@ export function useCommands(commands: Command[], condition: boolean = true): voi
     }, [commands, condition])
 }
 
-/*function resolveCommand(command: Command, resultsArray: CommandResult[], argument?: string, prefixApplied?: string): CommandResult[] {
-    return resultsArray.push(...command.resolver(argument, prefixApplied).map(result => {
-        result.command = command
-        return result
-    }))
-}*/
+function resolveCommand(
+    command: Command,
+    resultsArray: CommandResult[],
+    argument?: string,
+    prefixApplied?: string
+): void {
+    resultsArray.push(
+        ...command.resolver(argument, prefixApplied).map((result) => {
+            result.command = command
+            return result
+        })
+    )
+}
 
 export function useCommandsSearch(): (argument: string) => CommandResult[] {
     const { regexpCommandPairs } = useValues(commandLogic)
@@ -126,10 +133,10 @@ export function useCommandsSearch(): (argument: string) => CommandResult[] {
                 if (regexp) {
                     const match = argument.match(regexp)
                     if (match && match[1]) {
-                        prefixedResults.push(...command.resolver(match[2], match[1]))
+                        resolveCommand(command, prefixedResults, match[2], match[1])
                     }
                 }
-                directResults.push(...command.resolver(argument))
+                resolveCommand(command, directResults, argument)
             }
             const fuse = new Fuse(directResults.concat(prefixedResults).slice(0, RESULTS_MAX), {
                 keys: ['key', 'synonyms', 'display'],

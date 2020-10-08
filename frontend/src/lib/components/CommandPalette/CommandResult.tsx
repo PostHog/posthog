@@ -23,7 +23,7 @@ const ResultContainer = styled.div<ContainerProps>`
     ${({ focused }) =>
         focused &&
         `
-        background-color: #666666;
+        background-color: rgba(0, 0, 0, 0.35);
 
         &:before {
             background-color: #1890ff; 
@@ -66,11 +66,22 @@ interface CommandResultProps {
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
     isHint?: boolean
+    onMouseOver?: (e: MouseEvent) => void
+    onMouseOut?: (e: MouseEvent) => void
 }
 
-export function CommandResult({ result, focused, isHint, handleSelection }: CommandResultProps): JSX.Element {
+export function CommandResult({
+    result,
+    focused,
+    isHint,
+    handleSelection,
+    onMouseOver,
+    onMouseOut,
+}: CommandResultProps): JSX.Element {
     return (
         <ResultContainer
+            onMouseOver={onMouseOver}
+            onMouseOut={onMouseOut}
             focused={focused}
             isHint={isHint}
             onClick={() => {
