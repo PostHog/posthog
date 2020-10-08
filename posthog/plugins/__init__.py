@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import re
+import shutil
 import tempfile
 import traceback
 import zipfile
@@ -17,6 +18,13 @@ URL_TEMPLATE = "{repo}/archive/{branch}.zip"
 DEFAULT_BRANCHES = ["main", "master"]
 PATH = os.path.abspath(os.getcwd())
 ABS_PLUGIN_PATH = os.path.join(PATH, PLUGIN_PATH)
+
+
+def cleanse_plugin_directory():
+    for x in os.listdir(ABS_PLUGIN_PATH):
+        if os.path.isdir(os.path.join(ABS_PLUGIN_PATH, x)) and x != "__pycache__":
+            dir = os.path.join(ABS_PLUGIN_PATH, x)
+            shutil.rmtree(dir)
 
 
 def install(reqs):
@@ -48,6 +56,7 @@ def import_plugin(plugin):
 
 
 def load_plugins():
+    cleanse_plugin_directory()
     plugins = get_plugin_config().order
     for repo in plugins:
         if not repo.path:
