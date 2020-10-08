@@ -23,7 +23,7 @@ from posthog.email import is_email_available
 from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import Event, Team, User
 from .utils import render_template
-from .views import health, preflight_check, stats
+from .views import health, preflight_check, stats, status
 
 
 def home(request, **kwargs):
@@ -204,9 +204,7 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> st
 
 urlpatterns = [
     # internals
-    opt_slash_path("_health", health),
-    opt_slash_path("_stats", stats),
-    opt_slash_path("_preflight", preflight_check),
+    opt_slash_path("_status", status),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),

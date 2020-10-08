@@ -35,3 +35,27 @@ def preflight_check(request):
         pass
 
     return JsonResponse({"django": True, "redis": redis, "db": db})
+
+
+@never_cache
+def status(request):
+    redis: bool = False
+    db: bool = False
+
+    try:
+        redis = get_redis_heartbeat() != "offline"
+    except BaseException:
+        pass
+
+    try:
+        User.objects.count()
+        db = True
+    except DatabaseError:
+        pass
+
+    stats_response: Dict[str, Union[int, str]] = {}
+    stats_response["worker_heartbeat"] = get_redis_heartbeat()
+
+    return JsonResponse(
+        {"preflight_check": {"django": True, "redis": redis, "db": db}, "stats": stats_response, "health": "ok",}
+    )
