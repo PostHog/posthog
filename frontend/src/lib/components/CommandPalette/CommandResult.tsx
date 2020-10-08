@@ -18,6 +18,22 @@ const ResultContainer = styled.div<ContainerProps>`
     font-size: 16px;
     position: relative;
     cursor: pointer;
+
+    ${({ focused }) =>
+        focused &&
+        `
+        background-color: rgba(0, 0, 0, 0.35);
+
+        &:before {
+            background-color: #1890ff; 
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 7px;
+        }
+        `}
     ${({ isHint }) =>
         isHint &&
         `
