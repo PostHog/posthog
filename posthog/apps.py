@@ -19,10 +19,7 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
         # Load plugins
-        with open("posthog.json", "r") as f:
-            conf = json.loads(f.read())
-        plugins = conf["plugins"]
-        load_plugins(plugins)
+        load_plugins()
 
         if settings.DEBUG:
             # log development server launch to posthog

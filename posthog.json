@@ -1,3 +1,12 @@
 {
-    "plugins": ["https://github.com/fuziontech/helloworldplugin"]
+    "plugins": [
+        {
+            "url": "https://github.com/fuziontech/helloworldplugin",
+            "config": {
+                "api_key": "WAERAWERWAERAWE",
+                "amount_key": "amount",
+                "normalized_amount_prop": ""
+            }
+        }
+    ]
 }

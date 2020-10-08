@@ -162,7 +162,7 @@ def get_event(request):
                 ),
             )
 
-        process_event.delay(
+        process_event(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri("/")[:-1],

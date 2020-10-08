@@ -1,12 +1,14 @@
 import datetime
 import importlib
+import json
 import os
+import re
 import tempfile
 import traceback
 import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict
+from typing import Any, Dict, List
 
 import pip
 import requests
@@ -16,8 +18,6 @@ URL_TEMPLATE = "{repo}/archive/{branch}.zip"
 DEFAULT_BRANCHES = ["main", "master"]
 PATH = os.path.abspath(os.getcwd())
 ABS_PLUGIN_PATH = os.path.join(PATH, PLUGIN_PATH)
-
-modules = []
 
 
 def install(reqs):
@@ -48,20 +48,18 @@ def import_plugin(plugin):
     return plugin_module_name
 
 
-def load_plugins(plugins):
+def load_plugins():
+    plugins = get_plugin_config().order
     for repo in plugins:
-        if repo.startswith("http:") or repo.startswith("https:"):
-            download_plugin(repo)
+        if not repo.path:
+            download_plugin(repo.url)
         else:
-            symlink_plugin(repo)
-
+            symlink_plugin(repo.path)
     plugins = get_installed_plugins()
     for plugin in plugins:
         req_file = os.path.join(ABS_PLUGIN_PATH, plugin, "requirements.txt")
         install(req_file)
-        module = import_plugin(plugin)
-        if module:
-            modules.append(module)
+        import_plugin(plugin)
 
 
 def download_plugin(repo):
@@ -100,11 +98,34 @@ def exec_plugins(event):
             event = exec_plugin(mod, event, "process_identify")
         if event.event == "$create_alias":
             event = exec_plugin(mod, event, "process_alias")
-
     return event
 
 
-def exec_plugin(module, event, method="process_event"):
+def get_plugin_config():
+    with open("posthog.json", "r") as f:
+        conf = json.loads(f.read()).get("plugins", None)
+    plugin_configs = PluginConfigs(order=[], dict={})
+    for plugin in conf:
+        ppc = PluginConfig(
+            path=plugin.get("path", None), url=plugin.get("url", None), config=plugin.get("config", None)
+        )
+        plugin_configs.dict[ppc.name] = ppc
+        plugin_configs.order.append(ppc)
+    return plugin_configs
+
+
+def get_module_config(module):
+    module_name = module.__module__.split(".")[-1]
+    module_name = re.sub("-main$", "", module_name)
+    module_name = re.sub("-master$", "", module_name)
+    plugin_config = get_plugin_config()
+    module_config = plugin_config.dict[module_name]
+    return module_config
+
+
+def exec_plugin(Module, event, method="process_event"):
+    mc = get_module_config(Module)
+    module = Module(mc)
     f = getattr(module, method)
     event = f(module, event)
     return event
@@ -112,9 +133,30 @@ def exec_plugin(module, event, method="process_event"):
 
 def schedule_tasks():
     mods = get_plugin_modules()
-    for mod in mods:
+    for Mod in mods:
+        mc = get_module_config(Mod)
+        mod = Mod(mc)
         f = getattr(mod, "schedule_jobs")
         f()
+
+
+@dataclass
+class PluginConfig:
+    url: str
+    path: str
+    config: Dict[Any, Any]
+
+    @property
+    def name(self):
+        if self.path:
+            return os.path.split(self.path)[-1]
+        return self.url.split("/")[-1]
+
+
+@dataclass
+class PluginConfigs:
+    order: List[PluginConfig]
+    dict: Dict[str, PluginConfig]
 
 
 @dataclass
