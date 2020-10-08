@@ -3,7 +3,7 @@ import { useCallback, useEffect } from 'react'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import Fuse from 'fuse.js'
 
-export type CommandExecutor = (utils: Utils) => void
+export type CommandExecutor = () => void
 
 export interface CommandResultTemplate {
     key: string // string for sorting results according to typed text
@@ -18,23 +18,12 @@ export type CommandResult = CommandResultTemplate & {
     command: Command
 }
 
-export interface DefinedUtils {
-    push: (url: string) => void // kea-router URL push
-}
-
-export interface CustomUtils {
-    [customUtil: string]: (...args: any) => any
-}
-
-export type Utils = CustomUtils & DefinedUtils
-
 export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResultTemplate[]
 
 export interface Command {
     key: string // Unique command identification key
     prefixes?: string[] // Command prefixes, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
-    resolver: CommandResolver // Resolver based on arguments (prefix excluded)
-    utils?: CustomUtils
+    resolver: CommandResolver | CommandResultTemplate[] // Resolver based on arguments (prefix excluded)
 }
 
 export type CommandRegistrations = {
@@ -55,6 +44,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
+                    if (command.key in commands) throw Error(`Command key ${command.key} is already registered!`)
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
@@ -76,14 +66,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     else array.push([null, command])
                 }
                 return array
-            },
-        ],
-        fuse: [
-            (selectors) => [selectors.commandRegistrations],
-            (commandRegistrations: Command[]) => {
-                return new Fuse(Object.values(commandRegistrations), {
-                    keys: ['display', 'synonyms', 'prefix'],
-                })
             },
         ],
     },
@@ -112,10 +94,10 @@ function resolveCommand(
     argument?: string,
     prefixApplied?: string
 ): void {
+    const results = Array.isArray(command.resolver) ? command.resolver : command.resolver(argument, prefixApplied)
     resultsArray.push(
-        ...command.resolver(argument, prefixApplied).map((result) => {
-            result.command = command
-            return result
+        ...results.map((result) => {
+            return { ...result, command } as CommandResult
         })
     )
 }
@@ -140,6 +122,7 @@ export function useCommandsSearch(): (argument: string) => CommandResult[] {
             }
             const fuse = new Fuse(directResults.concat(prefixedResults).slice(0, RESULTS_MAX), {
                 keys: ['key', 'synonyms', 'display'],
+                threshold: 0.5,
             })
             return fuse.search(argument).map((result) => result.item)
         },
