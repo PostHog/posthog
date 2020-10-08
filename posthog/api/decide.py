@@ -53,17 +53,13 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         return {}, False
 
 
-def feature_flags(request: HttpRequest) -> Dict[str, Any]:
-    feature_flags_data = {"flags_enabled": [], "has_malformed_json": False}
-    try:
-        data_from_request = load_data_from_request(request)
-        data = data_from_request["data"]
-    except (json.decoder.JSONDecodeError, TypeError):
-        feature_flags_data["has_malformed_json"] = True
-        return feature_flags_data
+# May raise exception if request body is malformed
+def load_request_team(request: HttpRequest) -> Union[Team, None]:
+    data_from_request = load_data_from_request(request)
+    data = data_from_request["data"]
 
     if not data:
-        return feature_flags_data
+        return None
 
     token = _get_token(data, request)
     is_personal_api_key = False
@@ -72,17 +68,19 @@ def feature_flags(request: HttpRequest) -> Dict[str, Any]:
             request, data_from_request["body"], data if isinstance(data, dict) else None
         )
         is_personal_api_key = True
-    if not token:
-        return feature_flags_data
-    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+
+    if token:
+        return Team.objects.get_cached_from_token(token, is_personal_api_key)
+
+
+def feature_flags(request: HttpRequest, team: Team) -> Dict[str, Any]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
         # distinct_id will always be a string, but data can have non-string values ("Any")
         if feature_flag.distinct_id_matches(data["distinct_id"]):
             flags_enabled.append(feature_flag.key)
-    feature_flags_data["flags_enabled"] = flags_enabled
-    return feature_flags_data
+    return flags_enabled
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -112,8 +110,9 @@ def get_decide(request: HttpRequest):
 
     response["featureFlags"] = []
     if request.method == "POST":
-        feature_flags_data = feature_flags(request)
-        if feature_flags_data["has_malformed_json"]:
+        try:
+            team = load_request_team(request)
+        except (json.decoder.JSONDecodeError, TypeError):
             return cors_response(
                 request,
                 JsonResponse(
@@ -121,5 +120,7 @@ def get_decide(request: HttpRequest):
                     status=400,
                 ),
             )
-        response["featureFlags"] = feature_flags_data["flags_enabled"]
+
+        if team:
+            response["featureFlags"] = feature_flags(request, team)
     return cors_response(request, JsonResponse(response))
