@@ -7546,10 +7546,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@^1.4.5:
-  version "1.4.5"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.4.5.tgz#b16235afe47938bd71eaed4ede3790c8b910ed71"
-  integrity sha512-Rzc5/DpuX55BqwNEbZB0tLav1gEinnr5H+82cbLiMtXLADlxmCwZiEaVXcC3XOqW0x8bcAEehicx1TbpfBamzA==
+posthog-js@1.5.0-beta.0:
+  version "1.5.0-beta.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.5.0-beta.0.tgz#81962c5cf8a5c0da45a3dabce7f1a6ecebb6e2ac"
+  integrity sha512-sErJwEu3kgtSCMoEhLYaG9zLAKd3M70LfDmIlwy+cdBgufwChCGeD8JF0f2iy+sEJkkZrnMcPhm6LPi9iwzf7g==
 
 prelude-ls@^1.2.1:
   version "1.2.1"
@@ -8643,6 +8643,13 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
   dependencies:
     hash-base "^3.0.0"
     inherits "^2.0.1"
+
+rrweb-player@^0.6.2:
+  version "0.6.2"
+  resolved "https://registry.yarnpkg.com/rrweb-player/-/rrweb-player-0.6.2.tgz#10f233ef69156eb98b330e4b2ca6a50320637f90"
+  integrity sha512-UOzSiwE7S1V5anHbiVnjD3iwT1LP9khJI7r+se8tR+vcc2Qij/0y6YXI8u+O3+SfnEZg/sgKUxDYce8dhFFsLg==
+  dependencies:
+    rrweb "^0.9.7"
 
 rrweb-snapshot@^0.8.2:
   version "0.8.3"
