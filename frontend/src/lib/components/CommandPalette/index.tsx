@@ -4,12 +4,14 @@ import { useRef } from 'react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { useValues } from 'kea'
 import { isMac } from 'lib/utils'
 import { useCommands, useCommandsSearch, CommandResult as CommandResultType } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
+import { userLogic } from 'scenes/userLogic'
 
 const CommandPaletteContainer = styled.div`
     position: absolute;
@@ -68,12 +70,13 @@ const PaletteError = styled.div`
     padding-right: 32px;
 `
 
-export function CommandPalette(): JSX.Element | false {
+export function CommandPalette(): JSX.Element | null {
     const boxRef = useRef<HTMLDivElement | null>(null)
     const [state] = useState({ error: null, title: null })
     const [input, setInput] = useState('')
     const [isPaletteShown, setIsPaletteShown] = useState(false)
     const { push } = useActions(router)
+    const { user } = useValues(userLogic)
 
     const handleCommandSelection = (result: CommandResultType): void => {
         // Called after a command is selected by the user
@@ -103,30 +106,28 @@ export function CommandPalette(): JSX.Element | false {
 
     const commandsSearch = useCommandsSearch()
 
-    return (
-        isPaletteShown && (
-            <CommandPaletteContainer>
-                <CommandPaletteBox ref={boxRef} className="bg-dark">
-                    {state.title && <Title>{state.title}</Title>}
-                    <CommandSearch
-                        onClose={() => {
-                            setIsPaletteShown(false)
-                        }}
-                        input={input}
-                        setInput={setInput}
-                    />
-                    {state.error && <PaletteError>{state.error}</PaletteError>}
-                    <ResultsContainer>
-                        {commandsSearch(input).map((result, index) => (
-                            <CommandResult
-                                key={`command-result-${index}`}
-                                result={result}
-                                handleSelection={handleCommandSelection}
-                            />
-                        ))}
-                    </ResultsContainer>
-                </CommandPaletteBox>
-            </CommandPaletteContainer>
-        )
+    return !user || !isPaletteShown ? null : (
+        <CommandPaletteContainer>
+            <CommandPaletteBox ref={boxRef} className="bg-dark">
+                {state.title && <Title>{state.title}</Title>}
+                <CommandSearch
+                    onClose={() => {
+                        setIsPaletteShown(false)
+                    }}
+                    input={input}
+                    setInput={setInput}
+                />
+                {state.error && <PaletteError>{state.error}</PaletteError>}
+                <ResultsContainer>
+                    {commandsSearch(input).map((result, index) => (
+                        <CommandResult
+                            key={`command-result-${index}`}
+                            result={result}
+                            handleSelection={handleCommandSelection}
+                        />
+                    ))}
+                </ResultsContainer>
+            </CommandPaletteBox>
+        </CommandPaletteContainer>
     )
 }

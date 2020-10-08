@@ -15,9 +15,7 @@ import {
 } from '@ant-design/icons'
 import Fuse from 'fuse.js'
 
-type CommandResultKeyed = CommandResult & { key: string }
-
-const COMMAND_GLOBAL_RESULTS: CommandResultKeyed[] = [
+const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'dashboards',
         icon: FundOutlined,

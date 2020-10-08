@@ -2,13 +2,13 @@ import React from 'react'
 import styled from 'styled-components'
 import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
 
-interface Props {
+interface ContainerProps {
     focused?: boolean
     isHint?: boolean
     onClick?: CommandExecutor
 }
 
-const ResultContainer = styled.div<Props>`
+const ResultContainer = styled.div<ContainerProps>`
     height: 60px;
     width: 100%;
     padding-left: 32px;
