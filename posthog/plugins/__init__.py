@@ -26,10 +26,10 @@ ABS_PLUGIN_PATH = os.path.join(PATH, PLUGIN_PATH)
 
 def cleanse_plugin_directory():
     for x in os.listdir(ABS_PLUGIN_PATH):
+        dir = os.path.join(ABS_PLUGIN_PATH, x)
         if os.path.islink(dir):
             os.unlink(dir)
-        elif os.path.isdir(os.path.join(ABS_PLUGIN_PATH, x)) and x != "__pycache__":
-            dir = os.path.join(ABS_PLUGIN_PATH, x)
+        elif os.path.isdir(dir) and x != "__pycache__":
             shutil.rmtree(dir)
 
 
