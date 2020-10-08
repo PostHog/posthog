@@ -1,8 +1,6 @@
 import React from 'react'
 import styled from 'styled-components'
 import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
-import { useEventListener } from 'lib/hooks/useEventListener'
-import { useCallback } from 'react'
 
 interface ContainerProps {
     focused?: boolean
@@ -80,17 +78,6 @@ export function CommandResult({
     onMouseOver,
     onMouseOut,
 }: CommandResultProps): JSX.Element {
-    const _handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
-            if (e.key === 'Enter' && focused) {
-                handleSelection(result)
-            }
-        },
-        [focused]
-    )
-
-    useEventListener('keydown', _handleKeyDown)
-
     return (
         <ResultContainer
             onMouseOver={onMouseOver}

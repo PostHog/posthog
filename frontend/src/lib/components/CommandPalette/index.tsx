@@ -137,6 +137,17 @@ export function CommandPalette(): JSX.Element | null {
 
     useEventListener('keydown', _handleKeyDown)
 
+    const _handleEnterDown = useCallback(
+        (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+                handleCommandSelection(commandsSearch(input)[activeResultIndex])
+            }
+        },
+        [activeResultIndex, input]
+    )
+
+    useEventListener('keydown', _handleEnterDown)
+
     return !user || !isPaletteShown ? null : (
         <CommandPaletteContainer>
             <CommandPaletteBox ref={boxRef} className="bg-dark">
