@@ -10,8 +10,11 @@ import zipfile
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+import fakeredis  # type: ignore
 import pip
+import redis
 import requests
+from django.conf import settings
 
 PLUGIN_PATH = os.path.join("posthog", "plugins")
 URL_TEMPLATE = "{repo}/archive/{branch}.zip"
@@ -178,9 +181,31 @@ class PosthogEvent:
     timestamp: datetime.datetime
 
 
+class PluginCache:
+    def __init__(self, plugin_name: str):
+        self.plugin_name = plugin_name
+        if settings.TEST:
+            self.redis = fakeredis.FakeStrictRedis()
+        elif settings.REDIS_URL:
+            self.redis = redis.from_url(settings.REDIS_URL, db=0)
+
+    def format_key(self, key):
+        key = "{plugin_name}_{key}".format(plugin_name=self.plugin_name, key=key)
+        return key
+
+    def set(self, key: str, value: Any):
+        key = self.format_key(key)
+        self.redis.set(key, value)
+
+    def get(self, key) -> Any:
+        key = self.format_key(key)
+        return self.redis.get(key)
+
+
 class PluginBaseClass:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config: PluginConfig):
+        self.config = config.config
+        self.cache = PluginCache(plugin_name=config.name)
 
     def schedule_jobs(self, sender):
         pass
