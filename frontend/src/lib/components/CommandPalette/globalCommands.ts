@@ -15,6 +15,9 @@ import {
     MessageOutlined,
     TeamOutlined,
     BookOutlined,
+    FunnelPlotOutlined,
+    GatewayOutlined,
+    InteractionOutlined,
 } from '@ant-design/icons'
 import { useMemo } from 'react'
 
@@ -33,9 +36,54 @@ export function GlobalCommands(): null {
         {
             key: 'insights',
             icon: RiseOutlined,
-            display: 'Go to insights page',
+            display: 'Go to Insights',
             executor: () => {
                 push('/insights')
+            },
+        },
+        {
+            key: 'trends',
+            icon: RiseOutlined,
+            display: 'Go to Trends',
+            executor: () => {
+                // TODO: Fix me
+                push('/insights?insight=TRENDS')
+            },
+        },
+        {
+            key: 'sessions',
+            icon: ClockCircleOutlined,
+            display: 'Go to Sessions',
+            executor: () => {
+                // TODO: Fix me
+                push('/insights?insight=SESSIONS')
+            },
+        },
+        {
+            key: 'funnels',
+            icon: FunnelPlotOutlined,
+            display: 'Go to Funnels',
+            executor: () => {
+                // TODO: Fix me
+                push('/insights?insight=FUNNELS')
+            },
+        },
+        {
+            key: 'retention',
+            icon: GatewayOutlined,
+            display: 'Go to Retention',
+            executor: () => {
+                // TODO: Fix me
+                push('/insights?insight=RETENTION')
+            },
+        },
+        {
+            key: 'user_paths',
+            icon: InteractionOutlined,
+            display: 'Go to User Paths',
+            executor: () => {
+                // TODO: Fix me
+                push('/insights?insight=PATHS')
             },
         },
         {
@@ -73,7 +121,7 @@ export function GlobalCommands(): null {
         {
             key: 'people',
             icon: UserOutlined,
-            display: 'Go to people page',
+            display: 'Go to People',
             synonyms: ['people'],
             executor: () => {
                 push('/people')
@@ -99,7 +147,7 @@ export function GlobalCommands(): null {
         {
             key: 'setup',
             icon: SettingOutlined,
-            display: 'go to Setup',
+            display: 'Go to Setup',
             synonyms: ['settings', 'configuration'],
             executor: () => {
                 push('/setup')
@@ -124,7 +172,7 @@ export function GlobalCommands(): null {
         {
             key: 'docs',
             icon: BookOutlined,
-            display: 'go to documentation',
+            display: 'Go to Documentation',
             synonyms: ['technical docs'],
             executor: () => {
                 window.open('https://posthog.com/docs')

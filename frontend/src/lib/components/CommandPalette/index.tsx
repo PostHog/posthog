@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useValues } from 'kea'
-import { isMac } from 'lib/utils'
 import { useCommandsSearch, CommandResult as CommandResultType } from './commandLogic'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
@@ -84,7 +83,11 @@ export function CommandPalette(): JSX.Element | null {
     }
     const [activeResultIndex, setActiveResultIndex] = useState(0)
 
-    useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
+    useHotkeys('cmd+k', () => {
+        setIsPaletteShown(!isPaletteShown)
+    })
+
+    useHotkeys('ctrl+k', () => {
         setIsPaletteShown(!isPaletteShown)
     })
 

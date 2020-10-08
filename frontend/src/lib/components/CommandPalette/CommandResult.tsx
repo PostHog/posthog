@@ -54,7 +54,6 @@ interface CommandResultProps {
     focused?: boolean
     isHint?: boolean
     onMouseOver?: (e: MouseEvent) => void
-    onMouseOut?: (e: MouseEvent) => void
 }
 
 export function CommandResult({
@@ -63,12 +62,10 @@ export function CommandResult({
     isHint,
     handleSelection,
     onMouseOver,
-    onMouseOut,
 }: CommandResultProps): JSX.Element {
     return (
         <ResultContainer
             onMouseOver={onMouseOver}
-            onMouseOut={onMouseOut}
             focused={focused}
             isHint={isHint}
             onClick={() => {
