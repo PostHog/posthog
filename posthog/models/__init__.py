@@ -14,6 +14,7 @@ from .funnel import Funnel
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
+from .plugin import Plugin
 from .property import Property
 from .team import Team
 from .user import User, UserManager

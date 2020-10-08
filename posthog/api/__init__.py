@@ -19,6 +19,7 @@ from . import (
     paths,
     person,
     personal_api_key,
+    plugin,
     team_user,
 )
 
@@ -44,6 +45,7 @@ router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
+router.register(r"plugin", plugin.PluginViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"team/user", team_user.TeamUserViewSet)
 
