@@ -6,7 +6,6 @@ import re
 import tempfile
 import traceback
 import zipfile
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -119,7 +118,7 @@ def get_module_config(module):
     module_name = re.sub("-main$", "", module_name)
     module_name = re.sub("-master$", "", module_name)
     plugin_config = get_plugin_config()
-    module_config = plugin_config.dict[module_name]
+    module_config = plugin_config.dict[module_name].config
     return module_config
 
 
@@ -127,7 +126,7 @@ def exec_plugin(Module, event, method="process_event"):
     mc = get_module_config(Module)
     module = Module(mc)
     f = getattr(module, method)
-    event = f(module, event)
+    event = f(event)
     return event
 
 
@@ -170,19 +169,18 @@ class PosthogEvent:
     timestamp: datetime.datetime
 
 
-class PluginBaseClass(ABC):
-    @abstractmethod
+class PluginBaseClass:
+    def __init__(self, config):
+        self.config = config
+
     def schedule_jobs(self, sender):
         pass
 
-    @abstractmethod
     def process_event(self, event: PosthogEvent):
         pass
 
-    @abstractmethod
     def process_alias(self, event: PosthogEvent):
         pass
 
-    @abstractmethod
     def process_identify(self, event: PosthogEvent):
         pass
