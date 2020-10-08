@@ -1,9 +1,11 @@
-import { useOutsideClickHandler } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
+import { useOutsideClickHandler } from 'lib/utils'
 import { useRef } from 'react'
+import { useActions } from 'kea'
+import { router } from 'kea-router'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { isMac } from 'lib/utils'
-import { useCommands, useCommandsSearch } from './commandLogic'
+import { useCommands, useCommandsSearch, CommandResult as CommandResultType } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
@@ -71,6 +73,14 @@ export function CommandPalette(): JSX.Element | false {
     const [state] = useState({ error: null, title: null })
     const [input, setInput] = useState('')
     const [isPaletteShown, setIsPaletteShown] = useState(false)
+    const { push } = useActions(router)
+
+    const handleCommandSelection = (result: CommandResultType): void => {
+        // Called after a command is selected by the user
+        result.executor({ push })
+        setIsPaletteShown(false)
+        setInput('')
+    }
 
     useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
         setIsPaletteShown(!isPaletteShown)
@@ -107,20 +117,11 @@ export function CommandPalette(): JSX.Element | false {
                     />
                     {state.error && <PaletteError>{state.error}</PaletteError>}
                     <ResultsContainer>
-                        {/*<ResultsGroup>On this page</ResultsGroup>
-                    <CommandResult
-                        Icon={UserOutlined}
-                        text="type an email address to go straight to that person’s page"
-                        isHint
-                    />
-                    <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" focused />
-                    <ResultsGroup>Global</ResultsGroup>
-                    <CommandResult Icon={DashboardOutlined} text="go to Dashboard AARRR" />*/}
                         {commandsSearch(input).map((result, index) => (
                             <CommandResult
                                 key={`command-result-${index}`}
                                 result={result}
-                                setIsPaletteShown={setIsPaletteShown}
+                                handleSelection={handleCommandSelection}
                             />
                         ))}
                     </ResultsContainer>
