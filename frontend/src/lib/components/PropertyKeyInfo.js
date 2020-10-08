@@ -109,7 +109,17 @@ export const keyMapping = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
-        // Events we maybe hide entirely from the list
+        $device: {
+            label: 'Device',
+            description: 'The mobile device that was used.',
+            examples: ['iPad', 'iPhone', 'Android'],
+        },
+        $sentry_url: {
+            label: 'Sentry URL',
+            description: 'Direct link to the exception in Sentry',
+            examples: ['https://sentry.io/...'],
+        },
+        // Events we hide entirely from the list
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
