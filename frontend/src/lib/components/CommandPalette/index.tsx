@@ -167,8 +167,7 @@ export function CommandPalette(): JSX.Element | null {
                             key={`command-result-${index}`}
                             result={result}
                             handleSelection={handleCommandSelection}
-                            onMouseOver={(): void => setActiveResultIndex(-1)}
-                            onMouseOut={(): void => setActiveResultIndex(0)}
+                            onMouseOver={(): void => setActiveResultIndex(index)}
                         />
                     ))}
                 </ResultsContainer>

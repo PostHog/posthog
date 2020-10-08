@@ -27,7 +27,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
     {
         key: 'insights',
         icon: RiseOutlined,
-        display: 'Go to insights page',
+        display: 'Go to Insights',
         executor: ({ push }) => {
             push('/insights')
         },
@@ -67,7 +67,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
     {
         key: 'people',
         icon: UserOutlined,
-        display: 'Go to people page',
+        display: 'Go to People',
         synonyms: ['people'],
         executor: ({ push }) => {
             push('/people')
@@ -93,7 +93,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
     {
         key: 'setup',
         icon: SettingOutlined,
-        display: 'go to Setup',
+        display: 'Go to Setup',
         synonyms: ['settings', 'configuration'],
         executor: ({ push }) => {
             push('/setup')
@@ -118,7 +118,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
     {
         key: 'docs',
         icon: BookOutlined,
-        display: 'go to documentation',
+        display: 'Go to Documentation',
         synonyms: ['technical docs'],
         executor: () => {
             window.open('https://posthog.com/docs')
