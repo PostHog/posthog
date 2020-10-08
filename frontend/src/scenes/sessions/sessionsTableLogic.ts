@@ -16,7 +16,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             __default: [] as SessionType[],
             loadSessions: async (_: any, breakpoint) => {
                 const { selectedDateURLparam } = values
-                console.log(props.personIds)
                 const params = toParams({
                     date_from: selectedDateURLparam,
                     date_to: selectedDateURLparam,
