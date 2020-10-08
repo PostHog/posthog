@@ -1,7 +1,9 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import Fuse from 'fuse.js'
-import { router } from 'kea-router'
+import { dashboardsModel } from '~/models/dashboardsModel'
+
 import {
     FundOutlined,
     RiseOutlined,
@@ -19,7 +21,12 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
+    HeartOutlined,
+    LogoutOutlined,
+    PlusOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
+import { DashboardType } from '~/types'
 
 export type CommandExecutor = () => void
 
@@ -62,7 +69,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         setSearchInput: (input: string) => ({ input }),
     },
     reducers: {
-        commandRegistrations: [
+        rawCommandRegistrations: [
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
@@ -84,6 +91,26 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         ],
     },
     selectors: {
+        commandRegistrations: [
+            (s) => [s.rawCommandRegistrations, dashboardsModel.selectors.dashboards],
+            (rawCommandRegistrations, dashboards) => ({
+                ...rawCommandRegistrations,
+                custom_dashboards: {
+                    key: 'custom_dashboards',
+                    prefixes: [],
+                    resolver: dashboards.map((dashboard: DashboardType) => ({
+                        key: `dashboard_${dashboard.id}`,
+                        icon: LineChartOutlined,
+                        display: `Go to Custom Dashboard ${dashboard.name}`,
+                        executor: () => {
+                            const { push } = router.actions
+                            push(`/dashboard/${dashboard.id}`)
+                        },
+                    })),
+                    scope: 'global',
+                },
+            }),
+        ],
         regexpCommandPairs: [
             (selectors) => [selectors.commandRegistrations],
             (commandRegistrations: CommandRegistrations) => {
@@ -276,6 +303,31 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     synonyms: ['technical docs'],
                     executor: () => {
                         window.open('https://posthog.com/docs')
+                    },
+                },
+                {
+                    key: 'feedback',
+                    icon: HeartOutlined,
+                    display: 'Share Feedback',
+                    synonyms: ['help', 'support'],
+                    executor: () => {
+                        window.open('mailto:hey@posthog.com?subject=PostHog%20feedback%20(command)')
+                    },
+                },
+                {
+                    key: 'action',
+                    icon: PlusOutlined,
+                    display: 'Create Action',
+                    executor: () => {
+                        push('/action')
+                    },
+                },
+                {
+                    key: 'logout',
+                    icon: LogoutOutlined,
+                    display: 'Log out',
+                    executor: () => {
+                        window.location.href = '/logout'
                     },
                 },
             ]
