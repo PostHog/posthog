@@ -19,7 +19,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'dashboards',
         icon: FundOutlined,
-        display: 'go to Dashboards',
+        display: 'Go to Dashboards',
         executor: ({ push }) => {
             push('/dashboard')
         },
@@ -27,7 +27,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'insights',
         icon: RiseOutlined,
-        display: 'go to Insights',
+        display: 'Go to insights page',
         executor: ({ push }) => {
             push('/insights')
         },
@@ -35,7 +35,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'events',
         icon: ContainerOutlined,
-        display: 'go to Events',
+        display: 'Go to Events',
         executor: ({ push }) => {
             push('/events')
         },
@@ -43,7 +43,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'actions',
         icon: AimOutlined,
-        display: 'go to Actions',
+        display: 'Go to Actions',
         executor: ({ push }) => {
             push('/actions')
         },
@@ -51,7 +51,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'actions/live',
         icon: SyncOutlined,
-        display: 'go to Live Actions',
+        display: 'Go to Live Actions',
         executor: ({ push }) => {
             push('/actions/live')
         },
@@ -59,7 +59,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'sessions',
         icon: ClockCircleOutlined,
-        display: 'go to Live Sessions',
+        display: 'Go to Live Sessions',
         executor: ({ push }) => {
             push('/sessions')
         },
@@ -67,7 +67,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'people',
         icon: UserOutlined,
-        display: 'go to People',
+        display: 'Go to people page',
         synonyms: ['people'],
         executor: ({ push }) => {
             push('/people')
@@ -76,7 +76,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'cohorts',
         icon: UsergroupAddOutlined,
-        display: 'go to Cohorts',
+        display: 'Go to Cohorts',
         executor: ({ push }) => {
             push('/people/cohorts')
         },
@@ -84,7 +84,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'experiments/feature_flags',
         icon: ExperimentOutlined,
-        display: 'go to Experiments',
+        display: 'Go to Experiments',
         synonyms: ['feature flags', 'a/b test'],
         executor: ({ push }) => {
             push('/experiments/feature_flags')
@@ -93,7 +93,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'setup',
         icon: SettingOutlined,
-        display: 'go to Setup',
+        display: 'Go to Setup',
         synonyms: ['setup', 'configuration'],
         executor: ({ push }) => {
             push('/setup')
@@ -102,7 +102,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'annotations',
         icon: MessageOutlined,
-        display: 'go to Annotations',
+        display: 'Go to Annotations',
         executor: ({ push }) => {
             push('/annotations')
         },
@@ -110,7 +110,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
     {
         key: 'team',
         icon: TeamOutlined,
-        display: 'go to Team',
+        display: 'Go to Team',
         executor: ({ push }) => {
             push('/team')
         },
