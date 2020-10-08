@@ -20,6 +20,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "enabled",
             "order",
             "config",
+            "configSchema",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:

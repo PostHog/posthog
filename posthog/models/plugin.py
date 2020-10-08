@@ -9,3 +9,4 @@ class Plugin(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     config: JSONField = JSONField(default=dict)
+    configSchema: JSONField = JSONField(default=dict)

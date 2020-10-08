@@ -174,4 +174,12 @@ export interface PluginType {
     enabled: boolean
     order: number
     config: Record<string, any>
+    configSchema: Record<
+        string,
+        {
+            name: string
+            type: string
+            default: any
+        }
+    >
 }

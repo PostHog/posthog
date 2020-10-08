@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=False)),
                 ("order", models.IntegerField(null=True, blank=True)),
                 ("config", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
+                ("configSchema", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
             ],
         ),
