@@ -22,7 +22,7 @@ const CommandPaletteContainer = styled.div`
 `
 
 const CommandPaletteBox = styled.div`
-    position: absolute;
+    position: fixed;
     top: 30%;
     display: flex;
     flex-direction: column;
