@@ -1,16 +1,16 @@
 import { useActions } from 'kea'
-import React from 'react'
+import React, { useCallback } from 'react'
 import styled from 'styled-components'
 import { router } from 'kea-router'
-import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
+import { Command, CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
 
-interface Props {
+interface ContainerProps {
     focused?: boolean
     isHint?: boolean
     onClick?: CommandExecutor
 }
 
-const ResultContainer = styled.div<Props>`
+const ResultContainer = styled.div<ContainerProps>`
     height: 60px;
     width: 100%;
     padding-left: 32px;
@@ -64,6 +64,7 @@ const IconContainer = styled.span`
 `
 
 interface CommandResultProps {
+    command: Command
     result: CommandResultType
     setIsPaletteShown: (newState: boolean) => void
     focused?: boolean
@@ -73,15 +74,13 @@ interface CommandResultProps {
 export function CommandResult({ result, focused, isHint, setIsPaletteShown }: CommandResultProps): JSX.Element {
     const { push } = useActions(router)
 
+    const execute = useCallback(() => {
+        result.executor({ push, ...result.utils })
+        setIsPaletteShown(false)
+    }, [push])
+
     return (
-        <ResultContainer
-            focused={focused}
-            isHint={isHint}
-            onClick={() => {
-                result.executor({ push })
-                setIsPaletteShown(false)
-            }}
-        >
+        <ResultContainer focused={focused} isHint={isHint} onClick={execute}>
             <IconContainer>
                 <result.icon />
             </IconContainer>

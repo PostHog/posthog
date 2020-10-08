@@ -2,12 +2,14 @@ import { useOutsideClickHandler } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { useValues } from 'kea'
 import { isMac } from 'lib/utils'
 import { useCommands, useCommandsSearch } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
+import { userLogic } from 'scenes/userLogic'
 
 const CommandPaletteContainer = styled.div`
     position: absolute;
@@ -66,11 +68,12 @@ const PaletteError = styled.div`
     padding-right: 32px;
 `
 
-export function CommandPalette(): JSX.Element | false {
+export function CommandPalette(): JSX.Element | null {
     const boxRef = useRef<HTMLDivElement | null>(null)
     const [state] = useState({ error: null, title: null })
     const [input, setInput] = useState('')
     const [isPaletteShown, setIsPaletteShown] = useState(false)
+    const { user } = useValues(userLogic)
 
     useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
         setIsPaletteShown(!isPaletteShown)
@@ -93,21 +96,20 @@ export function CommandPalette(): JSX.Element | false {
 
     const commandsSearch = useCommandsSearch()
 
-    return (
-        isPaletteShown && (
-            <CommandPaletteContainer>
-                <CommandPaletteBox ref={boxRef} className="bg-dark">
-                    {state.title && <Title>{state.title}</Title>}
-                    <CommandSearch
-                        onClose={() => {
-                            setIsPaletteShown(false)
-                        }}
-                        input={input}
-                        setInput={setInput}
-                    />
-                    {state.error && <PaletteError>{state.error}</PaletteError>}
-                    <ResultsContainer>
-                        {/*<ResultsGroup>On this page</ResultsGroup>
+    return !user || !isPaletteShown ? null : (
+        <CommandPaletteContainer>
+            <CommandPaletteBox ref={boxRef} className="bg-dark">
+                {state.title && <Title>{state.title}</Title>}
+                <CommandSearch
+                    onClose={() => {
+                        setIsPaletteShown(false)
+                    }}
+                    input={input}
+                    setInput={setInput}
+                />
+                {state.error && <PaletteError>{state.error}</PaletteError>}
+                <ResultsContainer>
+                    {/*<ResultsGroup>On this page</ResultsGroup>
                     <CommandResult
                         Icon={UserOutlined}
                         text="type an email address to go straight to that person’s page"
@@ -116,16 +118,15 @@ export function CommandPalette(): JSX.Element | false {
                     <CommandResult Icon={DashboardOutlined} text="go to dashboard AARRR" focused />
                     <ResultsGroup>Global</ResultsGroup>
                     <CommandResult Icon={DashboardOutlined} text="go to Dashboard AARRR" />*/}
-                        {commandsSearch(input).map((result, index) => (
-                            <CommandResult
-                                key={`command-result-${index}`}
-                                result={result}
-                                setIsPaletteShown={setIsPaletteShown}
-                            />
-                        ))}
-                    </ResultsContainer>
-                </CommandPaletteBox>
-            </CommandPaletteContainer>
-        )
+                    {commandsSearch(input).map((result, index) => (
+                        <CommandResult
+                            key={`command-result-${index}`}
+                            result={result}
+                            setIsPaletteShown={setIsPaletteShown}
+                        />
+                    ))}
+                </ResultsContainer>
+            </CommandPaletteBox>
+        </CommandPaletteContainer>
     )
 }

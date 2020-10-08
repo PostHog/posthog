@@ -6,15 +6,22 @@ import Fuse from 'fuse.js'
 export type CommandExecutor = (utils: Utils) => void
 
 export interface CommandResult {
+    key: string // string for sorting results according to typed text
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
-    prefixApplied: string
     text: string
     executor: CommandExecutor
+    prefixApplied?: string
 }
 
-export interface Utils {
-    push?: (url: string) => void // kea-router URL push
+export interface DefinedUtils {
+    push: (url: string) => void // kea-router URL push
 }
+
+export interface CustomUtils {
+    [customUtil: string]: (...args: any) => any
+}
+
+export type Utils = CustomUtils & DefinedUtils
 
 export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResult[]
 
@@ -22,6 +29,7 @@ export interface Command {
     key: string // Unique command identification key
     prefixes?: string[] // Command synonyms, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
     resolver: CommandResolver // Resolver based on arguments (prefix excluded)
+    utils: CustomUtils
 }
 
 export type CommandRegistrations = {
@@ -101,6 +109,13 @@ export function useCommands(commands: Command[]): void {
     }, [commands])
 }
 
+/*function resolveCommand(command: Command, resultsArray: CommandResult[], argument?: string, prefixApplied?: string): CommandResult[] {
+    return resultsArray.push(...command.resolver(argument, prefixApplied).map(result => {
+        result.command = command
+        return result
+    }))
+}*/
+
 export function useCommandsSearch(): (argument: string) => CommandResult[] {
     const { regexpCommandPairs } = useValues(commandLogic)
 
@@ -116,7 +131,11 @@ export function useCommandsSearch(): (argument: string) => CommandResult[] {
                 }
                 directResults.push(...command.resolver(argument))
             }
-            return directResults.slice(0, DIRECT_RESULTS_MAX).concat(prefixedResults.slice(0, PREFIXED_RESULTS_MAX))
+            const fuse = new Fuse(
+                directResults.slice(0, DIRECT_RESULTS_MAX).concat(prefixedResults.slice(0, PREFIXED_RESULTS_MAX)),
+                { keys: ['key'] }
+            )
+            return fuse.search(argument).map((result) => result.item)
         },
         [regexpCommandPairs]
     )

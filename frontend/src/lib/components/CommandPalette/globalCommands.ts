@@ -2,9 +2,7 @@ import { Command, CommandResult } from './commandLogic'
 import { LineChartOutlined } from '@ant-design/icons'
 import Fuse from 'fuse.js'
 
-type CommandResultKeyed = CommandResult & { key: string }
-
-const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
+const COMMAND_GO_TO_RESULTS: CommandResult[] = [
     {
         key: 'insights',
         icon: LineChartOutlined,
