@@ -116,6 +116,8 @@ class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
+    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+
     objects = TeamManager()
 
     def __str__(self):
