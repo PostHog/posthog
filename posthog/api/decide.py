@@ -109,6 +109,8 @@ def get_decide(request: HttpRequest):
             request.user.save()
 
     response["featureFlags"] = []
+    response["sessionRecording"] = False
+
     if request.method == "POST":
         try:
             team = load_request_team(request)
@@ -123,4 +125,5 @@ def get_decide(request: HttpRequest):
 
         if team:
             response["featureFlags"] = feature_flags(request, team)
+            response["sessionRecording"] = team.session_recording_opt_in
     return cors_response(request, JsonResponse(response))
