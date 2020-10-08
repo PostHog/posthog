@@ -7,8 +7,9 @@ export type CommandExecutor = (utils: Utils) => void
 
 export interface CommandResult {
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
-    prefixApplied: string
-    text: string
+    prefixApplied?: string
+    synonyms?: string[]
+    display: string
     executor: CommandExecutor
 }
 
