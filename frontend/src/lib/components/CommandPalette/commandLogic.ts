@@ -8,9 +8,10 @@ export type CommandExecutor = (utils: Utils) => void
 export interface CommandResult {
     key: string // string for sorting results according to typed text
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
-    prefixApplied?: string
-    synonyms?: string[]
     display: string
+    synonyms?: string[]
+    prefixApplied?: string
+    command: Command
     executor: CommandExecutor
 }
 
