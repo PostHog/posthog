@@ -148,7 +148,7 @@ class PluginConfig:
     @property
     def name(self):
         if self.path:
-            return os.path.split(self.path)[-1]
+            return os.path.split(os.path.realpath(self.path))[-1]
         return self.url.split("/")[-1]
 
 
