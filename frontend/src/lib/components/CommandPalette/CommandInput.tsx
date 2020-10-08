@@ -1,7 +1,15 @@
 import React, { Dispatch, SetStateAction, useCallback } from 'react'
 import styled from 'styled-components'
 
-const CommandInput = styled.input`
+const CommandInputElement = styled.input`
+    height: 4rem;
+    padding: 0 2rem;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #fff;
+    font-size: 1rem;
+    line-height: 4rem;
     overflow-y: scroll;
 `
 
@@ -11,7 +19,7 @@ interface Props {
     setIsPaletteShown: Dispatch<SetStateAction<boolean>>
 }
 
-export function CommandSearch({ input, setInput, setIsPaletteShown }: Props): JSX.Element {
+export function CommandInput({ input, setInput, setIsPaletteShown }: Props): JSX.Element {
     const handleKeyDown = useCallback(
         (event: KeyboardEvent): void => {
             if (event.key === 'Escape') {
@@ -25,7 +33,7 @@ export function CommandSearch({ input, setInput, setIsPaletteShown }: Props): JS
     )
 
     return (
-        <CommandInput
+        <CommandInputElement
             autoFocus
             value={input}
             onKeyDown={handleKeyDown}

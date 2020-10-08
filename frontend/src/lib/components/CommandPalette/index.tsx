@@ -3,7 +3,7 @@ import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useMountedLogic, useValues, useActions } from 'kea'
 import { CommandResult as CommandResultType, commandLogic } from './commandLogic'
-import { CommandSearch } from './CommandSearch'
+import { CommandInput } from './CommandInput'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
@@ -27,22 +27,19 @@ const CommandPaletteBox = styled.div`
     display: flex;
     flex-direction: column;
     z-index: 9999;
-    width: 700px;
-    min-height: 200px;
+    width: 40rem;
     max-height: 60%;
-    box-shadow: 1px 4px 6px rgba(0, 0, 0, 0.1);
-    border-radius: 10px;
     overflow: hidden;
 `
-/*const ResultsGroup = styled.div`
+
+/*const Scope = styled.div`
     background-color: #4d4d4d;
     height: 22px;
     width: 100%;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
     padding-left: 16px;
     padding-right: 16px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(255, 255, 255, 0.8);
     font-weight: bold;
 `*/
 
@@ -131,8 +128,8 @@ export function CommandPalette(): JSX.Element | null {
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
-                    <CommandPaletteBox ref={boxRef} className="bg-dark">
-                        <CommandSearch setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
+                    <CommandPaletteBox ref={boxRef} className="card bg-dark">
+                        <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
                         <ResultsContainer>
                             {commandSearchResults.map((result, index) => (
                                 <CommandResult
