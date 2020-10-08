@@ -13,6 +13,10 @@ export interface UserType {
     billing: OrganizationBilling
 }
 
+export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
+    team: Partial<TeamType>
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string

@@ -15,7 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
@@ -33,7 +33,7 @@ function _Setup() {
             <a href="https://posthog.com/docs/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
-            <JSSnippet user={user} />
+            <JSSnippet />
             <h2 id="custom-events">Send Custom Events</h2>
             To send custom events <a href="https://posthog.com/docs/integrations">visit our docs</a> and integrate the
             library for the specific language or platform you're using (Python, Ruby, Node, Go, PHP, iOS, Android, and

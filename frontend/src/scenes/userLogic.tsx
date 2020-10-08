@@ -2,23 +2,24 @@ import { kea } from 'kea'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
 import { userLogicType } from 'types/scenes/userLogicType'
-import { UserType } from '~/types'
+import { UserType, UserUpdateType } from '~/types'
 
 interface EventProperty {
     value: string
     label: string
 }
 
-export const userLogic = kea<userLogicType<UserType, EventProperty>>({
+export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType>>({
     actions: () => ({
         loadUser: true,
         setUser: (user: UserType | null, updateKey?: string) => ({
             user: user && ({ ...user } as UserType),
             updateKey,
         }), // make and use a copy of user to patch some legacy issues
-        userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({ update, updateKey }),
+        userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        completedOnboarding: true,
     }),
 
     reducers: {

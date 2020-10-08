@@ -3,7 +3,7 @@ import { Input, Button, Form, Switch, Slider } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 const editLogic = kea({
     actions: () => ({
