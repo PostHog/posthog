@@ -1,4 +1,4 @@
-import { Command, CommandResult } from './commandLogic'
+import { Command, CommandResultTemplate } from './commandLogic'
 import {
     FundOutlined,
     RiseOutlined,
@@ -12,10 +12,10 @@ import {
     SettingOutlined,
     MessageOutlined,
     TeamOutlined,
+    BookOutlined,
 } from '@ant-design/icons'
-import Fuse from 'fuse.js'
 
-const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
+const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
     {
         key: 'dashboards',
         icon: FundOutlined,
@@ -94,7 +94,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
         key: 'setup',
         icon: SettingOutlined,
         display: 'go to Setup',
-        synonyms: ['setup', 'configuration'],
+        synonyms: ['settings', 'configuration'],
         executor: ({ push }) => {
             push('/setup')
         },
@@ -115,20 +115,23 @@ const COMMAND_GLOBAL_RESULTS: CommandResult[] = [
             push('/team')
         },
     },
+    {
+        key: 'docs',
+        icon: BookOutlined,
+        display: 'go to documentation',
+        synonyms: ['technical docs'],
+        executor: () => {
+            window.open('https://posthog.com/docs')
+        },
+    },
 ]
 
-const commandGlobalFuse = new Fuse(COMMAND_GLOBAL_RESULTS, { keys: ['display', 'synonyms'] })
-
-const commandGoTo: Command = {
-    key: 'go-to',
+const commandGlobal: Command = {
+    key: 'global',
     prefixes: [],
-    resolver: (argument, prefixApplied) => {
-        return argument
-            ? commandGlobalFuse.search(argument).map((result) => {
-                  return { ...result.item, prefixApplied }
-              })
-            : COMMAND_GLOBAL_RESULTS
+    resolver: () => {
+        return COMMAND_GLOBAL_RESULTS
     },
 }
 
-export const globalCommands: Command[] = [commandGoTo]
+export const globalCommands: Command[] = [commandGlobal]

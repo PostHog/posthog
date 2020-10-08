@@ -5,14 +5,17 @@ import Fuse from 'fuse.js'
 
 export type CommandExecutor = (utils: Utils) => void
 
-export interface CommandResult {
+export interface CommandResultTemplate {
     key: string // string for sorting results according to typed text
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
     display: string
     synonyms?: string[]
     prefixApplied?: string
-    command: Command
     executor: CommandExecutor
+}
+
+export type CommandResult = CommandResultTemplate & {
+    command: Command
 }
 
 export interface DefinedUtils {
@@ -25,13 +28,13 @@ export interface CustomUtils {
 
 export type Utils = CustomUtils & DefinedUtils
 
-export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResult[]
+export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResultTemplate[]
 
 export interface Command {
     key: string // Unique command identification key
-    prefixes?: string[] // Command synonyms, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
+    prefixes?: string[] // Command prefixes, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
     resolver: CommandResolver // Resolver based on arguments (prefix excluded)
-    utils: CustomUtils
+    utils?: CustomUtils
 }
 
 export type CommandRegistrations = {
@@ -39,10 +42,6 @@ export type CommandRegistrations = {
 }
 
 export type RegExpCommandPairs = [RegExp | null, Command][]
-export interface CommandSearchEntry {
-    prefix: string
-    command: Command
-}
 
 const RESULTS_MAX = 8
 
@@ -79,26 +78,22 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 return array
             },
         ],
-        commandSearchEntries: [
-            (selectors) => [selectors.commandRegistrations],
-            (commandRegistrations: CommandRegistrations) => {
-                const array: CommandSearchEntry[] = []
-                for (const command of Object.values(commandRegistrations)) {
-                    if (command.prefixes) for (const prefix of command.prefixes) array.push({ prefix, command })
-                }
-                return array
-            },
-        ],
         fuse: [
-            (selectors) => [selectors.commandSearchEntries],
-            (commandSearchEntries: CommandSearchEntry[]) => {
-                return new Fuse(commandSearchEntries, { keys: ['prefix'] })
+            (selectors) => [selectors.commandRegistrations],
+            (commandRegistrations: Command[]) => {
+                return new Fuse(Object.values(commandRegistrations), {
+                    keys: ['display', 'synonyms', 'prefix'],
+                })
             },
         ],
     },
 })
 
 export function useCommands(commands: Command[], condition: boolean = true): void {
+    /*
+        condition: will register or de-register the command depending on the value (to conditionally add commands),
+        to remove a command pass a `false` value (avoid `undefined`).
+    */
     const { registerCommand, deregisterCommand } = useActions(commandLogic)
     useEffect(() => {
         if (condition)
@@ -136,7 +131,9 @@ export function useCommandsSearch(): (argument: string) => CommandResult[] {
                 }
                 directResults.push(...command.resolver(argument))
             }
-            const fuse = new Fuse(directResults.concat(prefixedResults).slice(0, RESULTS_MAX), { keys: ['key'] })
+            const fuse = new Fuse(directResults.concat(prefixedResults).slice(0, RESULTS_MAX), {
+                keys: ['key', 'synonyms', 'display'],
+            })
             return fuse.search(argument).map((result) => result.item)
         },
         [regexpCommandPairs]
