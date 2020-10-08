@@ -11,7 +11,7 @@ export function EventDetails({ event }) {
     let displayableEventProperties = {}
 
     for (let key of Object.keys(event.properties)) {
-        if (key[0] !== '_') displayableEventProperties[key] = event.properties[key]
+        if (key !== '$snapshot_data') displayableEventProperties[key] = event.properties[key]
     }
 
     return (
