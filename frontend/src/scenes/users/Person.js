@@ -133,7 +133,7 @@ function _Person({ _: distinctId, id }) {
                     data-attr="people-types-tab"
                 ></TabPane>
                 <TabPane
-                    tab={<span data-attr="people-types-tab">Sessions</span>}
+                    tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                     key="sessions"
                     data-attr="people-types-tab"
                 ></TabPane>
@@ -141,7 +141,7 @@ function _Person({ _: distinctId, id }) {
             {activeTab === 'events' ? (
                 <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
             ) : (
-                <SessionsTable personIds={person.distinct_ids} />
+                <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
             )}
         </div>
     ) : null

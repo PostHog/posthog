@@ -12,10 +12,11 @@ import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 
 interface SessionsTableProps {
-    personIds?: Array<string> | null
+    personIds?: string[]
+    isPersonPage?: boolean
 }
 
-export function SessionsTable({ personIds }: SessionsTableProps): JSX.Element {
+export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(logic)
     const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(logic)
@@ -92,7 +93,7 @@ export function SessionsTable({ personIds }: SessionsTableProps): JSX.Element {
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">Sessions By Day</h1>
+            {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
             <Space className="mb-2">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker value={selectedDate} onChange={dateChanged} allowClear={false} />

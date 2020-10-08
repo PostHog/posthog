@@ -8,6 +8,9 @@ import { SessionType } from '~/types'
 type Moment = moment.Moment
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType>>({
+    props: {} as {
+        personIds?: string[]
+    },
     loaders: ({ actions, values, props }) => ({
         sessions: {
             __default: [] as SessionType[],
