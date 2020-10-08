@@ -12,6 +12,8 @@ import { CommandSearch } from './CommandSearch'
 import { CommandResult } from './CommandResult'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
+import { useEventListener } from 'lib/hooks/useEventListener'
+import { useCallback } from 'react'
 
 const CommandPaletteContainer = styled.div`
     position: absolute;
@@ -84,6 +86,7 @@ export function CommandPalette(): JSX.Element | null {
         setIsPaletteShown(false)
         setInput('')
     }
+    const [activeResultIndex, setActiveResultIndex] = useState(0)
 
     useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
         setIsPaletteShown(!isPaletteShown)
@@ -102,9 +105,37 @@ export function CommandPalette(): JSX.Element | null {
     useEffect(() => {
         // prevent scrolling when box is open
         document.body.style.overflow = isPaletteShown ? 'hidden' : ''
+        setActiveResultIndex(0)
     }, [isPaletteShown])
 
+    useEffect(() => {
+        if (Object.keys(commandsSearch(input)).length - 1 > activeResultIndex) {
+            setActiveResultIndex(0)
+        }
+    }, [input])
+
     const commandsSearch = useCommandsSearch()
+
+    const _handleKeyDown = useCallback(
+        (e: KeyboardEvent) => {
+            if (isPaletteShown) {
+                if (e.key === 'ArrowDown') {
+                    setActiveResultIndex((prevIndex) => {
+                        if (prevIndex === Object.keys(commandsSearch(input)).length - 1) return prevIndex
+                        else return prevIndex + 1
+                    })
+                } else if (e.key === 'ArrowUp') {
+                    setActiveResultIndex((prevIndex) => {
+                        if (prevIndex === 0) return prevIndex
+                        else return prevIndex - 1
+                    })
+                }
+            }
+        },
+        [input, isPaletteShown]
+    )
+
+    useEventListener('keydown', _handleKeyDown)
 
     return !user || !isPaletteShown ? null : (
         <CommandPaletteContainer>
@@ -121,9 +152,12 @@ export function CommandPalette(): JSX.Element | null {
                 <ResultsContainer>
                     {commandsSearch(input).map((result, index) => (
                         <CommandResult
+                            focused={activeResultIndex === index}
                             key={`command-result-${index}`}
                             result={result}
                             handleSelection={handleCommandSelection}
+                            onMouseOver={(): void => setActiveResultIndex(-1)}
+                            onMouseOut={(): void => setActiveResultIndex(0)}
                         />
                     ))}
                 </ResultsContainer>
