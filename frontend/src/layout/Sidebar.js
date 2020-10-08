@@ -31,6 +31,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from './../../public/posthog-logo-white.svg'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useCommands } from 'lib/components/CommandPalette/commandLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -91,6 +92,45 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
             activeScene = `dashboard-${dashboardId}`
         }
     }
+
+    /* Command palette custom commands */
+    const commandBilling = {
+        key: 'billing',
+        prefixes: [],
+        resolver: () => {
+            return [
+                {
+                    key: 'billing',
+                    icon: WalletOutlined,
+                    display: 'go to billing',
+                    executor: ({ push }) => {
+                        push('/billing')
+                    },
+                },
+            ]
+        },
+    }
+
+    const commandLicense = {
+        key: 'licenses',
+        prefixes: [],
+        resolver: () => {
+            return [
+                {
+                    key: 'license',
+                    icon: LockOutlined,
+                    display: 'go to licenses',
+                    executor: ({ push }) => {
+                        push('/setup/licenses')
+                    },
+                },
+            ]
+        },
+    }
+
+    useCommands([commandBilling], featureFlags['billing-management-page'])
+    useCommands([commandLicense], !user.is_multi_tenancy && user.ee_available)
+    /* End command palette custom commands */
 
     return (
         <>
@@ -245,7 +285,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
 
-                        {featureFlags && featureFlags['billing-management-page'] && (
+                        {featureFlags['billing-management-page'] && (
                             <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
