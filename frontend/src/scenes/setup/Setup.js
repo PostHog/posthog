@@ -4,6 +4,7 @@ import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptOutCapture } from './OptOutCapture'
+import { OptInSessionRecording } from './OptInSessionRecording'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 
@@ -22,6 +23,7 @@ export const Setup = hot(_Setup)
 function _Setup() {
     const { user } = useValues(userLogic)
     const { location } = useValues(router)
+    const showSessionRecord = window.posthog && window.posthog.isFeatureEnabled('session-recording-player')
 
     useAnchor(location.hash)
 
@@ -67,6 +69,13 @@ function _Setup() {
             <h2 id="optout">Anonymize Data Collection</h2>
             <OptOutCapture />
             <Divider />
+            {showSessionRecord && (
+                <>
+                    <h2 id="sessionrecording">Collect session recordings</h2>
+                    <OptInSessionRecording />
+                    <Divider />
+                </>
+            )}
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />
             <Divider />

@@ -38,6 +38,7 @@ export interface TeamType {
     opt_out_capture: boolean
     signup_token: string
     slack_incoming_webhook: string
+    session_recording_opt_in: boolean
 }
 
 export interface ActionType {
