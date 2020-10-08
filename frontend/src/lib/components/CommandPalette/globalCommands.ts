@@ -13,6 +13,7 @@ import {
     MessageOutlined,
     TeamOutlined,
     BookOutlined,
+    FunnelPlotOutlined,
 } from '@ant-design/icons'
 
 const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
@@ -30,6 +31,30 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
         display: 'Go to Insights',
         executor: ({ push }) => {
             push('/insights')
+        },
+    },
+    {
+        key: 'trends',
+        icon: RiseOutlined,
+        display: 'Go to Trends',
+        executor: ({ push }) => {
+            push('/insights?insight=TRENDS')
+        },
+    },
+    {
+        key: 'sessions',
+        icon: ClockCircleOutlined,
+        display: 'Go to Sessions',
+        executor: ({ push }) => {
+            push('/insights?insight=SESSIONS')
+        },
+    },
+    {
+        key: 'funnels',
+        icon: FunnelPlotOutlined,
+        display: 'Go to Funnels',
+        executor: ({ push }) => {
+            push('/insights?insight=FUNNELS')
         },
     },
     {
