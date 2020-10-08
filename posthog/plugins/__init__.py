@@ -28,7 +28,10 @@ def cleanse_plugin_directory():
     for x in os.listdir(ABS_PLUGIN_PATH):
         if os.path.isdir(os.path.join(ABS_PLUGIN_PATH, x)) and x != "__pycache__":
             dir = os.path.join(ABS_PLUGIN_PATH, x)
-            shutil.rmtree(dir)
+            if os.path.islink(dir):
+                os.unlink(dir)
+            else:
+                shutil.rmtree(dir)
 
 
 def install(reqs):
