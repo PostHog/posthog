@@ -133,7 +133,7 @@ def get_module_config(module):
     module_name = re.sub("-main$", "", module_name)
     module_name = re.sub("-master$", "", module_name)
     plugin_config = get_plugin_config()
-    module_config = plugin_config.dict[module_name].config
+    module_config = plugin_config.dict[module_name]
     return module_config
 
 
