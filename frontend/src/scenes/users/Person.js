@@ -131,13 +131,13 @@ function _Person({ _: distinctId, id }) {
                     tab={<span data-attr="people-types-tab">Events</span>}
                     key="events"
                     data-attr="people-types-tab"
-                ></TabPane>
+                />
                 {window.posthog && window.posthog.isFeatureEnabled('session-recording-player') && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"
                         data-attr="people-types-tab"
-                    ></TabPane>
+                    />
                 )}
             </Tabs>
             {activeTab === 'events' ? (
