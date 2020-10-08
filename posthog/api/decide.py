@@ -25,7 +25,7 @@ def _get_token(data, request):
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
-    response = {}
+    response: Dict[str, Any] = {}
 
     team = request.user.team
     permitted_domains = ["127.0.0.1", "localhost"]
@@ -54,10 +54,8 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
 
 
 # May raise exception if request body is malformed
-def load_request_team(request: HttpRequest) -> Union[Team, None]:
-    data_from_request = load_data_from_request(request)
+def find_team_by_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
     data = data_from_request["data"]
-
     if not data:
         return None
 
@@ -72,8 +70,10 @@ def load_request_team(request: HttpRequest) -> Union[Team, None]:
     if token:
         return Team.objects.get_cached_from_token(token, is_personal_api_key)
 
+    return None
 
-def feature_flags(request: HttpRequest, team: Team) -> Dict[str, Any]:
+
+def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
@@ -113,7 +113,7 @@ def get_decide(request: HttpRequest):
 
     if request.method == "POST":
         try:
-            team = load_request_team(request)
+            data_from_request = load_data_from_request(request)
         except (json.decoder.JSONDecodeError, TypeError):
             return cors_response(
                 request,
@@ -123,7 +123,8 @@ def get_decide(request: HttpRequest):
                 ),
             )
 
+        team = find_team_by_token(request, data_from_request)
         if team:
-            response["featureFlags"] = feature_flags(request, team)
+            response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             response["sessionRecording"] = team.session_recording_opt_in
     return cors_response(request, JsonResponse(response))
