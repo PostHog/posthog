@@ -22,4 +22,4 @@ class TestPreflight(BaseTest):
         response = response.json()
         response = response["preflight_check"]
         self.assertEqual(status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"django": True, "redis": False, "db": True})
+        self.assertEqual(response, {"django": True, "redis": False, "db": True})
