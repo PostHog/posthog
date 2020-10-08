@@ -14,6 +14,8 @@ import {
     TeamOutlined,
     BookOutlined,
     FunnelPlotOutlined,
+    GatewayOutlined,
+    InteractionOutlined,
 } from '@ant-design/icons'
 
 const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
@@ -38,6 +40,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
         icon: RiseOutlined,
         display: 'Go to Trends',
         executor: ({ push }) => {
+            // TODO: Fix me
             push('/insights?insight=TRENDS')
         },
     },
@@ -46,6 +49,7 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
         icon: ClockCircleOutlined,
         display: 'Go to Sessions',
         executor: ({ push }) => {
+            // TODO: Fix me
             push('/insights?insight=SESSIONS')
         },
     },
@@ -54,7 +58,26 @@ const COMMAND_GLOBAL_RESULTS: CommandResultTemplate[] = [
         icon: FunnelPlotOutlined,
         display: 'Go to Funnels',
         executor: ({ push }) => {
+            // TODO: Fix me
             push('/insights?insight=FUNNELS')
+        },
+    },
+    {
+        key: 'retention',
+        icon: GatewayOutlined,
+        display: 'Go to Retention',
+        executor: ({ push }) => {
+            // TODO: Fix me
+            push('/insights?insight=RETENTION')
+        },
+    },
+    {
+        key: 'user_paths',
+        icon: InteractionOutlined,
+        display: 'Go to User Paths',
+        executor: ({ push }) => {
+            // TODO: Fix me
+            push('/insights?insight=PATHS')
         },
     },
     {
