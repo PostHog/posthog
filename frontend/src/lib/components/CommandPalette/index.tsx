@@ -46,25 +46,8 @@ const CommandPaletteBox = styled.div`
     font-weight: bold;
 `*/
 
-const Title = styled.div`
-    font-weight: bold;
-    font-size: 14px;
-    color: #ffffff;
-    padding-top: 8px;
-    padding-left: 16px;
-`
-
 const ResultsContainer = styled.div`
     overflow-y: scroll;
-    padding-top: 8px;
-`
-
-const PaletteError = styled.div`
-    color: #ec6f48;
-    font-size: 14px;
-    padding-top: 8px;
-    padding-left: 32px;
-    padding-right: 32px;
 `
 
 export function CommandPalette(): JSX.Element | null {
@@ -73,8 +56,6 @@ export function CommandPalette(): JSX.Element | null {
     const { setSearchInput: setInput } = useActions(commandLogic)
     const { searchInput: input, commandSearchResults } = useValues(commandLogic)
     const boxRef = useRef<HTMLDivElement | null>(null)
-    const [state] = useState({ error: null, title: null })
-
     const [isPaletteShown, setIsPaletteShown] = useState(false)
     const { user } = useValues(userLogic)
 
@@ -151,15 +132,7 @@ export function CommandPalette(): JSX.Element | null {
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
                     <CommandPaletteBox ref={boxRef} className="bg-dark">
-                        {state.title && <Title>{state.title}</Title>}
-                        <CommandSearch
-                            onClose={() => {
-                                setIsPaletteShown(false)
-                            }}
-                            input={input}
-                            setInput={setInput}
-                        />
-                        {state.error && <PaletteError>{state.error}</PaletteError>}
+                        <CommandSearch setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
                         <ResultsContainer>
                             {commandSearchResults.map((result, index) => (
                                 <CommandResult
@@ -167,7 +140,12 @@ export function CommandPalette(): JSX.Element | null {
                                     key={`command-result-${index}`}
                                     result={result}
                                     handleSelection={handleCommandSelection}
-                                    onMouseOver={(): void => setActiveResultIndex(-1)}
+                                    onMouseOver={() => {
+                                        setActiveResultIndex(-1)
+                                    }}
+                                    onMouseOut={() => {
+                                        setActiveResultIndex(0)
+                                    }}
                                 />
                             ))}
                         </ResultsContainer>
