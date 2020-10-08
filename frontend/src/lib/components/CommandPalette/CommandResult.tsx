@@ -42,7 +42,21 @@ const ResultContainer = styled.div<Props>`
         `
         color: rgba(255, 255, 255, 0.7) !important;  
         cursor: default !important;
+        
 `};
+    &:hover {
+        background-color: #666666;
+
+        &:before {
+            background-color: #feb641;
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 7px;
+        }
+    }
 `
 
 const IconContainer = styled.span`
@@ -71,7 +85,7 @@ export function CommandResult({ result, focused, isHint, setIsPaletteShown }: Co
             <IconContainer>
                 <result.icon />
             </IconContainer>
-            {result.prefixApplied} {result.text}
+            {result.text}
         </ResultContainer>
     )
 }

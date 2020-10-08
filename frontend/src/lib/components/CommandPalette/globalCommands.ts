@@ -8,7 +8,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     {
         key: 'insights',
         icon: LineChartOutlined,
-        text: 'Insights page',
+        text: 'go to insights page',
         executor: ({ push }) => {
             push('/insights')
         },
@@ -16,7 +16,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     {
         key: 'people',
         icon: LineChartOutlined,
-        text: 'People page',
+        text: 'go to people page',
         executor: ({ push }) => {
             push('/people')
         },
@@ -24,7 +24,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     {
         key: 'setup',
         icon: LineChartOutlined,
-        text: 'Setup page',
+        text: 'go to setup page',
         executor: ({ push }) => {
             push('/setup')
         },
@@ -32,7 +32,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     {
         key: 'events',
         icon: LineChartOutlined,
-        text: 'Events page',
+        text: 'go to events page',
         executor: ({ push }) => {
             push('/events')
         },
@@ -40,7 +40,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     {
         key: 'feature flags',
         icon: LineChartOutlined,
-        text: 'Feature Flags page',
+        text: 'go to feature flags page',
         executor: ({ push }) => {
             push('/experiments/feature_flags')
         },
