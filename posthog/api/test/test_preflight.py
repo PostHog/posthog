@@ -19,6 +19,7 @@ class TestPreflight(BaseTest):
             response = self.client.get("/_status")  # Make sure the endpoint works with and without the trailing slash
 
         response = response.json()
+        status_code = response.status_code
         response = response["preflight_check"]
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"django": True, "redis": False, "db": True})
