@@ -26,6 +26,7 @@ export const scenes = {
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
     signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
+    plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
@@ -55,6 +56,7 @@ export const routes = {
     '/annotations': 'annotations',
     '/team': 'team',
     '/setup/licenses': 'licenses',
+    '/setup/plugins': 'plugins',
     '/preflight': 'preflight',
     '/signup': 'signup',
     '/billing': 'billing',

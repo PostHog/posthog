@@ -166,3 +166,12 @@ export interface BillingSubscription {
     subscription_url: string
     stripe_checkout_session: string
 }
+
+export interface PluginType {
+    id: number
+    name: string
+    url: string
+    enabled: boolean
+    order: number
+    config: Record<string, any>
+}

@@ -1,7 +1,11 @@
+import json
 from typing import Any, Dict
 
+import requests
 from django.db.models import QuerySet
 from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from posthog.models import Plugin
 
@@ -40,3 +44,9 @@ class PluginViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         return queryset.filter(team=self.request.user.team).order_by("order")
+
+    @action(methods=["GET"], detail=False)
+    def repository(self, request: request.Request):
+        url = "https://raw.githubusercontent.com/PostHog/plugins/main/plugins.json"
+        plugins = requests.get(url)
+        return Response(json.loads(plugins.text))

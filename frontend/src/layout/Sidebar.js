@@ -20,6 +20,7 @@ import {
     TeamOutlined,
     LockOutlined,
     WalletOutlined,
+    ApiOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -63,6 +64,7 @@ const submenuOverride = {
     annotations: 'settings',
     billing: 'settings',
     licenses: 'settings',
+    plugins: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -260,6 +262,12 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <Link to={'/setup/licenses'} onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
+
+                        <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
+                            <ApiOutlined />
+                            <span className="sidebar-label">Plugins</span>
+                            <Link to="/setup/plugins" onClick={collapseSidebar} />
+                        </Menu.Item>
                     </Menu.SubMenu>
 
                     <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">
