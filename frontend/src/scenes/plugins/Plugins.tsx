@@ -1,7 +1,7 @@
 import React from 'react'
 import { Button, Col, Row, Table } from 'antd'
 import { hot } from 'react-hot-loader/root'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginType } from '~/types'
 import { LinkOutlined, ToolOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import { PluginRepositoryEntry } from 'scenes/plugins/types'
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
     const { plugins, pluginsLoading, repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
+    const { installPlugin } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -101,8 +102,12 @@ function _Plugins(): JSX.Element {
                         title: '',
                         key: 'install',
                         align: 'right',
-                        render: function RenderInstall(): JSX.Element {
-                            return <Button type="primary">Install</Button>
+                        render: function RenderInstall(plugin: PluginRepositoryEntry): JSX.Element {
+                            return (
+                                <Button type="primary" onClick={() => installPlugin(plugin)}>
+                                    Install
+                                </Button>
+                            )
                         },
                     },
                 ]}

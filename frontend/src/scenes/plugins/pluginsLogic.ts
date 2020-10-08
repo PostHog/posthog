@@ -5,7 +5,7 @@ import { PluginType } from '~/types'
 import { PluginRepositoryEntry } from './types'
 
 export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEntry>>({
-    loaders: {
+    loaders: ({ values }) => ({
         plugins: [
             {} as Record<string, PluginType>,
             {
@@ -16,6 +16,34 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                         plugins[plugin.name] = plugin
                     }
                     return plugins
+                },
+                installPlugin: async (repositoryEntry: PluginRepositoryEntry) => {
+                    const { plugins } = values
+                    const nextOrder = Math.max(
+                        Object.values(plugins)
+                            .map((p) => p.order || 1)
+                            .sort()
+                            .reverse()[0] || 0,
+                        Object.keys(plugins).length + 1
+                    )
+
+                    const config: Record<string, any> = {}
+                    if (repositoryEntry.config) {
+                        for (const [key, { default: def }] of Object.entries(repositoryEntry.config)) {
+                            config[key] = def || ''
+                        }
+                    }
+
+                    const response = await api.create('api/plugin', {
+                        name: repositoryEntry.name,
+                        url: repositoryEntry.url,
+                        enabled: false,
+                        order: nextOrder,
+                        config: config,
+                        configSchema: repositoryEntry.config,
+                    })
+
+                    return { ...plugins, [response.name]: response }
                 },
             },
         ],
@@ -32,7 +60,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
         uninstalledPlugins: [
