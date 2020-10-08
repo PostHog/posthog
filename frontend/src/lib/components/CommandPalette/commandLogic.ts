@@ -34,8 +34,7 @@ export interface CommandSearchEntry {
     command: Command
 }
 
-const DIRECT_RESULTS_MAX = 15
-const PREFIXED_RESULTS_MAX = 3
+const RESULTS_MAX = 8
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     actions: {
@@ -108,15 +107,18 @@ export function useCommandsSearch(): (argument: string) => CommandResult[] {
         (argument: string): CommandResult[] => {
             const directResults: CommandResult[] = []
             const prefixedResults: CommandResult[] = []
+
             for (const [regexp, command] of regexpCommandPairs) {
-                if (directResults.length >= DIRECT_RESULTS_MAX && prefixedResults.length >= PREFIXED_RESULTS_MAX) break
+                if (directResults.length + prefixedResults.length >= RESULTS_MAX) break
                 if (regexp) {
                     const match = argument.match(regexp)
-                    if (match && match[1]) prefixedResults.push(...command.resolver(match[2], match[1]))
+                    if (match && match[1]) {
+                        prefixedResults.push(...command.resolver(match[2], match[1]))
+                    }
                 }
                 directResults.push(...command.resolver(argument))
             }
-            return directResults.slice(0, DIRECT_RESULTS_MAX).concat(prefixedResults.slice(0, PREFIXED_RESULTS_MAX))
+            return directResults.concat(prefixedResults).slice(0, RESULTS_MAX)
         },
         [regexpCommandPairs]
     )

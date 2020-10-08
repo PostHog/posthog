@@ -4,7 +4,7 @@ import Fuse from 'fuse.js'
 
 type CommandResultKeyed = CommandResult & { key: string }
 
-const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
+const COMMAND_GLOBAL_RESULTS: CommandResultKeyed[] = [
     {
         key: 'insights',
         icon: LineChartOutlined,
@@ -38,7 +38,7 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
         },
     },
     {
-        key: 'feature flags',
+        key: 'feature_flags',
         icon: LineChartOutlined,
         text: 'go to feature flags page',
         executor: ({ push }) => {
@@ -47,17 +47,17 @@ const COMMAND_GO_TO_RESULTS: CommandResultKeyed[] = [
     },
 ]
 
-const commandGoToFuse = new Fuse(COMMAND_GO_TO_RESULTS, { keys: ['key'] })
+const commandGlobalFuse = new Fuse(COMMAND_GLOBAL_RESULTS, { keys: ['key'] })
 
 const commandGoTo: Command = {
     key: 'go-to',
-    prefixes: ['go to', '/d'],
+    prefixes: [],
     resolver: (argument, prefixApplied) => {
         return argument
-            ? commandGoToFuse.search(argument).map((result) => {
+            ? commandGlobalFuse.search(argument).map((result) => {
                   return { ...result.item, prefixApplied }
               })
-            : COMMAND_GO_TO_RESULTS
+            : COMMAND_GLOBAL_RESULTS
     },
 }
 
