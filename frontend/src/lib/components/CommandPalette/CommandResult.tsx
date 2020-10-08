@@ -41,19 +41,6 @@ const ResultContainer = styled.div<ContainerProps>`
         cursor: default !important;
         
     `};
-    &:hover,
-    &:focus {
-        background-color: rgba(0, 0, 0, 0.35);
-
-        &:before {
-            background-color: #1890ff;
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 7px;
-        }
     }
 `
 
@@ -67,7 +54,6 @@ interface CommandResultProps {
     focused?: boolean
     isHint?: boolean
     onMouseOver?: (e: MouseEvent) => void
-    onMouseOut?: (e: MouseEvent) => void
 }
 
 export function CommandResult({
@@ -76,12 +62,10 @@ export function CommandResult({
     isHint,
     handleSelection,
     onMouseOver,
-    onMouseOut,
 }: CommandResultProps): JSX.Element {
     return (
         <ResultContainer
             onMouseOver={onMouseOver}
-            onMouseOut={onMouseOut}
             focused={focused}
             isHint={isHint}
             onClick={() => {
