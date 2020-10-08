@@ -5,7 +5,6 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useValues } from 'kea'
-import { isMac } from 'lib/utils'
 import { useCommands, useCommandsSearch, CommandResult as CommandResultType } from './commandLogic'
 import { globalCommands } from './globalCommands'
 import { CommandSearch } from './CommandSearch'
@@ -88,7 +87,11 @@ export function CommandPalette(): JSX.Element | null {
     }
     const [activeResultIndex, setActiveResultIndex] = useState(0)
 
-    useHotkeys(isMac() ? 'cmd+k' : 'ctrl+k', () => {
+    useHotkeys('cmd+k', () => {
+        setIsPaletteShown(!isPaletteShown)
+    })
+
+    useHotkeys('ctrl+k', () => {
         setIsPaletteShown(!isPaletteShown)
     })
 
