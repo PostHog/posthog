@@ -94,6 +94,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response[0]["action"]["name"], "$pageview")
 
         def test_insight_session_basic(self):
+            Person.objects.create(team=self.team, distinct_ids=["1"])
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
@@ -109,9 +110,11 @@ def insight_test_factory(event_factory, person_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = self.client.get("/api/insight/session/",).json()
+                response_all = self.client.get("/api/insight/session/",).json()
+                response_person_1 = self.client.get("/api/insight/session/?distinct_id=1",).json()
 
-            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(len(response_all["result"]), 2)
+            self.assertEqual(len(response_person_1["result"]), 1)
 
             response = self.client.get("/api/insight/session/?date_from=2012-01-14&date_to=2012-01-15",).json()
             self.assertEqual(len(response["result"]), 4)
