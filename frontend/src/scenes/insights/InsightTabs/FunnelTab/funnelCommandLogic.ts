@@ -12,6 +12,7 @@ import { FunnelPlotOutlined } from '@ant-design/icons'
 const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
+    connect: [commandLogic],
     events: () => ({
         afterMount: () => {
             const results: CommandResultTemplate[] = [
