@@ -13,11 +13,11 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
-    def _post_decide(self, data=None):
+    def _post_decide(self, data=None, origin="http://127.0.0.1:8000"):
         return self.client.post(
             "/decide/",
             {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
-            HTTP_ORIGIN="http://127.0.0.1:8000",
+            HTTP_ORIGIN=origin,
         ).json()
 
     def test_user_on_own_site_enabled(self):
@@ -77,6 +77,13 @@ class TestDecide(BaseTest):
 
         response = self._post_decide()
         self.assertEqual(response["sessionRecording"], True)
+
+    def test_user_session_recording_evil_site(self):
+        self.team.session_recording_opt_in = True
+        self.team.save()
+
+        response = self._post_decide(origin="evil.site.com")
+        self.assertEqual(response["sessionRecording"], False)
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
