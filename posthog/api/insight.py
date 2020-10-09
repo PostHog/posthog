@@ -188,7 +188,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         return result
 
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> List[Dict[any, any]]:
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
         result["result"] = [
             session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
