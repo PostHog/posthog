@@ -90,7 +90,7 @@ interface CommandResultsProps {
 export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { commandSearchResults } = useValues(commandLogic)
+    const { commandSearchResults, searchInput } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
 
@@ -116,10 +116,8 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
     useEventListener('keydown', handleEnterDown)
 
     useEffect(() => {
-        if (commandSearchResults.length - 1 > activeResultIndex) {
-            setActiveResultIndex(0)
-        }
-    }, [CommandResult])
+        setActiveResultIndex(0)
+    }, [searchInput])
 
     const handleKeyDown = useCallback(
         (e: KeyboardEvent) => {
@@ -151,10 +149,7 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
                     result={result}
                     handleSelection={handleCommandSelection}
                     onMouseOver={() => {
-                        setActiveResultIndex(-1)
-                    }}
-                    onMouseOut={() => {
-                        setActiveResultIndex(0)
+                        setActiveResultIndex(index)
                     }}
                 />
             ))}
