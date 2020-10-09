@@ -111,6 +111,15 @@ class PersonViewSet(viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
+    def by_email(self, request):
+        result = self.get_by_email(request)
+        return response.Response(result)
+
+    def get_by_email(self, request):
+        person = self.get_queryset().get(properties__email=str(request.GET["email"]))
+        return PersonSerializer(person).data
+
+    @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request) -> response.Response:
         result = self.get_properties(request)
 

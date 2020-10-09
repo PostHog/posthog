@@ -27,6 +27,7 @@ import {
     LineChartOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
+import api from 'lib/api'
 
 export type CommandExecutor = () => void
 
@@ -68,6 +69,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setSearchInput: (input: string) => ({ input }),
+        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
     },
     reducers: {
         rawCommandRegistrations: [
@@ -91,6 +93,60 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             },
         ],
     },
+    listeners: ({ actions, values }) => ({
+        deregisterAllWithMatch: ({ keyPrefix }) => {
+            for (const command of Object.values(values.commandRegistrations)) {
+                if (command.key.includes(keyPrefix)) {
+                    actions.deregisterCommand(command.key)
+                }
+            }
+        },
+        setSearchInput: async ({ input }, breakpoint) => {
+            await breakpoint(500)
+            actions.deregisterAllWithMatch('person')
+            if (/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/.test(input)) {
+                try {
+                    const person = await api.get('api/person/by_email/?email=' + input)
+                    actions.registerCommand({
+                        key: `person-${person.distinct_ids[0]}`,
+                        prefixes: [],
+                        resolver: [
+                            {
+                                key: `p_${person.distinct_ids[0]}`,
+                                icon: UserOutlined,
+                                display: `View person (${input})`,
+                                executor: () => {
+                                    const { push } = router.actions
+                                    push(`/person/${person.distinct_ids[0]}`)
+                                },
+                            },
+                        ],
+                        scope: GLOBAL_COMMAND_SCOPE,
+                    })
+                } catch {}
+            } else if (input.length > 10) {
+                try {
+                    const person = await api.get('api/person/by_distinct_id/?distinct_id=' + input)
+                    actions.registerCommand({
+                        key: `person-${person.distinct_ids[0]}`,
+                        prefixes: [],
+                        resolver: [
+                            {
+                                key: `p_${person.distinct_ids[0]}`,
+                                icon: UserOutlined,
+                                display: `View person (${input})`,
+                                executor: () => {
+                                    const { push } = router.actions
+                                    push(`/person/${person.distinct_ids[0]}`)
+                                },
+                            },
+                        ],
+                        scope: GLOBAL_COMMAND_SCOPE,
+                    })
+                } catch {}
+            }
+        },
+    }),
     selectors: {
         commandRegistrations: [
             (s) => [s.rawCommandRegistrations, dashboardsModel.selectors.dashboards],

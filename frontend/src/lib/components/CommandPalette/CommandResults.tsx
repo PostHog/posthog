@@ -143,7 +143,7 @@ interface CommandResultsProps {
 export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { commandSearchResults } = useValues(commandLogic)
+    const { commandSearchResults, searchInput } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
     const [hoverResultIndex, setHoverResultIndex] = useState<number | null>(null)
@@ -173,10 +173,8 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
     useEventListener('keydown', handleEnterDown)
 
     useEffect(() => {
-        // Prevent scrolling when box is open
-        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
         setActiveResultIndex(0)
-    }, [isPaletteShown])
+    }, [searchInput, isPaletteShown])
 
     const handleKeyDown = useCallback(
         (event: KeyboardEvent) => {
