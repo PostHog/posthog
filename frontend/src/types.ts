@@ -167,19 +167,20 @@ export interface BillingSubscription {
     stripe_checkout_session: string
 }
 
+export interface PluginConfig {
+    name: string
+    type: string
+    default: any
+    required: boolean
+}
+
 export interface PluginType {
     id: number
     name: string
+    description: string
     url: string
     enabled: boolean
     order: number
     config: Record<string, any>
-    configSchema: Record<
-        string,
-        {
-            name: string
-            type: string
-            default: any
-        }
-    >
+    configSchema: Record<string, PluginConfig>
 }

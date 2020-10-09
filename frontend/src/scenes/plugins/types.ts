@@ -1,12 +1,8 @@
-export interface PluginRepositoryEntryConfig {
-    name: string
-    type: string
-    default: any
-}
+import { PluginConfig } from '~/types'
 
 export interface PluginRepositoryEntry {
     name: string
     url: string
     description: string
-    config?: Record<string, PluginRepositoryEntryConfig>
+    config?: Record<string, PluginConfig>
 }
