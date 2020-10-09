@@ -10,6 +10,7 @@ import moment from 'moment'
 import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
+import { PropertyFilters } from 'lib/components/PropertyFilters'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -18,8 +19,8 @@ interface SessionsTableProps {
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
-    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(logic)
-    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(logic)
+    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate, filters } = useValues(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
 
     const columns = [
         {
@@ -96,9 +97,14 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
             <Space className="mb-2">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker value={selectedDate} onChange={dateChanged} allowClear={false} />
+                <DatePicker value={selectedDate} onChange={(date) => setFilters(filters, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
+            <PropertyFilters
+                propertyFilters={filters}
+                pageKey={'sessions-' + (personIds && JSON.stringify(personIds))}
+                onChange={(properties) => setFilters(properties, selectedDate)}
+            />
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
