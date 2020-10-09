@@ -1,30 +1,13 @@
-import './TopContent.scss'
-
 import React from 'react'
-import { LatestVersion } from '~/layout/LatestVersion'
-import { User } from '~/layout/User'
-import { WorkerStats } from '~/layout/WorkerStats'
-import { useActions, useValues } from 'kea'
-import { commandLogic } from 'lib/components/CommandPalette/commandLogic'
-import { SearchOutlined } from '@ant-design/icons'
+import { LatestVersion } from './LatestVersion'
+import { User } from './User'
+import { WorkerStats } from './WorkerStats'
+import { CommandPaletteButton } from './CommandPaletteButton'
+import { isMobile } from 'lib/utils'
 
-export function CommandPaletteButton() {
-    const { isPaletteShown } = useValues(commandLogic)
-    const { togglePalette } = useActions(commandLogic)
+import './index.scss'
 
-    return (
-        <span
-            data-attr="command-palette-toggle"
-            className="btn btn-sm btn-light"
-            onClick={togglePalette}
-            title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
-        >
-            <SearchOutlined size="small" /> Cmd + K
-        </span>
-    )
-}
-
-export function TopContent() {
+export function TopContent(): JSX.Element {
     return (
         <div className="content py-3 layout-top-content">
             <div
@@ -37,7 +20,7 @@ export function TopContent() {
                     fontSize: 13,
                 }}
             >
-                <CommandPaletteButton />
+                {!isMobile() && <CommandPaletteButton />}
             </div>
             <div
                 className="layout-top-content"

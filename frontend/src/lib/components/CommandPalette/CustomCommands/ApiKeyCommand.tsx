@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { apiKeyCommandLogic } from './apiKeyCommandLogic'
-import { CustomCommandBox, CommandTitle, CommandInputContainer, CommandInputElement } from '../shared'
+import { CustomCommandBox, CommandTitle, CommandInputContainer, CommandInputElement } from '../commandStyledComponents'
 import { personalAPIKeysLogic } from 'lib/components/PersonalAPIKeys/personalAPIKeysLogic'
 import styled from 'styled-components'
 

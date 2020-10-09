@@ -21,7 +21,7 @@ export const insightCommandLogic = kea<commandLogicType<Command, CommandRegistra
                 {
                     key: 'insight-compare',
                     icon: RiseOutlined,
-                    display: 'Toggle compare',
+                    display: 'Toggle "Compare Previous" on Graph',
                     executor: () => {
                         compareFilterLogic.actions.setCompare(!compareFilterLogic.values.compare)
                     },

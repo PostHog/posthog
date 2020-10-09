@@ -433,7 +433,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 {
                     key: 'logout',
                     icon: LogoutOutlined,
-                    display: 'Log out',
+                    display: 'Log Out',
                     executor: () => {
                         window.location.href = '/logout'
                     },
@@ -441,7 +441,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 {
                     key: 'create_api_key',
                     icon: KeyOutlined,
-                    display: 'Create personal API key',
+                    display: 'Create Personal API Key',
                     custom_command: true,
                     executor: () => {
                         actions.setCustomCommand('create_api_key')

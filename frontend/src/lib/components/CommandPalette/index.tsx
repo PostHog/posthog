@@ -19,7 +19,6 @@ const CommandPaletteContainer = styled.div`
     display: flex;
     flex-direction: column;
     align-items: center;
-    pointer-events: none;
 `
 
 const CommandPaletteBox = styled.div`
@@ -44,11 +43,14 @@ export function CommandPalette(): JSX.Element | null {
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    useHotkeys('cmd+k,ctrl+k', togglePalette)
-
-    useHotkeys('esc', togglePalette)
-
-    useOutsideClickHandler(boxRef, togglePalette)
+    useHotkeys('cmd+k,ctrl+k', () => {
+        console.log('c+k clicked')
+        togglePalette()
+    })
+    useHotkeys('esc', () => {
+        hidePalette()
+    })
+    useOutsideClickHandler(boxRef, hidePalette)
 
     const handleCommandSelection = (result: CommandResultType): void => {
         // Called after a command is selected by the user
@@ -66,18 +68,14 @@ export function CommandPalette(): JSX.Element | null {
         setCustomCommand('')
     }
 
-    useOutsideClickHandler(boxRef, hidePalette)
-
     return (
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
                     {!customCommand && (
                         <CommandPaletteBox ref={boxRef} className="card bg-dark">
-                            <CommandInput/>
-                            <CommandResults
-                                handleCommandSelection={handleCommandSelection}
-                            />
+                            <CommandInput />
+                            <CommandResults handleCommandSelection={handleCommandSelection} />
                         </CommandPaletteBox>
                     )}
                     {customCommand && (

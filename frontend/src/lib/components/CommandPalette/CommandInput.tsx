@@ -2,7 +2,7 @@ import React, { useCallback } from 'react'
 import { SearchOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
-import { CommandInputContainer, CommandInputElement } from './shared'
+import { CommandInputContainer, CommandInputElement } from './commandStyledComponents'
 
 export function CommandInput(): JSX.Element {
     const { searchInput } = useValues(commandLogic)
@@ -30,7 +30,7 @@ export function CommandInput(): JSX.Element {
                 onChange={(event) => {
                     setSearchInput(event.target.value)
                 }}
-                placeholder="What would you like to do?"
+                placeholder="What would you like to do? Try some suggestions…"
             />
         </CommandInputContainer>
     )
