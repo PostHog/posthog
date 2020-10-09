@@ -3,6 +3,8 @@ import styled from 'styled-components'
 import { EditOutlined } from '@ant-design/icons'
 
 const CommandInputContainer = styled.div`
+    display: flex;
+    align-items: center;
     height: 4rem;
     padding: 0 2rem;
     border: none;
@@ -15,6 +17,7 @@ const CommandInputContainer = styled.div`
 `
 
 const CommandInputElement = styled.input`
+    flex-grow: 1;
     height: 4rem;
     padding-left: 1rem;
     border: none;
@@ -28,7 +31,7 @@ const CommandInputElement = styled.input`
 
 interface Props {
     input: string
-    setInput: (newInput: string) => string
+    setInput: (input: string) => void
     setIsPaletteShown: Dispatch<SetStateAction<boolean>>
 }
 

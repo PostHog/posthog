@@ -1,13 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useMountedLogic, useValues, useActions } from 'kea'
-import { CommandResult as CommandResultType, commandLogic } from './commandLogic'
+import { commandLogic } from './commandLogic'
 import { CommandInput } from './CommandInput'
-import { CommandResult } from './CommandResult'
+import { CommandResults } from './CommandResults'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { useCallback } from 'react'
 
 const CommandPaletteContainer = styled.div`
@@ -43,27 +42,16 @@ const CommandPaletteBox = styled.div`
     font-weight: bold;
 `*/
 
-const ResultsContainer = styled.div`
-    border-top: 1px solid rgba(0, 0, 0, 0.35);
-    overflow-y: scroll;
-`
-
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 
     const { setSearchInput: setInput } = useActions(commandLogic)
     const { searchInput: input, commandSearchResults } = useValues(commandLogic)
-    const boxRef = useRef<HTMLDivElement | null>(null)
-    const [isPaletteShown, setIsPaletteShown] = useState(false)
     const { user } = useValues(userLogic)
 
-    const handleCommandSelection = (result: CommandResultType): void => {
-        // Called after a command is selected by the user
-        result.executor()
-        setIsPaletteShown(false)
-        setInput('')
-    }
-    const [activeResultIndex, setActiveResultIndex] = useState(0)
+    const [isPaletteShown, setIsPaletteShown] = useState(false)
+
+    const boxRef = useRef<HTMLDivElement | null>(null)
 
     const toggleIsPaletteShown = useCallback(() => {
         setIsPaletteShown(!isPaletteShown)
@@ -79,74 +67,18 @@ export function CommandPalette(): JSX.Element | null {
         setIsPaletteShown(false)
     })
 
-    useEffect(() => {
-        // prevent scrolling when box is open
-        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
-        setActiveResultIndex(0)
-    }, [isPaletteShown])
-
-    useEffect(() => {
-        if (commandSearchResults.length - 1 > activeResultIndex) {
-            setActiveResultIndex(0)
-        }
-    }, [input])
-
-    const _handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
-            if (isPaletteShown) {
-                if (e.key === 'ArrowDown') {
-                    setActiveResultIndex((prevIndex) => {
-                        if (prevIndex === commandSearchResults.length - 1) return prevIndex
-                        else return prevIndex + 1
-                    })
-                } else if (e.key === 'ArrowUp') {
-                    setActiveResultIndex((prevIndex) => {
-                        if (prevIndex === 0) return prevIndex
-                        else return prevIndex - 1
-                    })
-                }
-            }
-        },
-        [input, isPaletteShown]
-    )
-
-    useEventListener('keydown', _handleKeyDown)
-
-    const _handleEnterDown = useCallback(
-        (e: KeyboardEvent) => {
-            if (e.key === 'Enter') {
-                handleCommandSelection(commandSearchResults[activeResultIndex])
-            }
-        },
-        [activeResultIndex, input]
-    )
-
-    useEventListener('keydown', _handleEnterDown)
-
     return (
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
                     <CommandPaletteBox ref={boxRef} className="card bg-dark">
                         <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
-                        {commandSearchResults && (
-                            <ResultsContainer>
-                                {commandSearchResults.map((result, index) => (
-                                    <CommandResult
-                                        focused={activeResultIndex === index}
-                                        key={`command-result-${index}`}
-                                        result={result}
-                                        handleSelection={handleCommandSelection}
-                                        onMouseOver={() => {
-                                            setActiveResultIndex(-1)
-                                        }}
-                                        onMouseOut={() => {
-                                            setActiveResultIndex(0)
-                                        }}
-                                    />
-                                ))}
-                            </ResultsContainer>
-                        )}
+                        <CommandResults
+                            results={commandSearchResults}
+                            setIsPaletteShown={setIsPaletteShown}
+                            isPaletteShown={isPaletteShown}
+                            setInput={setInput}
+                        />
                     </CommandPaletteBox>
                 </CommandPaletteContainer>
             )}
