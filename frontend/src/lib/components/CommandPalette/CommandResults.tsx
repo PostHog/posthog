@@ -60,7 +60,6 @@ const Scope = styled.div`
 `
 
 const ResultsContainer = styled.div`
-    border-top: 1px solid rgba(0, 0, 0, 0.5);
     overflow-y: scroll;
 `
 
@@ -73,7 +72,7 @@ interface CommandResultProps {
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
     isHint?: boolean
-    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | undefined | null>>
 }
 
 function CommandResult({
@@ -107,7 +106,7 @@ interface ResultsGroupProps {
     scope: string
     results: CommandResultType[]
     handleCommandSelection: (result: CommandResultType) => void
-    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | null | undefined>>
     actuallyActiveResultIndex: number
 }
 
@@ -136,16 +135,15 @@ export function ResultsGroup({
 
 interface CommandResultsProps {
     handleCommandSelection: (result: CommandResultType) => void
-    isPaletteShown: boolean
 }
 
-export function CommandResults({ handleCommandSelection, isPaletteShown }: CommandResultsProps): JSX.Element {
+export function CommandResults({ handleCommandSelection }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { commandSearchResults, searchInput } = useValues(commandLogic)
+    const { isPaletteShown, commandSearchResults } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
-    const [hoverResultIndex, setHoverResultIndex] = useState<number | null>(null)
+    const [hoverResultIndex, setHoverResultIndex] = useState<number | null | undefined>(null)
 
     const actuallyActiveResultIndex =
         hoverResultIndex || (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length) : 0)
@@ -163,7 +161,7 @@ export function CommandResults({ handleCommandSelection, isPaletteShown }: Comma
 
     useEffect(() => {
         setActiveResultIndex(0)
-    }, [searchInput, isPaletteShown])
+    }, [isPaletteShown])
 
     const handleKeyDown = useCallback(
         (event: KeyboardEvent) => {

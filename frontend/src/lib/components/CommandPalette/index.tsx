@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { CommandResult as CommandResultType } from './commandLogic'
@@ -19,6 +19,7 @@ const CommandPaletteContainer = styled.div`
     display: flex;
     flex-direction: column;
     align-items: center;
+    pointer-events: none;
 `
 
 const CommandPaletteBox = styled.div`
@@ -35,21 +36,13 @@ const CommandPaletteBox = styled.div`
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 
-    const { setSearchInput: setInput } = useActions(commandLogic)
-    const { searchInput: input, commandSearchResults } = useValues(commandLogic)
+    const { hidePalette, togglePalette, setSearchInput } = useActions(commandLogic)
+    const { isPaletteShown } = useValues(commandLogic)
     const { user } = useValues(userLogic)
     const { customCommand } = useValues(commandLogic)
     const { setCustomCommand } = useActions(commandLogic)
 
-    const [isPaletteShown, setIsPaletteShown] = useState(false)
-
     const boxRef = useRef<HTMLDivElement | null>(null)
-
-    const togglePalette = (): void => {
-        setIsPaletteShown(!isPaletteShown)
-        setCustomCommand('')
-        setInput('')
-    }
 
     useHotkeys('cmd+k,ctrl+k', togglePalette)
 
@@ -63,8 +56,8 @@ export function CommandPalette(): JSX.Element | null {
         if (!result.custom_command) {
             // The command palette container is kept on the DOM for custom commands,
             // the input is not cleared to ensure consistent navigation.
-            setIsPaletteShown(false)
-            setInput('')
+            hidePalette()
+            setSearchInput('')
         }
     }
 
@@ -73,10 +66,7 @@ export function CommandPalette(): JSX.Element | null {
         setCustomCommand('')
     }
 
-    useEffect(() => {
-        // prevent scrolling when box is open
-        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
-    }, [isPaletteShown])
+    useOutsideClickHandler(boxRef, hidePalette)
 
     return (
         <>
@@ -84,10 +74,8 @@ export function CommandPalette(): JSX.Element | null {
                 <CommandPaletteContainer>
                     {!customCommand && (
                         <CommandPaletteBox ref={boxRef} className="card bg-dark">
-                            <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
+                            <CommandInput/>
                             <CommandResults
-                                results={commandSearchResults}
-                                isPaletteShown={isPaletteShown}
                                 handleCommandSelection={handleCommandSelection}
                             />
                         </CommandPaletteBox>

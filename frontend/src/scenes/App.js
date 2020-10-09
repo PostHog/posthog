@@ -96,9 +96,7 @@ function App() {
                     }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <div className="content py-3 layout-top-content">
-                        <TopContent user={user} />
-                    </div>
+                    <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
                         <BillingToolbar />
                         {!user.has_events && image ? (

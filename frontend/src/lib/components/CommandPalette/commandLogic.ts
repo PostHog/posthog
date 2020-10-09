@@ -69,13 +69,24 @@ export const GLOBAL_COMMAND_SCOPE = 'global'
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     actions: {
+        hidePalette: true,
+        showPalette: true,
+        togglePalette: true,
+        setSearchInput: (input: string) => ({ input }),
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
-        setSearchInput: (input: string) => ({ input }),
-        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
+        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
     },
     reducers: {
+        isPaletteShown: [
+            false,
+            {
+                hidePalette: () => false,
+                showPalette: () => true,
+                togglePalette: (previousState) => !previousState,
+            },
+        ],
         rawCommandRegistrations: [
             {} as CommandRegistrations,
             {
