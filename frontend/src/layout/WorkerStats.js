@@ -12,7 +12,8 @@ export function WorkerStats() {
 
     async function updateHeartbeat() {
         try {
-            const stats = await api.get('_stats/')
+            const stats = await api.get('_status/')
+            console.log(stats)
             setHeartbeat(stats.worker_heartbeat)
         } catch (error) {
             setHeartbeat('error')

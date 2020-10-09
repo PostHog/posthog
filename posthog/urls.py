@@ -204,8 +204,6 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> st
 
 urlpatterns = [
     # internals
-    # opt_slash_path("_health", health),
-    # opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     opt_slash_path("_status", status),
     # admin
