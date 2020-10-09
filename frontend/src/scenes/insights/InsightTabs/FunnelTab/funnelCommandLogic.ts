@@ -39,7 +39,7 @@ export const funnelCommandLogic = kea<commandLogicType<Command, CommandRegistrat
             }
         },
         beforeUnmount: () => {
-            commandLogic.actions.deregisterCommand(FUNNEL_COMMAND_SCOPE)
+            commandLogic.actions.deregisterAllWithMatch(FUNNEL_COMMAND_SCOPE)
         },
     }),
 })

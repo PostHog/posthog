@@ -200,7 +200,7 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
         groupedResults[scope].push(result)
     }
     // Always put global commands group last
-    const sortedGroups = Object.entries(groupedResults).sort(([scopeA]) => (scopeA === 'global' ? 1 : -1))
+    const sortedGroups = Object.entries(groupedResults)
     let rollingIndex = 0
     for (const [, group] of sortedGroups) {
         for (const result of group) {

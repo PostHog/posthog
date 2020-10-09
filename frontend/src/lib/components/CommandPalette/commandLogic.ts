@@ -77,7 +77,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
-                    if (command.key in commands) throw Error(`Command key ${command.key} is already registered!`)
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
@@ -97,7 +96,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
     listeners: ({ actions, values }) => ({
         deregisterAllWithMatch: ({ keyPrefix }) => {
             for (const command of Object.values(values.commandRegistrations)) {
-                if (command.key.includes(keyPrefix)) {
+                if (command.key.includes(keyPrefix) || command.scope.includes(keyPrefix)) {
                     actions.deregisterCommand(command.key)
                 }
             }
@@ -232,6 +231,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     .search(argument)
                     .slice(0, RESULTS_MAX)
                     .map((result) => result.item)
+                    .sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
             },
         ],
     },
