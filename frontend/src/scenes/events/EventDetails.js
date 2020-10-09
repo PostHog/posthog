@@ -13,7 +13,6 @@ export function EventDetails({ event }) {
     for (let key of Object.keys(event.properties)) {
         if (key !== '$snapshot_data') displayableEventProperties[key] = event.properties[key]
     }
-    ddfdf
 
     return (
         <>
