@@ -4,9 +4,9 @@ import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginType } from '~/types'
-import { LinkOutlined, ToolOutlined } from '@ant-design/icons'
+import { GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
 import { PluginRepositoryEntry } from 'scenes/plugins/types'
-import { PluginConfig } from 'scenes/plugins/PluginConfig'
+import { PluginModal } from 'scenes/plugins/PluginModal'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -35,10 +35,20 @@ function _Plugins(): JSX.Element {
                                         </Col>
                                     </Row>
                                     <Row gutter={16}>
-                                        <Col>{plugin.enabled ? 'Enabled' : 'Disabled'}</Col>
+                                        <Col>
+                                            {plugin.enabled ? (
+                                                <div style={{ color: 'green' }}>
+                                                    <CheckOutlined /> Enabled
+                                                </div>
+                                            ) : (
+                                                <div style={{ color: 'orange' }}>
+                                                    <PauseOutlined /> Disabled
+                                                </div>
+                                            )}
+                                        </Col>
                                         <Col>
                                             <a href={plugin.url} target="_blank" rel="noreferrer noopener">
-                                                <LinkOutlined /> Visit Site
+                                                <GithubOutlined /> Repository
                                             </a>
                                         </Col>
                                     </Row>
@@ -116,7 +126,7 @@ function _Plugins(): JSX.Element {
                 loading={pluginsLoading || repositoryLoading}
                 locale={{ emptyText: 'All Plugins Installed!' }}
             />
-            <PluginConfig />
+            <PluginModal />
         </div>
     )
 }

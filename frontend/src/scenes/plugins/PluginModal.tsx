@@ -1,37 +1,37 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Form, Input, Modal, Switch } from 'antd'
 
-export function PluginConfig(): JSX.Element {
+export function PluginModal(): JSX.Element {
     const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
     const { editPlugin, saveEditedPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
+    useEffect(() => {
+        if (editingPlugin) {
+            form.setFieldsValue({ ...(editingPlugin.config || {}), __enabled: editingPlugin.enabled })
+        } else {
+            form.resetFields()
+        }
+    }, [editingPlugin?.name])
+
     return (
         <Modal
+            forceRender={true}
             visible={!!editingPlugin}
-            onCancel={() => {
-                editPlugin(null)
-                form.resetFields()
-            }}
             okText="Save"
             onOk={() => form.submit()}
+            onCancel={() => editPlugin(null)}
             confirmLoading={pluginsLoading}
         >
-            {editingPlugin ? (
-                <div>
-                    <h2>{editingPlugin.name}</h2>
-                    <p>{editingPlugin.description}</p>
+            <Form form={form} layout="vertical" name="basic" onFinish={saveEditedPlugin}>
+                {editingPlugin ? (
+                    <div>
+                        <h2>{editingPlugin.name}</h2>
+                        <p>{editingPlugin.description}</p>
 
-                    <Form
-                        form={form}
-                        layout="vertical"
-                        name="basic"
-                        initialValues={{ ...(editingPlugin.config || {}), __enabled: editingPlugin.enabled }}
-                        onFinish={saveEditedPlugin}
-                    >
-                        <Form.Item label="Enabled?" name="__enabled" valuePropName="checked">
+                        <Form.Item label="Enabled?" fieldKey="__enabled" name="__enabled" valuePropName="checked">
                             <Switch />
                         </Form.Item>
                         {Object.keys(editingPlugin.configSchema).map((configKey) => (
@@ -39,9 +39,9 @@ export function PluginConfig(): JSX.Element {
                                 <Input />
                             </Form.Item>
                         ))}
-                    </Form>
-                </div>
-            ) : null}
+                    </div>
+                ) : null}
+            </Form>
         </Modal>
     )
 }
