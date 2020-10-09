@@ -1,5 +1,5 @@
 from django.contrib.postgres.fields import JSONField
-from django.db import connection, models, transaction
+from django.db import models
 
 
 class Plugin(models.Model):
