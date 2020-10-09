@@ -8,6 +8,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
     actions: {
         editPlugin: (name: string | null) => ({ name }),
         saveEditedPlugin: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
+        uninstallPlugin: (name: string) => ({ name }),
     },
 
     loaders: ({ values }) => ({
@@ -67,6 +68,16 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
 
                     return { ...plugins, [response.name]: response }
                 },
+                uninstallPlugin: async () => {
+                    const { plugins, editingPlugin } = values
+                    if (!editingPlugin) {
+                        return plugins
+                    }
+
+                    await api.delete(`api/plugin/${editingPlugin.id}`)
+                    const { [editingPlugin.name]: _discard, ...rest } = plugins // eslint-disable-line
+                    return rest
+                },
             },
         ],
         repository: [
@@ -87,7 +98,11 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
     reducers: {
         editingPluginName: [
             null as string | null,
-            { editPlugin: (_, { name }) => name, saveEditedPluginSuccess: () => null },
+            {
+                editPlugin: (_, { name }) => name,
+                saveEditedPluginSuccess: () => null,
+                uninstallPluginSuccess: () => null,
+            },
         ],
     },
 

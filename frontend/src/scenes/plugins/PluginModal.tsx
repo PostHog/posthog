@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Input, Modal, Switch } from 'antd'
+import { Button, Form, Input, Modal, Popconfirm, Switch } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
 
 export function PluginModal(): JSX.Element {
     const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
-    const { editPlugin, saveEditedPlugin } = useActions(pluginsLogic)
+    const { editPlugin, saveEditedPlugin, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
     useEffect(() => {
@@ -24,6 +25,25 @@ export function PluginModal(): JSX.Element {
             onOk={() => form.submit()}
             onCancel={() => editPlugin(null)}
             confirmLoading={pluginsLoading}
+            footer={
+                <>
+                    <Popconfirm
+                        placement="topLeft"
+                        title="Are you sure you wish to uninstall this plugin?"
+                        onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
+                        okText="Yes"
+                        cancelText="No"
+                    >
+                        <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
+                            <DeleteOutlined /> Uninstall
+                        </Button>
+                    </Popconfirm>
+                    <Button onClick={() => editPlugin(null)}>Cancel</Button>
+                    <Button type="primary" loading={pluginsLoading} onClick={() => form.submit()}>
+                        Save
+                    </Button>
+                </>
+            }
         >
             <Form form={form} layout="vertical" name="basic" onFinish={saveEditedPlugin}>
                 {editingPlugin ? (

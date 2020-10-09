@@ -37,11 +37,11 @@ function _Plugins(): JSX.Element {
                                     <Row gutter={16}>
                                         <Col>
                                             {plugin.enabled ? (
-                                                <div style={{ color: 'green' }}>
+                                                <div style={{ color: 'var(--green)' }}>
                                                     <CheckOutlined /> Enabled
                                                 </div>
                                             ) : (
-                                                <div style={{ color: 'orange' }}>
+                                                <div style={{ color: 'var(--orange)' }}>
                                                     <PauseOutlined /> Disabled
                                                 </div>
                                             )}
