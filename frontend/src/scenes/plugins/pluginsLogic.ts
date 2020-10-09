@@ -36,6 +36,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
 
                     const response = await api.create('api/plugin', {
                         name: repositoryEntry.name,
+                        description: repositoryEntry.description,
                         url: repositoryEntry.url,
                         enabled: false,
                         order: nextOrder,

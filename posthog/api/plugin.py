@@ -16,6 +16,7 @@ class PluginSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "url",
             "enabled",
             "order",
