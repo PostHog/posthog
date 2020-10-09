@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useMountedLogic, useValues, useActions } from 'kea'
@@ -30,17 +30,6 @@ const CommandPaletteBox = styled.div`
     overflow: hidden;
 `
 
-/*const Scope = styled.div`
-    background-color: #4d4d4d;
-    height: 22px;
-    width: 100%;
-    padding-left: 16px;
-    padding-right: 16px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.8);
-    font-weight: bold;
-`*/
-
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 
@@ -65,6 +54,11 @@ export function CommandPalette(): JSX.Element | null {
     useOutsideClickHandler(boxRef, () => {
         setIsPaletteShown(false)
     })
+
+    useEffect(() => {
+        // prevent scrolling when box is open
+        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
+    }, [isPaletteShown])
 
     return (
         <>

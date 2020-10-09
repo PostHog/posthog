@@ -9,9 +9,10 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import { FunnelPlotOutlined } from '@ant-design/icons'
 
-const FUNNEL_COMMAND_SCOPE = 'funnel-command'
+const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
+    connect: [commandLogic],
     events: () => ({
         afterMount: () => {
             const results: CommandResultTemplate[] = [
@@ -38,7 +39,7 @@ export const funnelCommandLogic = kea<commandLogicType<Command, CommandRegistrat
             }
         },
         beforeUnmount: () => {
-            commandLogic.actions.deregisterCommand(FUNNEL_COMMAND_SCOPE)
+            commandLogic.actions.deregisterAllWithMatch(FUNNEL_COMMAND_SCOPE)
         },
     }),
 })

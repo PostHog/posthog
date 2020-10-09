@@ -4,9 +4,12 @@ import api from 'lib/api'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { changeType } from 'lib/utils/changeType'
-import { Button, Modal } from 'antd'
+import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+import { SessionsTable } from '../sessions/SessionsTable'
+
+const { TabPane } = Tabs
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
@@ -16,6 +19,8 @@ function _Person({ _: distinctId, id }) {
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
+    const [activeTab, setActiveTab] = useState('events')
+
     useEffect(() => {
         let url = ''
         if (distinctId) {
@@ -116,7 +121,30 @@ function _Person({ _: distinctId, id }) {
                 <br />
                 <br />
             </div>
-            <Events fixedFilters={{ person_id: person.id }} />
+            <Tabs
+                defaultActiveKey={activeTab}
+                onChange={(tab) => {
+                    setActiveTab(tab)
+                }}
+            >
+                <TabPane
+                    tab={<span data-attr="people-types-tab">Events</span>}
+                    key="events"
+                    data-attr="people-types-tab"
+                />
+                {window.posthog && window.posthog.isFeatureEnabled('session-recording-player') && (
+                    <TabPane
+                        tab={<span data-attr="people-types-tab">Sessions By Day</span>}
+                        key="sessions"
+                        data-attr="people-types-tab"
+                    />
+                )}
+            </Tabs>
+            {activeTab === 'events' ? (
+                <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+            ) : (
+                <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
+            )}
         </div>
     ) : null
 }

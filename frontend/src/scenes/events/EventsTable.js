@@ -15,7 +15,13 @@ import { EventName } from 'scenes/actions/EventName'
 
 import { eventToName, toParams } from 'lib/utils'
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions = false }) {
+export function EventsTable({
+    fixedFilters,
+    filtersEnabled = true,
+    logic,
+    isLiveActions = false,
+    isPersonPage = false,
+}) {
     const {
         properties,
         eventsFormatted,
@@ -145,7 +151,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">{isLiveActions ? 'Live Actions' : 'Events'}</h1>
+            <h1 className="page-header">{isLiveActions ? 'Live Actions' : isPersonPage ? '' : 'Events'}</h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
@@ -179,7 +185,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
                 rowClassName={(row) => {
-                    if (row.event) return 'event-row'
+                    if (row.event) return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
                     if (row.date_break) return 'event-day-separator'
                     if (row.new_events) return 'event-row-new'
                 }}

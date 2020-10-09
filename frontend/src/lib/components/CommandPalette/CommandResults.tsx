@@ -4,6 +4,7 @@ import { CommandExecutor, CommandResult as CommandResultType } from './commandLo
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useMountedLogic, useValues } from 'kea'
 import { commandLogic } from './commandLogic'
+import { clamp } from 'lib/utils'
 
 interface ContainerProps {
     focused?: boolean
@@ -46,13 +47,25 @@ const ResultDiv = styled.div<ContainerProps>`
     }
 `
 
+const Scope = styled.div`
+    height: 1.5rem;
+    line-height: 1.5rem;
+    width: 100%;
+    padding: 0 2rem;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: bold;
+`
+
 const ResultsContainer = styled.div`
     border-top: 1px solid rgba(0, 0, 0, 0.5);
     overflow-y: scroll;
 `
 
-const IconContainer = styled.span`
-    margin-right: 1rem;
+const ResultDisplay = styled.span`
+    padding-left: 1rem;
 `
 
 interface CommandResultProps {
@@ -60,24 +73,64 @@ interface CommandResultProps {
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
     isHint?: boolean
-    onMouseOver?: (e: MouseEvent) => void
+    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
 }
 
-function CommandResult({ result, focused, isHint, handleSelection, onMouseOver }: CommandResultProps): JSX.Element {
+function CommandResult({
+    result,
+    focused,
+    isHint,
+    handleSelection,
+    setHoverResultIndex,
+}: CommandResultProps): JSX.Element {
     return (
         <ResultDiv
-            onMouseOver={onMouseOver}
+            onMouseEnter={() => {
+                setHoverResultIndex(result.index)
+            }}
+            onMouseLeave={() => {
+                setHoverResultIndex(null)
+            }}
             focused={focused}
             isHint={isHint}
             onClick={() => {
                 handleSelection(result)
             }}
         >
-            <IconContainer>
-                <result.icon />
-            </IconContainer>
-            {result.display}
+            <result.icon />
+            <ResultDisplay>{result.display}</ResultDisplay>
         </ResultDiv>
+    )
+}
+
+interface ResultsGroupProps {
+    scope: string
+    results: CommandResultType[]
+    handleCommandSelection: (result: CommandResultType) => void
+    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
+    actuallyActiveResultIndex: number
+}
+
+export function ResultsGroup({
+    scope,
+    results,
+    handleCommandSelection,
+    setHoverResultIndex,
+    actuallyActiveResultIndex,
+}: ResultsGroupProps): JSX.Element {
+    return (
+        <>
+            <Scope>{scope}</Scope>
+            {results.map((result) => (
+                <CommandResult
+                    result={result}
+                    focused={result.index === actuallyActiveResultIndex}
+                    key={`command-result-${result.index}`}
+                    handleSelection={handleCommandSelection}
+                    setHoverResultIndex={setHoverResultIndex}
+                />
+            ))}
+        </>
     )
 }
 
@@ -90,9 +143,13 @@ interface CommandResultsProps {
 export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { commandSearchResults } = useValues(commandLogic)
+    const { commandSearchResults, searchInput } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
+    const [hoverResultIndex, setHoverResultIndex] = useState<number | null>(null)
+
+    const actuallyActiveResultIndex =
+        hoverResultIndex || (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length) : 0)
 
     const handleCommandSelection = useCallback(
         (result: CommandResultType) => {
@@ -107,61 +164,60 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {
             if (event.key === 'Enter') {
-                handleCommandSelection(commandSearchResults[activeResultIndex])
+                handleCommandSelection(commandSearchResults[actuallyActiveResultIndex])
             }
         },
-        [activeResultIndex]
+        [actuallyActiveResultIndex, commandSearchResults]
     )
 
     useEventListener('keydown', handleEnterDown)
 
     useEffect(() => {
-        // prevent scrolling when box is open
-        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
         setActiveResultIndex(0)
-    }, [isPaletteShown])
-
-    useEffect(() => {
-        if (commandSearchResults.length - 1 > activeResultIndex) {
-            setActiveResultIndex(0)
-        }
-    }, [CommandResult])
+    }, [searchInput, isPaletteShown])
 
     const handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
+        (event: KeyboardEvent) => {
             if (isPaletteShown) {
-                if (e.key === 'ArrowDown') {
-                    setActiveResultIndex((prevIndex) => {
-                        if (prevIndex === commandSearchResults.length - 1) return prevIndex
-                        else return prevIndex + 1
-                    })
-                } else if (e.key === 'ArrowUp') {
-                    setActiveResultIndex((prevIndex) => {
-                        if (prevIndex === 0) return prevIndex
-                        else return prevIndex - 1
-                    })
+                if (event.key === 'ArrowDown') {
+                    setActiveResultIndex(Math.min(actuallyActiveResultIndex + 1, commandSearchResults.length - 1))
+                    setHoverResultIndex(null)
+                } else if (event.key === 'ArrowUp') {
+                    setActiveResultIndex(Math.max(actuallyActiveResultIndex - 1, 0))
+                    setHoverResultIndex(null)
                 }
             }
         },
-        [commandSearchResults, isPaletteShown]
+        [setActiveResultIndex, setHoverResultIndex, actuallyActiveResultIndex, commandSearchResults, isPaletteShown]
     )
 
     useEventListener('keydown', handleKeyDown)
 
+    const groupedResults: { [scope: string]: CommandResultType[] } = {}
+    for (const result of commandSearchResults) {
+        const scope: string = result.command.scope
+        if (!(scope in groupedResults)) groupedResults[scope] = []
+        groupedResults[scope].push(result)
+    }
+    // Always put global commands group last
+    const sortedGroups = Object.entries(groupedResults)
+    let rollingIndex = 0
+    for (const [, group] of sortedGroups) {
+        for (const result of group) {
+            result.index = rollingIndex++
+        }
+    }
+
     return (
         <ResultsContainer>
-            {commandSearchResults.map((result, index) => (
-                <CommandResult
-                    focused={activeResultIndex === index}
-                    key={`command-result-${index}`}
-                    result={result}
-                    handleSelection={handleCommandSelection}
-                    onMouseOver={() => {
-                        setActiveResultIndex(-1)
-                    }}
-                    onMouseOut={() => {
-                        setActiveResultIndex(0)
-                    }}
+            {sortedGroups.map(([scope, results]) => (
+                <ResultsGroup
+                    key={scope}
+                    scope={scope}
+                    results={results}
+                    handleCommandSelection={handleCommandSelection}
+                    setHoverResultIndex={setHoverResultIndex}
+                    actuallyActiveResultIndex={actuallyActiveResultIndex}
                 />
             ))}
         </ResultsContainer>

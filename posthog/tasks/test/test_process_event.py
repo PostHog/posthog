@@ -21,7 +21,7 @@ from posthog.models import (
 from posthog.tasks.process_event import process_event
 
 
-class ProcessEvent(BaseTest):
+class TestProcessEvent(BaseTest):
     def test_capture_new_person(self) -> None:
         user = self._create_user("tim")
         action1 = Action.objects.create(team=self.team)

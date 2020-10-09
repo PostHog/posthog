@@ -31,16 +31,18 @@ class TestUser(BaseTest):
     def test_user_team_update(self):
         response = self.client.patch(
             "/api/user/",
-            data={"team": {"opt_out_capture": True, "anonymize_ips": False}},
+            data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
         ).json()
 
         self.assertEqual(response["team"]["opt_out_capture"], True)
         self.assertEqual(response["team"]["anonymize_ips"], False)
+        self.assertEqual(response["team"]["session_recording_opt_in"], True)
 
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
+        self.assertEqual(team.session_recording_opt_in, True)
 
     @patch("secrets.token_urlsafe")
     def test_user_team_update_signup_token(self, patch_token):

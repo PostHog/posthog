@@ -1,9 +1,11 @@
 import React from 'react'
-import { CodeSnippet } from './CodeSnippet'
+import { CodeSnippet, Language } from './CodeSnippet'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
-function AndroidInstallSnippet() {
+function AndroidInstallSnippet(): JSX.Element {
     return (
-        <CodeSnippet language="java">
+        <CodeSnippet language={Language.Java}>
             {`dependencies {
     implementation 'com.posthog.android:posthog:1.+'
 }`}
@@ -11,11 +13,13 @@ function AndroidInstallSnippet() {
     )
 }
 
-function AndroidSetupSnippet({ user }) {
+function AndroidSetupSnippet(): JSX.Element {
+    const { user } = useValues(userLogic)
+
     return (
-        <CodeSnippet language="java">
+        <CodeSnippet language={Language.Java}>
             {`public class SampleApp extends Application {
-    private static final String POSTHOG_API_KEY = "${user.team.api_token}";
+    private static final String POSTHOG_API_KEY = "${user?.team?.api_token}";
     private static final String POSTHOG_HOST = "${window.location.origin}";
 
     @Override
@@ -36,19 +40,19 @@ function AndroidSetupSnippet({ user }) {
     )
 }
 
-function AndroidCaptureSnippet() {
-    return <CodeSnippet language="java">PostHog.with(this).capture("test-event");</CodeSnippet>
+function AndroidCaptureSnippet(): JSX.Element {
+    return <CodeSnippet language={Language.Java}>PostHog.with(this).capture("test-event");</CodeSnippet>
 }
 
-export function AndroidInstructions({ user }) {
+export function AndroidInstructions(): JSX.Element {
     return (
         <>
             <h3>Install</h3>
-            <AndroidInstallSnippet></AndroidInstallSnippet>
+            <AndroidInstallSnippet />
             <h3>Configure</h3>
-            <AndroidSetupSnippet user={user}></AndroidSetupSnippet>
+            <AndroidSetupSnippet />
             <h3>Send an Event</h3>
-            <AndroidCaptureSnippet></AndroidCaptureSnippet>
+            <AndroidCaptureSnippet />
         </>
     )
 }

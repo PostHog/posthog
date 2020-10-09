@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
-from posthog.models import DashboardItem, Filter
+from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
@@ -156,7 +156,14 @@ class InsightViewSet(viewsets.ModelViewSet):
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
-        # add pagination
+        if "distinct_id" in request.GET and request.GET["distinct_id"]:
+            person_ids = Person.objects.get(persondistinctid__distinct_id=request.GET["distinct_id"]).distinct_ids
+            result["result"] = [
+                session
+                for i, session in enumerate(result["result"])
+                if result["result"][i]["distinct_id"] in person_ids
+            ]
+
         if filter.session_type is None:
             offset = filter.offset + limit - 1
             if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
