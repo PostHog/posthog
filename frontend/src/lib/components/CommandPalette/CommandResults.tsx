@@ -135,12 +135,11 @@ export function ResultsGroup({
 }
 
 interface CommandResultsProps {
-    setIsPaletteShown: Dispatch<SetStateAction<boolean>>
+    handleCommandSelection: (result: CommandResultType) => void
     isPaletteShown: boolean
-    setInput: (input: string) => void
 }
 
-export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: CommandResultsProps): JSX.Element {
+export function CommandResults({ handleCommandSelection, isPaletteShown }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
     const { commandSearchResults, searchInput } = useValues(commandLogic)
@@ -150,16 +149,6 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
 
     const actuallyActiveResultIndex =
         hoverResultIndex || (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length) : 0)
-
-    const handleCommandSelection = useCallback(
-        (result: CommandResultType) => {
-            // Called after a command is selected by the user
-            result.executor()
-            setIsPaletteShown(false)
-            setInput('')
-        },
-        [setIsPaletteShown, setInput]
-    )
 
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {

@@ -1,12 +1,14 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { CommandResult as CommandResultType } from './commandLogic'
 import { useMountedLogic, useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
 import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
+import { ApiKeyCommand } from './CustomCommands/ApiKeyCommand'
 
 const CommandPaletteContainer = styled.div`
     position: absolute;
@@ -36,24 +38,40 @@ export function CommandPalette(): JSX.Element | null {
     const { setSearchInput: setInput } = useActions(commandLogic)
     const { searchInput: input, commandSearchResults } = useValues(commandLogic)
     const { user } = useValues(userLogic)
+    const { customCommand } = useValues(commandLogic)
+    const { setCustomCommand } = useActions(commandLogic)
 
     const [isPaletteShown, setIsPaletteShown] = useState(false)
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    const toggleIsPaletteShown = useCallback(() => {
+    const togglePalette = (): void => {
         setIsPaletteShown(!isPaletteShown)
-    }, [setIsPaletteShown, isPaletteShown])
+        setCustomCommand('')
+        setInput('')
+    }
 
-    useHotkeys('cmd+k,ctrl+k', toggleIsPaletteShown)
+    useHotkeys('cmd+k,ctrl+k', togglePalette)
 
-    useHotkeys('esc', () => {
-        setIsPaletteShown(false)
-    })
+    useHotkeys('esc', togglePalette)
 
-    useOutsideClickHandler(boxRef, () => {
-        setIsPaletteShown(false)
-    })
+    useOutsideClickHandler(boxRef, togglePalette)
+
+    const handleCommandSelection = (result: CommandResultType): void => {
+        // Called after a command is selected by the user
+        result.executor()
+        if (!result.custom_command) {
+            // The command palette container is kept on the DOM for custom commands,
+            // the input is not cleared to ensure consistent navigation.
+            setIsPaletteShown(false)
+            setInput('')
+        }
+    }
+
+    const handleCancelCustomCommand = (): void => {
+        // Trigerred after a custom command is cancelled
+        setCustomCommand('')
+    }
 
     useEffect(() => {
         // prevent scrolling when box is open
@@ -64,15 +82,23 @@ export function CommandPalette(): JSX.Element | null {
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
-                    <CommandPaletteBox ref={boxRef} className="card bg-dark">
-                        <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
-                        <CommandResults
-                            results={commandSearchResults}
-                            setIsPaletteShown={setIsPaletteShown}
-                            isPaletteShown={isPaletteShown}
-                            setInput={setInput}
-                        />
-                    </CommandPaletteBox>
+                    {!customCommand && (
+                        <CommandPaletteBox ref={boxRef} className="card bg-dark">
+                            <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
+                            <CommandResults
+                                results={commandSearchResults}
+                                isPaletteShown={isPaletteShown}
+                                handleCommandSelection={handleCommandSelection}
+                            />
+                        </CommandPaletteBox>
+                    )}
+                    {customCommand && (
+                        <>
+                            {customCommand === 'create_api_key' && (
+                                <ApiKeyCommand handleCancel={handleCancelCustomCommand} />
+                            )}
+                        </>
+                    )}
                 </CommandPaletteContainer>
             )}
         </>

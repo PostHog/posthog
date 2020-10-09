@@ -25,6 +25,7 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    KeyOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -39,6 +40,7 @@ export interface CommandResultTemplate {
     synonyms?: string[]
     prefixApplied?: string
     executor: CommandExecutor
+    custom_command?: boolean
 }
 
 export type CommandResult = CommandResultTemplate & {
@@ -71,6 +73,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setSearchInput: (input: string) => ({ input }),
         deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
+        setCustomCommand: (commandKey: string) => ({ commandKey }),
     },
     reducers: {
         rawCommandRegistrations: [
@@ -90,6 +93,12 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             '',
             {
                 setSearchInput: (_, { input }) => input,
+            },
+        ],
+        customCommand: [
+            '',
+            {
+                setCustomCommand: (_, { commandKey }) => commandKey,
             },
         ],
     },
@@ -416,6 +425,15 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     display: 'Log out',
                     executor: () => {
                         window.location.href = '/logout'
+                    },
+                },
+                {
+                    key: 'create_api_key',
+                    icon: KeyOutlined,
+                    display: 'Create personal API key',
+                    custom_command: true,
+                    executor: () => {
+                        actions.setCustomCommand('create_api_key')
                     },
                 },
             ]

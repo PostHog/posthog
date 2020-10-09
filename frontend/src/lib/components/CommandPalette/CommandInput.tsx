@@ -1,33 +1,6 @@
 import React, { Dispatch, SetStateAction, useCallback } from 'react'
-import styled from 'styled-components'
 import { SearchOutlined } from '@ant-design/icons'
-
-const CommandInputContainer = styled.div`
-    display: flex;
-    align-items: center;
-    height: 4rem;
-    padding: 0 2rem;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: #fff;
-    font-size: 1rem;
-    line-height: 4rem;
-    overflow-y: scroll;
-`
-
-const CommandInputElement = styled.input`
-    flex-grow: 1;
-    height: 4rem;
-    padding-left: 1rem;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: #fff;
-    font-size: 1rem;
-    line-height: 4rem;
-    overflow-y: scroll;
-`
+import { CommandInputContainer, CommandInputElement } from './shared'
 
 interface Props {
     input: string
@@ -49,7 +22,7 @@ export function CommandInput({ input, setInput, setIsPaletteShown }: Props): JSX
     )
 
     return (
-        <CommandInputContainer>
+        <CommandInputContainer style={{ padding: '0 2rem' }}>
             <SearchOutlined />
             <CommandInputElement
                 autoFocus
