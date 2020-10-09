@@ -31,7 +31,7 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
     const { setLabelInput } = useActions(apiKeyCommandLogic)
     const { labelInput } = useValues(apiKeyCommandLogic)
     const { createKey } = useActions(personalAPIKeysLogic)
-    const { keys } = useValues(personalAPIKeysLogic)
+    const { latestKey } = useValues(personalAPIKeysLogic)
 
     const handleKeyDown = (event: KeyboardEvent): void => {
         if (event.key === 'Escape') {
@@ -44,8 +44,7 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
     return (
         <CustomCommandBox className="card bg-dark">
             <CommandTitle>Create personal API key</CommandTitle>
-
-            {!keys && (
+            {!latestKey && (
                 <CommandInputContainer>
                     <CommandInputElement
                         autoFocus
@@ -58,10 +57,10 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
                     />
                 </CommandInputContainer>
             )}
-            {keys && keys.length > 0 && (
+            {latestKey && (
                 <SuccessContainer>
                     <div>Your personal API key is ready and has been copied to your clipboard!</div>
-                    <KeyContainer>{keys[0].value}</KeyContainer>
+                    <KeyContainer>{latestKey.value}</KeyContainer>
                     <HighlightNotice>
                         Remember to copy your key before closing this window, your key cannot be shown again.
                     </HighlightNotice>
