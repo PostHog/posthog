@@ -30,6 +30,7 @@
         "@mariusandra/query-selector-shadow-dom": "0.7.2-posthog.2",
         "@mariusandra/react-grid-layout": "0.18.3",
         "@mariusandra/simmerjs": "0.7.1-posthog.1",
+        "@sentry/browser": "^5.25.0",
         "@types/react-syntax-highlighter": "^11.0.4",
         "@types/zxcvbn": "^4.4.0",
         "antd": "^4.1.1",
@@ -62,8 +63,8 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb-player": "^0.6.2",
         "rrweb": "^0.9.7",
+        "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
         "styled-components": "^5.0.1",
         "zxcvbn": "^4.4.2"

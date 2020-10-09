@@ -6,6 +6,17 @@ import { getContext } from 'kea'
 
 import App from './scenes/App'
 import { initKea } from './initKea'
+import posthog from 'posthog-js'
+import * as Sentry from '@sentry/browser'
+
+posthog.init('sTMFPsFhdP1Ssg')
+
+if (location.host.indexOf('127.0.0.1') == -1 && (window as any).SENTRY_DSN) {
+    Sentry.init({
+        dsn: (window as any).SENTRY_DSN,
+        integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+    })
+}
 
 initKea()
 
