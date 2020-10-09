@@ -30,17 +30,6 @@ const CommandPaletteBox = styled.div`
     overflow: hidden;
 `
 
-/*const Scope = styled.div`
-    background-color: #4d4d4d;
-    height: 22px;
-    width: 100%;
-    padding-left: 16px;
-    padding-right: 16px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.8);
-    font-weight: bold;
-`*/
-
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 

@@ -43,6 +43,7 @@ export interface CommandResultTemplate {
 
 export type CommandResult = CommandResultTemplate & {
     command: Command
+    index?: number
 }
 
 export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResultTemplate[]
