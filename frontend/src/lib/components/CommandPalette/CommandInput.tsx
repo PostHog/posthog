@@ -1,6 +1,6 @@
 import React, { Dispatch, SetStateAction, useCallback } from 'react'
 import styled from 'styled-components'
-import { EditOutlined } from '@ant-design/icons'
+import { SearchOutlined } from '@ant-design/icons'
 
 const CommandInputContainer = styled.div`
     display: flex;
@@ -50,7 +50,7 @@ export function CommandInput({ input, setInput, setIsPaletteShown }: Props): JSX
 
     return (
         <CommandInputContainer>
-            <EditOutlined />
+            <SearchOutlined />
             <CommandInputElement
                 autoFocus
                 value={input}
