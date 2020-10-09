@@ -7,7 +7,7 @@ import { PluginRepositoryEntry } from './types'
 export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEntry>>({
     actions: {
         editPlugin: (name: string | null) => ({ name }),
-        saveEditedPlugin: (plugin: PluginType) => ({ plugin }),
+        saveEditedPlugin: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
     },
 
     loaders: ({ values }) => ({
@@ -51,9 +51,21 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
 
                     return { ...plugins, [response.name]: response }
                 },
-                saveEditedPlugin: ({ plugin }) => {
-                    console.log(plugin)
-                    return values.plugins
+                saveEditedPlugin: async ({ pluginConfig }) => {
+                    const { plugins, editingPlugin } = values
+
+                    if (!editingPlugin) {
+                        return plugins
+                    }
+
+                    const { __enabled: enabled, ...config } = pluginConfig
+
+                    const response = await api.update(`api/plugin/${editingPlugin.id}`, {
+                        enabled,
+                        config,
+                    })
+
+                    return { ...plugins, [response.name]: response }
                 },
             },
         ],
@@ -73,7 +85,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
     }),
 
     reducers: {
-        editingPluginName: [null as string | null, { editPlugin: (_, { name }) => name }],
+        editingPluginName: [
+            null as string | null,
+            { editPlugin: (_, { name }) => name, saveEditedPluginSuccess: () => null },
+        ],
     },
 
     selectors: {

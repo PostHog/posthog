@@ -11,7 +11,10 @@ export function PluginConfig(): JSX.Element {
     return (
         <Modal
             visible={!!editingPlugin}
-            onCancel={() => editPlugin(null)}
+            onCancel={() => {
+                editPlugin(null)
+                form.resetFields()
+            }}
             okText="Save"
             onOk={() => form.submit()}
             confirmLoading={pluginsLoading}
