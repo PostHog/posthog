@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
+import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
 
 export type CommandExecutor = () => void
 
@@ -148,8 +149,13 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
     }),
     selectors: {
         commandRegistrations: [
-            (s) => [s.rawCommandRegistrations, dashboardsModel.selectors.dashboards],
-            (rawCommandRegistrations, dashboards) => ({
+            (s) => [
+                s.rawCommandRegistrations,
+                dashboardsModel.selectors.dashboards,
+                appUrlsLogic({ actionId: null }).selectors.appUrls,
+                appUrlsLogic({ actionId: null }).selectors.suggestions,
+            ],
+            (rawCommandRegistrations, dashboards, appUrls, suggestedUrls) => ({
                 ...rawCommandRegistrations,
                 custom_dashboards: {
                     key: 'custom_dashboards',
@@ -163,7 +169,32 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                             push(`/dashboard/${dashboard.id}`)
                         },
                     })),
-                    scope: 'global',
+                    scope: GLOBAL_COMMAND_SCOPE,
+                },
+                visit_urls: {
+                    key: 'visit_urls',
+                    prefixes: [],
+                    resolver: [
+                        ...appUrls.map((url: string) => ({
+                            key: `url-${url}`,
+                            icon: BookOutlined,
+                            display: `Visit ${url}`,
+                            synonyms: ['visit'],
+                            executor: () => {
+                                window.open(url)
+                            },
+                        })),
+                        ...suggestedUrls.map((suggestedUrl: string) => ({
+                            key: `url-${suggestedUrl}`,
+                            icon: BookOutlined,
+                            display: `Visit ${suggestedUrl}`,
+                            synonyms: ['visit'],
+                            executor: () => {
+                                window.open(suggestedUrl)
+                            },
+                        })),
+                    ],
+                    scope: GLOBAL_COMMAND_SCOPE,
                 },
             }),
         ],
