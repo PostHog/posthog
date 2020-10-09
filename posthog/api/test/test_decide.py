@@ -13,6 +13,13 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
+    def _post_decide(self, data=None):
+        return self.client.post(
+            "/decide/",
+            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+        ).json()
+
     def test_user_on_own_site_enabled(self):
         user = self.team.users.all()[0]
         user.toolbar_mode = "toolbar"
@@ -60,19 +67,17 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     def test_user_session_recording_opt_in(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide()
+        self.assertEqual(response["sessionRecording"], False)
+
         self.team.session_recording_opt_in = True
         self.team.save()
 
-        response = self.client.post(
-            "/decide/",
-            {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id"})},
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-        ).json()
+        response = self._post_decide()
         self.assertEqual(response["sessionRecording"], True)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -100,19 +105,11 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
         with self.assertNumQueries(4):
-            response = self.client.post(
-                "/decide/",
-                {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id"})},
-                HTTP_ORIGIN="http://127.0.0.1:8000",
-            ).json()
+            response = self._post_decide()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
-        with self.assertNumQueries(3):  # Caching of teams saves 1 query
-            response = self.client.post(
-                "/decide/",
-                {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "another_id"})},
-                HTTP_ORIGIN="http://127.0.0.1:8000",
-            ).json()
+        with self.assertNumQueries(4):
+            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
         self.assertEqual(len(response["featureFlags"]), 0)
 
     def test_feature_flags_with_personal_api_key(self):
@@ -122,9 +119,5 @@ class TestDecide(BaseTest):
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
-        response = self.client.post(
-            "/decide/",
-            {"data": json.dumps({"distinct_id": "example_id", "personal_api_key": key.value})},
-            HTTP_ORIGIN="http://127.0.0.1:8000",
-        ).json()
+        response = self._post_decide({"distinct_id": "example_id", "personal_api_key": key.value})
         self.assertEqual(len(response["featureFlags"]), 1)

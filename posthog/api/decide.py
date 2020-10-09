@@ -54,7 +54,7 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
 
 
 # May raise exception if request body is malformed
-def find_team_by_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
+def get_team_from_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
     data = data_from_request["data"]
     if not data:
         return None
@@ -68,7 +68,7 @@ def find_team_by_token(request: HttpRequest, data_from_request: Dict[str, Any]) 
         is_personal_api_key = True
 
     if token:
-        return Team.objects.get_cached_from_token(token, is_personal_api_key)
+        return Team.objects.get_team_from_token(token, is_personal_api_key)
 
     return None
 
@@ -123,7 +123,7 @@ def get_decide(request: HttpRequest):
                 ),
             )
 
-        team = find_team_by_token(request, data_from_request)
+        team = get_team_from_token(request, data_from_request)
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             response["sessionRecording"] = team.session_recording_opt_in
