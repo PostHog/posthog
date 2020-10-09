@@ -85,6 +85,7 @@ function _Plugins(): JSX.Element {
             />
 
             <br />
+            <br />
 
             <h1 className="page-header">Plugins To Install</h1>
             <Table

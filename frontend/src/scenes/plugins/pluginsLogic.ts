@@ -102,6 +102,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 editPlugin: (_, { name }) => name,
                 saveEditedPluginSuccess: () => null,
                 uninstallPluginSuccess: () => null,
+                installPluginSuccess: (_, { plugins }) => Object.keys(plugins).pop() || null,
             },
         ],
     },
