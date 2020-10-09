@@ -2,7 +2,7 @@ import React, { Dispatch, SetStateAction, useCallback, useState, useEffect } fro
 import styled from 'styled-components'
 import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { commandLogic } from './commandLogic'
 import { clamp } from 'lib/utils'
 

@@ -22,7 +22,7 @@ export const CommandInputContainer = styled.div`
     display: flex;
     align-items: center;
     height: 4rem;
-    padding: 0 1rem;
+    padding: 0 2rem;
     border: none;
     outline: none;
     background: transparent;
