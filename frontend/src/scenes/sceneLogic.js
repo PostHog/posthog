@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import posthog from 'posthog-js'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -124,7 +125,7 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         setScene: () => {
-            window.posthog && window.posthog.capture('$pageview')
+            posthog.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {
