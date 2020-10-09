@@ -60,7 +60,6 @@ const Scope = styled.div`
 `
 
 const ResultsContainer = styled.div`
-    border-top: 1px solid rgba(0, 0, 0, 0.5);
     overflow-y: scroll;
 `
 
