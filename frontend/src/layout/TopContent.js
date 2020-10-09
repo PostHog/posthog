@@ -19,7 +19,7 @@ export function CommandPaletteButton() {
             onClick={togglePalette}
             title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
         >
-            <SearchOutlined size="small" />
+            <SearchOutlined size="small" /> Cmd + K
         </span>
     )
 }
