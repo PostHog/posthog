@@ -360,6 +360,14 @@ export function stripHTTP(url) {
     return url
 }
 
+export function isURL(string) {
+    if (!string) return false
+    // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
+    var expression = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    var regex = new RegExp(expression)
+    return string.match && string.match(regex)
+}
+
 export const eventToName = (event) => {
     if (event.event !== '$autocapture') return event.event
     let name = ''

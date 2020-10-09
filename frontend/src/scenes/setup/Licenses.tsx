@@ -4,7 +4,7 @@ import { Alert, Form, Button, Table, Input } from 'antd'
 import { licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 const columns = [
     {

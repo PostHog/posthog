@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useValues } from 'kea'
 import { JSSnippet } from 'lib/components/JSSnippet'
 
-export function SendEventsOverlay({ image, user }) {
+export function SendEventsOverlay({ image }) {
     const overlay = useRef()
     const imageRef = useRef()
     const [animate, setAnimate] = useState(false)
@@ -34,7 +34,7 @@ export function SendEventsOverlay({ image, user }) {
                         into the header, you can be up and running in minutes! You can put this snippet on any domain,
                         and it'll capture users across.
                     </div>
-                    <JSSnippet user={user} />
+                    <JSSnippet />
                     <a href="https://posthog.com/docs/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
                     <br />
                     <br />

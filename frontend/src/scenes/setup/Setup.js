@@ -4,6 +4,7 @@ import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptOutCapture } from './OptOutCapture'
+import { OptInSessionRecording } from './OptInSessionRecording'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 
@@ -15,13 +16,14 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
+import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
 function _Setup() {
     const { user } = useValues(userLogic)
     const { location } = useValues(router)
+    const showSessionRecord = window.posthog && window.posthog.isFeatureEnabled('session-recording-player')
 
     useAnchor(location.hash)
 
@@ -33,7 +35,7 @@ function _Setup() {
             <a href="https://posthog.com/docs/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
-            <JSSnippet user={user} />
+            <JSSnippet />
             <h2 id="custom-events">Send Custom Events</h2>
             To send custom events <a href="https://posthog.com/docs/integrations">visit our docs</a> and integrate the
             library for the specific language or platform you're using (Python, Ruby, Node, Go, PHP, iOS, Android, and
@@ -67,6 +69,13 @@ function _Setup() {
             <h2 id="optout">Anonymize Data Collection</h2>
             <OptOutCapture />
             <Divider />
+            {showSessionRecord && (
+                <>
+                    <h2 id="sessionrecording">Collect session recordings</h2>
+                    <OptInSessionRecording />
+                    <Divider />
+                </>
+            )}
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />
             <Divider />

@@ -13,6 +13,10 @@ export interface UserType {
     billing: OrganizationBilling
 }
 
+export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
+    team: Partial<TeamType>
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string
@@ -30,9 +34,11 @@ export interface TeamType {
     completed_snippet_onboarding: boolean
     event_names: string[]
     event_properties: string[]
+    event_properties_numerical: string[]
     opt_out_capture: boolean
     signup_token: string
     slack_incoming_webhook: string
+    session_recording_opt_in: boolean
 }
 
 export interface ActionType {
