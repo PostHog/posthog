@@ -9,6 +9,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
         editPlugin: (name: string | null) => ({ name }),
         saveEditedPlugin: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
         uninstallPlugin: (name: string) => ({ name }),
+        setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
+        installCustomPlugin: (customPluginUrl: string) => ({ customPluginUrl }),
+        setCustomPluginError: (customPluginError: string) => ({ customPluginError }),
     },
 
     loaders: ({ values }) => ({
@@ -105,6 +108,30 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 installPluginSuccess: (_, { plugins }) => Object.keys(plugins).pop() || null,
             },
         ],
+        customPluginUrl: [
+            '',
+            {
+                setCustomPluginUrl: (_, { customPluginUrl }) => customPluginUrl,
+                installPluginSuccess: () => '',
+            },
+        ],
+        customPluginError: [
+            null as null | string,
+            {
+                setCustomPluginError: (_, { customPluginError }) => customPluginError,
+                setCustomPluginUrl: () => null,
+                installCustomPlugin: () => null,
+            },
+        ],
+        installingCustomPlugin: [
+            false,
+            {
+                installCustomPlugin: () => true,
+                setCustomPluginError: () => false,
+                installPluginFailure: () => false,
+                installPluginSuccess: () => false,
+            },
+        ],
     },
 
     selectors: {
@@ -124,5 +151,43 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
 
     events: ({ actions }) => ({
         afterMount: [actions.loadPlugins, actions.loadRepository],
+    }),
+
+    listeners: ({ actions, values }) => ({
+        installCustomPlugin: async ({ customPluginUrl }) => {
+            const match = customPluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
+            if (!match) {
+                actions.setCustomPluginError('Must be in the format: http://github.com/user/repo')
+                return
+            }
+            const [, , user, repo] = match
+
+            const urls = [
+                `https://raw.githubusercontent.com/${user}/${repo}/main/plugin.json`,
+                `https://raw.githubusercontent.com/${user}/${repo}/master/plugin.json`,
+            ]
+
+            const promises = urls.map((url) =>
+                window
+                    .fetch(url)
+                    .then((response) => response?.json())
+                    .catch(() => null)
+            )
+
+            const responses = await Promise.all(promises)
+            const response = responses.find((r) => r)
+
+            if (!response) {
+                actions.setCustomPluginError(`Could not find plugin.json in repository: ${customPluginUrl}`)
+                return
+            }
+
+            if (Object.values(values.plugins).find((p) => p.name === response.name)) {
+                actions.setCustomPluginError(`Plugin with the name "${response.name}" already installed!`)
+                return
+            }
+
+            actions.installPlugin(response as PluginRepositoryEntry)
+        },
     }),
 })
