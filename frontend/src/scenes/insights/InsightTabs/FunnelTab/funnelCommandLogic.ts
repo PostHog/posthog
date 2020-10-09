@@ -9,7 +9,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import { FunnelPlotOutlined } from '@ant-design/icons'
 
-const FUNNEL_COMMAND_SCOPE = 'funnel-command'
+const FUNNEL_COMMAND_SCOPE = 'funnels'
 
 export const funnelCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     events: () => ({
