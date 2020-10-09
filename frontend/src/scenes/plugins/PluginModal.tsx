@@ -59,6 +59,13 @@ export function PluginModal(): JSX.Element {
                                 key={configKey}
                                 label={editingPlugin.configSchema[configKey].name || configKey}
                                 name={configKey}
+                                required={editingPlugin.configSchema[configKey].required}
+                                rules={[
+                                    {
+                                        required: editingPlugin.configSchema[configKey].required,
+                                        message: 'Please enter a value!',
+                                    },
+                                ]}
                             >
                                 <Input />
                             </Form.Item>
