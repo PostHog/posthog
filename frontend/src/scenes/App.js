@@ -2,15 +2,14 @@ import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
-import React, { useState, useEffect, lazy, Suspense } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Layout, Spin } from 'antd'
+import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
-const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
@@ -54,7 +53,16 @@ function App() {
 
     useEffect(() => {
         // If user is already logged in, redirect away from unauthenticated routes like signup
-        if (user && unauthenticatedRoutes.includes(scene)) replace('/')
+        if (user && unauthenticatedRoutes.includes(scene)) {
+            replace('/')
+            return
+        }
+
+        // redirect to ingestion if not completed
+        if (user && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+            replace('/ingestion')
+            return
+        }
     }, [scene, user])
 
     if (!user) {
@@ -68,12 +76,10 @@ function App() {
         )
     }
 
-    if (!user.team.completed_snippet_onboarding) {
+    if (scene === 'ingestion' || !scene) {
         return (
             <>
-                <Suspense fallback={<Spin></Spin>}>
-                    <OnboardingWizard user={user}></OnboardingWizard>
-                </Suspense>
+                <Scene user={user} {...params} />
                 <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
             </>
         )

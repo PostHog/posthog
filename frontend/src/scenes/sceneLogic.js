@@ -25,6 +25,7 @@ export const scenes = {
     licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
     signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
+    ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
 }
 
@@ -57,6 +58,8 @@ export const routes = {
     '/setup/licenses': 'licenses',
     '/preflight': 'preflight',
     '/signup': 'signup',
+    '/ingestion': 'ingestion',
+    '/ingestion/*': 'ingestion',
     '/billing': 'billing',
 }
 

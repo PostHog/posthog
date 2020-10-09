@@ -157,12 +157,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
         if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            person_ids = Person.objects.get(persondistinctid__distinct_id=request.GET["distinct_id"]).distinct_ids
-            result["result"] = [
-                session
-                for i, session in enumerate(result["result"])
-                if result["result"][i]["distinct_id"] in person_ids
-            ]
+            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
 
         if filter.session_type is None:
             offset = filter.offset + limit - 1
@@ -180,6 +175,9 @@ class InsightViewSet(viewsets.ModelViewSet):
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
 
+        if "distinct_id" in request.GET and request.GET["distinct_id"]:
+            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
+
         # add pagination
         if filter.session_type is None:
             offset = filter.offset + 50
@@ -188,6 +186,13 @@ class InsightViewSet(viewsets.ModelViewSet):
                 result.update({OFFSET: offset})
                 result.update({DATE_FROM: date_from})
 
+        return result
+
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
+        result["result"] = [
+            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
+        ]
         return result
 
     # ******************************************

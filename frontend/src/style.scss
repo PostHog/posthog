@@ -266,6 +266,11 @@ button.no-style {
     }
 }
 
+.Toastify__toast--success {
+    background: hsl(111 88% 33%);
+    color: white;
+}
+
 label.disabled {
     color: #888;
 }

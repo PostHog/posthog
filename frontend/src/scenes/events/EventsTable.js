@@ -185,7 +185,7 @@ export function EventsTable({
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
                 rowClassName={(row) => {
-                    if (row.event) return 'event-row'
+                    if (row.event) return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
                     if (row.date_break) return 'event-day-separator'
                     if (row.new_events) return 'event-row-new'
                 }}

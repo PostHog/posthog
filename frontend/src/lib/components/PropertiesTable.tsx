@@ -4,6 +4,7 @@ import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 import { Table, Tooltip } from 'antd'
 import { EditOutlined, NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
+import { isURL } from 'lib/utils'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -20,18 +21,23 @@ const typeToIcon: Record<string, JSX.Element> = {
     null: <StopOutlined style={iconStyle} />,
 }
 
-function PropertyDisplay({ properties }: { properties: any }): JSX.Element {
-    let propertiesType: Type = typeof properties
-    if (properties === null) propertiesType = 'null'
-    else if (propertiesType === 'string' && moment(properties).isValid())
-        propertiesType = 'string, parsable as datetime'
-    return typeToIcon[propertiesType] ? (
+function ValueDisplay({ value }: { value: any }): JSX.Element {
+    let valueType: Type = typeof value
+    if (value === null) valueType = 'null'
+    else if (valueType === 'string' && moment(value).isValid()) valueType = 'string, parsable as datetime'
+    return typeToIcon[valueType] ? (
         <>
-            <Tooltip title={`Property of type ${propertiesType}.`}>{typeToIcon[propertiesType]}</Tooltip>
-            {String(properties)}
+            <Tooltip title={`Property of type ${valueType}.`}>{typeToIcon[valueType]}</Tooltip>
+            {isURL(value) ? (
+                <a href={value} target="_blank" rel="noopener noreferrer">
+                    {String(value)}
+                </a>
+            ) : (
+                String(value)
+            )}
         </>
     ) : (
-        properties
+        value
     )
 }
 
@@ -73,7 +79,8 @@ export function PropertiesTable({ properties }: { properties: any }): JSX.Elemen
                 dataSource={Object.entries(properties)}
             />
         )
-    return <PropertyDisplay properties={properties} />
+    // if none of above, it's a value
+    return <ValueDisplay value={properties} />
 }
 
 PropertiesTable.propTypes = {
