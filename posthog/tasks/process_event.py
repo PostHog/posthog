@@ -10,7 +10,7 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, Team, User
-from posthog.plugins import PosthogEvent, exec_plugins
+from posthog.plugins import Plugins, PosthogEvent
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -233,7 +233,8 @@ def process_event(
         timestamp=handle_timestamp(data, now, sent_at),
     )
 
-    event = exec_plugins(plugin_event)
+    plugins = Plugins()
+    event = plugins.exec_plugins(plugin_event)
 
     if event:
         _capture(

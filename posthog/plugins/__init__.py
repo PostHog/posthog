@@ -9,7 +9,7 @@ import tempfile
 import traceback
 import zipfile
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import fakeredis  # type: ignore
 import pip
@@ -19,6 +19,7 @@ from django.conf import settings
 
 from posthog.models.plugin import Plugin
 from posthog.models.team import Team
+from posthog.utils import SingletonDecorator
 
 PLUGIN_PATH = os.path.join("posthog", "plugins")
 URL_TEMPLATE = "{repo}/archive/{branch}.zip"
@@ -29,12 +30,12 @@ ABS_PLUGIN_PATH = os.path.join(PATH, PLUGIN_PATH)
 
 @dataclass
 class PluginConfig:
-    url: str
-    path: str
+    url: Optional[str]
+    path: Optional[str]
     config: Dict[Any, Any]
-    configSchema: Dict[Any, Any]
-    order: int
-    enabled: bool
+    config_schema: Optional[Dict[Any, Any]]
+    enabled: bool = True
+    order: int = 100
     display_name: str = ""
     team: int = 0
     description: str = ""
@@ -107,7 +108,7 @@ class PluginBaseClass:
         pass
 
 
-class Plugins:
+class _Plugins:
     def __init__(self):
         self.load_plugins()
         self.plugin_configs = self.get_plugin_config()
@@ -131,11 +132,11 @@ class Plugins:
     @staticmethod
     def cleanse_plugin_directory():
         for x in os.listdir(ABS_PLUGIN_PATH):
-            dir = os.path.join(ABS_PLUGIN_PATH, x)
-            if os.path.islink(dir):
-                os.unlink(dir)
-            elif os.path.isdir(dir) and x != "__pycache__":
-                shutil.rmtree(dir)
+            pdir = os.path.join(ABS_PLUGIN_PATH, x)
+            if os.path.islink(pdir):
+                os.unlink(pdir)
+            elif os.path.isdir(pdir) and x != "__pycache__":
+                shutil.rmtree(pdir)
 
     @staticmethod
     def install(reqs):
@@ -182,7 +183,8 @@ class Plugins:
                 plugin_path = os.path.join(PATH, PLUGIN_PATH)
                 zip_ref.extractall(plugin_path)
 
-    def symlink_plugin(self, path):
+    @staticmethod
+    def symlink_plugin(path):
         real_path = os.path.realpath(path)
         path_parts = os.path.split(real_path)
         plugin_path = os.path.join(PATH, PLUGIN_PATH, path_parts[-1])
@@ -227,7 +229,14 @@ class Plugins:
                 else:
                     name = url.split("/")[-1]
             ppc = PluginConfig(
-                path=path, url=url, config=config, display_name=name, order=order, team=team, enabled=enabled
+                path=path,
+                url=url,
+                config=config,
+                config_schema=None,
+                display_name=name,
+                order=order,
+                team=team,
+                enabled=enabled,
             )
             plugin_configs.dict[ppc.name] = ppc
             plugin_configs.ordered.append(ppc)
@@ -242,6 +251,7 @@ class Plugins:
                 path=None,
                 url=plugin.url,
                 config=plugin.config,
+                config_schema=plugin.configSchema,
                 display_name=plugin.name,
                 order=plugin.order,
                 team=plugin.team,
@@ -273,3 +283,6 @@ class Plugins:
             mod = Mod(mc)
             f = getattr(mod, "schedule_jobs")
             f()
+
+
+Plugins = SingletonDecorator(_Plugins)
