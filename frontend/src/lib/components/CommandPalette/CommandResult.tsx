@@ -8,7 +8,7 @@ interface ContainerProps {
     onClick?: CommandExecutor
 }
 
-const ResultContainer = styled.div<ContainerProps>`
+const ResultDiv = styled.div<ContainerProps>`
     height: 4rem;
     width: 100%;
     padding: 0 2rem;
@@ -45,7 +45,7 @@ const ResultContainer = styled.div<ContainerProps>`
 `
 
 const IconContainer = styled.span`
-    margin-right: 8px;
+    margin-right: 1rem;
 `
 
 interface CommandResultProps {
@@ -64,7 +64,7 @@ export function CommandResult({
     onMouseOver,
 }: CommandResultProps): JSX.Element {
     return (
-        <ResultContainer
+        <ResultDiv
             onMouseOver={onMouseOver}
             focused={focused}
             isHint={isHint}
@@ -76,6 +76,6 @@ export function CommandResult({
                 <result.icon />
             </IconContainer>
             {result.display}
-        </ResultContainer>
+        </ResultDiv>
     )
 }

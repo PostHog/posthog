@@ -27,7 +27,7 @@ const CommandPaletteBox = styled.div`
     display: flex;
     flex-direction: column;
     z-index: 9999;
-    width: 40rem;
+    width: 32rem;
     max-height: 60%;
     overflow: hidden;
 `
@@ -44,6 +44,7 @@ const CommandPaletteBox = styled.div`
 `*/
 
 const ResultsContainer = styled.div`
+    border-top: 1px solid rgba(0, 0, 0, 0.35);
     overflow-y: scroll;
 `
 
@@ -64,13 +65,11 @@ export function CommandPalette(): JSX.Element | null {
     }
     const [activeResultIndex, setActiveResultIndex] = useState(0)
 
-    useHotkeys('cmd+k', () => {
+    const toggleIsPaletteShown = useCallback(() => {
         setIsPaletteShown(!isPaletteShown)
-    })
+    }, [setIsPaletteShown, isPaletteShown])
 
-    useHotkeys('ctrl+k', () => {
-        setIsPaletteShown(!isPaletteShown)
-    })
+    useHotkeys('cmd+k,ctrl+k', toggleIsPaletteShown)
 
     useHotkeys('esc', () => {
         setIsPaletteShown(false)
@@ -130,22 +129,24 @@ export function CommandPalette(): JSX.Element | null {
                 <CommandPaletteContainer>
                     <CommandPaletteBox ref={boxRef} className="card bg-dark">
                         <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
-                        <ResultsContainer>
-                            {commandSearchResults.map((result, index) => (
-                                <CommandResult
-                                    focused={activeResultIndex === index}
-                                    key={`command-result-${index}`}
-                                    result={result}
-                                    handleSelection={handleCommandSelection}
-                                    onMouseOver={() => {
-                                        setActiveResultIndex(-1)
-                                    }}
-                                    onMouseOut={() => {
-                                        setActiveResultIndex(0)
-                                    }}
-                                />
-                            ))}
-                        </ResultsContainer>
+                        {commandSearchResults && (
+                            <ResultsContainer>
+                                {commandSearchResults.map((result, index) => (
+                                    <CommandResult
+                                        focused={activeResultIndex === index}
+                                        key={`command-result-${index}`}
+                                        result={result}
+                                        handleSelection={handleCommandSelection}
+                                        onMouseOver={() => {
+                                            setActiveResultIndex(-1)
+                                        }}
+                                        onMouseOut={() => {
+                                            setActiveResultIndex(0)
+                                        }}
+                                    />
+                                ))}
+                            </ResultsContainer>
+                        )}
                     </CommandPaletteBox>
                 </CommandPaletteContainer>
             )}
