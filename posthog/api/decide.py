@@ -24,10 +24,7 @@ def _get_token(data, request):
     return None
 
 
-def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
-    response: Dict[str, Any] = {}
-
-    team = request.user.team
+def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
     permitted_domains = ["127.0.0.1", "localhost"]
 
     for url in team.app_urls:
@@ -35,10 +32,14 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         if hostname:
             permitted_domains.append(hostname)
 
-    if (parse_domain(request.headers.get("Origin")) in permitted_domains) or (
+    return (parse_domain(request.headers.get("Origin")) in permitted_domains) or (
         parse_domain(request.headers.get("Referer")) in permitted_domains
-    ):
-        response = {"isAuthenticated": True}
+    )
+
+
+def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
+    if on_permitted_domain(request.user.team, request):
+        response: Dict[str, Any] = {"isAuthenticated": True}
         editor_params = {}
 
         if request.user.toolbar_mode == "toolbar":
@@ -126,5 +127,5 @@ def get_decide(request: HttpRequest):
         team = get_team_from_token(request, data_from_request)
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
-            response["sessionRecording"] = team.session_recording_opt_in
+            response["sessionRecording"] = team.session_recording_opt_in and on_permitted_domain(team, request)
     return cors_response(request, JsonResponse(response))
