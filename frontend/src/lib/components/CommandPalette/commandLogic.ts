@@ -25,6 +25,7 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    KeyOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -39,6 +40,7 @@ export interface CommandResultTemplate {
     synonyms?: string[]
     prefixApplied?: string
     executor: CommandExecutor
+    custom_command?: boolean
 }
 
 export type CommandResult = CommandResultTemplate & {
@@ -67,13 +69,14 @@ export const GLOBAL_COMMAND_SCOPE = 'global'
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     actions: {
-        registerCommand: (command: Command) => ({ command }),
-        deregisterCommand: (commandKey: string) => ({ commandKey }),
-        setSearchInput: (input: string) => ({ input }),
-        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
         hidePalette: true,
         showPalette: true,
         togglePalette: true,
+        setSearchInput: (input: string) => ({ input }),
+        registerCommand: (command: Command) => ({ command }),
+        deregisterCommand: (commandKey: string) => ({ commandKey }),
+        setCustomCommand: (commandKey: string) => ({ commandKey }),
+        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
     },
     reducers: {
         isPaletteShown: [
@@ -88,7 +91,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
-                    if (command.key in commands) throw Error(`Command key ${command.key} is already registered!`)
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
@@ -104,11 +106,17 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 setSearchInput: (_, { input }) => input,
             },
         ],
+        customCommand: [
+            '',
+            {
+                setCustomCommand: (_, { commandKey }) => commandKey,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         deregisterAllWithMatch: ({ keyPrefix }) => {
             for (const command of Object.values(values.commandRegistrations)) {
-                if (command.key.includes(keyPrefix)) {
+                if (command.key.includes(keyPrefix) || command.scope.includes(keyPrefix)) {
                     actions.deregisterCommand(command.key)
                 }
             }
@@ -243,6 +251,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     .search(argument)
                     .slice(0, RESULTS_MAX)
                     .map((result) => result.item)
+                    .sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
             },
         ],
     },
@@ -427,6 +436,15 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     display: 'Log out',
                     executor: () => {
                         window.location.href = '/logout'
+                    },
+                },
+                {
+                    key: 'create_api_key',
+                    icon: KeyOutlined,
+                    display: 'Create personal API key',
+                    custom_command: true,
+                    executor: () => {
+                        actions.setCustomCommand('create_api_key')
                     },
                 },
             ]

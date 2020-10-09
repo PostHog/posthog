@@ -1,12 +1,14 @@
 import React, { useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { CommandResult as CommandResultType } from './commandLogic'
 import { useMountedLogic, useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
 import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
 import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
+import { ApiKeyCommand } from './CustomCommands/ApiKeyCommand'
 
 const CommandPaletteContainer = styled.div`
     position: absolute;
@@ -34,15 +36,35 @@ const CommandPaletteBox = styled.div`
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 
-    const { hidePalette, togglePalette } = useActions(commandLogic)
+    const { hidePalette, togglePalette, setSearchInput } = useActions(commandLogic)
     const { isPaletteShown } = useValues(commandLogic)
     const { user } = useValues(userLogic)
+    const { customCommand } = useValues(commandLogic)
+    const { setCustomCommand } = useActions(commandLogic)
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
     useHotkeys('cmd+k,ctrl+k', togglePalette)
 
-    useHotkeys('esc', hidePalette)
+    useHotkeys('esc', togglePalette)
+
+    useOutsideClickHandler(boxRef, togglePalette)
+
+    const handleCommandSelection = (result: CommandResultType): void => {
+        // Called after a command is selected by the user
+        result.executor()
+        if (!result.custom_command) {
+            // The command palette container is kept on the DOM for custom commands,
+            // the input is not cleared to ensure consistent navigation.
+            hidePalette()
+            setSearchInput('')
+        }
+    }
+
+    const handleCancelCustomCommand = (): void => {
+        // Trigerred after a custom command is cancelled
+        setCustomCommand('')
+    }
 
     useOutsideClickHandler(boxRef, hidePalette)
 
@@ -50,10 +72,21 @@ export function CommandPalette(): JSX.Element | null {
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
-                    <CommandPaletteBox ref={boxRef} className="card bg-dark">
-                        <CommandInput />
-                        <CommandResults />
-                    </CommandPaletteBox>
+                    {!customCommand && (
+                        <CommandPaletteBox ref={boxRef} className="card bg-dark">
+                            <CommandInput/>
+                            <CommandResults
+                                handleCommandSelection={handleCommandSelection}
+                            />
+                        </CommandPaletteBox>
+                    )}
+                    {customCommand && (
+                        <>
+                            {customCommand === 'create_api_key' && (
+                                <ApiKeyCommand handleCancel={handleCancelCustomCommand} />
+                            )}
+                        </>
+                    )}
                 </CommandPaletteContainer>
             )}
         </>

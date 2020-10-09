@@ -1,35 +1,8 @@
 import React, { useCallback } from 'react'
-import styled from 'styled-components'
 import { SearchOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
-
-const CommandInputContainer = styled.div`
-    display: flex;
-    align-items: center;
-    height: 4rem;
-    padding: 0 2rem;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: #fff;
-    font-size: 1rem;
-    line-height: 4rem;
-    overflow-y: scroll;
-`
-
-const CommandInputElement = styled.input`
-    flex-grow: 1;
-    height: 4rem;
-    padding-left: 1rem;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: #fff;
-    font-size: 1rem;
-    line-height: 4rem;
-    overflow-y: scroll;
-`
+import { CommandInputContainer, CommandInputElement } from './shared'
 
 export function CommandInput(): JSX.Element {
     const { searchInput } = useValues(commandLogic)
@@ -48,7 +21,7 @@ export function CommandInput(): JSX.Element {
     )
 
     return (
-        <CommandInputContainer>
+        <CommandInputContainer style={{ padding: '0 2rem' }}>
             <SearchOutlined />
             <CommandInputElement
                 autoFocus

@@ -133,27 +133,20 @@ export function ResultsGroup({
     )
 }
 
-export function CommandResults(): JSX.Element {
+interface CommandResultsProps {
+    handleCommandSelection: (result: CommandResultType) => void
+}
+
+export function CommandResults({ handleCommandSelection }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { hidePalette, setSearchInput } = useActions(commandLogic)
     const { isPaletteShown, commandSearchResults } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
-    const [hoverResultIndex, setHoverResultIndex] = useState<number | null>(null)
+    const [hoverResultIndex, setHoverResultIndex] = useState<number | null | undefined>(null)
 
     const actuallyActiveResultIndex =
         hoverResultIndex || (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length) : 0)
-
-    const handleCommandSelection = useCallback(
-        (result: CommandResultType) => {
-            // Called after a command is selected by the user
-            result.executor()
-            hidePalette()
-            setSearchInput('')
-        },
-        [setSearchInput]
-    )
 
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {
@@ -194,7 +187,7 @@ export function CommandResults(): JSX.Element {
         groupedResults[scope].push(result)
     }
     // Always put global commands group last
-    const sortedGroups = Object.entries(groupedResults).sort(([scopeA]) => (scopeA === 'global' ? 1 : -1))
+    const sortedGroups = Object.entries(groupedResults)
     let rollingIndex = 0
     for (const [, group] of sortedGroups) {
         for (const result of group) {
