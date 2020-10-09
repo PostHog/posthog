@@ -46,16 +46,10 @@ function _Plugins(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Config',
-                        key: 'config',
-                        render: function RenderConfig(plugin: PluginType): JSX.Element {
-                            return (
-                                <div>
-                                    {Object.keys(plugin.config).map((configKey) => (
-                                        <Row key={configKey}>{configKey}</Row>
-                                    ))}
-                                </div>
-                            )
+                        title: 'Description',
+                        key: 'description',
+                        render: function RenderDescription(plugin: PluginRepositoryEntry): JSX.Element {
+                            return <div>{plugin.description}</div>
                         },
                     },
                     {
@@ -68,6 +62,7 @@ function _Plugins(): JSX.Element {
                     },
                 ]}
                 loading={pluginsLoading}
+                locale={{ emptyText: 'No Plugins Installed!' }}
             />
 
             <br />
@@ -112,6 +107,7 @@ function _Plugins(): JSX.Element {
                     },
                 ]}
                 loading={pluginsLoading || repositoryLoading}
+                locale={{ emptyText: 'All Plugins Installed!' }}
             />
         </div>
     )
