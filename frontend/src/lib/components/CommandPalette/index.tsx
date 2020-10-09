@@ -86,9 +86,7 @@ export function CommandPalette(): JSX.Element | null {
     }, [isPaletteShown])
 
     useEffect(() => {
-        if (commandSearchResults.length - 1 > activeResultIndex) {
-            setActiveResultIndex(0)
-        }
+        setActiveResultIndex(0)
     }, [input])
 
     const _handleKeyDown = useCallback(
