@@ -94,7 +94,7 @@ function CommandResult({
             focused={focused}
             isHint={isHint}
             onClick={() => {
-                handleSelection(result.index)
+                handleSelection(result)
             }}
         >
             <result.icon />
