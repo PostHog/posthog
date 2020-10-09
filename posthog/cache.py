@@ -4,12 +4,15 @@ import fakeredis  # type: ignore
 import redis
 from django.conf import settings
 
-redis_instance = None  # type: Optional[redis.Redis]
 
-if settings.TEST:
-    redis_instance = fakeredis.FakeStrictRedis()
-elif settings.REDIS_URL:
-    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+def get_redis_instance() -> Optional[redis.Redis]:
+    if settings.TEST:
+        return fakeredis.FakeStrictRedis()
+    elif settings.REDIS_URL:
+        return redis.from_url(settings.REDIS_URL, db=0)
+
+
+redis_instance = get_redis_instance()  # type: Optional[redis.Redis]
 
 
 def get_cache_key(team_id: int, key: str) -> str:

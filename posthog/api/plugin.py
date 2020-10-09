@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.models import Plugin
+from posthog.plugins import publish_reload_command
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -27,6 +28,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         request = self.context["request"]
         plugin = Plugin.objects.create(team=request.user.team, **validated_data)
+        publish_reload_command()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
@@ -36,6 +38,7 @@ class PluginSerializer(serializers.ModelSerializer):
         plugin.config = validated_data.get("config", plugin.config)
         plugin.order = validated_data.get("order", plugin.order)
         plugin.save()
+        publish_reload_command()
         return plugin
 
 

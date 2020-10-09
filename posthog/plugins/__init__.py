@@ -17,11 +17,14 @@ import redis
 import requests
 from django.conf import settings
 
+from posthog.cache import get_redis_instance
+
 PLUGIN_PATH = os.path.join("posthog", "plugins")
 URL_TEMPLATE = "{repo}/archive/{branch}.zip"
 DEFAULT_BRANCHES = ["main", "master"]
 PATH = os.path.abspath(os.getcwd())
 ABS_PLUGIN_PATH = os.path.join(PATH, PLUGIN_PATH)
+REDIS_INSTANCE = get_redis_instance()
 
 
 def cleanse_plugin_directory():
@@ -152,6 +155,22 @@ def schedule_tasks():
         mod = Mod(mc)
         f = getattr(mod, "schedule_jobs")
         f()
+
+
+def reload_plugins(message):
+    print("!!! RELOAD PLUGINS")
+    load_plugins()
+
+
+def start_reload_pubsub():
+    print("!!! START RELOAD PUBSUB")
+    p = REDIS_INSTANCE.pubsub()
+    p.subscribe(**{"plugin-reload-channel": reload_plugins})
+    p.run_in_thread(sleep_time=1, daemon=True)
+
+
+def publish_reload_command():
+    REDIS_INSTANCE.publish("plugin-reload-channel", "yeah!")
 
 
 @dataclass
