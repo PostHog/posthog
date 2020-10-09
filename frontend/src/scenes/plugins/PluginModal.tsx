@@ -55,7 +55,11 @@ export function PluginModal(): JSX.Element {
                             <Switch />
                         </Form.Item>
                         {Object.keys(editingPlugin.configSchema).map((configKey) => (
-                            <Form.Item key={configKey} label={configKey} name={configKey}>
+                            <Form.Item
+                                key={configKey}
+                                label={editingPlugin.configSchema[configKey].name || configKey}
+                                name={configKey}
+                            >
                                 <Input />
                             </Form.Item>
                         ))}

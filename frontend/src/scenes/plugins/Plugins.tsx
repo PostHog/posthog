@@ -1,10 +1,10 @@
 import React from 'react'
-import { Button, Col, Row, Table } from 'antd'
+import { Button, Col, Row, Table, Tooltip } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginType } from '~/types'
-import { GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
+import { DownloadOutlined, GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
 import { PluginRepositoryEntry } from 'scenes/plugins/types'
 import { PluginModal } from 'scenes/plugins/PluginModal'
 
@@ -69,11 +69,13 @@ function _Plugins(): JSX.Element {
                         align: 'right',
                         render: function RenderConfig(plugin: PluginType): JSX.Element {
                             return (
-                                <Button
-                                    type="primary"
-                                    icon={<ToolOutlined />}
-                                    onClick={() => editPlugin(plugin.name)}
-                                />
+                                <Tooltip title="Configure">
+                                    <Button
+                                        type="primary"
+                                        icon={<ToolOutlined />}
+                                        onClick={() => editPlugin(plugin.name)}
+                                    />
+                                </Tooltip>
                             )
                         },
                     },
@@ -116,9 +118,13 @@ function _Plugins(): JSX.Element {
                         align: 'right',
                         render: function RenderInstall(plugin: PluginRepositoryEntry): JSX.Element {
                             return (
-                                <Button type="primary" onClick={() => installPlugin(plugin)}>
-                                    Install
-                                </Button>
+                                <Tooltip title="Install">
+                                    <Button
+                                        type="primary"
+                                        onClick={() => installPlugin(plugin)}
+                                        icon={<DownloadOutlined />}
+                                    />
+                                </Tooltip>
                             )
                         },
                     },
