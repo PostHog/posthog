@@ -170,6 +170,7 @@ export interface BillingSubscription {
 export interface PluginType {
     id: number
     name: string
+    description: string
     url: string
     enabled: boolean
     order: number

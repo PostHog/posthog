@@ -6,11 +6,12 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginType } from '~/types'
 import { LinkOutlined, ToolOutlined } from '@ant-design/icons'
 import { PluginRepositoryEntry } from 'scenes/plugins/types'
+import { PluginConfig } from 'scenes/plugins/PluginConfig'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
     const { plugins, pluginsLoading, repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
-    const { installPlugin } = useActions(pluginsLogic)
+    const { installPlugin, editPlugin } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -48,7 +49,7 @@ function _Plugins(): JSX.Element {
                     {
                         title: 'Description',
                         key: 'description',
-                        render: function RenderDescription(plugin: PluginRepositoryEntry): JSX.Element {
+                        render: function RenderDescription(plugin: PluginType): JSX.Element {
                             return <div>{plugin.description}</div>
                         },
                     },
@@ -56,8 +57,14 @@ function _Plugins(): JSX.Element {
                         title: '',
                         key: 'config',
                         align: 'right',
-                        render: function RenderConfig(): JSX.Element {
-                            return <Button type="primary" icon={<ToolOutlined />} />
+                        render: function RenderConfig(plugin: PluginType): JSX.Element {
+                            return (
+                                <Button
+                                    type="primary"
+                                    icon={<ToolOutlined />}
+                                    onClick={() => editPlugin(plugin.name)}
+                                />
+                            )
                         },
                     },
                 ]}
@@ -109,6 +116,7 @@ function _Plugins(): JSX.Element {
                 loading={pluginsLoading || repositoryLoading}
                 locale={{ emptyText: 'All Plugins Installed!' }}
             />
+            <PluginConfig />
         </div>
     )
 }
