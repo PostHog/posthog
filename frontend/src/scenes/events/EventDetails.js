@@ -11,14 +11,14 @@ const { TabPane } = Tabs
 export function EventDetails({ event }) {
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
-    let displayableEventProperties = {}
+    let displayedEventProperties = {}
     let hiddenPropsCount = 0
     for (let key of Object.keys(event.properties)) {
         if (keyMapping.event[key] && keyMapping.event[key].hide) {
             hiddenPropsCount += 1
         }
-        if (!keyMapping.event[key] || showHiddenProps || !keyMapping.event[key].hide) {
-            displayableEventProperties[key] = event.properties[key]
+        if (!keyMapping.event[key] || !keyMapping.event[key].hide || showHiddenProps) {
+            displayedEventProperties[key] = event.properties[key]
         }
     }
 
@@ -41,7 +41,7 @@ export function EventDetails({ event }) {
                     <PropertiesTable
                         properties={{
                             $timestamp: moment(event.timestamp).toISOString(),
-                            ...displayableEventProperties,
+                            ...displayedEventProperties,
                         }}
                     />
                     {hiddenPropsCount > 0 && (
