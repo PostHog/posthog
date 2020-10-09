@@ -3,6 +3,7 @@ import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
 import { personalAPIKeysLogicType } from 'types/lib/components/PersonalAPIKeys/personalAPIKeysLogicType.ts'
+import { copyToClipboard } from 'lib/utils'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyType>>({
     loaders: ({ values }) => ({
@@ -24,10 +25,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
             },
         ],
     }),
-
+    reducers: {
+        latestKey: [
+            null as PersonalAPIKeyType | null,
+            {
+                createKeySuccess: (_, { keys }) => keys[0],
+            },
+        ],
+    },
     listeners: () => ({
         createKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
             toast.success(`Personal API key "${keys[0].label}" created.`)
+            copyToClipboard(keys[0].value)
         },
         deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
             toast.success(`Personal API key deleted.`)

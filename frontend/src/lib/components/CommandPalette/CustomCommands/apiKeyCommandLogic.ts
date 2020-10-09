@@ -7,7 +7,7 @@ export const apiKeyCommandLogic = kea<apiKeyCommandLogicType>({
     },
     reducers: {
         labelInput: [
-            '',
+            '' as string,
             {
                 setLabelInput: (_, { input }) => input,
             },
