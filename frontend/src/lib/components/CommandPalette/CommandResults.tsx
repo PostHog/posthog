@@ -110,7 +110,7 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
                 handleCommandSelection(commandSearchResults[activeResultIndex])
             }
         },
-        [activeResultIndex]
+        [activeResultIndex, commandSearchResults]
     )
 
     useEventListener('keydown', handleEnterDown)
