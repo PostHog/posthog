@@ -1,6 +1,8 @@
-import React, { Dispatch, SetStateAction, useCallback } from 'react'
+import React, { useCallback } from 'react'
 import styled from 'styled-components'
 import { SearchOutlined } from '@ant-design/icons'
+import { useValues, useActions } from 'kea'
+import { commandLogic } from './commandLogic'
 
 const CommandInputContainer = styled.div`
     display: flex;
@@ -29,23 +31,20 @@ const CommandInputElement = styled.input`
     overflow-y: scroll;
 `
 
-interface Props {
-    input: string
-    setInput: (input: string) => void
-    setIsPaletteShown: Dispatch<SetStateAction<boolean>>
-}
+export function CommandInput(): JSX.Element {
+    const { searchInput } = useValues(commandLogic)
+    const { setSearchInput, hidePalette } = useActions(commandLogic)
 
-export function CommandInput({ input, setInput, setIsPaletteShown }: Props): JSX.Element {
     const handleKeyDown = useCallback(
         (event: KeyboardEvent): void => {
             if (event.key === 'Escape') {
                 event.preventDefault()
-                if (input) setInput('')
+                if (searchInput) setSearchInput('')
                 // At first, only erase input
-                else setIsPaletteShown(false) // Then hide palette
-            } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) setIsPaletteShown(false)
+                else hidePalette() // Then hide palette
+            } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) hidePalette()
         },
-        [input, setInput]
+        [searchInput, hidePalette]
     )
 
     return (
@@ -53,10 +52,10 @@ export function CommandInput({ input, setInput, setIsPaletteShown }: Props): JSX
             <SearchOutlined />
             <CommandInputElement
                 autoFocus
-                value={input}
+                value={searchInput}
                 onKeyDown={handleKeyDown}
                 onChange={(event) => {
-                    setInput(event.target.value)
+                    setSearchInput(event.target.value)
                 }}
                 placeholder="What would you like to do?"
             />

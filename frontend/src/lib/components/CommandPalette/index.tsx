@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useMountedLogic, useValues, useActions } from 'kea'
@@ -17,6 +17,7 @@ const CommandPaletteContainer = styled.div`
     display: flex;
     flex-direction: column;
     align-items: center;
+    pointer-events: none;
 `
 
 const CommandPaletteBox = styled.div`
@@ -33,45 +34,25 @@ const CommandPaletteBox = styled.div`
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
 
-    const { setSearchInput: setInput } = useActions(commandLogic)
-    const { searchInput: input, commandSearchResults } = useValues(commandLogic)
+    const { hidePalette, togglePalette } = useActions(commandLogic)
+    const { isPaletteShown } = useValues(commandLogic)
     const { user } = useValues(userLogic)
-
-    const [isPaletteShown, setIsPaletteShown] = useState(false)
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    const toggleIsPaletteShown = useCallback(() => {
-        setIsPaletteShown(!isPaletteShown)
-    }, [setIsPaletteShown, isPaletteShown])
+    useHotkeys('cmd+k,ctrl+k', togglePalette)
 
-    useHotkeys('cmd+k,ctrl+k', toggleIsPaletteShown)
+    useHotkeys('esc', hidePalette)
 
-    useHotkeys('esc', () => {
-        setIsPaletteShown(false)
-    })
-
-    useOutsideClickHandler(boxRef, () => {
-        setIsPaletteShown(false)
-    })
-
-    useEffect(() => {
-        // prevent scrolling when box is open
-        document.body.style.overflow = isPaletteShown ? 'hidden' : ''
-    }, [isPaletteShown])
+    useOutsideClickHandler(boxRef, hidePalette)
 
     return (
         <>
             {!user || !isPaletteShown ? null : (
                 <CommandPaletteContainer>
                     <CommandPaletteBox ref={boxRef} className="card bg-dark">
-                        <CommandInput setIsPaletteShown={setIsPaletteShown} input={input} setInput={setInput} />
-                        <CommandResults
-                            results={commandSearchResults}
-                            setIsPaletteShown={setIsPaletteShown}
-                            isPaletteShown={isPaletteShown}
-                            setInput={setInput}
-                        />
+                        <CommandInput />
+                        <CommandResults />
                     </CommandPaletteBox>
                 </CommandPaletteContainer>
             )}

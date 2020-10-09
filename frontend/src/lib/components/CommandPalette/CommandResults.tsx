@@ -2,7 +2,7 @@ import React, { Dispatch, SetStateAction, useCallback, useState, useEffect } fro
 import styled from 'styled-components'
 import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { commandLogic } from './commandLogic'
 import { clamp } from 'lib/utils'
 
@@ -72,7 +72,7 @@ interface CommandResultProps {
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
     isHint?: boolean
-    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | undefined | null>>
 }
 
 function CommandResult({
@@ -93,7 +93,7 @@ function CommandResult({
             focused={focused}
             isHint={isHint}
             onClick={() => {
-                handleSelection(result.index)
+                handleSelection(result)
             }}
         >
             <result.icon />
@@ -106,7 +106,7 @@ interface ResultsGroupProps {
     scope: string
     results: CommandResultType[]
     handleCommandSelection: (result: CommandResultType) => void
-    setHoverResultIndex: Dispatch<SetStateAction<number | null>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | null | undefined>>
     actuallyActiveResultIndex: number
 }
 
@@ -133,16 +133,11 @@ export function ResultsGroup({
     )
 }
 
-interface CommandResultsProps {
-    setIsPaletteShown: Dispatch<SetStateAction<boolean>>
-    isPaletteShown: boolean
-    setInput: (input: string) => void
-}
-
-export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: CommandResultsProps): JSX.Element {
+export function CommandResults(): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { commandSearchResults, searchInput } = useValues(commandLogic)
+    const { hidePalette, setSearchInput } = useActions(commandLogic)
+    const { isPaletteShown, commandSearchResults } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
     const [hoverResultIndex, setHoverResultIndex] = useState<number | null>(null)
@@ -154,10 +149,10 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
         (result: CommandResultType) => {
             // Called after a command is selected by the user
             result.executor()
-            setIsPaletteShown(false)
-            setInput('')
+            hidePalette()
+            setSearchInput('')
         },
-        [setIsPaletteShown, setInput]
+        [setSearchInput]
     )
 
     const handleEnterDown = useCallback(
@@ -173,7 +168,7 @@ export function CommandResults({ setIsPaletteShown, isPaletteShown, setInput }: 
 
     useEffect(() => {
         setActiveResultIndex(0)
-    }, [searchInput, isPaletteShown])
+    }, [isPaletteShown])
 
     const handleKeyDown = useCallback(
         (event: KeyboardEvent) => {

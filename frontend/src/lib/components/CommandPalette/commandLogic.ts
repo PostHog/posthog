@@ -71,8 +71,19 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setSearchInput: (input: string) => ({ input }),
         deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
+        hidePalette: true,
+        showPalette: true,
+        togglePalette: true,
     },
     reducers: {
+        isPaletteShown: [
+            false,
+            {
+                hidePalette: () => false,
+                showPalette: () => true,
+                togglePalette: (previousState) => !previousState,
+            },
+        ],
         rawCommandRegistrations: [
             {} as CommandRegistrations,
             {
