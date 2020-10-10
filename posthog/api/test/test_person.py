@@ -138,9 +138,3 @@ class TestPerson(BaseTest):
         response = self.client.delete("/api/person/%s/" % person.pk)
         self.assertEqual(Person.objects.count(), 0)
         self.assertEqual(Event.objects.count(), 1)
-
-    def test_person_is_identified(self):
-        person_identified = Person.objects.create(team=self.team, is_identified=True)
-        person_anonymous = Person.objects.create(team=self.team)
-        self.assertEqual(person_identified.is_identified, True)
-        self.assertEqual(person_anonymous.is_identified, False)
