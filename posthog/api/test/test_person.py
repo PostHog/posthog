@@ -10,7 +10,7 @@ from .base import APIBaseTest
 
 
 class TestPerson(APIBaseTest):
-    def test_search(self):
+    def test_search(self) -> None:
         Person.objects.create(
             team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
         )
@@ -21,17 +21,17 @@ class TestPerson(APIBaseTest):
 
         response = self.client.get("/api/person/?search=has:email")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 2)
+        self.assertEqual(len(response.json()["results"]), 2)
 
         response = self.client.get("/api/person/?search=another@gm")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 1)
 
         response = self.client.get("/api/person/?search=_id_3")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_properties(self):
+    def test_properties(self) -> None:
         Person.objects.create(
             team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
         )
@@ -44,28 +44,29 @@ class TestPerson(APIBaseTest):
             "/api/person/?properties=%s" % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 2)
+        self.assertEqual(len(response.json()["results"]), 2)
 
         response = self.client.get(
             "/api/person/?properties=%s"
             % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm"}])
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_person_property_names(self):
+    def test_person_property_names(self) -> None:
         Person.objects.create(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
         Person.objects.create(team=self.team, properties={"random_prop": "asdf"})
         Person.objects.create(team=self.team, properties={"random_prop": "asdf"})
 
         response = self.client.get("/api/person/properties/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["name"], "random_prop")
-        self.assertEqual(response.data[0]["count"], 2)
-        self.assertEqual(response.data[2]["name"], "$os")
-        self.assertEqual(response.data[2]["count"], 1)
-        self.assertEqual(response.data[1]["name"], "$browser")
-        self.assertEqual(response.data[1]["count"], 1)
+        response_data = response.json()
+        self.assertEqual(response_data[0]["name"], "random_prop")
+        self.assertEqual(response_data[0]["count"], 2)
+        self.assertEqual(response_data[2]["name"], "$os")
+        self.assertEqual(response_data[2]["count"], 1)
+        self.assertEqual(response_data[1]["name"], "$browser")
+        self.assertEqual(response_data[1]["count"], 1)
 
     def test_person_property_values(self):
         Person.objects.create(
@@ -76,16 +77,17 @@ class TestPerson(APIBaseTest):
         Person.objects.create(team=self.team, properties={"something_else": "qwerty"})
         response = self.client.get("/api/person/values/?key=random_prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["name"], "asdf")
-        self.assertEqual(response.data[0]["count"], 2)
-        self.assertEqual(response.data[1]["name"], "qwerty")
-        self.assertEqual(response.data[1]["count"], 1)
-        self.assertEqual(len(response.data), 2)
+        response_data = response.json()
+        self.assertEqual(response_data[0]["name"], "asdf")
+        self.assertEqual(response_data[0]["count"], 2)
+        self.assertEqual(response_data[1]["name"], "qwerty")
+        self.assertEqual(response_data[1]["count"], 1)
+        self.assertEqual(len(response_data), 2)
 
         response = self.client.get("/api/person/values/?key=random_prop&value=qw")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["name"], "qwerty")
-        self.assertEqual(response.data[0]["count"], 1)
+        self.assertEqual(response.json()[0]["name"], "qwerty")
+        self.assertEqual(response.json()[0]["count"], 1)
 
     def test_filter_by_cohort(self):
         Person.objects.create(
@@ -96,7 +98,7 @@ class TestPerson(APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people()
         response = self.client.get(f"/api/person/?cohort={cohort.pk}")
-        self.assertEqual(len(response.data["results"]), 1, response)
+        self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_person_list(self):
 
@@ -110,35 +112,35 @@ class TestPerson(APIBaseTest):
         # Filter by distinct ID
         response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["id"], person1.pk)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], person1.pk)
 
         response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["id"], person1.pk)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], person1.pk)
 
         # Filter by email
         response = self.client.get("/api/person/?email=another@gmail.com")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["id"], person2.pk)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], person2.pk)
 
         # Filter by key identifier
         for _identifier in ["another@gmail.com", "distinct_id_2"]:
             response = self.client.get(f"/api/person/?key_identifier={_identifier}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.data["results"]), 1)
-            self.assertEqual(response.data["results"][0]["id"], person2.pk)
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(response.json()["results"][0]["id"], person2.pk)
 
         # Non-matches return an empty list
         response = self.client.get("/api/person/?email=inexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 0)
+        self.assertEqual(len(response.json()["results"]), 0)
 
         response = self.client.get("/api/person/?distinct_id=inexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 0)
+        self.assertEqual(len(response.json()["results"]), 0)
 
     def test_category_param(self):
         person_anonymous = Person.objects.create(team=self.team, distinct_ids=["xyz"])
@@ -148,11 +150,11 @@ class TestPerson(APIBaseTest):
         # all
         response = self.client.get("/api/person")  # Make sure the endpoint works with and without the trailing slash
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), 3)
 
         response_all = self.client.get("/api/person/?category=all")
         self.assertEqual(response_all.status_code, status.HTTP_200_OK)
-        self.assertListEqual(response.data["results"], response_all.data["results"])
+        self.assertListEqual(response.json()["results"], response_all.json()["results"])
 
         # person_identified_using_event should have is_identified set to True after an $identify event
         process_event(
@@ -169,15 +171,15 @@ class TestPerson(APIBaseTest):
         # anonymous
         response = self.client.get("/api/person/?category=anonymous")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["id"], person_anonymous.id)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], person_anonymous.id)
 
         # identified
         response = self.client.get("/api/person/?category=identified")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 2)
-        self.assertEqual(response.data["results"][0]["id"], person_identified_using_event.id)
-        self.assertEqual(response.data["results"][1]["id"], person_identified_already.id)
+        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertEqual(response.json()["results"][0]["id"], person_identified_using_event.id)
+        self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
 
     def test_delete_person(self):
         person = Person.objects.create(
