@@ -36,7 +36,7 @@ export const CommandInputContainer = styled.div`
 export const CommandInputElement = styled.input`
     flex-grow: 1;
     height: 4rem;
-    padding-left: 1.875rem;
+    padding-left: 1.5rem;
     border: none;
     outline: none;
     background: transparent;
