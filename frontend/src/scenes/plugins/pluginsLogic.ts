@@ -9,7 +9,7 @@ export const pluginsLogic = kea<
 >({
     actions: {
         editPlugin: (id: number | null) => ({ id }),
-        savePluginConfig: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
+        savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, isCustom: boolean = false) => ({ pluginUrl, isCustom }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
@@ -94,18 +94,18 @@ export const pluginsLogic = kea<
                     }
                     return pluginConfigs
                 },
-                savePluginConfig: async ({ pluginConfig }) => {
+                savePluginConfig: async ({ pluginConfigChanges }) => {
                     const { pluginConfigs, editingPlugin } = values
 
                     if (!editingPlugin) {
                         return pluginConfigs
                     }
 
-                    const { __enabled: enabled, ...config } = pluginConfig
+                    const { __enabled: enabled, ...config } = pluginConfigChanges
 
                     let response
-                    if (pluginConfig.id) {
-                        response = await api.update(`api/plugin_config/${editingPlugin.id}`, {
+                    if (editingPlugin.pluginConfig.id) {
+                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, {
                             enabled,
                             config,
                         })
@@ -162,6 +162,17 @@ export const pluginsLogic = kea<
                 installPluginFailure: (_, { error }) => error,
             },
         ],
+        pluginConfigs: {
+            uninstallPluginSuccess: (pluginConfigs, { plugins }) => {
+                const newPluginConfigs: Record<number, PluginConfigType> = {}
+                Object.values(pluginConfigs).forEach((pluginConfig) => {
+                    if (plugins[pluginConfig.plugin]) {
+                        newPluginConfigs[pluginConfig.plugin] = pluginConfig
+                    }
+                })
+                return newPluginConfigs
+            },
+        },
     },
 
     selectors: {
