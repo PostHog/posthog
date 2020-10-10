@@ -18,8 +18,6 @@ import requests
 from django.conf import settings
 
 from posthog.cache import get_redis_instance
-from posthog.models.plugin import Plugin
-from posthog.models.team import Team
 from posthog.utils import SingletonDecorator
 
 PLUGIN_PATH = os.path.join("posthog", "plugins")
@@ -227,7 +225,7 @@ class _Plugins:
         self.plugin_configs = self.get_plugin_config()
 
     @staticmethod
-    def get_plugin_config(team: Team = None) -> PluginConfigs:
+    def get_plugin_config(team: any = None) -> PluginConfigs:
         # load plugins from json config
         with open("posthog.json", "r") as f:
             json_conf = json.loads(f.read()).get("plugins", None)
@@ -257,6 +255,9 @@ class _Plugins:
             )
             plugin_configs.dict[ppc.name] = ppc
             plugin_configs.ordered.append(ppc)
+
+        from posthog.models.plugin import Plugin
+        from posthog.models.team import Team
 
         # Load plugins from model
         if team:
