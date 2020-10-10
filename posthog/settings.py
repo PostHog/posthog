@@ -195,6 +195,7 @@ INSTALLED_APPS = [
     "loginas",
     "corsheaders",
     "social_django",
+    "django_filters",
 ]
 
 

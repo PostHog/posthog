@@ -1,16 +1,15 @@
 import json
 
 from django.utils import timezone
+from rest_framework import status
 
 from posthog.models import Cohort, Event, Person
 from posthog.tasks.process_event import process_event
 
-from .base import BaseTest
+from .base import APIBaseTest
 
 
-class TestPerson(BaseTest):
-    TESTS_API = True
-
+class TestPerson(APIBaseTest):
     def test_search(self):
         Person.objects.create(
             team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
@@ -88,13 +87,48 @@ class TestPerson(BaseTest):
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people()
-        response = self.client.get("/api/person/?cohort=%s" % cohort.pk).json()
-        self.assertEqual(len(response["results"]), 1, response)
+        response = self.client.get(f"/api/person/?cohort={cohort.pk}")
+        self.assertEqual(len(response.data["results"]), 1, response)
+
+    def test_filter_person_list(self):
+
+        person1: Person = Person.objects.create(
+            team=self.team, distinct_ids=["distinct_id", "another_one"], properties={"email": "someone@gmail.com"},
+        )
+        person2: Person = Person.objects.create(
+            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+        )
+
+        # Filter by distinct ID
+        response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], person1.pk)
+
+        response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], person1.pk)
+
+        # Filter by email
+        response = self.client.get("/api/person/?email=another@gmail.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], person2.pk)
+
+        # Non-matches return an empty list
+        response = self.client.get("/api/person/?email=inexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 0)
+
+        response = self.client.get("/api/person/?distinct_id=inexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 0)
 
     def test_category_param(self):
         person_anonymous = Person.objects.create(team=self.team, distinct_ids=["xyz"])
-        person_identified_already = Person.objects.create(team=self.team, distinct_ids=["tuv"], is_identified=True,)
-        person_identified_using_event = Person.objects.create(team=self.team, distinct_ids=["klm"],)
+        person_identified_already = Person.objects.create(team=self.team, distinct_ids=["tuv"], is_identified=True)
+        person_identified_using_event = Person.objects.create(team=self.team, distinct_ids=["klm"])
 
         # all
         response = self.client.get(
