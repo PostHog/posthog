@@ -150,7 +150,7 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
 
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && commandSearchResults.length) {
                 handleCommandSelection(commandSearchResults[actuallyActiveResultIndex])
             }
         },
