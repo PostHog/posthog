@@ -52,6 +52,12 @@ class PluginViewSet(viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
+    def destroy(self, request: request.Request, pk=None) -> Response:
+        plugin = Plugin.objects.get(pk=pk)
+        plugin.delete()
+        Plugins().publish_reload_command()
+        return Response(status=204)
+
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     class Meta:
