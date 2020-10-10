@@ -1,76 +1,75 @@
 import { kea } from 'kea'
 import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
-import { PluginType } from '~/types'
-import { PluginRepositoryEntry } from './types'
+import { PluginConfigType, PluginType } from '~/types'
+import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 
-export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEntry>>({
+export const pluginsLogic = kea<
+    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
+>({
     actions: {
-        editPlugin: (name: string | null) => ({ name }),
-        saveEditedPlugin: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
+        editPlugin: (id: number | null) => ({ id }),
+        savePluginConfig: (pluginConfig: Record<string, any>) => ({ pluginConfig }),
+        installPlugin: (pluginUrl: string, isCustom: boolean = false) => ({ pluginUrl, isCustom }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
-        installCustomPlugin: (customPluginUrl: string) => ({ customPluginUrl }),
-        setCustomPluginError: (customPluginError: string) => ({ customPluginError }),
     },
 
     loaders: ({ values }) => ({
         plugins: [
-            {} as Record<string, PluginType>,
+            {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
                     const { results } = await api.get('api/plugin')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
-                        plugins[plugin.name] = plugin
+                        plugins[plugin.id] = plugin
                     }
                     return plugins
                 },
-                installPlugin: async (repositoryEntry: PluginRepositoryEntry) => {
+                installPlugin: async ({ pluginUrl }) => {
                     const { plugins } = values
-                    const nextOrder = Math.max(
-                        Object.values(plugins)
-                            .map((p) => p.order || 1)
-                            .sort()
-                            .reverse()[0] || 0,
-                        Object.keys(plugins).length + 1
-                    )
 
-                    const config: Record<string, any> = {}
-                    if (repositoryEntry.config) {
-                        for (const [key, { default: def }] of Object.entries(repositoryEntry.config)) {
-                            config[key] = def || ''
-                        }
+                    const match = pluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
+                    if (!match) {
+                        throw new Error('Must be in the format: https://github.com/user/repo')
+                    }
+                    const [, , user, repo] = match
+
+                    const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
+                    const repoCommits: Record<string, any>[] | null = await window
+                        .fetch(repoCommitsUrl)
+                        .then((response) => response?.json())
+                        .catch(() => null)
+
+                    if (!repoCommits || repoCommits.length === 0) {
+                        throw new Error(`Could not find repository: ${pluginUrl}`)
+                    }
+
+                    const tag: string = repoCommits[0].sha
+                    const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${tag}/plugin.json`
+                    const json: PluginRepositoryEntry | null = await window
+                        .fetch(jsonUrl)
+                        .then((response) => response?.json())
+                        .catch(() => null)
+
+                    if (!json) {
+                        throw new Error(`Could not find plugin.json in repository: ${pluginUrl}`)
+                    }
+
+                    if (Object.values(values.plugins).find((p) => p.name === json.name)) {
+                        throw new Error(`Plugin with the name "${json.name}" already installed!`)
                     }
 
                     const response = await api.create('api/plugin', {
-                        name: repositoryEntry.name,
-                        description: repositoryEntry.description,
-                        url: repositoryEntry.url,
-                        tag: repositoryEntry.tag,
-                        enabled: false,
-                        order: nextOrder,
-                        config: config,
-                        configSchema: repositoryEntry.config,
+                        name: json.name,
+                        description: json.description,
+                        url: json.url,
+                        tag,
+                        configSchema: json.config,
                     })
 
-                    return { ...plugins, [response.name]: response }
-                },
-                saveEditedPlugin: async ({ pluginConfig }) => {
-                    const { plugins, editingPlugin } = values
-
-                    if (!editingPlugin) {
-                        return plugins
-                    }
-
-                    const { __enabled: enabled, ...config } = pluginConfig
-
-                    const response = await api.update(`api/plugin/${editingPlugin.id}`, {
-                        enabled,
-                        config,
-                    })
-
-                    return { ...plugins, [response.name]: response }
+                    return { ...plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
                     const { plugins, editingPlugin } = values
@@ -79,8 +78,47 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                     }
 
                     await api.delete(`api/plugin/${editingPlugin.id}`)
-                    const { [editingPlugin.name]: _discard, ...rest } = plugins // eslint-disable-line
+                    const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
+                },
+            },
+        ],
+        pluginConfigs: [
+            {} as Record<string, PluginConfigType>,
+            {
+                loadPluginConfigs: async () => {
+                    const { results } = await api.get('api/plugin_config')
+                    const pluginConfigs: Record<string, PluginConfigType> = {}
+                    for (const pluginConfig of results as PluginConfigType[]) {
+                        pluginConfigs[pluginConfig.plugin] = pluginConfig
+                    }
+                    return pluginConfigs
+                },
+                savePluginConfig: async ({ pluginConfig }) => {
+                    const { pluginConfigs, editingPlugin } = values
+
+                    if (!editingPlugin) {
+                        return pluginConfigs
+                    }
+
+                    const { __enabled: enabled, ...config } = pluginConfig
+
+                    let response
+                    if (pluginConfig.id) {
+                        response = await api.update(`api/plugin_config/${editingPlugin.id}`, {
+                            enabled,
+                            config,
+                        })
+                    } else {
+                        response = await api.create(`api/plugin_config/`, {
+                            plugin: editingPlugin.id,
+                            enabled,
+                            config,
+                            order: 0,
+                        })
+                    }
+
+                    return { ...pluginConfigs, [response.plugin]: response }
                 },
             },
         ],
@@ -100,13 +138,13 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
     }),
 
     reducers: {
-        editingPluginName: [
-            null as string | null,
+        editingPluginId: [
+            null as number | null,
             {
-                editPlugin: (_, { name }) => name,
-                saveEditedPluginSuccess: () => null,
+                editPlugin: (_, { id }) => id,
+                savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
-                installPluginSuccess: (_, { plugins }) => Object.keys(plugins).pop() || null,
+                installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
             },
         ],
         customPluginUrl: [
@@ -116,88 +154,76 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 installPluginSuccess: () => '',
             },
         ],
-        customPluginError: [
+        pluginError: [
             null as null | string,
             {
-                setCustomPluginError: (_, { customPluginError }) => customPluginError,
                 setCustomPluginUrl: () => null,
-                installCustomPlugin: () => null,
-            },
-        ],
-        installingCustomPlugin: [
-            false,
-            {
-                installCustomPlugin: () => true,
-                setCustomPluginError: () => false,
-                installPluginFailure: () => false,
-                installPluginSuccess: () => false,
+                installPlugin: () => null,
+                installPluginFailure: (_, { error }) => error,
             },
         ],
     },
 
     selectors: {
-        installedPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).sort((a, b) => a.order - b.order)],
+        installedPlugins: [
+            (s) => [s.plugins, s.pluginConfigs],
+            (plugins, pluginConfigs): PluginTypeWithConfig[] => {
+                const pluginValues = Object.values(plugins)
+                return pluginValues
+                    .map((plugin, index) => {
+                        let pluginConfig = pluginConfigs[plugin.id]
+                        console.log(pluginConfig)
+                        if (!pluginConfig) {
+                            const config: Record<string, any> = {}
+                            Object.entries(plugin.configSchema).forEach(([key, { default: def }]) => {
+                                config[key] = def
+                            })
+
+                            pluginConfig = {
+                                id: undefined,
+                                plugin: plugin.id,
+                                enabled: false,
+                                config: config,
+                                order: pluginValues.length + index,
+                            }
+                        }
+                        return { ...plugin, pluginConfig }
+                    })
+                    .sort((a, b) => a.pluginConfig?.order - b.pluginConfig?.order)
+                    .map((plugin, index) => ({ ...plugin, order: index + 1 }))
+            },
+        ],
+        installedPluginNames: [
+            (s) => [s.installedPlugins],
+            (installedPlugins) => {
+                const names: Record<string, boolean> = {}
+                installedPlugins.forEach((plugin) => {
+                    names[plugin.name] = true
+                })
+                return names
+            },
+        ],
         uninstalledPlugins: [
-            (s) => [s.plugins, s.repository],
-            (plugins, repository) => {
+            (s) => [s.installedPluginNames, s.repository],
+            (installedPluginNames, repository) => {
                 return Object.keys(repository)
-                    .filter((name) => !plugins[name])
+                    .filter((name) => !installedPluginNames[name])
                     .map((name) => repository[name])
             },
         ],
         editingPlugin: [
-            (s) => [s.editingPluginName, s.plugins],
-            (editingPluginName, plugins) => (editingPluginName ? plugins[editingPluginName] : null),
+            (s) => [s.editingPluginId, s.installedPlugins],
+            (editingPluginId, installedPlugins) =>
+                editingPluginId ? installedPlugins.find((plugin) => plugin.id === editingPluginId) : null,
         ],
         loading: [
-            (s) => [s.installingCustomPlugin, s.pluginsLoading, s.repositoryLoading],
-            (installingCustomPlugin, pluginsLoading, repositoryLoading) =>
-                installingCustomPlugin || pluginsLoading || repositoryLoading,
+            (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
+            (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
+                pluginsLoading || repositoryLoading || pluginConfigsLoading,
         ],
     },
 
     events: ({ actions }) => ({
-        afterMount: [actions.loadPlugins, actions.loadRepository],
-    }),
-
-    listeners: ({ actions, values }) => ({
-        installCustomPlugin: async ({ customPluginUrl }) => {
-            const match = customPluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
-            if (!match) {
-                actions.setCustomPluginError('Must be in the format: https://github.com/user/repo')
-                return
-            }
-            const [, , user, repo] = match
-
-            const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
-            const repoCommits: Record<string, any>[] | null = await window
-                .fetch(repoCommitsUrl)
-                .then((response) => response?.json())
-                .catch(() => null)
-
-            if (!repoCommits || repoCommits.length === 0) {
-                actions.setCustomPluginError(`Could not find repository: ${customPluginUrl}`)
-                return
-            }
-
-            const tag: string = repoCommits[0].sha
-            const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${tag}/plugin.json`
-            const json: PluginRepositoryEntry | null = await window
-                .fetch(jsonUrl)
-                .then((response) => response?.json())
-                .catch(() => null)
-
-            if (!json) {
-                actions.setCustomPluginError(`Could not find plugin.json in repository: ${customPluginUrl}`)
-                return
-            }
-
-            if (Object.values(values.plugins).find((p) => p.name === json.name)) {
-                actions.setCustomPluginError(`Plugin with the name "${json.name}" already installed!`)
-                return
-            }
-
-            actions.installPlugin({ ...json, tag })
-        },
+        afterMount: [actions.loadPlugins, actions.loadPluginConfigs, actions.loadRepository],
     }),
 })

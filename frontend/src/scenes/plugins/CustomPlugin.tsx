@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export function CustomPlugin(): JSX.Element {
-    const { customPluginUrl, customPluginError, loading, installingCustomPlugin } = useValues(pluginsLogic)
-    const { setCustomPluginUrl, installCustomPlugin } = useActions(pluginsLogic)
+    const { customPluginUrl, pluginError, loading } = useValues(pluginsLogic)
+    const { setCustomPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -25,16 +25,16 @@ export function CustomPlugin(): JSX.Element {
                 </Col>
                 <Col>
                     <Button
-                        disabled={loading && !installingCustomPlugin}
+                        disabled={loading}
                         loading={loading}
                         type="primary"
-                        onClick={() => installCustomPlugin(customPluginUrl)}
+                        onClick={() => installPlugin(customPluginUrl, true)}
                     >
                         Install
                     </Button>
                 </Col>
             </Row>
-            {customPluginError ? <p style={{ color: 'var(--red)', marginTop: 10 }}>{customPluginError}</p> : null}
+            {pluginError ? <p style={{ color: 'var(--red)', marginTop: 10 }}>{pluginError}</p> : null}
         </div>
     )
 }

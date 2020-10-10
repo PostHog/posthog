@@ -2,8 +2,8 @@ import React from 'react'
 import { Button, Col, Row, Table, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginType } from '~/types'
 import { GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
+import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 function trimTag(tag: string): string {
     if (tag.match(/^[a-f0-9]{40}$/)) {
@@ -16,7 +16,7 @@ function trimTag(tag: string): string {
 }
 
 export function InstalledPlugins(): JSX.Element {
-    const { plugins, loading } = useValues(pluginsLogic)
+    const { installedPlugins, loading } = useValues(pluginsLogic)
     const { editPlugin } = useActions(pluginsLogic)
 
     return (
@@ -27,12 +27,12 @@ export function InstalledPlugins(): JSX.Element {
                 size="small"
                 rowKey={(plugin) => plugin.name}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                dataSource={Object.values(plugins)}
+                dataSource={installedPlugins}
                 columns={[
                     {
                         title: 'Plugin',
                         key: 'name',
-                        render: function RenderPlugin(plugin: PluginType): JSX.Element {
+                        render: function RenderPlugin(plugin: PluginTypeWithConfig): JSX.Element {
                             return (
                                 <>
                                     <Row>
@@ -42,7 +42,7 @@ export function InstalledPlugins(): JSX.Element {
                                     </Row>
                                     <Row gutter={16}>
                                         <Col>
-                                            {plugin.enabled ? (
+                                            {plugin.pluginConfig?.enabled ? (
                                                 <div style={{ color: 'var(--green)' }}>
                                                     <CheckOutlined /> Enabled
                                                 </div>
@@ -69,7 +69,7 @@ export function InstalledPlugins(): JSX.Element {
                     {
                         title: 'Description',
                         key: 'description',
-                        render: function RenderDescription(plugin: PluginType): JSX.Element {
+                        render: function RenderDescription(plugin: PluginTypeWithConfig): JSX.Element {
                             return <div>{plugin.description}</div>
                         },
                     },
@@ -77,13 +77,13 @@ export function InstalledPlugins(): JSX.Element {
                         title: '',
                         key: 'config',
                         align: 'right',
-                        render: function RenderConfig(plugin: PluginType): JSX.Element {
+                        render: function RenderConfig(plugin: PluginTypeWithConfig): JSX.Element {
                             return (
                                 <Tooltip title="Configure">
                                     <Button
                                         type="primary"
                                         icon={<ToolOutlined />}
-                                        onClick={() => editPlugin(plugin.name)}
+                                        onClick={() => editPlugin(plugin.id)}
                                     />
                                 </Tooltip>
                             )

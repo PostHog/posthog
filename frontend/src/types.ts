@@ -167,7 +167,7 @@ export interface BillingSubscription {
     stripe_checkout_session: string
 }
 
-export interface PluginConfig {
+export interface PluginConfigSchema {
     name: string
     type: string
     default: any
@@ -180,8 +180,13 @@ export interface PluginType {
     description: string
     url: string
     tag: string
+    configSchema: Record<string, PluginConfigSchema>
+}
+
+export interface PluginConfigType {
+    id?: number
+    plugin: number
     enabled: boolean
     order: number
     config: Record<string, any>
-    configSchema: Record<string, PluginConfig>
 }

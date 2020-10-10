@@ -8,7 +8,7 @@ import { PluginRepositoryEntry } from 'scenes/plugins/types'
 
 export function Repository(): JSX.Element {
     const { loading, repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
-    const { installCustomPlugin } = useActions(pluginsLogic)
+    const { installPlugin } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -47,7 +47,7 @@ export function Repository(): JSX.Element {
                                 <Tooltip title="Install">
                                     <Button
                                         type="primary"
-                                        onClick={() => installCustomPlugin(plugin.url)}
+                                        onClick={() => installPlugin(plugin.url)}
                                         icon={<DownloadOutlined />}
                                     />
                                 </Tooltip>

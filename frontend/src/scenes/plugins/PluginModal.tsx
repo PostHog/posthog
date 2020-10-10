@@ -6,12 +6,15 @@ import { DeleteOutlined } from '@ant-design/icons'
 
 export function PluginModal(): JSX.Element {
     const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
-    const { editPlugin, saveEditedPlugin, uninstallPlugin } = useActions(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
     useEffect(() => {
         if (editingPlugin) {
-            form.setFieldsValue({ ...(editingPlugin.config || {}), __enabled: editingPlugin.enabled })
+            form.setFieldsValue({
+                ...(editingPlugin.pluginConfig.config || {}),
+                __enabled: editingPlugin.pluginConfig.enabled,
+            })
         } else {
             form.resetFields()
         }
@@ -45,7 +48,7 @@ export function PluginModal(): JSX.Element {
                 </>
             }
         >
-            <Form form={form} layout="vertical" name="basic" onFinish={saveEditedPlugin}>
+            <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
                 {editingPlugin ? (
                     <div>
                         <h2>{editingPlugin.name}</h2>

@@ -32,12 +32,12 @@ REDIS_INSTANCE = get_redis_instance()
 class PluginConfig:
     url: Optional[str]
     path: Optional[str]
-    config: Dict[Any, Any]
+    # config: Dict[Any, Any]
     config_schema: Optional[Dict[Any, Any]]
-    enabled: bool = True
-    order: int = 100
+    # enabled: bool = True
+    # order: int = 100
     display_name: str = ""
-    team: int = 0
+    # team: int = 0
     description: str = ""
 
     @property
@@ -236,10 +236,10 @@ class _Plugins:
             path = plugin.get("path", None)
             url = plugin.get("url", None)
             name = plugin.get("name", None)
-            config = plugin.get("config", None)
-            order = plugin.get("order", 1000)
-            team = plugin.get("team", None)
-            enabled = plugin.get("enabled", True)
+            # config = plugin.get("config", None)
+            # order = plugin.get("order", 1000)
+            # team = plugin.get("team", None)
+            # enabled = plugin.get("enabled", True)
             if not name:
                 if path:
                     name = os.path.split(os.path.realpath(plugin["path"]))[-1]
@@ -248,12 +248,12 @@ class _Plugins:
             ppc = PluginConfig(
                 path=path,
                 url=url,
-                config=config,
+                # config=config,
                 config_schema=None,
                 display_name=name,
-                order=order,
-                team=team,
-                enabled=enabled,
+                # order=order,
+                # team=team,
+                # enabled=enabled,
             )
             plugin_configs.dict[ppc.name] = ppc
             plugin_configs.ordered.append(ppc)
@@ -270,16 +270,16 @@ class _Plugins:
             ppc = PluginConfig(
                 path=None,
                 url=plugin.url,
-                config=plugin.config,
+                # config=plugin.config,
                 config_schema=plugin.configSchema,
                 display_name=plugin.name,
-                order=plugin.order,
-                team=plugin.team,
-                enabled=plugin.enabled,
+                # order=plugin.order,
+                # team=plugin.team,
+                # enabled=plugin.enabled,
             )
             plugin_configs.dict[ppc.name] = ppc
             plugin_configs.ordered.append(ppc)
-        plugin_configs.ordered.sort(key=lambda x: x.order)
+        plugin_configs.ordered  # .sort(key=lambda x: x.order)
         return plugin_configs
 
     def get_module_config(self, module):
