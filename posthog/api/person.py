@@ -45,6 +45,13 @@ class CursorPagination(BaseCursorPagination):
 class PersonFilter(filters.FilterSet):
     email = filters.CharFilter(field_name="properties__email")
     distinct_id = filters.CharFilter(field_name="persondistinctid__distinct_id")
+    key_identifier = filters.CharFilter(method="key_identifier_filter")
+
+    def key_identifier_filter(self, queryset, attr, *args, **kwargs):
+        """
+        Filters persons by email or distinct ID
+        """
+        return queryset.filter(Q(persondistinctid__distinct_id=args[0]) | Q(properties__email=args[0]))
 
 
 class PersonViewSet(viewsets.ModelViewSet):

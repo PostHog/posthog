@@ -124,6 +124,13 @@ class TestPerson(APIBaseTest):
         self.assertEqual(len(response.data["results"]), 1)
         self.assertEqual(response.data["results"][0]["id"], person2.pk)
 
+        # Filter by key identifier
+        for _identifier in ["another@gmail.com", "distinct_id_2"]:
+            response = self.client.get(f"/api/person/?key_identifier={_identifier}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.data["results"]), 1)
+            self.assertEqual(response.data["results"][0]["id"], person2.pk)
+
         # Non-matches return an empty list
         response = self.client.get("/api/person/?email=inexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
