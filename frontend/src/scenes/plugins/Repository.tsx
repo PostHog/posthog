@@ -7,8 +7,8 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { PluginRepositoryEntry } from 'scenes/plugins/types'
 
 export function Repository(): JSX.Element {
-    const { pluginsLoading, repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
-    const { installPlugin } = useActions(pluginsLogic)
+    const { loading, repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
+    const { installCustomPlugin } = useActions(pluginsLogic)
 
     return (
         <div>
@@ -47,7 +47,7 @@ export function Repository(): JSX.Element {
                                 <Tooltip title="Install">
                                     <Button
                                         type="primary"
-                                        onClick={() => installPlugin(plugin)}
+                                        onClick={() => installCustomPlugin(plugin.url)}
                                         icon={<DownloadOutlined />}
                                     />
                                 </Tooltip>
@@ -55,7 +55,7 @@ export function Repository(): JSX.Element {
                         },
                     },
                 ]}
-                loading={pluginsLoading || repositoryLoading}
+                loading={loading || repositoryLoading}
                 locale={{ emptyText: 'All Plugins Installed!' }}
             />
         </div>

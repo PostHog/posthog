@@ -179,6 +179,7 @@ export interface PluginType {
     name: string
     description: string
     url: string
+    tag: string
     enabled: boolean
     order: number
     config: Record<string, any>

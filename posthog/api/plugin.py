@@ -31,6 +31,7 @@ class PluginSerializer(serializers.ModelSerializer):
         plugin.order = validated_data.get("order", plugin.order)
         if plugin.tag != validated_data.get("tag", plugin.tag):
             plugin.tag = validated_data.get("tag", plugin.tag)
+            plugin.configSchema = validated_data.get("configSchema", plugin.configSchema)
             plugin.archive = self._download_github_zip(plugin.url, plugin.tag)
         plugin.save()
         Plugins().publish_reload_command()

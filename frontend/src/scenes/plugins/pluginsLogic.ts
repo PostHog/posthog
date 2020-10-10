@@ -149,6 +149,11 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
             (s) => [s.editingPluginName, s.plugins],
             (editingPluginName, plugins) => (editingPluginName ? plugins[editingPluginName] : null),
         ],
+        loading: [
+            (s) => [s.installingCustomPlugin, s.pluginsLoading, s.repositoryLoading],
+            (installingCustomPlugin, pluginsLoading, repositoryLoading) =>
+                installingCustomPlugin || pluginsLoading || repositoryLoading,
+        ],
     },
 
     events: ({ actions }) => ({
@@ -164,18 +169,18 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
             }
             const [, , user, repo] = match
 
-            const repoUrl = `https://api.github.com/repos/${user}/${repo}`
-            const repoDetails: Record<string, any> | null = await window
-                .fetch(repoUrl)
+            const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
+            const repoCommits: Record<string, any>[] | null = await window
+                .fetch(repoCommitsUrl)
                 .then((response) => response?.json())
                 .catch(() => null)
 
-            if (!repoDetails) {
+            if (!repoCommits || repoCommits.length === 0) {
                 actions.setCustomPluginError(`Could not find repository: ${customPluginUrl}`)
                 return
             }
 
-            const tag: string = repoDetails['default_branch']
+            const tag: string = repoCommits[0].sha
             const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${tag}/plugin.json`
             const json: PluginRepositoryEntry | null = await window
                 .fetch(jsonUrl)

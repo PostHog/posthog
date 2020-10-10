@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export function CustomPlugin(): JSX.Element {
-    const { customPluginUrl, customPluginError, installingCustomPlugin } = useValues(pluginsLogic)
+    const { customPluginUrl, customPluginError, loading, installingCustomPlugin } = useValues(pluginsLogic)
     const { setCustomPluginUrl, installCustomPlugin } = useActions(pluginsLogic)
 
     return (
@@ -18,13 +18,15 @@ export function CustomPlugin(): JSX.Element {
                 <Col style={{ flex: 1 }}>
                     <Input
                         value={customPluginUrl}
+                        disabled={loading}
                         onChange={(e) => setCustomPluginUrl(e.target.value)}
                         placeholder="https://github.com/user/repo"
                     />
                 </Col>
                 <Col>
                     <Button
-                        loading={installingCustomPlugin}
+                        disabled={loading && !installingCustomPlugin}
+                        loading={loading}
                         type="primary"
                         onClick={() => installCustomPlugin(customPluginUrl)}
                     >

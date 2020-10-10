@@ -5,8 +5,18 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginType } from '~/types'
 import { GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
 
+function trimTag(tag: string): string {
+    if (tag.match(/^[a-f0-9]{40}$/)) {
+        return tag.substring(0, 7)
+    }
+    if (tag.length >= 20) {
+        return tag.substring(0, 17) + '...'
+    }
+    return tag
+}
+
 export function InstalledPlugins(): JSX.Element {
-    const { plugins, pluginsLoading } = useValues(pluginsLogic)
+    const { plugins, loading } = useValues(pluginsLogic)
     const { editPlugin } = useActions(pluginsLogic)
 
     return (
@@ -43,8 +53,12 @@ export function InstalledPlugins(): JSX.Element {
                                             )}
                                         </Col>
                                         <Col>
-                                            <a href={plugin.url} target="_blank" rel="noreferrer noopener">
-                                                <GithubOutlined /> Repository
+                                            <a
+                                                href={`${plugin.url}/tree/${plugin.tag}`}
+                                                target="_blank"
+                                                rel="noreferrer noopener"
+                                            >
+                                                <GithubOutlined /> {trimTag(plugin.tag)}
                                             </a>
                                         </Col>
                                     </Row>
@@ -76,7 +90,7 @@ export function InstalledPlugins(): JSX.Element {
                         },
                     },
                 ]}
-                loading={pluginsLoading}
+                loading={loading}
                 locale={{ emptyText: 'No Plugins Installed!' }}
             />
         </div>
