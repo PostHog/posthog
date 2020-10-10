@@ -1,8 +1,9 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { apiKeyCommandLogic } from './apiKeyCommandLogic'
-import { CustomCommandBox, CommandTitle, CommandInputContainer, CommandInputElement } from '../commandStyledComponents'
+import { CustomCommandBox, Scope, CommandInputContainer, CommandInputElement } from '../commandStyledComponents'
 import { personalAPIKeysLogic } from 'lib/components/PersonalAPIKeys/personalAPIKeysLogic'
+import { EditOutlined } from '@ant-design/icons'
 import styled from 'styled-components'
 
 const SuccessContainer = styled.div`
@@ -43,9 +44,9 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
 
     return (
         <CustomCommandBox className="card bg-dark">
-            <CommandTitle>Create personal API key</CommandTitle>
             {!latestKey && (
                 <CommandInputContainer>
+                    <EditOutlined />
                     <CommandInputElement
                         autoFocus
                         value={labelInput}
@@ -66,6 +67,7 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
                     </HighlightNotice>
                 </SuccessContainer>
             )}
+            <Scope>Creating a Personal API Key</Scope>
         </CustomCommandBox>
     )
 }
