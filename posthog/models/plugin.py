@@ -11,3 +11,5 @@ class Plugin(models.Model):
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     config: JSONField = JSONField(default=dict)
     configSchema: JSONField = JSONField(default=dict)
+    tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    archive: models.BinaryField = models.BinaryField(blank=True)

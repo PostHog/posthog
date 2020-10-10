@@ -47,6 +47,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                         name: repositoryEntry.name,
                         description: repositoryEntry.description,
                         url: repositoryEntry.url,
+                        tag: repositoryEntry.tag,
                         enabled: false,
                         order: nextOrder,
                         config: config,
@@ -135,6 +136,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
     },
 
     selectors: {
+        installedPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).sort((a, b) => a.order - b.order)],
         uninstalledPlugins: [
             (s) => [s.plugins, s.repository],
             (plugins, repository) => {
@@ -163,7 +165,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
             const [, , user, repo] = match
 
             const repoUrl = `https://api.github.com/repos/${user}/${repo}`
-            const repoDetails = await window
+            const repoDetails: Record<string, any> | null = await window
                 .fetch(repoUrl)
                 .then((response) => response?.json())
                 .catch(() => null)
@@ -173,8 +175,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 return
             }
 
-            const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${repoDetails['default_branch']}/plugin.json`
-            const json = await window
+            const tag: string = repoDetails['default_branch']
+            const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${tag}/plugin.json`
+            const json: PluginRepositoryEntry | null = await window
                 .fetch(jsonUrl)
                 .then((response) => response?.json())
                 .catch(() => null)
@@ -189,7 +192,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
                 return
             }
 
-            actions.installPlugin(json as PluginRepositoryEntry)
+            actions.installPlugin({ ...json, tag })
         },
     }),
 })
