@@ -185,3 +185,26 @@ class TestPerson(APIBaseTest):
         self.assertEqual(response.data, None)
         self.assertEqual(Person.objects.count(), 0)
         self.assertEqual(Event.objects.count(), 1)
+
+    def test_filters_by_endpoints_are_deprecated(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},
+        )
+
+        # By Distinct ID
+        with self.assertWarns(DeprecationWarning) as warnings:
+            response = self.client.get("/api/person/by_distinct_id/?distinct_id=person_1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
+        self.assertEqual(
+            str(warnings.warning), "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.",
+        )
+
+        # By Distinct ID
+        with self.assertWarns(DeprecationWarning) as warnings:
+            response = self.client.get("/api/person/by_email/?email=someone@gmail.com")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
+        self.assertEqual(
+            str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
+        )

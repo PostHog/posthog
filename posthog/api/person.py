@@ -1,4 +1,5 @@
 import json
+import warnings
 from typing import Any, Dict, List
 
 from django.core.cache import cache
@@ -115,6 +116,12 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
+        """
+        DEPRECATED in favor of /api/person/?distinct_id={id}
+        """
+        warnings.warn(
+            "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
+        )
         result = self.get_by_distinct_id(request)
         return response.Response(result)
 
@@ -124,6 +131,12 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_email(self, request):
+        """
+        DEPRECATED in favor of /api/person/?email={email}
+        """
+        warnings.warn(
+            "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
+        )
         result = self.get_by_email(request)
         return response.Response(result)
 
