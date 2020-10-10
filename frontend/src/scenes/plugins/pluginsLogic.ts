@@ -183,7 +183,6 @@ export const pluginsLogic = kea<
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig = pluginConfigs[plugin.id]
-                        console.log(pluginConfig)
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(plugin.configSchema).forEach(([key, { default: def }]) => {
