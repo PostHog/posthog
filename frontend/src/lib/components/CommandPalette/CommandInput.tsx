@@ -11,7 +11,10 @@ export function CommandInput(): JSX.Element {
     const { searchInput, isSqueak } = useValues(commandLogic)
     const { setSearchInput, hidePalette } = useActions(commandLogic)
 
-    const squeakAudio = useMemo(() => new Audio(squeakFile), [])
+    const squeakAudio: HTMLAudioElement | null = useMemo(
+        () => squeakAudio || (isSqueak ? new Audio(squeakFile) : null),
+        [isSqueak]
+    )
 
     const handleKeyDown = useCallback(
         (event: KeyboardEvent): void => {
@@ -28,7 +31,7 @@ export function CommandInput(): JSX.Element {
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {
             if (isSqueak && event.key === 'Enter') {
-                squeakAudio.play()
+                squeakAudio?.play()
             }
         },
         [isSqueak, squeakAudio]
