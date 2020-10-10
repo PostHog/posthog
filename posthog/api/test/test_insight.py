@@ -138,6 +138,18 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 2)
             self.assertEqual(response.get("offset", None), None)
 
+        def test_insight_paths_basic(self):
+            person1 = person_factory(team=self.team, distinct_ids=["person_1"])
+            event_factory(
+                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
+            )
+
+            response = self.client.get("/api/insight/path",).json()
+            self.assertEqual(len(response), 1)
+
         # TODO: remove this check
         if not check_ee_enabled():
 
@@ -174,17 +186,24 @@ def insight_test_factory(event_factory, person_factory):
                 self.assertEqual(len(response["data"]), 11)
                 self.assertEqual(response["data"][0]["values"][0]["count"], 1)
 
-        def test_insight_paths_basic(self):
-            person1 = person_factory(team=self.team, distinct_ids=["person_1"])
-            event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
-            )
+            def test_insight_session_by_id(self):
+                Person.objects.create(team=self.team, distinct_ids=["1"])
+                with freeze_time("2012-01-14T03:21:34.000Z"):
+                    event_factory(team=self.team, event="1st action", distinct_id="1")
+                    event_factory(team=self.team, event="1st action", distinct_id="2")
+                with freeze_time("2012-01-14T03:25:34.000Z"):
+                    event_factory(team=self.team, event="2nd action", distinct_id="1")
+                    event_factory(team=self.team, event="2nd action", distinct_id="2")
+                with freeze_time("2012-01-15T03:59:35.000Z"):
+                    event_factory(team=self.team, event="3rd action", distinct_id="1")
+                with freeze_time("2012-01-15T04:01:34.000Z"):
+                    event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                    event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
-            response = self.client.get("/api/insight/path",).json()
-            self.assertEqual(len(response), 1)
+                with freeze_time("2012-01-15T04:01:34.000Z"):
+                    response_person_1 = self.client.get("/api/insight/session/?distinct_id=1",).json()
+
+                self.assertEqual(len(response_person_1["result"]), 1)
 
     return TestInsightApi
 
