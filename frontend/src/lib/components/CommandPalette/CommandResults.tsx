@@ -1,71 +1,10 @@
 import React, { Dispatch, SetStateAction, useCallback, useState, useEffect } from 'react'
-import styled from 'styled-components'
-import { CommandExecutor, CommandResult as CommandResultType } from './commandLogic'
+import { CommandResult as CommandResultType } from './commandLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useMountedLogic, useValues } from 'kea'
 import { commandLogic } from './commandLogic'
+import { ResultsContainer, Scope, ResultBox, ResultIconContainer, ResultDisplay } from './commandStyledComponents'
 import { clamp } from 'lib/utils'
-
-interface ContainerProps {
-    focused?: boolean
-    isHint?: boolean
-    onClick?: CommandExecutor
-}
-
-const ResultDiv = styled.div<ContainerProps>`
-    height: 4rem;
-    width: 100%;
-    padding: 0 2rem;
-    display: flex;
-    align-items: center;
-    color: rgba(255, 255, 255, 0.95);
-    font-size: 1rem;
-    position: relative;
-    cursor: pointer;
-
-    ${({ focused }) =>
-        focused &&
-        `
-        background-color: rgba(0, 0, 0, 0.35);
-
-        &:before {
-            background-color: #1890ff; 
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 0.375rem;
-        }
-        `}
-    ${({ isHint }) =>
-        isHint &&
-        `
-        color: rgba(255, 255, 255, 0.7) !important;  
-        cursor: default !important;
-    `};
-    }
-`
-
-const Scope = styled.div`
-    height: 1.5rem;
-    line-height: 1.5rem;
-    width: 100%;
-    padding: 0 2rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    font-weight: bold;
-`
-
-const ResultsContainer = styled.div`
-    overflow-y: scroll;
-`
-
-const ResultDisplay = styled.span`
-    padding-left: 1rem;
-`
 
 interface CommandResultProps {
     result: CommandResultType
@@ -83,7 +22,7 @@ function CommandResult({
     setHoverResultIndex,
 }: CommandResultProps): JSX.Element {
     return (
-        <ResultDiv
+        <ResultBox
             onMouseEnter={() => {
                 setHoverResultIndex(result.index)
             }}
@@ -96,9 +35,11 @@ function CommandResult({
                 handleSelection(result)
             }}
         >
-            <result.icon />
+            <ResultIconContainer>
+                <result.icon />
+            </ResultIconContainer>
             <ResultDisplay>{result.display}</ResultDisplay>
-        </ResultDiv>
+        </ResultBox>
     )
 }
 
