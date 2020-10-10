@@ -82,9 +82,9 @@ function resolveCommand(
 }
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
-    connect: {
-        values: [appUrlsLogic({ actionId: null }), ['appUrls', 'suggestions']],
-    },
+    connect: () => ({
+        values: [appUrlsLogic, ['appUrls', 'suggestions']],
+    }),
     actions: {
         hidePalette: true,
         showPalette: true,
