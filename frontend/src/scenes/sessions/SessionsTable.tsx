@@ -10,6 +10,7 @@ import moment from 'moment'
 import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -27,7 +28,10 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             key: 'person',
             render: function RenderSession(session: SessionType) {
                 return (
-                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(session.distinct_id)}`}
+                        className={rrwebBlockClass + ' ph-no-capture'}
+                    >
                         {session.properties?.email || session.distinct_id}
                     </Link>
                 )

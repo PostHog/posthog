@@ -5,6 +5,7 @@ import { PropertyValue } from './PropertyValue'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 const { TabPane } = Tabs
 
@@ -23,6 +24,7 @@ function PropertyPaneContents({
         <>
             <div className={displayOperatorAndValue ? 'col-4 pl-0' : 'col p-0'}>
                 <Select
+                    className={rrwebBlockClass}
                     showSearch
                     autoFocus={!propkey}
                     defaultOpen={!propkey}
@@ -154,6 +156,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
     return (
         <>
             <Select
+                className={rrwebBlockClass}
                 style={{ width: '100%' }}
                 showSearch
                 optionFilterProp="children"
