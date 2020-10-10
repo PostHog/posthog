@@ -157,37 +157,39 @@ export const pluginsLogic = kea<pluginsLogicType<PluginType, PluginRepositoryEnt
         installCustomPlugin: async ({ customPluginUrl }) => {
             const match = customPluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
             if (!match) {
-                actions.setCustomPluginError('Must be in the format: http://github.com/user/repo')
+                actions.setCustomPluginError('Must be in the format: https://github.com/user/repo')
                 return
             }
             const [, , user, repo] = match
 
-            const urls = [
-                `https://raw.githubusercontent.com/${user}/${repo}/main/plugin.json`,
-                `https://raw.githubusercontent.com/${user}/${repo}/master/plugin.json`,
-            ]
+            const repoUrl = `https://api.github.com/repos/${user}/${repo}`
+            const repoDetails = await window
+                .fetch(repoUrl)
+                .then((response) => response?.json())
+                .catch(() => null)
 
-            const promises = urls.map((url) =>
-                window
-                    .fetch(url)
-                    .then((response) => response?.json())
-                    .catch(() => null)
-            )
+            if (!repoDetails) {
+                actions.setCustomPluginError(`Could not find repository: ${customPluginUrl}`)
+                return
+            }
 
-            const responses = await Promise.all(promises)
-            const response = responses.find((r) => r)
+            const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${repoDetails['default_branch']}/plugin.json`
+            const json = await window
+                .fetch(jsonUrl)
+                .then((response) => response?.json())
+                .catch(() => null)
 
-            if (!response) {
+            if (!json) {
                 actions.setCustomPluginError(`Could not find plugin.json in repository: ${customPluginUrl}`)
                 return
             }
 
-            if (Object.values(values.plugins).find((p) => p.name === response.name)) {
-                actions.setCustomPluginError(`Plugin with the name "${response.name}" already installed!`)
+            if (Object.values(values.plugins).find((p) => p.name === json.name)) {
+                actions.setCustomPluginError(`Plugin with the name "${json.name}" already installed!`)
                 return
             }
 
-            actions.installPlugin(response as PluginRepositoryEntry)
+            actions.installPlugin(json as PluginRepositoryEntry)
         },
     }),
 })
