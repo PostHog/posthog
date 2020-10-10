@@ -196,8 +196,6 @@ class _Plugins:
 
         if team_plugins:
             for plugin in team_plugins:
-                print("!!! Running plugin {}, with config {}".format(plugin.name, plugin.config))
-
                 event = self.exec_plugin(plugin.loaded_class, event, "process_event")
                 if event.event == "$identify":
                     event = self.exec_plugin(plugin.loaded_class, event, "process_identify")
