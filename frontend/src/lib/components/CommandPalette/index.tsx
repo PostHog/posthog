@@ -44,7 +44,6 @@ export function CommandPalette(): JSX.Element | null {
     const boxRef = useRef<HTMLDivElement | null>(null)
 
     useHotkeys('cmd+k,ctrl+k', () => {
-        console.log('c+k clicked')
         togglePalette()
     })
     useHotkeys('esc', () => {
@@ -55,6 +54,13 @@ export function CommandPalette(): JSX.Element | null {
     const handleCommandSelection = (result: CommandResultType): void => {
         // Called after a command is selected by the user
         result.executor()
+        // Capture command execution, without useless data
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { icon, index, ...cleanedResult } = result
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { resolver, ...cleanedCommand } = cleanedResult.command
+        cleanedResult.command = cleanedCommand
+        window.posthog.capture('palette command executed', cleanedResult)
         if (!result.custom_command) {
             // The command palette container is kept on the DOM for custom commands,
             // the input is not cleared to ensure consistent navigation.

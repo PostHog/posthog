@@ -17,7 +17,7 @@ import {
     SettingOutlined,
     MessageOutlined,
     TeamOutlined,
-    BookOutlined,
+    LinkOutlined,
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
@@ -30,11 +30,11 @@ import {
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
+import { isURL } from 'lib/utils'
 
 export type CommandExecutor = () => void
 
 export interface CommandResultTemplate {
-    key: string // string for sorting results according to typed text
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
     display: string
     synonyms?: string[]
@@ -65,9 +65,26 @@ export type RegExpCommandPairs = [RegExp | null, Command][]
 
 const RESULTS_MAX = 5
 
-export const GLOBAL_COMMAND_SCOPE = 'global'
+const GLOBAL_COMMAND_SCOPE = 'global'
+
+function resolveCommand(
+    command: Command,
+    resultsArray: CommandResult[],
+    argument?: string,
+    prefixApplied?: string
+): void {
+    const results = Array.isArray(command.resolver) ? command.resolver : command.resolver(argument, prefixApplied)
+    resultsArray.push(
+        ...results.map((result) => {
+            return { ...result, command } as CommandResult
+        })
+    )
+}
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
+    connect: () => ({
+        values: [appUrlsLogic, ['appUrls', 'suggestions']],
+    }),
     actions: {
         hidePalette: true,
         showPalette: true,
@@ -114,6 +131,12 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         ],
     },
     listeners: ({ actions, values }) => ({
+        showPalette: () => {
+            window.posthog.capture('palette shown')
+        },
+        togglePalette: () => {
+            if (values.isPaletteShown) window.posthog.capture('palette shown')
+        },
         deregisterAllWithMatch: ({ keyPrefix }) => {
             for (const command of Object.values(values.commandRegistrations)) {
                 if (command.key.includes(keyPrefix) || command.scope.includes(keyPrefix)) {
@@ -133,7 +156,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         prefixes: [],
                         resolver: [
                             {
-                                key: `p_${person.distinct_ids[0]}`,
                                 icon: UserOutlined,
                                 display: `View person ${input}`,
                                 executor: () => {
@@ -154,7 +176,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         prefixes: [],
                         resolver: [
                             {
-                                key: `p_${person.distinct_ids[0]}`,
                                 icon: UserOutlined,
                                 display: `View person ${input}`,
                                 executor: () => {
@@ -170,6 +191,12 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         },
     }),
     selectors: {
+        isSqueak: [
+            (selectors) => [selectors.searchInput],
+            (searchInput: string) => {
+                return searchInput.trim().toLowerCase() === 'squeak'
+            },
+        ],
         commandRegistrations: [
             (s) => [
                 s.rawCommandRegistrations,
@@ -177,7 +204,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 appUrlsLogic({ actionId: null }).selectors.appUrls,
                 appUrlsLogic({ actionId: null }).selectors.suggestions,
             ],
-            (rawCommandRegistrations, dashboards, appUrls, suggestedUrls) => ({
+            (rawCommandRegistrations, dashboards) => ({
                 ...rawCommandRegistrations,
                 custom_dashboards: {
                     key: 'custom_dashboards',
@@ -191,31 +218,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                             push(`/dashboard/${dashboard.id}`)
                         },
                     })),
-                    scope: GLOBAL_COMMAND_SCOPE,
-                },
-                visit_urls: {
-                    key: 'visit_urls',
-                    prefixes: [],
-                    resolver: [
-                        ...appUrls.map((url: string) => ({
-                            key: `url-${url}`,
-                            icon: BookOutlined,
-                            display: `Visit ${url}`,
-                            synonyms: ['visit'],
-                            executor: () => {
-                                window.open(url)
-                            },
-                        })),
-                        ...suggestedUrls.map((suggestedUrl: string) => ({
-                            key: `url-${suggestedUrl}`,
-                            icon: BookOutlined,
-                            display: `Visit ${suggestedUrl}`,
-                            synonyms: ['visit'],
-                            executor: () => {
-                                window.open(suggestedUrl)
-                            },
-                        })),
-                    ],
                     scope: GLOBAL_COMMAND_SCOPE,
                 },
             }),
@@ -233,8 +235,9 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput],
-            (regexpCommandPairs: RegExpCommandPairs, argument: string) => {
+            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput, selectors.isSqueak],
+            (regexpCommandPairs: RegExpCommandPairs, argument: string, isSqueak: boolean) => {
+                if (isSqueak) return []
                 const directResults: CommandResult[] = []
                 const prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
@@ -258,12 +261,11 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         ],
     },
 
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: () => {
             const { push } = router.actions
             const results: CommandResultTemplate[] = [
                 {
-                    key: 'dashboards',
                     icon: FundOutlined,
                     display: 'Go to Dashboards',
                     executor: () => {
@@ -271,7 +273,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'insights',
                     icon: RiseOutlined,
                     display: 'Go to Insights',
                     executor: () => {
@@ -279,7 +280,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'trends',
                     icon: RiseOutlined,
                     display: 'Go to Trends',
                     executor: () => {
@@ -288,7 +288,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'sessions',
                     icon: ClockCircleOutlined,
                     display: 'Go to Sessions',
                     executor: () => {
@@ -297,7 +296,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'funnels',
                     icon: FunnelPlotOutlined,
                     display: 'Go to Funnels',
                     executor: () => {
@@ -306,7 +304,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'retention',
                     icon: GatewayOutlined,
                     display: 'Go to Retention',
                     executor: () => {
@@ -315,7 +312,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'user_paths',
                     icon: InteractionOutlined,
                     display: 'Go to User Paths',
                     executor: () => {
@@ -324,7 +320,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'events',
                     icon: ContainerOutlined,
                     display: 'Go to Events',
                     executor: () => {
@@ -332,7 +327,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'actions',
                     icon: AimOutlined,
                     display: 'Go to Actions',
                     executor: () => {
@@ -340,7 +334,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'actions/live',
                     icon: SyncOutlined,
                     display: 'Go to Live Actions',
                     executor: () => {
@@ -348,7 +341,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'sessions',
                     icon: ClockCircleOutlined,
                     display: 'Go to Live Sessions',
                     executor: () => {
@@ -356,7 +348,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'people',
                     icon: UserOutlined,
                     display: 'Go to People',
                     synonyms: ['people'],
@@ -365,7 +356,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'cohorts',
                     icon: UsergroupAddOutlined,
                     display: 'Go to Cohorts',
                     executor: () => {
@@ -373,16 +363,14 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'experiments/feature_flags',
                     icon: ExperimentOutlined,
                     display: 'Go to Experiments',
-                    synonyms: ['feature flags', 'a/b test'],
+                    synonyms: ['feature flags', 'a/b tests'],
                     executor: () => {
                         push('/experiments/feature_flags')
                     },
                 },
                 {
-                    key: 'setup',
                     icon: SettingOutlined,
                     display: 'Go to Setup',
                     synonyms: ['settings', 'configuration'],
@@ -391,7 +379,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'annotations',
                     icon: MessageOutlined,
                     display: 'Go to Annotations',
                     executor: () => {
@@ -399,7 +386,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'team',
                     icon: TeamOutlined,
                     display: 'Go to Team',
                     executor: () => {
@@ -407,25 +393,22 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'docs',
-                    icon: BookOutlined,
-                    display: 'Go to Documentation',
-                    synonyms: ['technical docs'],
+                    icon: LinkOutlined,
+                    display: 'Open PostHog Docs',
+                    synonyms: ['technical documentation'],
                     executor: () => {
-                        window.open('https://posthog.com/docs')
+                        open('https://posthog.com/docs')
                     },
                 },
                 {
-                    key: 'feedback',
                     icon: HeartOutlined,
                     display: 'Share Feedback',
                     synonyms: ['help', 'support'],
                     executor: () => {
-                        window.open('mailto:hey@posthog.com?subject=PostHog%20feedback%20(command)')
+                        open('mailto:hey@posthog.com?subject=PostHog%20feedback%20(command)')
                     },
                 },
                 {
-                    key: 'action',
                     icon: PlusOutlined,
                     display: 'Create Action',
                     executor: () => {
@@ -433,7 +416,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'logout',
                     icon: LogoutOutlined,
                     display: 'Log Out',
                     executor: () => {
@@ -441,9 +423,8 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    key: 'create_api_key',
                     icon: KeyOutlined,
-                    display: 'Create Personal API Key',
+                    display: 'Create a Personal API Key',
                     custom_command: true,
                     executor: () => {
                         actions.setCustomCommand('create_api_key')
@@ -453,10 +434,37 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
 
             const globalCommands: Command[] = [
                 {
-                    key: GLOBAL_COMMAND_SCOPE,
-                    prefixes: [],
-                    resolver: results,
+                    key: 'global-commands',
                     scope: GLOBAL_COMMAND_SCOPE,
+                    prefixes: ['open', 'visit'],
+                    resolver: results,
+                },
+                {
+                    key: 'open-urls',
+                    scope: GLOBAL_COMMAND_SCOPE,
+                    prefixes: [],
+                    resolver: (argument) => {
+                        const results: CommandResultTemplate[] = (values.appUrls ?? [])
+                            .concat(values.suggestedUrls ?? [])
+                            .map((url: string) => ({
+                                icon: LinkOutlined,
+                                display: `Open ${url}`,
+                                synonyms: [`Visit ${url}`],
+                                executor: () => {
+                                    open(url)
+                                },
+                            }))
+                        if (isURL(argument))
+                            results.push({
+                                icon: LinkOutlined,
+                                display: `Open ${argument}`,
+                                synonyms: [`Visit ${argument}`],
+                                executor: () => {
+                                    open(argument)
+                                },
+                            })
+                        return results
+                    },
                 },
             ]
             for (const command of globalCommands) {
@@ -464,21 +472,8 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             }
         },
         beforeUnmount: () => {
-            actions.deregisterCommand(GLOBAL_COMMAND_SCOPE)
+            actions.deregisterCommand('global-commands')
+            actions.deregisterCommand('open-urls')
         },
     }),
 })
-
-function resolveCommand(
-    command: Command,
-    resultsArray: CommandResult[],
-    argument?: string,
-    prefixApplied?: string
-): void {
-    const results = Array.isArray(command.resolver) ? command.resolver : command.resolver(argument, prefixApplied)
-    resultsArray.push(
-        ...results.map((result) => {
-            return { ...result, command } as CommandResult
-        })
-    )
-}
