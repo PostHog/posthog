@@ -189,6 +189,8 @@ class _Plugins:
             try:
                 url = URL_TEMPLATE.format(repo=repo, branch=branch)
                 r = requests.get(url)
+                if not r.ok:
+                    continue
                 break
             except requests.RequestException:
                 continue
