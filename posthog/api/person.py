@@ -1,18 +1,19 @@
 import json
-from typing import Any, Dict, List, Union
+import warnings
+from typing import Any, Dict, List
 
 from django.core.cache import cache
-from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import Count, Func, Prefetch, Q, QuerySet
+from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
-from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team
+from posthog.models import Event, Filter, Person, Team
 from posthog.utils import convert_property_value
 
 from .base import CursorPagination as BaseCursorPagination
-from .event import EventSerializer
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -41,11 +42,18 @@ class CursorPagination(BaseCursorPagination):
     page_size = 100
 
 
+class PersonFilter(filters.FilterSet):
+    email = filters.CharFilter(field_name="properties__email")
+    distinct_id = filters.CharFilter(field_name="persondistinctid__distinct_id")
+
+
 class PersonViewSet(viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
+    filter_backends = [filters.DjangoFilterBackend]
+    filterset_class = PersonFilter
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -103,6 +111,12 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
+        """
+        DEPRECATED in favor of /api/person/?distinct_id={id}
+        """
+        warnings.warn(
+            "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
+        )
         result = self.get_by_distinct_id(request)
         return response.Response(result)
 
@@ -112,6 +126,12 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_email(self, request):
+        """
+        DEPRECATED in favor of /api/person/?email={email}
+        """
+        warnings.warn(
+            "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
+        )
         result = self.get_by_email(request)
         return response.Response(result)
 

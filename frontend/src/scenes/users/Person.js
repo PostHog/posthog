@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
+import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { changeType } from 'lib/utils/changeType'
@@ -16,19 +17,24 @@ export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
+    const { push } = router.actions
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
 
     useEffect(() => {
-        let url = ''
         if (distinctId) {
-            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
+            api.get(`api/person/?distinct_id=${distinctId}`).then((response) => {
+                if (response.results.length > 0) {
+                    setPerson(response.results[0])
+                } else {
+                    push('/404')
+                }
+            })
         } else {
-            url = `api/person/${id}`
+            api.get(`api/person/${id}`).then(setPerson)
         }
-        api.get(url).then(setPerson)
     }, [distinctId, id])
 
     function _handleChange(event) {

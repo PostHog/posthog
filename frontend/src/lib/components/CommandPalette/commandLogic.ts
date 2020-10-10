@@ -82,9 +82,9 @@ function resolveCommand(
 }
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
-    connect: {
-        values: [appUrlsLogic({ actionId: null }), ['appUrls', 'suggestions']],
-    },
+    connect: () => ({
+        values: [appUrlsLogic, ['appUrls', 'suggestions']],
+    }),
     actions: {
         hidePalette: true,
         showPalette: true,
@@ -148,15 +148,16 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             await breakpoint(500)
             actions.deregisterAllWithMatch('person')
             if (/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/.test(input)) {
-                try {
-                    const person = await api.get('api/person/by_email/?email=' + input)
+                const response = await api.get('api/person/?email=' + input)
+                const person = response.results[0]
+                if (person) {
                     actions.registerCommand({
                         key: `person-${person.distinct_ids[0]}`,
                         prefixes: [],
                         resolver: [
                             {
                                 icon: UserOutlined,
-                                display: `View person (${input})`,
+                                display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
                                     push(`/person/${person.distinct_ids[0]}`)
@@ -165,17 +166,18 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         ],
                         scope: GLOBAL_COMMAND_SCOPE,
                     })
-                } catch {}
+                }
             } else if (input.length > 10) {
-                try {
-                    const person = await api.get('api/person/by_distinct_id/?distinct_id=' + input)
+                const response = await api.get('api/person/?distinct_id=' + input)
+                const person = response.results[0]
+                if (person) {
                     actions.registerCommand({
                         key: `person-${person.distinct_ids[0]}`,
                         prefixes: [],
                         resolver: [
                             {
                                 icon: UserOutlined,
-                                display: `View person (${input})`,
+                                display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
                                     push(`/person/${person.distinct_ids[0]}`)
@@ -184,7 +186,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         ],
                         scope: GLOBAL_COMMAND_SCOPE,
                     })
-                } catch {}
+                }
             }
         },
     }),
