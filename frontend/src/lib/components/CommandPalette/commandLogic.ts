@@ -189,6 +189,12 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         },
     }),
     selectors: {
+        isSqueak: [
+            (selectors) => [selectors.searchInput],
+            (searchInput: string) => {
+                return searchInput.trim().toLowerCase() === 'squeak'
+            },
+        ],
         commandRegistrations: [
             (s) => [
                 s.rawCommandRegistrations,
@@ -227,8 +233,9 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput],
-            (regexpCommandPairs: RegExpCommandPairs, argument: string) => {
+            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput, selectors.isSqueak],
+            (regexpCommandPairs: RegExpCommandPairs, argument: string, isSqueak: boolean) => {
+                if (isSqueak) return []
                 const directResults: CommandResult[] = []
                 const prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
