@@ -234,7 +234,7 @@ def process_event(
     )
 
     plugins = Plugins()
-    event = plugins.exec_plugins(plugin_event)
+    event = plugins.exec_plugins(plugin_event, team_id)
 
     if event:
         _capture(
