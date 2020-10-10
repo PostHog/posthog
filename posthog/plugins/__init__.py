@@ -127,7 +127,7 @@ class _Plugins:
         p.run_in_thread(sleep_time=1, daemon=True)
 
     @staticmethod
-    def publish_reload_command(self):
+    def publish_reload_command():
         REDIS_INSTANCE.publish("plugin-reload-channel", "yeah!")
 
     def load_plugins(self):
