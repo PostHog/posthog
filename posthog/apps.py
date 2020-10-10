@@ -1,5 +1,5 @@
-import json
 import os
+import sys
 
 import posthoganalytics
 from django.apps import AppConfig
@@ -18,8 +18,9 @@ class PostHogConfig(AppConfig):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
-        # Load plugins
-        Plugins()
+        # Load plugins, except under "migrate/makemigrations" as those init the Plugins model which might not be there
+        if not "makemigrations" in sys.argv and not "migrate" in sys.argv:
+            Plugins()
 
         if settings.DEBUG:
             # log development server launch to posthog
