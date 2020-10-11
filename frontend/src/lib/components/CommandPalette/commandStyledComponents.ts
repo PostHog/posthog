@@ -48,7 +48,6 @@ export const CommandInputElement = styled.input`
 
 interface ResultBoxProps {
     focused?: boolean
-    isHint?: boolean
     onClick?: CommandExecutor
 }
 
@@ -78,12 +77,6 @@ export const ResultBox = styled.div<ResultBoxProps>`
             width: 0.375rem;
         }
         `}
-    ${({ isHint }) =>
-        isHint &&
-        `
-        color: rgba(255, 255, 255, 0.7) !important;  
-        cursor: default !important;
-    `};
     }
 `
 

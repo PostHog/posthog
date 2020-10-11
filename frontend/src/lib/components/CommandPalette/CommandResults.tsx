@@ -10,17 +10,10 @@ interface CommandResultProps {
     result: CommandResultType
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
-    isHint?: boolean
     setHoverResultIndex: Dispatch<SetStateAction<number | undefined | null>>
 }
 
-function CommandResult({
-    result,
-    focused,
-    isHint,
-    handleSelection,
-    setHoverResultIndex,
-}: CommandResultProps): JSX.Element {
+function CommandResult({ result, focused, handleSelection, setHoverResultIndex }: CommandResultProps): JSX.Element {
     return (
         <ResultBox
             onMouseEnter={() => {
@@ -30,7 +23,6 @@ function CommandResult({
                 setHoverResultIndex(null)
             }}
             focused={focused}
-            isHint={isHint}
             onClick={() => {
                 handleSelection(result)
             }}
