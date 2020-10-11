@@ -11,7 +11,7 @@ import { RiseOutlined } from '@ant-design/icons'
 import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
 import { dateMapping } from 'lib/utils'
 
-const INSIGHT_COMMAND_SCOPE = 'Insights'
+const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
     connect: [commandLogic, compareFilterLogic, dateFilterLogic],
@@ -23,13 +23,13 @@ export const insightCommandLogic = kea<commandLogicType<Command, CommandRegistra
                     icon: RiseOutlined,
                     display: 'Toggle "Compare Previous" on Graph',
                     executor: () => {
-                        compareFilterLogic.actions.setCompare(!compareFilterLogic.values.compare)
+                        compareFilterLogic.actions.toggleCompare()
                     },
                 },
                 ...Object.entries(dateMapping).map(([key, value]) => ({
                     key: `insight-${key}`,
                     icon: RiseOutlined,
-                    display: `Set time range to ${key}`,
+                    display: `Set Time Range to ${key}`,
                     executor: () => {
                         dateFilterLogic.actions.setDates(value[0], value[1])
                     },
