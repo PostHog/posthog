@@ -442,7 +442,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         try {
                             return {
                                 icon: CalculatorOutlined,
-                                display: `Calculated ${Parser.evaluate(argument)}`,
+                                display: `= ${Parser.evaluate(argument)}`,
                                 showAlways: true,
                                 executor: () => {
                                     open(`https://www.wolframalpha.com/input/?i=${encodeURIComponent(argument)}`)
