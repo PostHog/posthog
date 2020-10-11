@@ -479,5 +479,5 @@ export function isMac() {
 }
 
 export function platformSuperKey() {
-    return isMac() ? 'Cmd' : 'Ctrl'
+    return isMac() ? '⌘' : 'Ctrl'
 }
