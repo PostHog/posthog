@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
-
+import { Parser } from 'expr-eval'
 import {
     FundOutlined,
     RiseOutlined,
@@ -18,6 +18,7 @@ import {
     MessageOutlined,
     TeamOutlined,
     LinkOutlined,
+    CalculatorOutlined,
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
@@ -40,6 +41,7 @@ export interface CommandResultTemplate {
     synonyms?: string[]
     prefixApplied?: string
     executor: CommandExecutor
+    showAlways?: boolean // show result always and first, regardless of fuzzy search
     custom_command?: boolean
 }
 
@@ -48,12 +50,15 @@ export type CommandResult = CommandResultTemplate & {
     index?: number
 }
 
-export type CommandResolver = (argument?: string, prefixApplied?: string) => CommandResultTemplate[]
+export type CommandResolver = (
+    argument?: string,
+    prefixApplied?: string
+) => CommandResultTemplate[] | CommandResultTemplate | null
 
 export interface Command {
     key: string // Unique command identification key
     prefixes?: string[] // Command prefixes, e.g. "go to". Prefix-less case is dynamic base command (e.g. Dashboard)
-    resolver: CommandResolver | CommandResultTemplate[] // Resolver based on arguments (prefix excluded)
+    resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate // Resolver based on arguments (prefix excluded)
     scope: string
 }
 
@@ -69,16 +74,17 @@ const GLOBAL_COMMAND_SCOPE = 'global'
 
 function resolveCommand(
     command: Command,
-    resultsArray: CommandResult[],
+    resultsSoFar: CommandResult[],
     argument?: string,
     prefixApplied?: string
 ): void {
-    const results = Array.isArray(command.resolver) ? command.resolver : command.resolver(argument, prefixApplied)
-    resultsArray.push(
-        ...results.map((result) => {
-            return { ...result, command } as CommandResult
-        })
-    )
+    let results = command.resolver instanceof Function ? command.resolver(argument, prefixApplied) : command.resolver // run resolver or use ready-made results
+    if (!results) return // skip if no result
+    if (!Array.isArray(results)) results = [results] // work with a single result and with an array of results
+    const resultsWithCommand: CommandResult[] = results.map((result) => {
+        return { ...result, command }
+    })
+    resultsSoFar.push(...resultsWithCommand)
 }
 
 export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
@@ -229,14 +235,21 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     }
                     resolveCommand(command, directResults, argument)
                 }
-                const fuse = new Fuse(directResults.concat(prefixedResults), {
+                const allResults = directResults.concat(prefixedResults)
+                const fusableResults: CommandResult[] = []
+                const guaranteedResults: CommandResult[] = []
+                for (const result of allResults) {
+                    if (result.showAlways) guaranteedResults.push(result)
+                    else fusableResults.push(result)
+                }
+                const fusedResults = new Fuse(fusableResults, {
                     keys: ['display', 'synonyms'],
                 })
-                return fuse
                     .search(argument)
                     .slice(0, RESULTS_MAX)
                     .map((result) => result.item)
-                    .sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
+                const finalResults = guaranteedResults.concat(fusedResults)
+                return finalResults.sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
             },
         ],
     },
@@ -418,6 +431,27 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     scope: GLOBAL_COMMAND_SCOPE,
                     prefixes: ['open', 'visit'],
                     resolver: results,
+                },
+                {
+                    key: 'calculator',
+                    scope: GLOBAL_COMMAND_SCOPE,
+                    prefixes: [],
+                    resolver: (argument) => {
+                        // don't try evaluating if there's no argument or if it's a plain number already
+                        if (!argument || !isNaN(+argument)) return null
+                        try {
+                            return {
+                                icon: CalculatorOutlined,
+                                display: `Calculated ${Parser.evaluate(argument)}`,
+                                showAlways: true,
+                                executor: () => {
+                                    open(`https://www.wolframalpha.com/input/?i=${encodeURIComponent(argument)}`)
+                                },
+                            }
+                        } catch {
+                            return null
+                        }
+                    },
                 },
                 {
                     key: 'open-urls',

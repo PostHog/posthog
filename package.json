@@ -42,6 +42,7 @@
         "d3-sankey": "^0.12.3",
         "editor": "^1.0.0",
         "eslint-plugin-cypress": "^2.11.1",
+        "expr-eval": "^2.0.2",
         "funnel-graph-js": "^1.4.1",
         "fuse.js": "^6.4.1",
         "kea": "^2.2.0",
@@ -65,8 +66,8 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb-player": "^0.6.2",
         "rrweb": "^0.9.7",
+        "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
         "styled-components": "^5.2.0",
         "zxcvbn": "^4.4.2"
