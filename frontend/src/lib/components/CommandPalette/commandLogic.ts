@@ -4,6 +4,7 @@ import { commandLogicType } from 'types/lib/components/CommandPalette/commandLog
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
+import _ from 'lodash'
 import {
     FundOutlined,
     RiseOutlined,
@@ -41,7 +42,7 @@ export interface CommandResultTemplate {
     synonyms?: string[]
     prefixApplied?: string
     executor: CommandExecutor
-    showAlways?: boolean // show result always and first, regardless of fuzzy search
+    guarantee?: boolean // show result always and first, regardless of fuzzy search
     custom_command?: boolean
 }
 
@@ -239,15 +240,17 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 const fusableResults: CommandResult[] = []
                 const guaranteedResults: CommandResult[] = []
                 for (const result of allResults) {
-                    if (result.showAlways) guaranteedResults.push(result)
+                    if (result.guarantee) guaranteedResults.push(result)
                     else fusableResults.push(result)
                 }
-                const fusedResults = new Fuse(fusableResults, {
-                    keys: ['display', 'synonyms'],
-                })
-                    .search(argument)
-                    .slice(0, RESULTS_MAX)
-                    .map((result) => result.item)
+                const fusedResults = argument
+                    ? new Fuse(fusableResults, {
+                          keys: ['display', 'synonyms'],
+                      })
+                          .search(argument)
+                          .slice(0, RESULTS_MAX)
+                          .map((result) => result.item)
+                    : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
                 const finalResults = guaranteedResults.concat(fusedResults)
                 return finalResults.sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
             },
@@ -440,14 +443,17 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                         // don't try evaluating if there's no argument or if it's a plain number already
                         if (!argument || !isNaN(+argument)) return null
                         try {
-                            return {
-                                icon: CalculatorOutlined,
-                                display: `= ${Parser.evaluate(argument)}`,
-                                showAlways: true,
-                                executor: () => {
-                                    open(`https://www.wolframalpha.com/input/?i=${encodeURIComponent(argument)}`)
-                                },
-                            }
+                            const result = +Parser.evaluate(argument)
+                            return isNaN(result)
+                                ? null
+                                : {
+                                      icon: CalculatorOutlined,
+                                      display: `= ${Parser.evaluate(argument)}`,
+                                      guarantee: true,
+                                      executor: () => {
+                                          open(`https://www.wolframalpha.com/input/?i=${encodeURIComponent(argument)}`)
+                                      },
+                                  }
                         } catch {
                             return null
                         }
