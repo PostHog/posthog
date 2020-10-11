@@ -112,4 +112,7 @@ export const ResultIconContainer = styled.span`
 
 export const ResultDisplay = styled.span`
     padding-left: 1.5rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
 `

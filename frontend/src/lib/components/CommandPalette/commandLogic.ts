@@ -147,28 +147,8 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         setSearchInput: async ({ input }, breakpoint) => {
             await breakpoint(500)
             actions.deregisterAllWithMatch('person')
-            if (/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/.test(input)) {
-                const response = await api.get('api/person/?email=' + input)
-                const person = response.results[0]
-                if (person) {
-                    actions.registerCommand({
-                        key: `person-${person.distinct_ids[0]}`,
-                        prefixes: [],
-                        resolver: [
-                            {
-                                icon: UserOutlined,
-                                display: `View person ${input}`,
-                                executor: () => {
-                                    const { push } = router.actions
-                                    push(`/person/${person.distinct_ids[0]}`)
-                                },
-                            },
-                        ],
-                        scope: GLOBAL_COMMAND_SCOPE,
-                    })
-                }
-            } else if (input.length > 10) {
-                const response = await api.get('api/person/?distinct_id=' + input)
+            if (input.length > 8) {
+                const response = await api.get('api/person/?key_identifier=' + input)
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({

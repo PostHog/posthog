@@ -92,45 +92,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
         }
     }
 
-    /* Command palette custom commands */
-    // const commandBilling = {
-    //     key: 'billing',
-    //     prefixes: [],
-    //     resolver: () => {
-    //         return [
-    //             {
-    //                 key: 'billing',
-    //                 icon: WalletOutlined,
-    //                 display: 'go to billing',
-    //                 executor: ({ push }) => {
-    //                     push('/billing')
-    //                 },
-    //             },
-    //         ]
-    //     },
-    // }
-
-    // const commandLicense = {
-    //     key: 'licenses',
-    //     prefixes: [],
-    //     resolver: () => {
-    //         return [
-    //             {
-    //                 key: 'license',
-    //                 icon: LockOutlined,
-    //                 display: 'go to licenses',
-    //                 executor: ({ push }) => {
-    //                     push('/setup/licenses')
-    //                 },
-    //             },
-    //         ]
-    //     },
-    // }
-
-    // useCommands([commandBilling], featureFlags['billing-management-page'])
-    // useCommands([commandLicense], !user.is_multi_tenancy && user.ee_available)
-    /* End command palette custom commands */
-
     return (
         <>
             <div
