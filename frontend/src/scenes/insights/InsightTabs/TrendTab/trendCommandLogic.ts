@@ -1,9 +1,9 @@
-import { Command, commandLogic, CommandRegistrations } from 'lib/components/CommandPalette/commandLogic'
-import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
+import { Command, commandPaletteLogic, CommandRegistrations } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
 import { kea } from 'kea'
 
-export const trendCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
-    connect: [commandLogic],
+export const trendCommandLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
+    connect: [commandPaletteLogic],
     events: () => ({
         afterMount: () => {},
         beforeUnmount: () => {},

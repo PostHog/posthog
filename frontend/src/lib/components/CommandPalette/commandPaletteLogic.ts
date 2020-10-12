@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
+import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -23,31 +23,32 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
-    HeartOutlined,
+    MailOutlined,
+    KeyOutlined,
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
-    KeyOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { isURL } from 'lib/utils'
+import { copyToClipboard, isURL } from 'lib/utils'
+import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
-export type CommandExecutor = () => void
+// If CommandExecutor returns CommandFlow, flow will be entered
+export type CommandExecutor = () => CommandFlow | void
 
 export interface CommandResultTemplate {
     icon: any // any, because Ant Design icons are some weird ForwardRefExoticComponent type
     display: string
     synonyms?: string[]
     prefixApplied?: string
-    executor: CommandExecutor
+    executor?: CommandExecutor
     guarantee?: boolean // show result always and first, regardless of fuzzy search
-    custom_command?: boolean
 }
 
 export type CommandResult = CommandResultTemplate & {
-    command: Command
+    source: Command | CommandFlow
     index?: number
 }
 
@@ -63,6 +64,13 @@ export interface Command {
     scope: string
 }
 
+export interface CommandFlow {
+    icon?: any
+    instruction: string | null
+    resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
+    scope: string
+}
+
 export type CommandRegistrations = {
     [commandKey: string]: Command
 }
@@ -74,29 +82,38 @@ const RESULTS_MAX = 5
 const GLOBAL_COMMAND_SCOPE = 'global'
 
 function resolveCommand(
-    command: Command,
+    source: Command | CommandFlow,
     resultsSoFar: CommandResult[],
     argument?: string,
     prefixApplied?: string
 ): void {
-    let results = command.resolver instanceof Function ? command.resolver(argument, prefixApplied) : command.resolver // run resolver or use ready-made results
+    // run resolver or use ready-made results
+    let results = source.resolver instanceof Function ? source.resolver(argument, prefixApplied) : source.resolver
     if (!results) return // skip if no result
     if (!Array.isArray(results)) results = [results] // work with a single result and with an array of results
     const resultsWithCommand: CommandResult[] = results.map((result) => {
-        return { ...result, command }
+        return { ...result, source }
     })
     resultsSoFar.push(...resultsWithCommand)
 }
 
-export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
+export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
     connect: () => ({
+        actions: [personalAPIKeysLogic, ['createKey']],
         values: [appUrlsLogic, ['appUrls', 'suggestions']],
     }),
     actions: {
         hidePalette: true,
         showPalette: true,
         togglePalette: true,
-        setSearchInput: (input: string) => ({ input }),
+        setInput: (input: string) => ({ input }),
+        onArrowUp: true,
+        onArrowDown: (maxIndex: number) => ({ maxIndex }),
+        onMouseEnterResult: (index: number) => ({ index }),
+        onMouseLeaveResult: true,
+        executeResult: (result: CommandResult) => ({ result }),
+        activateFlow: (flow: CommandFlow) => ({ flow }),
+        deactivateFlow: true,
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -109,6 +126,44 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 hidePalette: () => false,
                 showPalette: () => true,
                 togglePalette: (previousState) => !previousState,
+            },
+        ],
+        keyboardResultIndex: [
+            0,
+            {
+                setInput: () => 0,
+                executeResult: () => 0,
+                activateFlow: () => 0,
+                deactivateFlow: () => 0,
+                onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
+                onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
+            },
+        ],
+        hoverResultIndex: [
+            null as number | null,
+            {
+                onMouseEnterResult: (_, { index }) => index,
+                onMouseLeaveResult: () => null,
+                onArrowUp: () => null,
+                onArrowDown: () => null,
+                activateFlow: () => null,
+                deactivateFlow: () => null,
+            },
+        ],
+        input: [
+            '',
+            {
+                setInput: (_, { input }) => input,
+                activateFlow: () => '',
+                deactivateFlow: () => '',
+                executeResult: () => '',
+            },
+        ],
+        activeFlow: [
+            null as CommandFlow | null,
+            {
+                activateFlow: (_, { flow }) => flow,
+                deactivateFlow: () => null,
             },
         ],
         rawCommandRegistrations: [
@@ -124,25 +179,26 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 },
             },
         ],
-        searchInput: [
-            '',
-            {
-                setSearchInput: (_, { input }) => input,
-            },
-        ],
-        customCommand: [
-            '',
-            {
-                setCustomCommand: (_, { commandKey }) => commandKey,
-            },
-        ],
     },
+
     listeners: ({ actions, values }) => ({
         showPalette: () => {
             window.posthog?.capture('palette shown')
         },
         togglePalette: () => {
             if (values.isPaletteShown) window.posthog?.capture('palette shown')
+        },
+        executeResult: ({ result }: { result: CommandResult }) => {
+            const possibleFlow = result.executor?.() ?? null
+            actions.activateFlow(possibleFlow)
+            if (!possibleFlow) actions.hidePalette()
+            // Capture command execution, without useless data
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { icon, index, ...cleanedResult } = result
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { resolver, ...cleanedCommand } = cleanedResult.source
+            cleanedResult.source = cleanedCommand
+            window.posthog?.capture('palette command executed', cleanedResult)
         },
         deregisterAllWithMatch: ({ keyPrefix }) => {
             for (const command of Object.values(values.commandRegistrations)) {
@@ -151,7 +207,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 }
             }
         },
-        setSearchInput: async ({ input }, breakpoint) => {
+        setInput: async ({ input }, breakpoint) => {
             await breakpoint(500)
             actions.deregisterAllWithMatch('person')
             if (input.length > 8) {
@@ -179,19 +235,25 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
     }),
     selectors: {
         isSqueak: [
-            (selectors) => [selectors.searchInput],
-            (searchInput: string) => {
-                return searchInput.trim().toLowerCase() === 'squeak'
+            (selectors) => [selectors.input],
+            (input: string) => {
+                return input.trim().toLowerCase() === 'squeak'
+            },
+        ],
+        activeResultIndex: [
+            (selectors) => [selectors.keyboardResultIndex, selectors.hoverResultIndex],
+            (keyboardResultIndex: number, hoverResultIndex: number | null) => {
+                return hoverResultIndex ?? keyboardResultIndex
             },
         ],
         commandRegistrations: [
-            (s) => [
-                s.rawCommandRegistrations,
+            (selectors) => [
+                selectors.rawCommandRegistrations,
                 dashboardsModel.selectors.dashboards,
                 appUrlsLogic({ actionId: null }).selectors.appUrls,
                 appUrlsLogic({ actionId: null }).selectors.suggestions,
             ],
-            (rawCommandRegistrations, dashboards) => ({
+            (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]) => ({
                 ...rawCommandRegistrations,
                 custom_dashboards: {
                     key: 'custom_dashboards',
@@ -199,7 +261,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to Custom Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
                             push(`/dashboard/${dashboard.id}`)
@@ -222,9 +284,19 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.regexpCommandPairs, selectors.searchInput, selectors.isSqueak],
-            (regexpCommandPairs: RegExpCommandPairs, argument: string, isSqueak: boolean) => {
+            (selectors) => [selectors.regexpCommandPairs, selectors.input, selectors.activeFlow, selectors.isSqueak],
+            (
+                regexpCommandPairs: RegExpCommandPairs,
+                argument: string,
+                activeFlow: CommandFlow | null,
+                isSqueak: boolean
+            ) => {
                 if (isSqueak) return []
+                if (activeFlow) {
+                    const results: CommandResult[] = []
+                    resolveCommand(activeFlow, results, argument)
+                    return results
+                }
                 const directResults: CommandResult[] = []
                 const prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
@@ -237,12 +309,14 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     resolveCommand(command, directResults, argument)
                 }
                 const allResults = directResults.concat(prefixedResults)
-                const fusableResults: CommandResult[] = []
-                const guaranteedResults: CommandResult[] = []
+                let fusableResults: CommandResult[] = []
+                let guaranteedResults: CommandResult[] = []
                 for (const result of allResults) {
                     if (result.guarantee) guaranteedResults.push(result)
                     else fusableResults.push(result)
                 }
+                fusableResults = _.uniqBy(fusableResults, 'display')
+                guaranteedResults = _.uniqBy(guaranteedResults, 'display')
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
                           keys: ['display', 'synonyms'],
@@ -251,9 +325,15 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
                     : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
-                const finalResults = _.uniqBy(guaranteedResults.concat(fusedResults), 'display')
-                // put global scope lasst
-                return finalResults.sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
+                const finalResults = guaranteedResults.concat(fusedResults)
+                // put global scope last
+                return finalResults.sort((resultA, resultB) =>
+                    resultA.source.scope === resultB.source.scope
+                        ? 0
+                        : resultA.source.scope === GLOBAL_COMMAND_SCOPE
+                        ? 1
+                        : -1
+                )
             },
         ],
         commandSearchResultsGrouped: [
@@ -261,7 +341,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
             (commandSearchResults: CommandResult[]) => {
                 const resultsGrouped: { [scope: string]: CommandResult[] } = {}
                 for (const result of commandSearchResults) {
-                    const scope: string = result.command.scope
+                    const scope: string = result.source.scope
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
@@ -277,7 +357,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
         ],
     },
 
-    events: ({ actions, values }) => ({
+    events: ({ actions }) => ({
         afterMount: () => {
             const { push } = router.actions
             const results: CommandResultTemplate[] = [
@@ -299,7 +379,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     icon: RiseOutlined,
                     display: 'Go to Trends',
                     executor: () => {
-                        // TODO: Fix me
+                        // FIXME: Don't reset insight on change
                         push('/insights?insight=TRENDS')
                     },
                 },
@@ -307,7 +387,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     icon: ClockCircleOutlined,
                     display: 'Go to Sessions',
                     executor: () => {
-                        // TODO: Fix me
+                        // FIXME: Don't reset insight on change
                         push('/insights?insight=SESSIONS')
                     },
                 },
@@ -315,7 +395,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     icon: FunnelPlotOutlined,
                     display: 'Go to Funnels',
                     executor: () => {
-                        // TODO: Fix me
+                        // FIXME: Don't reset insight on change
                         push('/insights?insight=FUNNELS')
                     },
                 },
@@ -323,7 +403,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     icon: GatewayOutlined,
                     display: 'Go to Retention',
                     executor: () => {
-                        // TODO: Fix me
+                        // FIXME: Don't reset insight on change
                         push('/insights?insight=RETENTION')
                     },
                 },
@@ -331,7 +411,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     icon: InteractionOutlined,
                     display: 'Go to User Paths',
                     executor: () => {
-                        // TODO: Fix me
+                        // FIXME: Don't reset insight on change
                         push('/insights?insight=PATHS')
                     },
                 },
@@ -417,11 +497,11 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     },
                 },
                 {
-                    icon: HeartOutlined,
-                    display: 'Share Feedback',
+                    icon: MailOutlined,
+                    display: 'Email PostHog',
                     synonyms: ['help', 'support'],
                     executor: () => {
-                        open('mailto:hey@posthog.com?subject=PostHog%20feedback%20(command)')
+                        open('mailto:hey@posthog.com')
                     },
                 },
                 {
@@ -436,14 +516,6 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                     display: 'Log Out',
                     executor: () => {
                         window.location.href = '/logout'
-                    },
-                },
-                {
-                    icon: KeyOutlined,
-                    display: 'Create a Personal API Key',
-                    custom_command: true,
-                    executor: () => {
-                        actions.setCustomCommand('create_api_key')
                     },
                 },
             ]
@@ -468,10 +540,10 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                                 ? null
                                 : {
                                       icon: CalculatorOutlined,
-                                      display: `= ${Parser.evaluate(argument)}`,
+                                      display: `= ${result}`,
                                       guarantee: true,
                                       executor: () => {
-                                          open(`https://www.wolframalpha.com/input/?i=${encodeURIComponent(argument)}`)
+                                          copyToClipboard(result.toString(), 'calculation result')
                                       },
                                   }
                         } catch {
@@ -482,10 +554,10 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                 {
                     key: 'open-urls',
                     scope: GLOBAL_COMMAND_SCOPE,
-                    prefixes: [],
+                    prefixes: ['open', 'visit'],
                     resolver: (argument) => {
-                        const results: CommandResultTemplate[] = (values.appUrls ?? [])
-                            .concat(values.suggestedUrls ?? [])
+                        const results: CommandResultTemplate[] = (appUrlsLogic.values.appUrls ?? [])
+                            .concat(appUrlsLogic.values.suggestedUrls ?? [])
                             .map((url: string) => ({
                                 icon: LinkOutlined,
                                 display: `Open ${url}`,
@@ -504,6 +576,31 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                                 },
                             })
                         return results
+                    },
+                },
+                {
+                    key: 'create-personal-api-key',
+                    scope: GLOBAL_COMMAND_SCOPE,
+                    prefixes: [],
+                    resolver: {
+                        icon: KeyOutlined,
+                        display: 'Create a Personal API Key',
+                        executor: () => ({
+                            instruction: 'Give your key a label',
+                            scope: 'Creating a Personal API Key',
+                            resolver: (argument) => {
+                                if (argument?.length)
+                                    return {
+                                        icon: KeyOutlined,
+                                        display: `Create Key "${argument}"`,
+                                        executor: () => {
+                                            personalAPIKeysLogic.actions.createKey(argument)
+                                            push('/setup', {}, 'personal-api-keys')
+                                        },
+                                    }
+                                return null
+                            },
+                        }),
                     },
                 },
             ]

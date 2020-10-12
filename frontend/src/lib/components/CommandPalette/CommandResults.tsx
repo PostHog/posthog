@@ -1,29 +1,32 @@
-import React, { Dispatch, SetStateAction, useCallback, useState, useEffect } from 'react'
-import { CommandResult as CommandResultType } from './commandLogic'
+import React from 'react'
+import { CommandResult as CommandResultType } from './commandPaletteLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useMountedLogic, useValues } from 'kea'
-import { commandLogic } from './commandLogic'
-import { clamp } from 'lib/utils'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { commandPaletteLogic } from './commandPaletteLogic'
 
 interface CommandResultProps {
     result: CommandResultType
-    handleSelection: (result: CommandResultType) => void
     focused?: boolean
-    setHoverResultIndex: Dispatch<SetStateAction<number | undefined>>
 }
 
-function CommandResult({ result, focused, handleSelection, setHoverResultIndex }: CommandResultProps): JSX.Element {
+function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
+    const { onMouseEnterResult, onMouseLeaveResult, executeResult } = useActions(commandPaletteLogic)
+
+    const isExecutable = !!result.executor
+
     return (
         <div
-            className={`palette_row palette__result ${focused ? 'palette__result--focused' : ''}`}
+            className={`palette_row palette__result ${focused ? 'palette__result--focused' : ''} ${
+                isExecutable ? 'palette__result--executable' : ''
+            }`}
             onMouseEnter={() => {
-                setHoverResultIndex(result.index)
+                onMouseEnterResult(result.index)
             }}
             onMouseLeave={() => {
-                setHoverResultIndex(undefined)
+                onMouseLeaveResult()
             }}
             onClick={() => {
-                handleSelection(result)
+                if (isExecutable) executeResult(result)
             }}
         >
             <result.icon className="palette__icon" />
@@ -35,101 +38,50 @@ function CommandResult({ result, focused, handleSelection, setHoverResultIndex }
 interface ResultsGroupProps {
     scope: string
     results: CommandResultType[]
-    handleCommandSelection: (result: CommandResultType) => void
-    setHoverResultIndex: Dispatch<SetStateAction<number | undefined>>
-    actuallyActiveResultIndex: number
+    activeResultIndex: number
 }
 
-export function ResultsGroup({
-    scope,
-    results,
-    handleCommandSelection,
-    setHoverResultIndex,
-    actuallyActiveResultIndex,
-}: ResultsGroupProps): JSX.Element {
+export function ResultsGroup({ scope, results, activeResultIndex }: ResultsGroupProps): JSX.Element {
     return (
         <>
             <div className="palette__row palette__row--small palette__scope">{scope}</div>
             {results.map((result) => (
                 <CommandResult
                     result={result}
-                    focused={result.index === actuallyActiveResultIndex}
+                    focused={result.index === activeResultIndex}
                     key={`command-result-${result.index}`}
-                    handleSelection={handleCommandSelection}
-                    setHoverResultIndex={setHoverResultIndex}
                 />
             ))}
         </>
     )
 }
 
-interface CommandResultsProps {
-    handleCommandSelection: (result: CommandResultType) => void
-}
+export function CommandResults(): JSX.Element {
+    useMountedLogic(commandPaletteLogic)
 
-export function CommandResults({ handleCommandSelection }: CommandResultsProps): JSX.Element {
-    useMountedLogic(commandLogic)
+    const { activeResultIndex, isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(
+        commandPaletteLogic
+    )
+    const { executeResult, onArrowUp, onArrowDown } = useActions(commandPaletteLogic)
 
-    const { searchInput, isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(commandLogic)
-
-    const [activeResultIndex, setActiveResultIndex] = useState(0)
-    const [hoverResultIndex, setHoverResultIndex] = useState<number | undefined>()
-
-    const actuallyActiveResultIndex =
-        hoverResultIndex ??
-        (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length - 1) : 0)
-
-    const handleEnterDown = useCallback(
-        (event: KeyboardEvent) => {
+    useEventListener('keydown', (event: KeyboardEvent) => {
+        if (isPaletteShown) {
             if (event.key === 'Enter' && commandSearchResults.length) {
-                handleCommandSelection(commandSearchResults[actuallyActiveResultIndex])
+                const result = commandSearchResults[activeResultIndex]
+                const isExecutable = !!result.executor
+                if (isExecutable) executeResult(result)
+            } else if (event.key === 'ArrowDown') {
+                onArrowDown(commandSearchResults.length - 1)
+            } else if (event.key === 'ArrowUp') {
+                onArrowUp()
             }
-        },
-        [actuallyActiveResultIndex, commandSearchResults]
-    )
-
-    useEventListener('keydown', handleEnterDown)
-
-    useEffect(() => {
-        setHoverResultIndex(undefined)
-        setActiveResultIndex(0)
-    }, [isPaletteShown, searchInput])
-
-    const handleKeyDown = useCallback(
-        (event: KeyboardEvent) => {
-            if (isPaletteShown) {
-                if (event.key === 'ArrowDown') {
-                    setActiveResultIndex(Math.min(actuallyActiveResultIndex + 1, commandSearchResults.length - 1))
-                    setHoverResultIndex(undefined)
-                } else if (event.key === 'ArrowUp') {
-                    setActiveResultIndex(Math.max(actuallyActiveResultIndex - 1, 0))
-                    setHoverResultIndex(undefined)
-                }
-            }
-        },
-        [
-            setActiveResultIndex,
-            setHoverResultIndex,
-            hoverResultIndex,
-            activeResultIndex,
-            commandSearchResults,
-            isPaletteShown,
-        ]
-    )
-
-    useEventListener('keydown', handleKeyDown)
+        }
+    })
 
     return (
         <div>
             {commandSearchResultsGrouped.map(([scope, results]) => (
-                <ResultsGroup
-                    key={scope}
-                    scope={scope}
-                    results={results}
-                    handleCommandSelection={handleCommandSelection}
-                    setHoverResultIndex={setHoverResultIndex}
-                    actuallyActiveResultIndex={actuallyActiveResultIndex}
-                />
+                <ResultsGroup key={scope} scope={scope} results={results} activeResultIndex={activeResultIndex} />
             ))}
         </div>
     )

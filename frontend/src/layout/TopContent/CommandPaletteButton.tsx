@@ -1,12 +1,12 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { commandLogic } from 'lib/components/CommandPalette/commandLogic'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SearchOutlined } from '@ant-design/icons'
 import { platformCommandControlKey } from 'lib/utils'
 
 export function CommandPaletteButton(): JSX.Element {
-    const { isPaletteShown } = useValues(commandLogic)
-    const { showPalette } = useActions(commandLogic)
+    const { isPaletteShown } = useValues(commandPaletteLogic)
+    const { showPalette } = useActions(commandPaletteLogic)
 
     return (
         <span

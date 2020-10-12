@@ -1,10 +1,10 @@
 import {
     Command,
-    commandLogic,
+    commandPaletteLogic,
     CommandRegistrations,
     CommandResultTemplate,
-} from 'lib/components/CommandPalette/commandLogic'
-import { commandLogicType } from 'types/lib/components/CommandPalette/commandLogicType'
+} from 'lib/components/CommandPalette/commandPaletteLogic'
+import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
 import { kea } from 'kea'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
@@ -13,8 +13,8 @@ import { dateMapping } from 'lib/utils'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
-export const insightCommandLogic = kea<commandLogicType<Command, CommandRegistrations>>({
-    connect: [commandLogic, compareFilterLogic, dateFilterLogic],
+export const insightCommandLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
+    connect: [commandPaletteLogic, compareFilterLogic, dateFilterLogic],
     events: () => ({
         afterMount: () => {
             const results: CommandResultTemplate[] = [
@@ -45,11 +45,11 @@ export const insightCommandLogic = kea<commandLogicType<Command, CommandRegistra
                 },
             ]
             for (const command of funnelCommands) {
-                commandLogic.actions.registerCommand(command)
+                commandPaletteLogic.actions.registerCommand(command)
             }
         },
         beforeUnmount: () => {
-            commandLogic.actions.deregisterAllWithMatch(INSIGHT_COMMAND_SCOPE)
+            commandPaletteLogic.actions.deregisterAllWithMatch(INSIGHT_COMMAND_SCOPE)
         },
     }),
 })

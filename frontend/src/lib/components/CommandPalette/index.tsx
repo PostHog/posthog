@@ -1,76 +1,52 @@
-import React, { useRef } from 'react'
+import React, { useRef, useMemo } from 'react'
 import { useOutsideClickHandler } from 'lib/utils'
-import { useHotkeys } from 'react-hotkeys-hook'
-import { CommandResult as CommandResultType } from './commandLogic'
 import { useMountedLogic, useValues, useActions } from 'kea'
-import { commandLogic } from './commandLogic'
+import { commandPaletteLogic } from './commandPaletteLogic'
 import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
 import { userLogic } from 'scenes/userLogic'
-import { ApiKeyCommand } from './CustomCommands/ApiKeyCommand'
+import { useEventListener } from 'lib/hooks/useEventListener'
+import squeakFile from './../../../../public/squeak.mp3'
 import './index.scss'
 
 export function CommandPalette(): JSX.Element | null {
-    useMountedLogic(commandLogic)
+    useMountedLogic(commandPaletteLogic)
 
-    const { hidePalette, togglePalette, setSearchInput } = useActions(commandLogic)
-    const { isPaletteShown } = useValues(commandLogic)
+    const { input, hidePalette, togglePalette, executeResult, deactivateFlow } = useActions(commandPaletteLogic)
+    const { setInput, isPaletteShown, isSqueak, activeFlow, commandSearchResults } = useValues(commandPaletteLogic)
     const { user } = useValues(userLogic)
-    const { customCommand } = useValues(commandLogic)
-    const { setCustomCommand } = useActions(commandLogic)
+
+    const squeakAudio: HTMLAudioElement | null = useMemo(
+        () => squeakAudio || (isSqueak ? new Audio(squeakFile) : null),
+        [isSqueak]
+    )
 
     const boxRef = useRef<HTMLDivElement | null>(null)
 
-    useHotkeys('cmd+k,ctrl+k', () => {
-        togglePalette()
+    useEventListener('keydown', (event: KeyboardEvent) => {
+        if (isSqueak && event.key === 'Enter') {
+            squeakAudio?.play()
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            // First of all, exit flow
+            if (activeFlow) deactivateFlow()
+            // Else just erase input
+            else if (input) setInput('')
+            // Lastly hide palette
+            else hidePalette()
+        } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) {
+            togglePalette()
+        }
     })
-    useHotkeys('esc', () => {
-        hidePalette()
-    })
+
     useOutsideClickHandler(boxRef, hidePalette)
 
-    const handleCommandSelection = (result: CommandResultType): void => {
-        // Called after a command is selected by the user
-        result.executor()
-        // Capture command execution, without useless data
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { icon, index, ...cleanedResult } = result
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { resolver, ...cleanedCommand } = cleanedResult.command
-        cleanedResult.command = cleanedCommand
-        window.posthog?.capture('palette command executed', cleanedResult)
-        if (!result.custom_command) {
-            // The command palette container is kept on the DOM for custom commands,
-            // the input is not cleared to ensure consistent navigation.
-            hidePalette()
-            setSearchInput('')
-        }
-    }
-
-    const handleCancelCustomCommand = (): void => {
-        // Trigerred after a custom command is cancelled
-        setCustomCommand('')
-    }
-
-    return (
-        <>
-            {!user || !isPaletteShown ? null : (
-                <div className="palette__container">
-                    {!customCommand && (
-                        <div className="palette__box card bg-dark" ref={boxRef}>
-                            <CommandInput />
-                            <CommandResults handleCommandSelection={handleCommandSelection} />
-                        </div>
-                    )}
-                    {customCommand && (
-                        <>
-                            {customCommand === 'create_api_key' && (
-                                <ApiKeyCommand handleCancel={handleCancelCustomCommand} />
-                            )}
-                        </>
-                    )}
-                </div>
-            )}
-        </>
+    return !user || !isPaletteShown ? null : (
+        <div className="palette__overlay">
+            <div className="palette__box card bg-dark" ref={boxRef}>
+                {(!activeFlow || activeFlow.instruction) && <CommandInput />}
+                {!commandSearchResults.length && !activeFlow ? null : <CommandResults executeResult={executeResult} />}
+            </div>
+        </div>
     )
 }

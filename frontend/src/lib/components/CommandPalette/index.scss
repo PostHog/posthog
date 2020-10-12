@@ -1,4 +1,4 @@
-.palette__container {
+.palette__overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -66,10 +66,9 @@
 }
 
 .palette__result--focused {
-    background-color: rgba(0, 0, 0, 0.35);
-
-    &:before {
-        background-color: #1890ff;
+    background: rgba(0, 0, 0, 0.35);
+    &::before,
+    &::after {
         content: '';
         position: absolute;
         left: 0;
@@ -77,6 +76,16 @@
         bottom: 0;
         width: 0.375rem;
     }
+    &::before {
+        background: hsla(210, 10%, 19%, 1) !important;
+    }
+    &::after {
+        background: rgba(255, 255, 255, 0.1);
+    }
+}
+
+.palette__result--executable::after {
+    background: #1890ff;
 }
 
 .palette__scope {
