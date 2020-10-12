@@ -60,7 +60,7 @@ export function CommandPalette(): JSX.Element | null {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { resolver, ...cleanedCommand } = cleanedResult.command
         cleanedResult.command = cleanedCommand
-        window.posthog.capture('palette command executed', cleanedResult)
+        window.posthog?.capture('palette command executed', cleanedResult)
         if (!result.custom_command) {
             // The command palette container is kept on the DOM for custom commands,
             // the input is not cleared to ensure consistent navigation.

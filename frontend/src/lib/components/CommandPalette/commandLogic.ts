@@ -139,10 +139,10 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
     },
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog.capture('palette shown')
+            window.posthog?.capture('palette shown')
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog.capture('palette shown')
+            if (values.isPaletteShown) window.posthog?.capture('palette shown')
         },
         deregisterAllWithMatch: ({ keyPrefix }) => {
             for (const command of Object.values(values.commandRegistrations)) {
