@@ -252,7 +252,27 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                           .map((result) => result.item)
                     : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
                 const finalResults = guaranteedResults.concat(fusedResults)
+                // put global scope lasst
                 return finalResults.sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
+            },
+        ],
+        commandSearchResultsGrouped: [
+            (selectors) => [selectors.commandSearchResults],
+            (commandSearchResults: CommandResult[]) => {
+                const resultsGrouped: { [scope: string]: CommandResult[] } = {}
+                for (const result of commandSearchResults) {
+                    const scope: string = result.command.scope
+                    if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
+                    resultsGrouped[scope].push({ ...result })
+                }
+                let rollingIndex = 0
+                const resultsGroupedInOrder = Object.entries(resultsGrouped)
+                for (const [, group] of resultsGroupedInOrder) {
+                    for (const result of group) {
+                        result.index = rollingIndex++
+                    }
+                }
+                return resultsGroupedInOrder
             },
         ],
     },

@@ -73,7 +73,7 @@ interface CommandResultsProps {
 export function CommandResults({ handleCommandSelection }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { isPaletteShown, commandSearchResults } = useValues(commandLogic)
+    const { isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
     const [hoverResultIndex, setHoverResultIndex] = useState<number | null | undefined>(null)
@@ -113,24 +113,9 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
 
     useEventListener('keydown', handleKeyDown)
 
-    const groupedResults: { [scope: string]: CommandResultType[] } = {}
-    for (const result of commandSearchResults) {
-        const scope: string = result.command.scope
-        if (!(scope in groupedResults)) groupedResults[scope] = []
-        groupedResults[scope].push(result)
-    }
-    // Always put global commands group last
-    const sortedGroups = Object.entries(groupedResults)
-    let rollingIndex = 0
-    for (const [, group] of sortedGroups) {
-        for (const result of group) {
-            result.index = rollingIndex++
-        }
-    }
-
     return (
         <ResultsContainer>
-            {sortedGroups.map(([scope, results]) => (
+            {commandSearchResultsGrouped.map(([scope, results]) => (
                 <ResultsGroup
                     key={scope}
                     scope={scope}
