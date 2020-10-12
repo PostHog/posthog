@@ -12,6 +12,7 @@ from posthog.models.team import Team
 def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
     final = ""
     params = {}
+
     for idx, prop in enumerate(filters):
 
         if prop.type == "cohort":
