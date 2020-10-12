@@ -79,7 +79,8 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
     const [hoverResultIndex, setHoverResultIndex] = useState<number | null | undefined>(null)
 
     const actuallyActiveResultIndex =
-        hoverResultIndex || (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length) : 0)
+        hoverResultIndex ||
+        (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length - 1) : 0)
 
     const handleEnterDown = useCallback(
         (event: KeyboardEvent) => {
@@ -108,7 +109,14 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
                 }
             }
         },
-        [setActiveResultIndex, setHoverResultIndex, actuallyActiveResultIndex, commandSearchResults, isPaletteShown]
+        [
+            setActiveResultIndex,
+            setHoverResultIndex,
+            hoverResultIndex,
+            activeResultIndex,
+            commandSearchResults,
+            isPaletteShown,
+        ]
     )
 
     useEventListener('keydown', handleKeyDown)
