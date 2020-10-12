@@ -20,7 +20,7 @@ export function ActionsTable() {
 
     let columns = [
         {
-            title: 'Action ID',
+            title: !featureFlags['actions-ux-201012'] ? 'Action ID' : 'Name',
             dataIndex: 'name',
             key: 'name',
             render: function RenderName(_, action, index) {
@@ -81,7 +81,7 @@ export function ActionsTable() {
             },
         },
         {
-            title: 'Actions',
+            title: !featureFlags['actions-ux-201012'] ? 'Actions' : '',
             render: function RenderActions(action) {
                 return (
                     <span>

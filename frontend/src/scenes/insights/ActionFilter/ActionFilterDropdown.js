@@ -5,6 +5,9 @@ import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSele
 import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
+import { Button } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
@@ -43,7 +46,7 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
                     logic={logic}
                 />
                 <ActionPanelContainer
-                    title="events"
+                    title="raw_events"
                     entityType={EntityTypes.EVENTS}
                     options={eventNamesGrouped}
                     panelIndex={1}
@@ -57,6 +60,7 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
 export function ActionPanelContainer({ entityType, panelIndex, options, logic }) {
     const { entities, selectedFilter, filters } = useValues(logic)
     const { updateFilter } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dropDownOnSelect = (value, name) =>
         updateFilter({ type: entityType, value: value, name, index: selectedFilter.index })
@@ -75,6 +79,16 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
         }
     }
 
+    const NewActionButton = () => {
+        return (
+            <div style={{ position: 'absolute', bottom: 16, textAlign: 'center', width: '100%' }}>
+                <Button icon={<PlusOutlined />} href="/action" target="_blank">
+                    New action
+                </Button>
+            </div>
+        )
+    }
+
     const message = () => {
         if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
             return (
@@ -91,10 +105,20 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
                     <Link to="/action">Click here to define an action.</Link>
                 </div>
             )
+        } else if (entityType === EntityTypes.ACTIONS && featureFlags['actions-ux-201012']) {
+            return <NewActionButton />
         } else {
             return null
         }
     }
+
+    const caption = () => {
+        if (entityType === EntityTypes.EVENTS && featureFlags['actions-ux-201012']) {
+            return 'To analyze multiple raw events as one, use actions instead.'
+        }
+        return null
+    }
+
     return (
         <ActionSelectPanel
             key={panelIndex}
@@ -106,6 +130,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             active={selectedFilter}
             redirect={redirect()}
             message={message()}
+            caption={caption()}
         />
     )
 }

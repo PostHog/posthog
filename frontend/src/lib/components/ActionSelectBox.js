@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import './ActionComponents.scss'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import PropTypes from 'prop-types'
 import { ActionSelectTab } from './ActionSelectTab'
@@ -36,7 +37,7 @@ function ActionSelectTabs(props) {
     )
 }
 
-function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options, message }) {
+function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options, message, caption }) {
     const [infoOpen, setInfoOpen] = useState(false)
     const [infoBoundingRect, setInfoBoundingRect] = useState(null)
     const [infoActionId, setInfoActionId] = useState(null)
@@ -47,11 +48,12 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
     }
 
     return (
-        <div style={{ padding: '1rem', height: '90%', width: '100%' }} id="action-select-popup">
+        <div id="action-select-popup" className="as-popup">
             {redirect}
             {infoOpen && (
                 <ActionSelectInfo isOpen={infoOpen} boundingRect={infoBoundingRect} entity={onHover(infoActionId)} />
             )}
+            {caption && <div className="caption">{caption}</div>}
             <Select
                 labelInValue
                 getPopupContainer={() => document.getElementById('action-select-popup')}
