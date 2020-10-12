@@ -132,7 +132,7 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {window.posthog && window.posthog.isFeatureEnabled('session-recording-player') && (
+                {window.posthog?.isFeatureEnabled('session-recording-player') && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"
