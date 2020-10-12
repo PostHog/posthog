@@ -17,7 +17,6 @@ export const funnelCommandLogic = kea<commandPaletteLogicType<Command, CommandRe
         afterMount: () => {
             const results: CommandResultTemplate[] = [
                 {
-                    key: 'funnel-clear',
                     icon: FunnelPlotOutlined,
                     display: 'Clear Funnel',
                     executor: () => {
@@ -29,7 +28,6 @@ export const funnelCommandLogic = kea<commandPaletteLogicType<Command, CommandRe
             const funnelCommands: Command[] = [
                 {
                     key: FUNNEL_COMMAND_SCOPE,
-                    prefixes: [],
                     resolver: results,
                     scope: FUNNEL_COMMAND_SCOPE,
                 },

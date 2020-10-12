@@ -62,7 +62,11 @@ function CreateKeyModal({
 }
 
 function RowValue(value: string): JSX.Element {
-    return value ? <CopyToClipboardInline description="key value">{value}</CopyToClipboardInline> : <i>secret</i>
+    return value ? (
+        <CopyToClipboardInline description="personal API key value">{value}</CopyToClipboardInline>
+    ) : (
+        <i>secret</i>
+    )
 }
 
 function RowActionsCreator(

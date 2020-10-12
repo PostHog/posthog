@@ -27,7 +27,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
     }),
     listeners: () => ({
         createKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
-            copyToClipboard(keys[0].value, 'personal API key')
+            copyToClipboard(keys[0].value, 'personal API key value')
         },
         deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
             toast.success(`Personal API key deleted.`)

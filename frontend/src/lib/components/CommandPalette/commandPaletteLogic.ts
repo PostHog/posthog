@@ -209,14 +209,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
         },
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(500)
-            actions.deregisterAllWithMatch('person')
             if (input.length > 8) {
                 const response = await api.get('api/person/?key_identifier=' + input)
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
                         key: `person-${person.distinct_ids[0]}`,
-                        prefixes: [],
                         resolver: [
                             {
                                 icon: UserOutlined,
@@ -257,7 +255,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 ...rawCommandRegistrations,
                 custom_dashboards: {
                     key: 'custom_dashboards',
-                    prefixes: [],
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
@@ -520,97 +517,97 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 },
             ]
 
-            const globalCommands: Command[] = [
-                {
-                    key: 'global-commands',
-                    scope: GLOBAL_COMMAND_SCOPE,
-                    prefixes: ['open', 'visit'],
-                    resolver: results,
-                },
-                {
-                    key: 'calculator',
-                    scope: GLOBAL_COMMAND_SCOPE,
-                    prefixes: [],
-                    resolver: (argument) => {
-                        // don't try evaluating if there's no argument or if it's a plain number already
-                        if (!argument || !isNaN(+argument)) return null
-                        try {
-                            const result = +Parser.evaluate(argument)
-                            return isNaN(result)
-                                ? null
-                                : {
-                                      icon: CalculatorOutlined,
-                                      display: `= ${result}`,
-                                      guarantee: true,
-                                      executor: () => {
-                                          copyToClipboard(result.toString(), 'calculation result')
-                                      },
-                                  }
-                        } catch {
-                            return null
-                        }
-                    },
-                },
-                {
-                    key: 'open-urls',
-                    scope: GLOBAL_COMMAND_SCOPE,
-                    prefixes: ['open', 'visit'],
-                    resolver: (argument) => {
-                        const results: CommandResultTemplate[] = (appUrlsLogic.values.appUrls ?? [])
-                            .concat(appUrlsLogic.values.suggestedUrls ?? [])
-                            .map((url: string) => ({
-                                icon: LinkOutlined,
-                                display: `Open ${url}`,
-                                synonyms: [`Visit ${url}`],
-                                executor: () => {
-                                    open(url)
-                                },
-                            }))
-                        if (isURL(argument))
-                            results.push({
-                                icon: LinkOutlined,
-                                display: `Open ${argument}`,
-                                synonyms: [`Visit ${argument}`],
-                                executor: () => {
-                                    open(argument)
-                                },
-                            })
-                        return results
-                    },
-                },
-                {
-                    key: 'create-personal-api-key',
-                    scope: GLOBAL_COMMAND_SCOPE,
-                    prefixes: [],
-                    resolver: {
-                        icon: KeyOutlined,
-                        display: 'Create a Personal API Key',
-                        executor: () => ({
-                            instruction: 'Give your key a label',
-                            scope: 'Creating a Personal API Key',
-                            resolver: (argument) => {
-                                if (argument?.length)
-                                    return {
-                                        icon: KeyOutlined,
-                                        display: `Create Key "${argument}"`,
-                                        executor: () => {
-                                            personalAPIKeysLogic.actions.createKey(argument)
-                                            push('/setup', {}, 'personal-api-keys')
-                                        },
-                                    }
-                                return null
-                            },
-                        }),
-                    },
-                },
-            ]
-            for (const command of globalCommands) {
-                actions.registerCommand(command)
+            const globalCommands: Command = {
+                key: 'global-commands',
+                scope: GLOBAL_COMMAND_SCOPE,
+                prefixes: ['open', 'visit'],
+                resolver: results,
             }
+
+            const calculator: Command = {
+                key: 'calculator',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: (argument) => {
+                    // don't try evaluating if there's no argument or if it's a plain number already
+                    if (!argument || !isNaN(+argument)) return null
+                    try {
+                        const result = +Parser.evaluate(argument)
+                        return isNaN(result)
+                            ? null
+                            : {
+                                  icon: CalculatorOutlined,
+                                  display: `= ${result}`,
+                                  guarantee: true,
+                                  executor: () => {
+                                      copyToClipboard(result.toString(), 'calculation result')
+                                  },
+                              }
+                    } catch {
+                        return null
+                    }
+                },
+            }
+            const openUrls: Command = {
+                key: 'open-urls',
+                scope: GLOBAL_COMMAND_SCOPE,
+                prefixes: ['open', 'visit'],
+                resolver: (argument) => {
+                    const results: CommandResultTemplate[] = (appUrlsLogic.values.appUrls ?? [])
+                        .concat(appUrlsLogic.values.suggestedUrls ?? [])
+                        .map((url: string) => ({
+                            icon: LinkOutlined,
+                            display: `Open ${url}`,
+                            synonyms: [`Visit ${url}`],
+                            executor: () => {
+                                open(url)
+                            },
+                        }))
+                    if (isURL(argument))
+                        results.push({
+                            icon: LinkOutlined,
+                            display: `Open ${argument}`,
+                            synonyms: [`Visit ${argument}`],
+                            executor: () => {
+                                open(argument)
+                            },
+                        })
+                    return results
+                },
+            }
+            const createPersonalApiKey: Command = {
+                key: 'create-personal-api-key',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: KeyOutlined,
+                    display: 'Create a Personal API Key',
+                    executor: () => ({
+                        instruction: 'Give your key a label',
+                        scope: 'Creating a Personal API Key',
+                        resolver: (argument) => {
+                            if (argument?.length)
+                                return {
+                                    icon: KeyOutlined,
+                                    display: `Create Key "${argument}"`,
+                                    executor: () => {
+                                        personalAPIKeysLogic.actions.createKey(argument)
+                                        push('/setup', {}, 'personal-api-keys')
+                                    },
+                                }
+                            return null
+                        },
+                    }),
+                },
+            }
+            actions.registerCommand(globalCommands)
+            actions.registerCommand(openUrls)
+            actions.registerCommand(calculator)
+            actions.registerCommand(createPersonalApiKey)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('global-commands')
             actions.deregisterCommand('open-urls')
+            actions.deregisterCommand('calculator')
+            actions.deregisterCommand('create-personal-api-key')
         },
     }),
 })

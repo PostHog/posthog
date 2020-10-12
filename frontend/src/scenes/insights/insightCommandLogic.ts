@@ -39,7 +39,6 @@ export const insightCommandLogic = kea<commandPaletteLogicType<Command, CommandR
             const funnelCommands: Command[] = [
                 {
                     key: 'insight-graph',
-                    prefixes: [],
                     resolver: results,
                     scope: INSIGHT_COMMAND_SCOPE,
                 },
