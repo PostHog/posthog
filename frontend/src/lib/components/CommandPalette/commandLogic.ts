@@ -251,7 +251,7 @@ export const commandLogic = kea<commandLogicType<Command, CommandRegistrations>>
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
                     : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
-                const finalResults = guaranteedResults.concat(fusedResults)
+                const finalResults = _.uniqBy(guaranteedResults.concat(fusedResults), 'display')
                 // put global scope lasst
                 return finalResults.sort((result) => (result.command.scope === GLOBAL_COMMAND_SCOPE ? 1 : -1))
             },
