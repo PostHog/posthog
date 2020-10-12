@@ -10,7 +10,7 @@ interface CommandResultProps {
     result: CommandResultType
     handleSelection: (result: CommandResultType) => void
     focused?: boolean
-    setHoverResultIndex: Dispatch<SetStateAction<number | undefined | null>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | undefined>>
 }
 
 function CommandResult({ result, focused, handleSelection, setHoverResultIndex }: CommandResultProps): JSX.Element {
@@ -20,7 +20,7 @@ function CommandResult({ result, focused, handleSelection, setHoverResultIndex }
                 setHoverResultIndex(result.index)
             }}
             onMouseLeave={() => {
-                setHoverResultIndex(null)
+                setHoverResultIndex(undefined)
             }}
             focused={focused}
             onClick={() => {
@@ -39,7 +39,7 @@ interface ResultsGroupProps {
     scope: string
     results: CommandResultType[]
     handleCommandSelection: (result: CommandResultType) => void
-    setHoverResultIndex: Dispatch<SetStateAction<number | null | undefined>>
+    setHoverResultIndex: Dispatch<SetStateAction<number | undefined>>
     actuallyActiveResultIndex: number
 }
 
@@ -73,13 +73,13 @@ interface CommandResultsProps {
 export function CommandResults({ handleCommandSelection }: CommandResultsProps): JSX.Element {
     useMountedLogic(commandLogic)
 
-    const { isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(commandLogic)
+    const { searchInput, isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(commandLogic)
 
     const [activeResultIndex, setActiveResultIndex] = useState(0)
-    const [hoverResultIndex, setHoverResultIndex] = useState<number | null | undefined>(null)
+    const [hoverResultIndex, setHoverResultIndex] = useState<number | undefined>()
 
     const actuallyActiveResultIndex =
-        hoverResultIndex ||
+        hoverResultIndex ??
         (commandSearchResults.length ? clamp(activeResultIndex, 0, commandSearchResults.length - 1) : 0)
 
     const handleEnterDown = useCallback(
@@ -94,18 +94,19 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
     useEventListener('keydown', handleEnterDown)
 
     useEffect(() => {
+        setHoverResultIndex(undefined)
         setActiveResultIndex(0)
-    }, [isPaletteShown])
+    }, [isPaletteShown, searchInput])
 
     const handleKeyDown = useCallback(
         (event: KeyboardEvent) => {
             if (isPaletteShown) {
                 if (event.key === 'ArrowDown') {
                     setActiveResultIndex(Math.min(actuallyActiveResultIndex + 1, commandSearchResults.length - 1))
-                    setHoverResultIndex(null)
+                    setHoverResultIndex(undefined)
                 } else if (event.key === 'ArrowUp') {
                     setActiveResultIndex(Math.max(actuallyActiveResultIndex - 1, 0))
-                    setHoverResultIndex(null)
+                    setHoverResultIndex(undefined)
                 }
             }
         },
