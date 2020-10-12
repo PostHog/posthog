@@ -1,5 +1,5 @@
 .palette__container {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
@@ -11,7 +11,7 @@
 
 .palette__box {
     z-index: 99999;
-    position: fixed;
+    position: absolute;
     top: 30%;
     display: flex;
     flex-direction: column;
