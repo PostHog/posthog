@@ -161,17 +161,21 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         title={
                             <span style={itemStyle} data-attr="menu-item-events">
                                 <ContainerOutlined />
-                                <span className="sidebar-label">{'Events'}</span>
+                                <span className="sidebar-label">
+                                    {!featureFlags['actions-ux-201012'] ? 'Events' : 'Events & Actions'}
+                                </span>
                             </span>
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/events' && push('/events')
+                            location.pathname !== '/events' && push('/actions')
                         }}
                     >
                         <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                             <ContainerOutlined />
-                            <span className="sidebar-label">{'All Events'}</span>
+                            <span className="sidebar-label">
+                                {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
+                            </span>
                             <Link to={'/events'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
@@ -179,11 +183,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Actions'}</span>
                             <Link to={'/actions'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                            <SyncOutlined />
-                            <span className="sidebar-label">{'Live Actions'}</span>
-                            <Link to={'/actions/live'} onClick={collapseSidebar} />
-                        </Menu.Item>
+                        {!featureFlags['actions-ux-201012'] && (
+                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
+                                <SyncOutlined />
+                                <span className="sidebar-label">{'Live Actions'}</span>
+                                <Link to={'/actions/live'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>
