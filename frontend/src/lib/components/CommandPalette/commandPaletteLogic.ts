@@ -334,9 +334,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
             },
         ],
         commandSearchResultsGrouped: [
-            (selectors) => [selectors.commandSearchResults],
-            (commandSearchResults: CommandResult[]) => {
+            (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
+            (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
                 const resultsGrouped: { [scope: string]: CommandResult[] } = {}
+                if (activeFlow) resultsGrouped[activeFlow.scope] = []
                 for (const result of commandSearchResults) {
                     const scope: string = result.source.scope
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
