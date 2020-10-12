@@ -124,7 +124,7 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         setScene: () => {
-            window.posthog && posthog?.capture('$pageview')
+            window.posthog && window.posthog?.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {
