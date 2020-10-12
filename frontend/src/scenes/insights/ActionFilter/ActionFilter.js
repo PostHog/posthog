@@ -4,7 +4,6 @@ import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PlusOutlined } from '@ant-design/icons'
 
 export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
@@ -37,7 +36,6 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
                     onClick={() => addFilter()}
                     style={{ marginTop: '0.5rem' }}
                     data-attr="add-action-event-button"
-                    icon={featureFlags['actions-ux-201012'] && <PlusOutlined />}
                 >
                     {!featureFlags['actions-ux-201012'] ? 'Add action/event' : 'Action or raw event'}
                 </Button>

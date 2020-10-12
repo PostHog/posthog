@@ -25,7 +25,7 @@ class TeamManager(models.Manager):
         if users:
             team.users.set(users)
 
-        if not len(users) and not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
+        if not users or not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
             # Don't create default `Pageviews` action on actions-ux-201012 feature flag (use first user as proxy for org)
             action = Action.objects.create(team=team, name="Pageviews")
 
