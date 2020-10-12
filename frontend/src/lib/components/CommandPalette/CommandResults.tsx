@@ -120,7 +120,7 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
     useEventListener('keydown', handleKeyDown)
 
     return (
-        <div className="palette__results-container">
+        <div>
             {commandSearchResultsGrouped.map(([scope, results]) => (
                 <ResultsGroup
                     key={scope}
