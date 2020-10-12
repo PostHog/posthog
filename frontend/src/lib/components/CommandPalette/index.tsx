@@ -6,31 +6,9 @@ import { useMountedLogic, useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
 import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
-import styled from 'styled-components'
 import { userLogic } from 'scenes/userLogic'
 import { ApiKeyCommand } from './CustomCommands/ApiKeyCommand'
-
-const CommandPaletteContainer = styled.div`
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-`
-
-const CommandPaletteBox = styled.div`
-    position: fixed;
-    top: 30%;
-    display: flex;
-    flex-direction: column;
-    z-index: 9999;
-    width: 36rem;
-    max-height: 60%;
-    overflow: hidden;
-`
+import './index.scss'
 
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandLogic)
@@ -77,12 +55,12 @@ export function CommandPalette(): JSX.Element | null {
     return (
         <>
             {!user || !isPaletteShown ? null : (
-                <CommandPaletteContainer>
+                <div className="palette__container">
                     {!customCommand && (
-                        <CommandPaletteBox ref={boxRef} className="card bg-dark">
+                        <div className="palette__box card bg-dark" ref={boxRef}>
                             <CommandInput />
                             <CommandResults handleCommandSelection={handleCommandSelection} />
-                        </CommandPaletteBox>
+                        </div>
                     )}
                     {customCommand && (
                         <>
@@ -91,7 +69,7 @@ export function CommandPalette(): JSX.Element | null {
                             )}
                         </>
                     )}
-                </CommandPaletteContainer>
+                </div>
             )}
         </>
     )

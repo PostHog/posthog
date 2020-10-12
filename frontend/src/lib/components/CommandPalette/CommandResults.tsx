@@ -3,7 +3,6 @@ import { CommandResult as CommandResultType } from './commandLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useMountedLogic, useValues } from 'kea'
 import { commandLogic } from './commandLogic'
-import { ResultsContainer, Scope, ResultBox, ResultIconContainer, ResultDisplay } from './commandStyledComponents'
 import { clamp } from 'lib/utils'
 
 interface CommandResultProps {
@@ -15,23 +14,21 @@ interface CommandResultProps {
 
 function CommandResult({ result, focused, handleSelection, setHoverResultIndex }: CommandResultProps): JSX.Element {
     return (
-        <ResultBox
+        <div
+            className={`palette_row palette__result ${focused ? 'palette__result--focused' : ''}`}
             onMouseEnter={() => {
                 setHoverResultIndex(result.index)
             }}
             onMouseLeave={() => {
                 setHoverResultIndex(undefined)
             }}
-            focused={focused}
             onClick={() => {
                 handleSelection(result)
             }}
         >
-            <ResultIconContainer>
-                <result.icon />
-            </ResultIconContainer>
-            <ResultDisplay>{result.display}</ResultDisplay>
-        </ResultBox>
+            <result.icon className="palette__icon" />
+            <div className="palette__display">{result.display}</div>
+        </div>
     )
 }
 
@@ -52,7 +49,7 @@ export function ResultsGroup({
 }: ResultsGroupProps): JSX.Element {
     return (
         <>
-            <Scope>{scope}</Scope>
+            <div className="palette__row palette__row--small palette__scope">{scope}</div>
             {results.map((result) => (
                 <CommandResult
                     result={result}
@@ -123,7 +120,7 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
     useEventListener('keydown', handleKeyDown)
 
     return (
-        <ResultsContainer>
+        <div className="palette__results-container">
             {commandSearchResultsGrouped.map(([scope, results]) => (
                 <ResultsGroup
                     key={scope}
@@ -134,6 +131,6 @@ export function CommandResults({ handleCommandSelection }: CommandResultsProps):
                     actuallyActiveResultIndex={actuallyActiveResultIndex}
                 />
             ))}
-        </ResultsContainer>
+        </div>
     )
 }

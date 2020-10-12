@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { KeyboardEvent, useCallback, useMemo } from 'react'
 import { SearchOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandLogic } from './commandLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import squeakFile from './../../../../public/squeak.mp3'
 import PostHogIcon from './../../../../public/icon-white.svg'
-import { CommandInputContainer, CommandInputElement } from './commandStyledComponents'
 
 export function CommandInput(): JSX.Element {
     const { searchInput, isSqueak } = useValues(commandLogic)
@@ -29,7 +28,7 @@ export function CommandInput(): JSX.Element {
     )
 
     const handleEnterDown = useCallback(
-        (event: KeyboardEvent) => {
+        (event: KeyboardEvent<HTMLInputElement>) => {
             if (isSqueak && event.key === 'Enter') {
                 squeakAudio?.play()
             }
@@ -40,9 +39,14 @@ export function CommandInput(): JSX.Element {
     useEventListener('keydown', handleEnterDown)
 
     return (
-        <CommandInputContainer style={{ padding: '0 2rem' }}>
-            {isSqueak ? <img src={PostHogIcon} style={{ width: '1rem' }}></img> : <SearchOutlined />}
-            <CommandInputElement
+        <div className="palette__row">
+            {isSqueak ? (
+                <img src={PostHogIcon} className="palette__icon"></img>
+            ) : (
+                <SearchOutlined className="palette__icon" />
+            )}
+            <input
+                className="palette__display palette__input"
                 autoFocus
                 value={searchInput}
                 onKeyDown={handleKeyDown}
@@ -51,6 +55,6 @@ export function CommandInput(): JSX.Element {
                 }}
                 placeholder="What would you like to do? Try some suggestions…"
             />
-        </CommandInputContainer>
+        </div>
     )
 }

@@ -478,6 +478,6 @@ export function isMac() {
     return navigator.platform.includes('Mac')
 }
 
-export function platformSuperKey() {
+export function platformCommandControlKey() {
     return isMac() ? '⌘' : 'Ctrl'
 }

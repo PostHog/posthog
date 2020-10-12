@@ -1,28 +1,8 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { apiKeyCommandLogic } from './apiKeyCommandLogic'
-import { CustomCommandBox, Scope, CommandInputContainer, CommandInputElement } from '../commandStyledComponents'
 import { personalAPIKeysLogic } from 'lib/components/PersonalAPIKeys/personalAPIKeysLogic'
 import { EditOutlined } from '@ant-design/icons'
-import styled from 'styled-components'
-
-const SuccessContainer = styled.div`
-    padding: 32px;
-    color: rgba(255, 255, 255, 0.9);
-`
-
-const KeyContainer = styled.div`
-    background-color: #666666;
-    font-family: 'IBM Plex Mono', 'Courier New', Courier, monospace;
-    text-align: center;
-    border-radius: 2px;
-    padding: 8px;
-    margin: 16px 0;
-`
-
-const HighlightNotice = styled.div`
-    color: #ec6f48;
-`
 
 interface ApiKeyCommandProps {
     handleCancel: () => void
@@ -43,11 +23,11 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
     }
 
     return (
-        <CustomCommandBox className="card bg-dark">
+        <div className="card bg-dark">
             {!latestKey && (
-                <CommandInputContainer>
+                <div>
                     <EditOutlined />
-                    <CommandInputElement
+                    <input
                         autoFocus
                         value={labelInput}
                         onKeyDown={handleKeyDown}
@@ -56,18 +36,16 @@ export function ApiKeyCommand({ handleCancel }: ApiKeyCommandProps): JSX.Element
                         }}
                         placeholder="enter a label for your key (e.g. Zapier)"
                     />
-                </CommandInputContainer>
+                </div>
             )}
             {latestKey && (
-                <SuccessContainer>
+                <div>
                     <div>Your personal API key is ready and has been copied to your clipboard!</div>
-                    <KeyContainer>{latestKey.value}</KeyContainer>
-                    <HighlightNotice>
-                        Remember to copy your key before closing this window, your key cannot be shown again.
-                    </HighlightNotice>
-                </SuccessContainer>
+                    <div>{latestKey.value}</div>
+                    <div>Remember to copy your key before closing this window, your key cannot be shown again.</div>
+                </div>
             )}
-            <Scope>Creating a Personal API Key</Scope>
-        </CustomCommandBox>
+            <div>Creating a Personal API Key</div>
+        </div>
     )
 }
