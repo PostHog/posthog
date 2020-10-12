@@ -3,7 +3,7 @@ import json
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Cohort, Event, Person
+from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.tasks.process_event import process_event
 
 from .base import APIBaseTest
@@ -141,6 +141,45 @@ class TestPerson(APIBaseTest):
         response = self.client.get("/api/person/?distinct_id=inexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
+
+    def test_cant_see_another_orgs_pii_with_filters(self):
+
+        another_org: Organization = Organization.objects.create()
+        another_team: Team = Team.objects.create(organization=self.organization)
+
+        another_person1: Person = Person.objects.create(
+            team=another_team, distinct_ids=["distinct_id", "x_another_one"],
+        )
+        another_person2: Person = Person.objects.create(
+            team=another_team, distinct_ids=["x_distinct_id_2"], properties={"email": "team2_another@gmail.com"},
+        )
+
+        person: Person = Person.objects.create(
+            team=self.team, distinct_ids=["distinct_id"],
+        )
+
+        # Filter by distinct ID
+        response = self.client.get("/api/person/?distinct_id=distinct_id")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(
+            response.json()["results"][0]["id"], person.pk
+        )  # note only the person from the same team is returned
+
+        response = self.client.get("/api/person/?distinct_id=x_another_one")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+        # Filter by email
+        response = self.client.get("/api/person/?email=team2_another@gmail.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+        # Filter by key identifier
+        for _identifier in ["x_another_one", "distinct_id_2"]:
+            response = self.client.get(f"/api/person/?key_identifier={_identifier}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], [])
 
     def test_category_param(self):
         person_anonymous = Person.objects.create(team=self.team, distinct_ids=["xyz"])
