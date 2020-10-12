@@ -1,0 +1,36 @@
+.tutorial-container {
+    color: #c4c4c4;
+    margin-top: 32px;
+    margin-bottom: 60px;
+    display: flex;
+}
+.t-element {
+    display: flex;
+    align-items: center;
+    border-right: 0.75px solid #c4c4c4;
+    padding-left: 32px;
+
+    &:last-of-type {
+        border-right: 0;
+    }
+
+    > div:last-of-type {
+        padding: 0 16px;
+    }
+
+    .title {
+        font-size: 20px;
+        font-weight: bold;
+    }
+}
+
+@media (max-width: 850px) {
+    .tutorial-container {
+        align-items: center;
+        flex-direction: column;
+    }
+    .t-element {
+        margin-bottom: 16px;
+        border-right: 0;
+    }
+}
