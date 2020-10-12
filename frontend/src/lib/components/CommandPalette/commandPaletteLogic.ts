@@ -11,6 +11,7 @@ import {
     ContainerOutlined,
     AimOutlined,
     SyncOutlined,
+    TagOutlined,
     ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
@@ -580,9 +581,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
                     icon: KeyOutlined,
-                    display: 'Create a Personal API Key',
+                    display: 'Create Personal API Key',
                     executor: () => ({
                         instruction: 'Give your key a label',
+                        icon: TagOutlined,
                         scope: 'Creating a Personal API Key',
                         resolver: (argument) => {
                             if (argument?.length)

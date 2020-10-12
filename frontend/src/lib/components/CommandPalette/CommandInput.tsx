@@ -11,9 +11,9 @@ export function CommandInput(): JSX.Element {
     return (
         <div className="palette__row">
             {isSqueak ? (
-                <img src={PostHogIcon} className="palette__icon"></img>
+                <img src={PostHogIcon} className="palette__icon" />
             ) : activeFlow ? (
-                activeFlow.icon ?? <EditOutlined className="palette__icon" />
+                <activeFlow.icon className="palette__icon" /> ?? <EditOutlined className="palette__icon" />
             ) : (
                 <SearchOutlined className="palette__icon" />
             )}

@@ -160,7 +160,7 @@ export function PersonalAPIKeys(): JSX.Element {
                     setIsCreateKeyModalVisible(true)
                 }}
             >
-                + Create a Personal API Key
+                + Create Personal API Key
             </Button>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable />
