@@ -80,9 +80,13 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_properties(self, event):
         if len(event) >= 10 and event[8] and event[9]:
-            return dict(zip(event[8], event[9]))
+            prop_vals = [_unpad_property(res) for res in event[9]]
+            return dict(zip(event[8], prop_vals))
         else:
-            return json.loads(event[2])
+            props = json.loads(event[2])
+            for key, value in props.items():
+                props.update({key: _unpad_property(value)})
+            return props
 
     def get_event(self, event):
         return event[1]
@@ -103,6 +107,13 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_hash(self, event):
         return event[6]
+
+
+def _unpad_property(val: str):
+    if val.isdigit() or val == "true" or val == "false":
+        return val
+    else:
+        return val.strip('"')
 
 
 def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
