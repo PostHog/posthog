@@ -3,9 +3,7 @@ import { useValues } from 'kea'
 import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { OptOutCapture } from './OptOutCapture'
 import { OptInSessionRecording } from './OptInSessionRecording'
-import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { userLogic } from 'scenes/userLogic'
 import { DeleteDemoData } from './DeleteDemoData'
@@ -16,7 +14,6 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
 function _Setup() {
