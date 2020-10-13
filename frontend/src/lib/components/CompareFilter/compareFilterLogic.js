@@ -12,7 +12,6 @@ export const compareFilterLogic = kea({
             false,
             {
                 [actions.setCompare]: (_, { compare }) => compare,
-                [actions.toggleCompare]: (previousCompare) => !previousCompare,
             },
         ],
     }),
@@ -26,6 +25,9 @@ export const compareFilterLogic = kea({
             if (!objectsEqual(compare, values.compare)) {
                 router.actions.push(pathname, searchParams)
             }
+        },
+        [actions.toggleCompare]: () => {
+            actions.setCompare(!values.compare)
         },
     }),
     urlToAction: ({ actions }) => ({
