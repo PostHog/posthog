@@ -82,4 +82,24 @@
             font-size: 0.85rem;
         }
     }
+
+    .mc-main {
+        position: absolute;
+        top: -12px;
+        right: 50%;
+    }
+
+    .property-filters {
+        border-top: 1px solid rgba(#a7b7be, 0.5);
+        margin-top: 16px;
+        padding-top: 16px;
+
+        .section-title {
+            font-weight: bold;
+        }
+
+        .empty-state {
+            color: #a7b7be;
+        }
+    }
 }

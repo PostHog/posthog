@@ -216,6 +216,13 @@ export class ActionStep extends Component {
         )
     }
     AutocaptureFields({ step, actionId }) {
+        const AndC = () => {
+            return (
+                <div className="text-center">
+                    <span className="match-condition-badge mc-and">AND</span>
+                </div>
+            )
+        }
         return (
             <div>
                 <span>
@@ -233,11 +240,16 @@ export class ActionStep extends Component {
                 </span>
                 <this.Option
                     item="href"
-                    label="Link href"
+                    label="Link href equals"
                     selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
                 />
-                <this.Option item="text" label="Text" />
-                <this.Option item="selector" label="Selector" selector={step.selector} />
+                <AndC />
+                <this.Option item="text" label="Text equals" />
+                <AndC />
+                <this.Option item="selector" label="HTML selector matches" selector={step.selector} />
+                <div style={{ marginBottom: 18 }}>
+                    <AndC />
+                </div>
                 <this.Option item="url" extra_options={<this.URLMatching step={step} />} label="URL" />
                 {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                     <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
@@ -276,11 +288,12 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, actionId, isOnlyStep } = this.props
+        let { step, actionId, isOnlyStep, index, identifier } = this.props
 
         return (
             <Col span={24} md={12}>
                 <div className="action-step card">
+                    {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
                     <div className="card-body">
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
@@ -328,16 +341,26 @@ export class ActionStep extends Component {
                                     )}
                                 </div>
                             )}
-                            <PropertyFilters
-                                propertyFilters={step.properties}
-                                pageKey={'action-edit'}
-                                onChange={(properties) => {
-                                    this.sendStep({
-                                        ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
-                                        properties,
-                                    })
-                                }}
-                            />
+
+                            {step.event && (
+                                <div className="property-filters">
+                                    <div className="section-title">Filters</div>
+                                    {step.properties.length === 0 && (
+                                        <div className="empty-state">This match group has no additional filters.</div>
+                                    )}
+                                    <PropertyFilters
+                                        propertyFilters={step.properties}
+                                        pageKey={identifier}
+                                        onChange={(properties) => {
+                                            this.sendStep({
+                                                ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                                properties,
+                                            })
+                                        }}
+                                        showConditionBadges
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -348,4 +371,5 @@ export class ActionStep extends Component {
 ActionStep.propTypes = {
     step: PropTypes.object,
     simmer: PropTypes.func,
+    index: PropTypes.number.isRequired,
 }

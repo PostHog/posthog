@@ -1,6 +1,6 @@
 // Experiment actions-ux-201012
 
-import React, { useState, Fragment } from 'react'
+import React, { useState } from 'react'
 import { uuid, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
@@ -75,49 +75,35 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 </div>
                 <Row gutter={[24, 24]}>
                     {action.steps.map((step, index) => (
-                        <Fragment key={index}>
-                            {index > 0 && false ? (
-                                <div
-                                    style={{
-                                        textAlign: 'center',
-                                        fontSize: 13,
-                                        letterSpacing: 1,
-                                        opacity: 0.7,
-                                        margin: 8,
-                                    }}
-                                >
-                                    OR
-                                </div>
-                            ) : null}
-
-                            <ActionStep
-                                key={step.id || step.isNew}
-                                step={step}
-                                isEditor={false}
-                                actionId={action.id}
-                                simmer={simmer}
-                                isOnlyStep={action.steps.length === 1}
-                                onDelete={() => {
-                                    setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
-                                    setEdited(true)
-                                }}
-                                onChange={(newStep) => {
-                                    setAction({
-                                        ...action,
-                                        steps: action.steps.map((s) =>
-                                            (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
-                                                ? {
-                                                      id: step.id,
-                                                      isNew: step.isNew,
-                                                      ...newStep,
-                                                  }
-                                                : s
-                                        ),
-                                    })
-                                    setEdited(true)
-                                }}
-                            />
-                        </Fragment>
+                        <ActionStep
+                            key={step.id || step.isNew}
+                            identifier={step.id || step.isNew}
+                            index={index}
+                            step={step}
+                            isEditor={false}
+                            actionId={action.id}
+                            simmer={simmer}
+                            isOnlyStep={action.steps.length === 1}
+                            onDelete={() => {
+                                setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
+                                setEdited(true)
+                            }}
+                            onChange={(newStep) => {
+                                setAction({
+                                    ...action,
+                                    steps: action.steps.map((s) =>
+                                        (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
+                                            ? {
+                                                  id: step.id,
+                                                  isNew: step.isNew,
+                                                  ...newStep,
+                                              }
+                                            : s
+                                    ),
+                                })
+                                setEdited(true)
+                            }}
+                        />
                     ))}
                 </Row>
                 <div style={{ marginTop: 12, textAlign: 'right' }}>{addGroup}</div>
