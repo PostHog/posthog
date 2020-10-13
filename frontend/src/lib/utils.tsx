@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
 import { Spin } from 'antd'
 import moment from 'moment'
+import { ActionType } from '~/types'
 
 const SI_PREFIXES = [
     { value: 1e18, symbol: 'E' },
@@ -16,14 +17,14 @@ const SI_PREFIXES = [
 ]
 const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
 
-export function uuid() {
-    return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
-        (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+export function uuid(): string {
+    return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+        (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
     )
 }
 
-export let toParams = (obj) => {
-    let handleVal = (val) => {
+export const toParams = (obj) => {
+    const handleVal = (val) => {
         if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
@@ -33,7 +34,7 @@ export let toParams = (obj) => {
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
-export let fromParams = () =>
+export const fromParams = () =>
     window.location.search != ''
         ? window.location.search
               .slice(1)
@@ -45,21 +46,24 @@ export let fromParams = () =>
               }, {})
         : {}
 
-export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
-export let percentage = (division) =>
-    division
+export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
+
+export function percentage(division: number): string {
+    return division
         ? division.toLocaleString(undefined, {
               style: 'percent',
               maximumFractionDigits: 2,
           })
         : ''
+}
 
-export let Loading = () => (
-    <div className="loading-overlay">
-        <div></div>
-        <Spin />
-    </div>
-)
+export function Loading(): JSX.Element {
+    return (
+        <div className="loading-overlay">
+            <Spin />
+        </div>
+    )
+}
 
 export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
     <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
@@ -75,7 +79,7 @@ export const SceneLoading = () => (
     </div>
 )
 
-export let CloseButton = (props) => {
+export const CloseButton = (props) => {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
             <span aria-hidden="true">&times;</span>
@@ -103,7 +107,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
         deleted: !undo,
     }).then(() => {
         props.callback?.()
-        let response = (
+        const response = (
             <span>
                 <b>{props.object.name ?? 'Untitled'}</b>
                 {!undo ? ' deleted. Click here to undo.' : ' deletion undone.'}
@@ -144,7 +148,7 @@ DeleteWithUndo.propTypes = {
     style: PropTypes.object,
 }
 
-export let selectStyle = {
+export const selectStyle = {
     control: (base) => ({
         ...base,
         height: 31,
@@ -172,16 +176,16 @@ export let selectStyle = {
     }),
 }
 
-export let debounce = (func, wait, immediate) => {
-    var timeout
+export const debounce = (func, wait, immediate) => {
+    let timeout
     return function () {
         var context = this, // eslint-disable-line
             args = arguments
-        var later = function () {
+        const later = function () {
             timeout = null
             if (!immediate) func.apply(context, args)
         }
-        var callNow = immediate && !timeout
+        const callNow = immediate && !timeout
         clearTimeout(timeout)
         timeout = setTimeout(later, wait)
         if (callNow) func.apply(context, args)
@@ -225,25 +229,25 @@ export const formatProperty = (property) => {
 }
 
 // Format a label that gets returned from the /insights api
-export const formatLabel = (label, action) => {
-    let math = 'Total'
+export function formatLabel(label: string, action: Record<string, any>): string {
+    const math = 'Total'
     if (action.math === 'dau') label += ` (${action.math.toUpperCase()}) `
     else label += ` (${math}) `
-    if (action && action.properties && !_.isEmpty(action.properties)) {
+    if (action?.properties?.length) {
         label += ` (${action.properties
             .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
             .join(', ')})`
     }
-
     return label
 }
 
-export const deletePersonData = (person, callback) => {
-    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
+export function deletePersonData(person: Record<string, any>, callback: () => void): void {
+    if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
         api.delete('api/person/' + person.id).then(() => {
             toast('Person succesfully deleted.')
             if (callback) callback()
         })
+    }
 }
 
 export const savePersonData = (person) => {
@@ -314,15 +318,15 @@ export function slugify(text) {
 
 export function humanFriendlyDuration(d) {
     d = Number(d)
-    var days = Math.floor(d / 86400)
-    var h = Math.floor((d % 86400) / 3600)
-    var m = Math.floor((d % 3600) / 60)
-    var s = Math.floor((d % 3600) % 60)
+    const days = Math.floor(d / 86400)
+    const h = Math.floor((d % 86400) / 3600)
+    const m = Math.floor((d % 3600) / 60)
+    const s = Math.floor((d % 3600) % 60)
 
-    var dayDisplay = days > 0 ? days + 'd ' : ''
-    var hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
-    var mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
-    var sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
+    const dayDisplay = days > 0 ? days + 'd ' : ''
+    const hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
+    const mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
     return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
@@ -354,8 +358,8 @@ export function stripHTTP(url) {
 export function isURL(string) {
     if (!string) return false
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    var expression = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    var regex = new RegExp(expression)
+    const expression = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    const regex = new RegExp(expression)
     return string.match && string.match(regex)
 }
 
@@ -442,18 +446,54 @@ export function copyToClipboard(value, description) {
     }
 }
 
-export function clamp(value, min, max) {
+export function clamp(value: number, min: number, max: number): number {
     return value > max ? max : value < min ? min : value
 }
 
-export function isMobile() {
+export function isMobile(): boolean {
     return navigator.userAgent.includes('Mobile')
 }
 
-export function isMac() {
+export function isMac(): boolean {
     return navigator.platform.includes('Mac')
 }
 
-export function platformCommandControlKey() {
+export function platformCommandControlKey(): string {
     return isMac() ? '⌘' : 'Ctrl'
+}
+
+export function groupBy<T>(items: T[], groupResolver: (item: T) => string | number): Record<string | number, T[]> {
+    const itemsGrouped: Record<string | number, T[]> = {}
+    for (const item of items) {
+        const group = groupResolver(item)
+        if (!(group in itemsGrouped)) itemsGrouped[group] = [] // Ensure there's an array to push to
+        itemsGrouped[group].push({ ...item })
+    }
+    return itemsGrouped
+}
+
+export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
+    const uniqueKeysSoFar = new Set<string>()
+    const itemsUnique: T[] = []
+    for (const item of items) {
+        const uniqueKey = uniqueResolver(item)
+        if (!(uniqueKey in uniqueKeysSoFar)) {
+            uniqueKeysSoFar.add(uniqueKey)
+            itemsUnique.push(item)
+        }
+    }
+    return itemsUnique
+}
+
+export function sample<T>(items: T[], size: number): T[] {
+    if (size > items.length) throw Error('Sample size cannot exceed items array length!')
+    const results: T[] = []
+    const internalItems = [...items]
+    if (size === items.length) return internalItems
+    for (let i = 0; i < size; i++) {
+        const index = Math.floor(Math.random() * internalItems.length)
+        results.push(internalItems[index])
+        internalItems.splice(index, 1)
+    }
+    return results
 }
