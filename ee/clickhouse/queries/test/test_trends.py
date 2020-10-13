@@ -110,26 +110,4 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[1]["breakdown_value"], "other_value")
 
     def test_dau_with_breakdown_filtering(self):
-        sign_up_action, _ = self._create_events()
-        with freeze_time("2020-01-02T13:01:01Z"):
-            _create_event(
-                team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
-            )
-        with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
-                Filter(data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]}),
-                self.team,
-            )
-            event_response = ClickhouseTrends().run(
-                Filter(data={"breakdown": "$some_property", "events": [{"id": "sign up", "math": "dau"}]}), self.team,
-            )
-
-        self.assertEqual(event_response[0]["label"], "sign up - value")
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
-
-        self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][3], 1)  # property not defined
-
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        pass
