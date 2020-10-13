@@ -370,9 +370,11 @@ class ClickhouseTrends(BaseQuery):
         parsed_results = []
 
         for idx, stats in enumerate(result):
-            extra_label = self._determine_breakdown_label(
-                idx, filter.breakdown_type, filter.breakdown, stats[2].strip('"')
-            )
+
+            breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
+            stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+
+            extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
             label = "{} - {}".format(entity.name, extra_label)
             additional_values = {
                 "label": label,
@@ -380,7 +382,7 @@ class ClickhouseTrends(BaseQuery):
                 if isinstance(filter.breakdown, list)
                 else filter.breakdown
                 if filter.breakdown_type == "cohort"
-                else stats[2].strip('"'),
+                else stripped_value,
             }
             parsed_result = self._parse_response(stats, filter, additional_values)
             parsed_results.append(parsed_result)

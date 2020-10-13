@@ -123,13 +123,13 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], 'sign up - "value"')
-        self.assertEqual(response[1]["label"], 'sign up - "other_value"')
-        self.assertEqual(response[2]["label"], 'no events - "value"')
-        self.assertEqual(response[3]["label"], 'no events - "other_value"')
+        self.assertEqual(response[0]["label"], "sign up - value")
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[2]["label"], "no events - value")
+        self.assertEqual(response[3]["label"], "no events - other_value")
 
         self.assertEqual(sum(response[0]["data"]), 2)
-        self.assertEqual(response[0]["breakdown_value"], '"value"')
+        self.assertEqual(response[0]["breakdown_value"], "value")
 
         self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], '"other_value"')
+        self.assertEqual(response[1]["breakdown_value"], "other_value")
