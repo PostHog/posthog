@@ -12,7 +12,7 @@ class Annotation(models.Model):
         GITHUB = "GIT", "GitHub"
 
     content: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     dashboard_item: models.ForeignKey = models.ForeignKey(
         "posthog.DashboardItem", on_delete=models.SET_NULL, null=True, blank=True
