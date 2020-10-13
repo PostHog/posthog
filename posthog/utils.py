@@ -188,10 +188,10 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["git_branch"] = get_git_branch()
 
     if settings.DEBUG:
-        context["js_posthog_host"] = "http://localhost:8000"
+        context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_apikey"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://app.posthog.com"
+        context["js_posthog_host"] = "'https://app.posthog.com'"
 
     html = template.render(context, request=request)
     return HttpResponse(html)
