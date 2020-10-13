@@ -41,11 +41,11 @@ def _create_event(**kwargs):
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
-        with freeze_time("2020-01-02"):
+        with freeze_time("2020-01-02T13:01:01Z"):
             _create_event(
                 team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
             )
-        with freeze_time("2020-01-04"):
+        with freeze_time("2020-01-04T13:01:01Z"):
             action_response = ClickhouseTrends().run(
                 Filter(data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]}),
                 self.team,
@@ -58,11 +58,10 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[1]["label"], "sign up - other_value")
 
         self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][5], 1)
+        self.assertEqual(event_response[0]["data"][3], 1)  # property not defined
 
-        self.assertEqual(sum(event_response[2]["data"]), 1)
-        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
-
+        self.assertEqual(sum(event_response[1]["data"]), 1)
+        self.assertEqual(event_response[1]["data"][4], 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
     def test_breakdown_by_person_property(self):
