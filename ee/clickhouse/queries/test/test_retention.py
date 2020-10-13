@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -37,6 +38,8 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         filter = Filter(data={"date_from": self._date(0, hour=0), "period": "Week"})
+
+        ch_client.execute("OPTIMIZE TABLE person_retention_period")
 
         result = ClickhouseRetention().run(filter, self.team, total_intervals=7)
 
