@@ -1,12 +1,11 @@
-import React from 'react'
+import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
-import PropTypes from 'prop-types'
 import { Spin } from 'antd'
 import moment from 'moment'
-import { ActionType } from '~/types'
+import { EventType } from '~/types'
 
-const SI_PREFIXES = [
+const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
     { value: 1e15, symbol: 'P' },
     { value: 1e12, symbol: 'T' },
@@ -23,8 +22,8 @@ export function uuid(): string {
     )
 }
 
-export const toParams = (obj) => {
-    const handleVal = (val) => {
+export function toParams(obj: Record<string, any>): string {
+    function handleVal(val: any): string {
         if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
@@ -34,9 +33,11 @@ export const toParams = (obj) => {
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
-export const fromParams = () =>
-    window.location.search != ''
-        ? window.location.search
+
+export function fromParams(): Record<string, any> {
+    return window.location.search === ''
+        ? {}
+        : window.location.search
               .slice(1)
               .split('&')
               .reduce((a, b) => {
@@ -44,7 +45,7 @@ export const fromParams = () =>
                   a[b[0]] = decodeURIComponent(b[1])
                   return a
               }, {})
-        : {}
+}
 
 export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 
@@ -65,21 +66,31 @@ export function Loading(): JSX.Element {
     )
 }
 
-export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
-    <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
-        <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
+export function TableRowLoading({
+    colSpan = 1,
+    asOverlay = false,
+}: {
+    colSpan: number
+    asOverlay: boolean
+}): JSX.Element {
+    return (
+        <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
+            <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
+                <Spin />
+            </td>
+        </tr>
+    )
+}
+
+export function SceneLoading(): JSX.Element {
+    return (
+        <div style={{ textAlign: 'center', marginTop: '20vh' }}>
             <Spin />
-        </td>
-    </tr>
-)
+        </div>
+    )
+}
 
-export const SceneLoading = () => (
-    <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-        <Spin />
-    </div>
-)
-
-export const CloseButton = (props) => {
+export function CloseButton(props: Record<string, any>): JSX.Element {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
             <span aria-hidden="true">&times;</span>
@@ -87,7 +98,7 @@ export const CloseButton = (props) => {
     )
 }
 
-export function Card(props) {
+export function Card(props: Record<string, any>): JSX.Element {
     return (
         <div
             {...props}
@@ -101,7 +112,7 @@ export function Card(props) {
     )
 }
 
-export const deleteWithUndo = ({ undo = false, ...props }) => {
+export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
         deleted: !undo,
@@ -122,7 +133,17 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
     })
 }
 
-export const DeleteWithUndo = (props) => {
+export function DeleteWithUndo(
+    props: PropsWithChildren<{
+        endpoint: string
+        object: {
+            name: string
+            id: number
+        }
+        className: string
+        style: CSSProperties
+    }>
+): JSX.Element {
     const { className, style, children } = props
     return (
         <a
@@ -138,17 +159,8 @@ export const DeleteWithUndo = (props) => {
         </a>
     )
 }
-DeleteWithUndo.propTypes = {
-    endpoint: PropTypes.string.isRequired,
-    object: PropTypes.shape({
-        name: PropTypes.string.isRequired,
-        id: PropTypes.number.isRequired,
-    }).isRequired,
-    className: PropTypes.string,
-    style: PropTypes.object,
-}
 
-export const selectStyle = {
+export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Partial<CSSProperties>> = {
     control: (base) => ({
         ...base,
         height: 31,
@@ -176,13 +188,12 @@ export const selectStyle = {
     }),
 }
 
-export const debounce = (func, wait, immediate) => {
-    let timeout
+export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
+    let timeout: number | undefined
     return function () {
-        var context = this, // eslint-disable-line
-            args = arguments
-        const later = function () {
-            timeout = null
+        const context = this // eslint-disable-line
+        function later(): void {
+            timeout = undefined
             if (!immediate) func.apply(context, args)
         }
         const callNow = immediate && !timeout
@@ -192,11 +203,11 @@ export const debounce = (func, wait, immediate) => {
     }
 }
 
-export const capitalizeFirstLetter = (string) => {
+export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
-export const operatorMap = {
+export const operatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
     icontains: '∋ contains',
@@ -209,12 +220,16 @@ export const operatorMap = {
     is_not_set: '✕ is not set',
 }
 
-export function isOperatorFlag(operator) {
+export function isOperatorFlag(operator: string): boolean {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
-export function formatPropertyLabel(item, cohorts, keyMapping) {
+export function formatPropertyLabel(
+    item: Record<string, any>,
+    cohorts: Record<string, any>[],
+    keyMapping: Record<string, Record<string, any>>
+): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
         ? cohorts?.find((cohort) => cohort.id === value)?.name || value
@@ -224,7 +239,7 @@ export function formatPropertyLabel(item, cohorts, keyMapping) {
                   : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
 }
 
-export const formatProperty = (property) => {
+export function formatProperty(property: Record<string, any>): string {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
@@ -250,62 +265,66 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
     }
 }
 
-export const savePersonData = (person) => {
+export function savePersonData(person: Record<string, any>): void {
     api.update('api/person/' + person.id, person).then(() => {
         toast('Person Updated')
     })
 }
 
-export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
+export function objectsEqual(obj1: any, obj2: any): boolean {
+    return JSON.stringify(obj1) === JSON.stringify(obj2)
+}
 
-export const idToKey = (array, keyField = 'id') => {
-    const object = {}
+export function idToKey(array: Record<string, any>[], keyField: string = 'id'): any {
+    const object: Record<string, any> = {}
     for (const element of array) {
         object[element[keyField]] = element
     }
     return object
 }
 
-export const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
+export function delay(ms: number): Promise<number> {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
 
 // Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
 // We need this so the dashboard resizes itself properly, as the available div width will still
 // change when the sidebar's expansion is animating.
-export const triggerResize = () => {
+export function triggerResize(): void {
     try {
         window.dispatchEvent(new Event('resize'))
     } catch (error) {
         // will break on IE11
     }
 }
-export const triggerResizeAfterADelay = () => {
+export function triggerResizeAfterADelay(): void {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
         window.setTimeout(triggerResize, delay)
     }
 }
 
-export function clearDOMTextSelection() {
+export function clearDOMTextSelection(): void {
     if (window.getSelection) {
-        if (window.getSelection().empty) {
+        if (window.getSelection()?.empty) {
             // Chrome
-            window.getSelection().empty()
-        } else if (window.getSelection().removeAllRanges) {
+            window.getSelection()?.empty()
+        } else if (window.getSelection()?.removeAllRanges) {
             // Firefox
-            window.getSelection().removeAllRanges()
+            window.getSelection()?.removeAllRanges()
         }
-    } else if (document.selection) {
+    } else if ((document as any).selection) {
         // IE?
-        document.selection.empty()
+        ;(document as any).selection.empty()
     }
 }
 
 export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
 
-export function isAndroidOrIOS() {
+export function isAndroidOrIOS(): boolean {
     return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
 }
 
-export function slugify(text) {
+export function slugify(text: string): string {
     return text
         .toString() // Cast to string
         .toLowerCase() // Convert the string to lowercase letters
@@ -316,7 +335,7 @@ export function slugify(text) {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d) {
+export function humanFriendlyDuration(d: string | number): string {
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
@@ -330,12 +349,12 @@ export function humanFriendlyDuration(d) {
     return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
-export function humanFriendlyDiff(from, to) {
+export function humanFriendlyDiff(from: moment.MomentInput, to: moment.MomentInput): string {
     const diff = moment(to).diff(moment(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date, withSeconds = false) {
+export function humanFriendlyDetailedTime(date: moment.MomentInput, withSeconds: boolean = false): string {
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
@@ -349,21 +368,21 @@ export function humanFriendlyDetailedTime(date, withSeconds = false) {
     return moment(date).format(formatString)
 }
 
-export function stripHTTP(url) {
+export function stripHTTP(url: string): string {
     url = url.replace(/(^[0-9]+_)/, '')
     url = url.replace(/(^\w+:|^)\/\//, '')
     return url
 }
 
-export function isURL(string) {
+export function isURL(string: string): boolean {
     if (!string) return false
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const expression = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
     const regex = new RegExp(expression)
-    return string.match && string.match(regex)
+    return !!string.match(regex)
 }
 
-export const eventToName = (event) => {
+export function eventToName(event: EventType): string {
     if (event.event !== '$autocapture') return event.event
     let name = ''
     if (event.properties.$event_type === 'click') name += 'clicked '
@@ -383,7 +402,10 @@ export const eventToName = (event) => {
     return name
 }
 
-export function determineDifferenceType(firstDate, secondDate) {
+export function determineDifferenceType(
+    firstDate: moment.MomentInput,
+    secondDate: moment.MomentInput
+): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
     const first = moment(firstDate)
     const second = moment(secondDate)
     if (first.diff(second, 'years') !== 0) return 'year'
@@ -394,7 +416,7 @@ export function determineDifferenceType(firstDate, secondDate) {
     else return 'minute'
 }
 
-export const dateMapping = {
+export const dateMapping: Record<string, string[]> = {
     Today: ['dStart'],
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
@@ -411,18 +433,21 @@ export const dateMapping = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function dateFilterToText(date_from, date_to) {
-    if (isDate.test(date_from)) return `${date_from} - ${date_to}`
-    if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
-    if (date_from === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
+export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
+    if (moment.isMoment(dateFrom) && moment.isMoment(dateTo))
+        return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
+    dateFrom = dateFrom as string
+    dateTo = dateTo as string
+    if (isDate.test(dateFrom) && isDate.test(dateTo)) return `${dateFrom} - ${dateTo}`
+    if (dateFrom === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
     let name = 'Last 7 days'
     Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === date_from && value[1] === date_to) name = key
+        if (value[0] === dateFrom && value[1] === dateTo) name = key
     })[0]
     return name
 }
 
-export function humanizeNumber(number, digits = 1) {
+export function humanizeNumber(number: number, digits: number = 1): string {
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {
@@ -434,7 +459,7 @@ export function humanizeNumber(number, digits = 1) {
     return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
 }
 
-export function copyToClipboard(value, description) {
+export function copyToClipboard(value: string, description?: string): boolean {
     const descriptionAdjusted = description ? description.trim() + ' ' : ''
     try {
         navigator.clipboard.writeText(value)
