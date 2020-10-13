@@ -11,7 +11,7 @@ export function ActionSelectTab({ entityType, chooseEntityType, allTypes }) {
         //TODO: Move to kea logic
         if (type === 'actions') {
             return <AimOutlined style={{ paddingRight: 6 }} />
-        } else if (type === 'raw_events') {
+        } else if (type === 'events') {
             return <ContainerOutlined style={{ paddingRight: 6 }} />
         }
     }

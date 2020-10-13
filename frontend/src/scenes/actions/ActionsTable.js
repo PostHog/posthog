@@ -133,7 +133,7 @@ export function ActionsTable() {
                             </div>
                             <div>
                                 <div className="title">Multiple grouping</div>
-                                <div className="description">Group multiple sets of events into a single tag.</div>
+                                <div className="description">Group multiple sets of events into a single action.</div>
                             </div>
                         </div>
                         <div className="t-element">
@@ -143,7 +143,7 @@ export function ActionsTable() {
                             <div>
                                 <div className="title">Clean &amp; standardized data</div>
                                 <div className="description">
-                                    Keep your same tags even if your product or data changes.
+                                    Keep your same actions even if your product or data changes.
                                 </div>
                             </div>
                         </div>
@@ -154,7 +154,7 @@ export function ActionsTable() {
                             <div>
                                 <div className="title">Retroactive</div>
                                 <div className="description">
-                                    We’ll retroactive update your tags to match any past events.
+                                    We'll retroactive update your actions to match any past events.
                                 </div>
                             </div>
                         </div>

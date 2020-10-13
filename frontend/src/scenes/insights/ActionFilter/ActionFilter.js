@@ -4,8 +4,9 @@ import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PlusCircleOutlined } from '@ant-design/icons'
 
-export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector }) {
+export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '' }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -30,14 +31,15 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
                         hideMathSelector={hideMathSelector}
                     />
                 ))}
-            <div style={!featureFlags['actions-ux-201012'] ? {} : { textAlign: 'center', paddingTop: '0.5rem' }}>
+            <div style={!featureFlags['actions-ux-201012'] ? {} : { paddingTop: '0.5rem' }}>
                 <Button
                     type="primary"
                     onClick={() => addFilter()}
                     style={{ marginTop: '0.5rem' }}
                     data-attr="add-action-event-button"
+                    icon={featureFlags['actions-ux-201012'] && <PlusCircleOutlined />}
                 >
-                    {!featureFlags['actions-ux-201012'] ? 'Add action/event' : 'Action or raw event'}
+                    {!featureFlags['actions-ux-201012'] ? 'Add action/event' : copy || 'Action or raw event'}
                 </Button>
             </div>
         </div>

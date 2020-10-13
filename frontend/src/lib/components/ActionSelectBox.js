@@ -9,14 +9,16 @@ const determineActiveTab = (props) => {
     if (props.selected) {
         return props.selected
     } else {
-        return Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
+        return Array.isArray(props.children) ? props.children[0].props.entityType : props.children.props.entityType
     }
 }
 
 function ActionSelectTabs(props) {
     let [activeTab, setActiveTab] = useState(determineActiveTab(props))
     let [labels] = useState(
-        Array.isArray(props.children) ? props.children.map((child) => child.props.title) : [props.children.props.title]
+        Array.isArray(props.children)
+            ? props.children.map((child) => child.props.entityType)
+            : [props.children.props.entityType]
     )
     return (
         <div className="select-box" style={{ padding: 0 }}>
@@ -29,7 +31,7 @@ function ActionSelectTabs(props) {
             )}
             {Array.isArray(props.children)
                 ? props.children.map((child) => {
-                      if (child.props.title !== activeTab) return undefined
+                      if (child.props.entityType !== activeTab) return undefined
                       return child
                   })
                 : props.children}

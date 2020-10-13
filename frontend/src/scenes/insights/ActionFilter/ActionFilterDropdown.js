@@ -2,12 +2,11 @@ import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
-import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { Button } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { ExportOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Link } from 'lib/components/Link'
 
 export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
@@ -81,16 +80,16 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
 
     const NewActionButton = () => {
         return (
-            <div style={{ position: 'absolute', bottom: 16, textAlign: 'center', width: '100%' }}>
-                <Button icon={<PlusOutlined />} href="/action" target="_blank">
-                    New action
-                </Button>
+            <div style={{ position: 'absolute', bottom: 16, width: 'calc(100% - 32px)', textAlign: 'right' }}>
+                <Link href="/actions" target="_blank">
+                    View &amp; edit all actions <ExportOutlined />
+                </Link>
             </div>
         )
     }
 
     const message = () => {
-        if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
+        if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]?.length) {
             return (
                 <div
                     style={{
