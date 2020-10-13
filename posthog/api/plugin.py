@@ -52,7 +52,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
-    def destroy(self, request: request.Request, pk=None) -> Response:
+    def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         plugin = Plugin.objects.get(pk=pk)
         plugin.delete()
         Plugins().publish_reload_command()

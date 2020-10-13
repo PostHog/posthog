@@ -10,6 +10,7 @@ def get_redis_instance() -> Optional[redis.Redis]:
         return fakeredis.FakeStrictRedis()
     elif settings.REDIS_URL:
         return redis.from_url(settings.REDIS_URL, db=0)
+    return None
 
 
 redis_instance = get_redis_instance()  # type: Optional[redis.Redis]

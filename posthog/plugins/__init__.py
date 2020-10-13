@@ -1,5 +1,6 @@
 import datetime
 import importlib
+import importlib.util
 import inspect
 import os
 import pickle
@@ -7,11 +8,12 @@ import sys
 import tempfile
 import zipimport
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from types import ModuleType
+from typing import Any, Dict, List, Optional, Type
 from zipfile import ZipFile
 
 import fakeredis  # type: ignore
-import pip
+import pip  # type: ignore
 import redis
 from django.conf import settings
 
@@ -59,7 +61,7 @@ class PluginCache:
 
 
 class PluginBaseClass:
-    def __init__(self, config: any):
+    def __init__(self, config: "TeamPlugin"):
         self.config = config.config
         self.cache = PluginCache(plugin_name=config.name)
 
@@ -85,9 +87,9 @@ class PluginModule:
     tag: str  # tag in the Plugin model
     module_name: str  # name of the module, "posthog.plugins.plugin_{id}_{name}_{tag}"
     plugin_path: str  # path of the local folder or the temporary .zip file for github
-    requirements: [str]  # requirements.txt split into lines
-    module: any  # python module
-    plugin: PluginBaseClass  # plugin base class extracted from the exports in the module
+    requirements: List[str]  # requirements.txt split into lines
+    module: ModuleType  # python module
+    plugin: Type[PluginBaseClass]  # plugin base class extracted from the exports in the module
 
 
 # Contains per-team config for a plugin
@@ -97,15 +99,17 @@ class TeamPlugin:
     plugin: int  # plugin id
     name: str  # plugin name
     tag: str  # plugin tag
-    config: Dict[str, any]  # config from the DB
+    config: Dict[str, Any]  # config from the DB
     loaded_class: Optional[PluginBaseClass]  # link to the class
     plugin_module: PluginModule  # link to the module
 
 
 class _Plugins:
     def __init__(self):
-        self.plugins: List[any] = []  # type not loaded yet
-        self.plugin_configs: List[any] = []  # type not loaded yet
+        from posthog.models.plugin import Plugin, PluginConfig
+
+        self.plugins: List[Plugin] = []  # type not loaded yet
+        self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
         self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
 
@@ -118,7 +122,7 @@ class _Plugins:
     def load_plugins(self):
         from posthog.models.plugin import Plugin
 
-        self.plugins = Plugin.objects.all()
+        self.plugins = list(Plugin.objects.all())
 
         for plugin in self.plugins:
             local_plugin = plugin.url.startswith("file:") and not plugin.archive
@@ -154,8 +158,24 @@ class _Plugins:
                     pass
 
                 spec = importlib.util.spec_from_file_location(module_name, os.path.join(plugin_path, "__init__.py"))
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                if spec:
+                    module = importlib.util.module_from_spec(spec)
+                    if module:
+                        spec.loader.exec_module(module)  # type: ignore
+                    else:
+                        print(
+                            '🔻🔻🔻 Could not find module in __init__.py for plugin "{}" in: {}'.format(
+                                plugin.name, plugin_path
+                            )
+                        )
+                        continue
+                else:
+                    print(
+                        '🔻🔻🔻 Could not find module in __init__.py for plugin "{}" in: {}'.format(
+                            plugin.name, plugin_path
+                        )
+                    )
+                    continue
 
             else:
                 module_name = "{}-{}".format(plugin.name, plugin.tag)
@@ -167,8 +187,9 @@ class _Plugins:
                 zip_root_folder = zip_file.namelist()[0]
 
                 try:
-                    with zip_file.open(zip_root_folder + "requirements.txt") as requirements_file:
-                        requirements = requirements_file.read().decode("utf-8").split("\n")
+                    requirements_path = os.path.join(zip_root_folder, "requirements.txt")
+                    with zip_file.open(requirements_path) as requirements_zip_file:
+                        requirements = requirements_zip_file.read().decode("utf-8").split("\n")
                         requirements = [x for x in requirements if x]
                     self.install_requirements(plugin.name, requirements)
                 except KeyError:
@@ -222,8 +243,8 @@ class _Plugins:
     def load_plugin_configs(self):
         from posthog.models.plugin import PluginConfig
 
-        self.plugin_configs = PluginConfig.objects.filter(enabled=True).order_by("team", "order").all()
-        self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
+        self.plugin_configs = list(PluginConfig.objects.filter(enabled=True).order_by("team", "order").all())
+        self.plugins_by_team = {}
 
         for plugin_config in self.plugin_configs:
             team_plugins = self.plugins_by_team.get(plugin_config.team_id, None)
@@ -290,13 +311,19 @@ class _Plugins:
         self.load_plugin_configs()
 
     def start_reload_pubsub(self):
-        pubsub = REDIS_INSTANCE.pubsub()
-        pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
-        pubsub.run_in_thread(sleep_time=1, daemon=True)
+        if REDIS_INSTANCE:
+            pubsub = REDIS_INSTANCE.pubsub()
+            pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
+            pubsub.run_in_thread(sleep_time=1, daemon=True)  # type: ignore
+        else:
+            print("🔻🔻🔻 Can not listen to plugin reload commands! No REDIS_INSTANCE defined!")
 
     @staticmethod
     def publish_reload_command():
-        REDIS_INSTANCE.publish("plugin-reload-channel", "yeah!")
+        if REDIS_INSTANCE:
+            REDIS_INSTANCE.publish("plugin-reload-channel", "yeah!")
+        else:
+            print("🔻🔻🔻 Error reloading plugins! No REDIS_INSTANCE defined!")
 
 
 Plugins = SingletonDecorator(_Plugins)
