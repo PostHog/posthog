@@ -32,7 +32,12 @@ module.exports = {
         'react/jsx-no-target-blank': [0],
         'no-unused-vars': ['error', { ignoreRestSiblings: true }],
         '@typescript-eslint/explicit-function-return-type': 'off',
-        '@typescript-eslint/explicit-module-boundary-types': 'off',
+        '@typescript-eslint/explicit-module-boundary-types': [
+            'error',
+            {
+                allowArgumentsExplicitlyTypedAsAny: true,
+            },
+        ],
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
     },
