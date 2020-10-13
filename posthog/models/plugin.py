@@ -8,7 +8,7 @@ class Plugin(models.Model):
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     configSchema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    archive: models.BinaryField = models.BinaryField(blank=True)
+    archive: models.BinaryField = models.BinaryField(blank=True, null=True)
 
 
 class PluginConfig(models.Model):

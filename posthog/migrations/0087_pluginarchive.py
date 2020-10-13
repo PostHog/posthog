@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="plugin", name="archive", field=models.BinaryField(blank=True),),
+        migrations.AddField(model_name="plugin", name="archive", field=models.BinaryField(blank=True, null=True),),
         migrations.AddField(
             model_name="plugin", name="tag", field=models.CharField(blank=True, max_length=200, null=True),
         ),

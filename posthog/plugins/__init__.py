@@ -1,11 +1,14 @@
 import datetime
+import importlib
 import inspect
 import os
 import pickle
+import sys
 import tempfile
 import zipimport
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from zipfile import ZipFile
 
 import fakeredis  # type: ignore
 import pip
@@ -73,24 +76,30 @@ class PluginBaseClass:
         pass
 
 
+# Contains metadata and the python module for a plugin
 @dataclass
 class PluginModule:
-    id: int
-    name: str
-    tag: str
-    module: any
-    plugin: PluginBaseClass
+    id: int  # id in the Plugin model
+    name: str  # name in the Plugin model
+    url: str  # url in the Plugin model, can be https: or file:
+    tag: str  # tag in the Plugin model
+    module_name: str  # name of the module, "posthog.plugins.plugin_{id}_{name}_{tag}"
+    plugin_path: str  # path of the local folder or the temporary .zip file for github
+    requirements: [str]  # requirements.txt split into lines
+    module: any  # python module
+    plugin: PluginBaseClass  # plugin base class extracted from the exports in the module
 
 
+# Contains per-team config for a plugin
 @dataclass
 class TeamPlugin:
-    team: int
-    plugin: int
-    name: str
-    tag: str
-    config: Dict[str, any]
-    loaded_class: PluginBaseClass
-    plugin_module: PluginModule
+    team: int  # team id
+    plugin: int  # plugin id
+    name: str  # plugin name
+    tag: str  # plugin tag
+    config: Dict[str, any]  # config from the DB
+    loaded_class: Optional[PluginBaseClass]  # link to the class
+    plugin_module: PluginModule  # link to the module
 
 
 class _Plugins:
@@ -99,6 +108,8 @@ class _Plugins:
         self.plugin_configs: List[any] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
         self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
+
+        # TODO: sync posthog.json plugins with the DB
 
         self.load_plugins()
         self.load_plugin_configs()
@@ -110,37 +121,93 @@ class _Plugins:
         self.plugins = Plugin.objects.all()
 
         for plugin in self.plugins:
+            local_plugin = plugin.url.startswith("file:") and not plugin.archive
             old_plugin = self.plugins_by_id.get(plugin.id, None)
+            requirements = []
 
-            # skip loading if same tag already loaded
             if old_plugin:
-                if old_plugin.tag == plugin.tag:
+                # skip reloading if same tag already loaded
+                if old_plugin.url == plugin.url and old_plugin.tag == plugin.tag and not local_plugin:
                     continue
                 self.unregister_plugin(plugin.id)
 
-            # TODO: symlink if local plugin?
-            new_file, filename = tempfile.mkstemp(prefix=plugin.name, suffix=".zip")
-            os.write(new_file, plugin.archive)
-            os.close(new_file)
+            if not plugin.archive and not local_plugin:
+                print(
+                    '🔻 Plugin "{}" archive not downloaded and it\'s not a local "file:" path ({})'.format(
+                        plugin.name, plugin.url
+                    )
+                )
+                continue
 
-            importer = zipimport.zipimporter(filename)
+            if local_plugin:
+                module_name = "posthog.plugins.plugin_{id}_{name}".format(id=plugin.id, name=plugin.name)
+                plugin_path = os.path.realpath(plugin.url.replace("file:", "", 1))
 
-            try:
-                requirements = importer.get_data("{}-{}/requirements.txt".format(plugin.name, plugin.tag))
-                requirements = requirements.decode("utf-8").split("\n")
-                for requirement in requirements:
-                    if requirement:
-                        self.install_requirement(requirement)
-            except IOError:
-                pass
+                try:
+                    requirements_path = os.path.join(plugin_path, "requirements.tx1t")
+                    requirements_file = open(requirements_path, "r")
+                    requirements = requirements_file.read().split("\n")
+                    requirements = [x for x in requirements if x]
+                    requirements_file.close()
+                    self.install_requirements(plugin.name, requirements)
+                except FileNotFoundError:
+                    pass
 
-            module = importer.load_module("{}-{}".format(plugin.name, plugin.tag))
+                spec = importlib.util.spec_from_file_location(module_name, os.path.join(plugin_path, "__init__.py"))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
 
+            else:
+                module_name = "{}-{}".format(plugin.name, plugin.tag)
+                fd, plugin_path = tempfile.mkstemp(prefix=plugin.name + "-", suffix=".zip")
+                os.write(fd, plugin.archive)
+                os.close(fd)
+
+                zip_file = ZipFile(plugin_path)
+                zip_root_folder = zip_file.namelist()[0]
+
+                try:
+                    with zip_file.open(zip_root_folder + "requirements.txt") as requirements_file:
+                        requirements = requirements_file.read().decode("utf-8").split("\n")
+                        requirements = [x for x in requirements if x]
+                    self.install_requirements(plugin.name, requirements)
+                except KeyError:
+                    pass  # no requirements.txt found
+
+                importer = zipimport.zipimporter(plugin_path)
+                module = importer.load_module(module_name)
+
+                os.unlink(plugin_path)  # temporary file no longer needed
+
+            found_plugin = False
             for item in module.__dict__.items():
                 if inspect.isclass(item[1]) and item[0] != "PluginBaseClass" and issubclass(item[1], PluginBaseClass):
+                    found_plugin = True
                     self.plugins_by_id[plugin.id] = PluginModule(
-                        id=plugin.id, name=plugin.name, tag=plugin.tag, module=module, plugin=item[1]
+                        id=plugin.id,
+                        name=plugin.name,
+                        tag=plugin.tag,
+                        url=plugin.url,
+                        module_name=module_name,
+                        plugin_path=plugin_path,
+                        requirements=requirements,
+                        plugin=item[1],
+                        module=module,
                     )
+
+            if found_plugin:
+                if local_plugin:
+                    print('🔗 Loaded plugin "{}" from "{}"'.format(plugin.name, plugin_path))
+                else:
+                    print(
+                        '🔗 Loaded plugin "{}" from "{}" (cached, tag "{}")'.format(plugin.name, plugin.url, plugin.tag)
+                    )
+            else:
+                print(
+                    '🔻🔻 For plugin "{}" could not find any exported class of type PluginBaseClass'.format(plugin.name)
+                )
+                print('🔻🔻 Plugin: url="{}", tag="{}"'.format(plugin.url, plugin.tag))
+                continue
 
     def unregister_plugin(self, id):
         if not self.plugins_by_id.get(id, None):
@@ -164,7 +231,7 @@ class _Plugins:
                 team_plugins = []
                 self.plugins_by_team[plugin_config.team_id] = team_plugins
 
-            plugin_module = self.plugins_by_id[plugin_config.plugin_id]
+            plugin_module = self.plugins_by_id.get(plugin_config.plugin_id, None)
 
             if plugin_module:
                 try:
@@ -184,8 +251,17 @@ class _Plugins:
                     print('🔻🔻🔻 Error loading plugin "{}" for team {}'.format(plugin_module.name, plugin_config.team_id))
                     print(e)
 
-    @staticmethod
-    def install_requirement(requirement):
+    def install_requirements(self, plugin_name, requirements):
+        if len(requirements) > 0:
+            print('Loading requirements for plugin "{}": {}'.format(plugin_name, requirements))
+
+        # TODO: Provide some way to work over version conflicts, e.g. if one plugin requires
+        #       requests==2.22.0 and another requires requests==2.22.1. At least emit warnings!
+        for requirement in requirements:
+            if requirement:
+                self.install_requirement(requirement)
+
+    def install_requirement(self, requirement):
         if hasattr(pip, "main"):
             pip.main(["install", requirement])
         else:
