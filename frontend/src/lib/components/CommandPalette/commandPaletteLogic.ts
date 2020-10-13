@@ -632,7 +632,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                 executor: !argument?.length
                                     ? undefined
                                     : () => {
-                                          window?.posthog.capture('palette feedback', { message: argument })
+                                          window.posthog?.capture('palette feedback', { message: argument })
                                       },
                             },
                             {
