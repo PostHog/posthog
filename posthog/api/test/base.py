@@ -61,22 +61,24 @@ class APIBaseTest(APITestCase, ErrorResponsesMixin):
     Test API using Django REST Framework test suite.
     """
 
-    TESTS_COMPANY_NAME: str = "Test"
-    TESTS_EMAIL: Optional[str] = "user1@posthog.com"
-    TESTS_PASSWORD: Optional[str] = "testpassword12345"
-    TESTS_API_TOKEN: str = "token123"
-    TESTS_FORCE_LOGIN: bool = True
+    CONFIG_ORGANIZATION_NAME: str = "Test"
+    CONFIG_USER_EMAIL: Optional[str] = "user1@posthog.com"
+    CONFIG_PASSWORD: Optional[str] = "testpassword12345"
+    CONFIG_API_TOKEN: str = "token123"
+    CONFIG_AUTO_LOGIN: bool = True
 
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
         return User.objects.create_and_join(
-            organization=self.organization, team=self.team, email=email, password=password, **kwargs
+            organization=self.organization, team=self.team, email=email, password=password, **kwargs,
         )
 
     def setUp(self):
         super().setUp()
-        self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
-        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
-        if self.TESTS_EMAIL:
-            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-            if self.TESTS_FORCE_LOGIN:
+        self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
+        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
+
+        if self.CONFIG_USER_EMAIL:
+            self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
+
+            if self.CONFIG_AUTO_LOGIN:
                 self.client.force_login(self.user)

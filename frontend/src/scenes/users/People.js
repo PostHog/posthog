@@ -89,7 +89,6 @@ function _People() {
             <input
                 className="form-control"
                 name="search"
-                autoFocus
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.keyCode === 13 && fetchPeople()}

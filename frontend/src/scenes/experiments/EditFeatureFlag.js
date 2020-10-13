@@ -3,6 +3,7 @@ import { Input, Button, Form, Switch, Slider } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
@@ -41,7 +42,7 @@ const noop = () => {}
 
 export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const [form] = Form.useForm()
-    const { updateFeatureFlag, createFeatureFlag } = useActions(logic)
+    const { updateFeatureFlag, createFeatureFlag, deleteFeatureFlag } = useActions(logic)
 
     const _editLogic = editLogic({ featureFlag })
     const { filters, rollout_percentage } = useValues(_editLogic)
@@ -49,6 +50,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     let submitDisabled = rollout_percentage === null && (!filters?.properties || filters.properties.length === 0)
+
     return (
         <Form
             layout="vertical"
@@ -141,9 +143,28 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             </Form.Item>
 
             <Form.Item>
-                <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
-                    Save feature flag
+                <Button
+                    disabled={submitDisabled}
+                    icon={<SaveOutlined />}
+                    htmlType="submit"
+                    type="primary"
+                    data-attr="feature-flag-submit"
+                >
+                    Save
                 </Button>
+                {!isNew && (
+                    <Button
+                        data-attr="delete-flag"
+                        className="float-right"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => {
+                            deleteFeatureFlag(featureFlag)
+                        }}
+                    >
+                        Delete
+                    </Button>
+                )}
             </Form.Item>
             <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.key !== currentValues.key}>
                 {({ getFieldValue }) => {

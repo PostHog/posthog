@@ -5,12 +5,14 @@ import { objectsEqual } from 'lib/utils'
 export const compareFilterLogic = kea({
     actions: () => ({
         setCompare: (compare) => ({ compare }),
+        toggleCompare: true,
     }),
     reducers: ({ actions }) => ({
         compare: [
             false,
             {
                 [actions.setCompare]: (_, { compare }) => compare,
+                [actions.toggleCompare]: (previousCompare) => !previousCompare,
             },
         ],
     }),

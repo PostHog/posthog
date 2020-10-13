@@ -202,7 +202,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "id": action_credit_card.pk,
                         "type": "actions",
                         "order": 1,
-                        "properties": [{"key": "$browser", "value": "Safari", "type": "person"}],
+                        "properties": [{"key": "$browser", "value": "Safari"}],
                     },
                     {
                         "id": action_play_movie.pk,

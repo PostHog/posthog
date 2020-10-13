@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import api from './../lib/api'
+import api from '../../lib/api'
 import { Modal, Button } from 'antd'
 import { WarningOutlined } from '@ant-design/icons'
 

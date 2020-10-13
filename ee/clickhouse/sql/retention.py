@@ -6,7 +6,9 @@ SELECT
     datediff(%(period)s, first_event_date.first_date, {trunc_func}(toDateTime(timestamp))) as date,
     COUNT(DISTINCT events.person_id) count
 FROM (
-    SELECT *
+    SELECT 
+    timestamp,
+    person_id
     from events e join person_distinct_id pdi on e.distinct_id = pdi.distinct_id
     where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
     AND e.team_id = %(team_id)s {target_query} {filters}
