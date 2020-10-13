@@ -27,7 +27,7 @@
 
 @media (max-width: 850px) {
     .tutorial-container {
-        align-items: center;
+        align-items: flex-start;
         flex-direction: column;
     }
     .t-element {
@@ -44,11 +44,20 @@
         font-weight: bold;
     }
 
-    .section-divider {
+    .match-group-section {
         margin-top: 32px;
-        padding-top: 16px;
-        padding-bottom: 16px;
-        border-top: 0.75px solid #c4c4c4;
+        padding: 16px;
+    }
+
+    .match-group-add-skeleton {
+        background-color: #f0f0f0;
+        border-radius: 2px;
+        height: 100%;
+        min-height: 125px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 }
 
@@ -85,8 +94,8 @@
 
     .mc-main {
         position: absolute;
-        top: -12px;
-        right: 50%;
+        top: 50%;
+        left: -30px;
     }
 
     .property-filters {

@@ -7,8 +7,8 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStepV2'
-import { Input, Row } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Col, Input, Row } from 'antd'
+import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -25,14 +25,12 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
 
     if (actionLoading || !action) return <Loading />
 
+    const newAction = () => {
+        setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
+    }
+
     const addGroup = (
-        <button
-            type="button"
-            className="btn btn-outline-success btn-sm"
-            onClick={() => {
-                setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
-            }}
-        >
+        <button type="button" className="btn btn-outline-success btn-sm" onClick={newAction}>
             Add another match group
         </button>
     )
@@ -63,7 +61,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </div>
                 )}
 
-                <div className="section-divider">
+                <div className="match-group-section card">
                     <h3>Match groups</h3>
                     <div>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
@@ -72,41 +70,46 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                         </a>
                     </div>
                     <div style={{ textAlign: 'right', marginBottom: 12 }}>{addGroup}</div>
+
+                    <Row gutter={[24, 24]}>
+                        {action.steps.map((step, index) => (
+                            <ActionStep
+                                key={step.id || step.isNew}
+                                identifier={step.id || step.isNew}
+                                index={index}
+                                step={step}
+                                isEditor={false}
+                                actionId={action.id}
+                                simmer={simmer}
+                                isOnlyStep={action.steps.length === 1}
+                                onDelete={() => {
+                                    setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
+                                    setEdited(true)
+                                }}
+                                onChange={(newStep) => {
+                                    setAction({
+                                        ...action,
+                                        steps: action.steps.map((s) =>
+                                            (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
+                                                ? {
+                                                      id: step.id,
+                                                      isNew: step.isNew,
+                                                      ...newStep,
+                                                  }
+                                                : s
+                                        ),
+                                    })
+                                    setEdited(true)
+                                }}
+                            />
+                        ))}
+                        <Col span={24} md={12}>
+                            <div className="match-group-add-skeleton" onClick={newAction}>
+                                <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
+                            </div>
+                        </Col>
+                    </Row>
                 </div>
-                <Row gutter={[24, 24]}>
-                    {action.steps.map((step, index) => (
-                        <ActionStep
-                            key={step.id || step.isNew}
-                            identifier={step.id || step.isNew}
-                            index={index}
-                            step={step}
-                            isEditor={false}
-                            actionId={action.id}
-                            simmer={simmer}
-                            isOnlyStep={action.steps.length === 1}
-                            onDelete={() => {
-                                setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
-                                setEdited(true)
-                            }}
-                            onChange={(newStep) => {
-                                setAction({
-                                    ...action,
-                                    steps: action.steps.map((s) =>
-                                        (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
-                                            ? {
-                                                  id: step.id,
-                                                  isNew: step.isNew,
-                                                  ...newStep,
-                                              }
-                                            : s
-                                    ),
-                                })
-                                setEdited(true)
-                            }}
-                        />
-                    ))}
-                </Row>
-                <div style={{ marginTop: 12, textAlign: 'right' }}>{addGroup}</div>
                 <div>
                     <div style={{ margin: '1rem 0 0.5rem' }}>
                         <input
