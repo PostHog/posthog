@@ -605,7 +605,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        push(`/dashboard/`)
+                                        dashboardsModel.actions.addDashboard({ name: argument, push: true })
                                     },
                                 }
                             return null

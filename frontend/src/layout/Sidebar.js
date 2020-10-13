@@ -137,7 +137,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             title=""
                         >
                             <LineChartOutlined />
-                            <span className="sidebar-label">{dashboard.name}</span>
+                            <span className="sidebar-label">{dashboard.name ?? 'Untitled'}</span>
                             <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
                         </Menu.Item>
                     ))}
