@@ -57,6 +57,36 @@ SELECT groupArray(value) FROM (
 )
 """
 
+TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL = """
+SELECT groupArray(value) FROM (
+    SELECT value, count(*) as count
+    FROM
+    events e 
+    INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
+    INNER JOIN
+        (
+            SELECT * FROM (
+                SELECT
+                id,
+                array_property_keys as key,
+                array_property_values as value
+                from (
+                    SELECT
+                        id,
+                        arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
+                        arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+                    FROM person WHERE team_id = %(team_id)s
+                )
+                ARRAY JOIN array_property_keys, array_property_values
+            ) ep
+            WHERE key = %(key)s
+        ) ep ON person_id = ep.id WHERE e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+    GROUP BY value
+    ORDER BY count DESC
+    LIMIT %(limit)s
+)
+"""
+
 BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
@@ -104,13 +134,37 @@ BREAKDOWN_CONDITIONS_SQL = """
 where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
 """
 
+BREAKDOWN_PERSON_PROP_JOIN_SQL = """
+INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
+INNER JOIN (
+    SELECT * FROM (
+        SELECT
+        id,
+        array_property_keys as key,
+        array_property_values as value
+        from (
+            SELECT
+                id,
+                arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
+                arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+            FROM person WHERE team_id = %(team_id)s
+        )
+        ARRAY JOIN array_property_keys, array_property_values
+    ) ep
+    WHERE key = %(key)s
+) ep 
+ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+AND breakdown_value in (%(values)s) {actions_query}
+"""
+
+
 BREAKDOWN_PROP_JOIN_SQL = """
 INNER JOIN (
     SELECT *
     FROM events_properties_view AS ep
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
-ON e.uuid = ep.event_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
@@ -243,7 +297,35 @@ class ClickhouseTrends(BaseQuery):
                     aggregate_operation=aggregate_operation,
                 )
         elif filter.breakdown_type == "person":
-            pass
+            element_params = {**params, "key": filter.breakdown, "limit": 20}
+            element_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
+                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+            )
+            try:
+                top_elements_array_result = sync_execute(element_query, element_params)
+                top_elements_array = top_elements_array_result[0][0]
+            except:
+                top_elements_array = []
+
+            params = {
+                **params,
+                "values": top_elements_array,
+                "key": filter.breakdown,
+                "event": entity.id,
+                **action_params,
+            }
+            breakdown_filter = BREAKDOWN_PERSON_PROP_JOIN_SQL.format(
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
+                event_filter="AND event = %(event)s" if not action_query else "",
+            )
+            breakdown_query = BREAKDOWN_QUERY_SQL.format(
+                null_sql=null_sql,
+                breakdown_filter=breakdown_filter,
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
+            )
         else:
             element_params = {**params, "key": filter.breakdown, "limit": 20}
             element_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -285,9 +367,11 @@ class ClickhouseTrends(BaseQuery):
         parsed_results = []
 
         for idx, stats in enumerate(result):
-            extra_label = self._determine_breakdown_label(
-                idx, filter.breakdown_type, filter.breakdown, top_elements_array
-            )
+
+            breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
+            stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+
+            extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
             label = "{} - {}".format(entity.name, extra_label)
             additional_values = {
                 "label": label,
@@ -295,7 +379,7 @@ class ClickhouseTrends(BaseQuery):
                 if isinstance(filter.breakdown, list)
                 else filter.breakdown
                 if filter.breakdown_type == "cohort"
-                else top_elements_array[idx],
+                else stripped_value,
             }
             parsed_result = self._parse_response(stats, filter, additional_values)
             parsed_results.append(parsed_result)
@@ -350,7 +434,7 @@ class ClickhouseTrends(BaseQuery):
         index: int,
         breakdown_type: Optional[str],
         breakdown: Union[str, List[Union[str, int]], None],
-        elements: List,
+        value: Union[str, int],
     ) -> str:
         breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
@@ -358,10 +442,8 @@ class ClickhouseTrends(BaseQuery):
                 return "all users"
             else:
                 return Cohort.objects.get(pk=breakdown[index]).name
-        elif breakdown_type == "person":
-            return ""
         else:
-            return str(elements[index]) or ""
+            return str(value) or ""
 
     def _process_math(self, entity):
         join_condition = ""

@@ -4,6 +4,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_cohort_table_name
 from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
 from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 from posthog.models.team import Team
@@ -20,6 +21,17 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             clause = COHORT_DISTINCT_ID_FILTER_SQL.format(table_name=format_cohort_table_name(cohort))
             final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
 
+        elif prop.type == "person":
+            prepend = "person"
+            filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
+                idx=idx, operator=get_operator(prop.operator), prepend=prepend
+            )
+            clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter)
+            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
+            params.update(
+                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
+            )
+
         else:
             filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
                 idx=idx, operator=get_operator(prop.operator), prepend=prepend
@@ -29,10 +41,15 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             params.update(
                 {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
             )
+
     return final, params
 
 
 def _pad_value(val: str):
+
+    if val == "true" or val == "false" or val.isdigit():
+        return val
+
     if not val.startswith('"'):
         val = '"' + val
 
