@@ -8,6 +8,7 @@ import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { hot } from 'react-hot-loader/root'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export const Cohorts = hot(_Cohorts)
 function _Cohorts() {
@@ -19,7 +20,11 @@ function _Cohorts() {
             dataIndex: 'name',
             key: 'name',
             render: function RenderName(_, cohort) {
-                return <Link to={'/people?cohort=' + cohort.id}>{cohort.name}</Link>
+                return (
+                    <Link className={rrwebBlockClass} to={'/people?cohort=' + cohort.id}>
+                        {cohort.name}
+                    </Link>
+                )
             },
         },
         {
