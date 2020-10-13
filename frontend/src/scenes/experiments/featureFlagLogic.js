@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { deleteWithUndo } from 'lib/utils'
 
 export const featureFlagLogic = kea({
     key: (props) => props.id || 'new',
@@ -9,7 +10,7 @@ export const featureFlagLogic = kea({
         setFunnel: (funnel, update) => ({ funnel, update }),
     }),
 
-    loaders: () => ({
+    loaders: ({ actions }) => ({
         featureFlags: [
             [],
             {
@@ -42,6 +43,18 @@ export const featureFlagLogic = kea({
                     }
                     return create
                 },
+                deleteFeatureFlag: async (featureFlag) => {
+                    try {
+                        return deleteWithUndo({
+                            endpoint: 'feature_flag',
+                            object: { name: featureFlag.name, id: featureFlag.id },
+                            callback: () => actions.loadFeatureFlags(),
+                        })
+                    } catch (err) {
+                        toast.error('Unable to delete feature flag. Please try again later.')
+                        return false
+                    }
+                },
             },
         ],
     }),
@@ -56,6 +69,11 @@ export const featureFlagLogic = kea({
                 if (!featureFlags) return state
                 return [featureFlags, ...state]
             },
+            deleteFeatureFlag: (state, featureFlag) => {
+                if (!featureFlag) return null
+                return [...state].filter((flag) => flag.id !== featureFlag.id)
+            },
+            deleteFeatureFlagSuccess: (state) => state,
         },
     }),
     listeners: ({ props }) => ({
@@ -66,6 +84,9 @@ export const featureFlagLogic = kea({
         createFeatureFlagSuccess: ({ featureFlags }) => {
             if (!featureFlags) return null
             props.closeDrawer(), toast('Feature flag saved.')
+        },
+        deleteFeatureFlagSuccess: () => {
+            props.closeDrawer()
         },
     }),
     events: ({ actions }) => ({

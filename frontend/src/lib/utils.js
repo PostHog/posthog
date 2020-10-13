@@ -104,26 +104,17 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
     }).then(() => {
         props.callback?.()
         let response = (
-            <div>
-                {!undo ? (
-                    <span>
-                        "<strong>{props.object.name || 'Untitled'}</strong>" deleted.{' '}
-                        <a
-                            href="#"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                deleteWithUndo({ undo: true, ...props })
-                            }}
-                        >
-                            Click here to undo
-                        </a>
-                    </span>
-                ) : (
-                    <span>Delete un-done</span>
-                )}
-            </div>
+            <span>
+                <b>{props.object.name ?? 'Untitled'}</b>
+                {!undo ? ' deleted. Click here to undo.' : ' deletion undone.'}
+            </span>
         )
-        toast(response, { toastId: 'delete-item-' + props.object.id })
+        toast(response, {
+            toastId: `delete-item-${props.object.id}-${undo}`,
+            onClick: () => {
+                deleteWithUndo({ undo: true, ...props })
+            },
+        })
     })
 }
 
