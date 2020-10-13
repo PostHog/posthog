@@ -7,7 +7,6 @@ import { cohortsModel } from '../../../models/cohortsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, formatPropertyLabel } from 'lib/utils'
-import _ from 'lodash'
 
 const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts, logic, pageKey }) {
     const { remove } = useActions(logic)
@@ -43,7 +42,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
                     </Button>
                 )}
             </Popover>
-            {!_.isEmpty(filters[index]) && (
+            {Object.keys(filters[index]).length && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
