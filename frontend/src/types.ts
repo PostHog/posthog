@@ -36,6 +36,7 @@ export interface OrganizationType {
 }
 
 export interface TeamType {
+    name: string
     anonymize_ips: boolean
     api_token: string
     app_urls: string[]
