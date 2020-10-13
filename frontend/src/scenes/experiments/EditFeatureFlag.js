@@ -1,11 +1,9 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Modal } from 'antd'
+import { Input, Button, Form, Switch, Slider } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
-import { DeleteOutlined, WarningOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
+import { DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
@@ -51,22 +49,8 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const { setFilters, setRolloutPercentage } = useActions(_editLogic)
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    function showConfirm(type, text) {
-        Modal.confirm({
-            centered: true,
-            title: text,
-            icon: <WarningOutlined style={{ color: red.primary }} />,
-            content: '',
-            okType: 'danger',
-            okText: 'Yes',
-            onOk() {
-                deleteFeatureFlag(featureFlag)
-            },
-            onCancel() {},
-        })
-    }
-
     let submitDisabled = rollout_percentage === null && (!filters?.properties || filters.properties.length === 0)
+
     return (
         <Form
             layout="vertical"
@@ -159,17 +143,28 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             </Form.Item>
 
             <Form.Item>
-                <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
-                    Save feature flag
-                </Button>
                 <Button
-                    data-attr="delete-flag"
-                    className="float-right"
-                    danger
-                    onClick={() => showConfirm('delete', 'Delete feature flag?')}
+                    disabled={submitDisabled}
+                    icon={<SaveOutlined />}
+                    htmlType="submit"
+                    type="primary"
+                    data-attr="feature-flag-submit"
                 >
-                    <DeleteOutlined></DeleteOutlined>
+                    Save
                 </Button>
+                {!isNew && (
+                    <Button
+                        data-attr="delete-flag"
+                        className="float-right"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => {
+                            deleteFeatureFlag(featureFlag)
+                        }}
+                    >
+                        Delete
+                    </Button>
+                )}
             </Form.Item>
             <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.key !== currentValues.key}>
                 {({ getFieldValue }) => {
