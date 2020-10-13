@@ -84,7 +84,7 @@ export function Projects() {
             }
         >
             <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" style={{ marginRight: '0.75rem' }}>
-                Project: <b>{user.team.name}</b>
+                Project: {user.team ? <b>{user.team.name}</b> : <i>none yet</i>}
             </div>
         </Dropdown>
     )

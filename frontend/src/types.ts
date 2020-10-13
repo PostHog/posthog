@@ -9,7 +9,7 @@ export interface UserType {
     opt_out_capture: null
     posthog_version: string
     organization: OrganizationType
-    team: TeamType
+    team: TeamType | null
     toolbar_mode: string
     billing: OrganizationBilling
 }

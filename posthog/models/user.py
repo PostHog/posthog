@@ -185,9 +185,9 @@ class User(AbstractUser):
         return self.current_organization
 
     @property
-    def team(self) -> Team:
+    def team(self) -> Optional[Team]:
         if self.current_team is None:
-            self.current_team = self.organization.teams.get()
+            self.current_team = self.organization.teams.first()
             self.save()
         return self.current_team
 

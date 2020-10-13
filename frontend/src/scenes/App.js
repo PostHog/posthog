@@ -59,7 +59,7 @@ function App() {
         }
 
         // redirect to ingestion if not completed
-        if (user && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (user?.team && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
             replace('/ingestion')
             return
         }

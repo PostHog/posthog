@@ -16,7 +16,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
 from posthog.auth import authenticate_secondarily
-from posthog.models import Event, User
+from posthog.models import Event, Team, User
 from posthog.version import VERSION
 
 
@@ -51,6 +51,22 @@ def user(request):
 
         if "user" in data:
             try:
+                request.user.current_organization = request.user.organizations.get(
+                    id=data["user"]["current_organization_id"]
+                )
+                try:
+                    request.user.current_team = request.user.organization.teams.first()
+                except Team.DoesNotExist:
+                    request.user.current_team = None
+            except KeyError:
+                pass
+            except ObjectDoesNotExist:
+                return JsonResponse({"detail": "Organization not found for user."}, status=404)
+            except KeyError:
+                pass
+            except ObjectDoesNotExist:
+                return JsonResponse({"detail": "Organization not found for user."}, status=404)
+            try:
                 request.user.current_team = request.user.organization.teams.get(id=int(data["user"]["current_team_id"]))
             except (KeyError, TypeError):
                 pass
@@ -58,14 +74,6 @@ def user(request):
                 return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            try:
-                request.user.current_organization = request.user.organizations.get(
-                    id=data["user"]["current_organization_id"]
-                )
-            except KeyError:
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
             request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
             request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
             request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
