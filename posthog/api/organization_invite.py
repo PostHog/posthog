@@ -1,7 +1,9 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet, query
+from django.http.response import Http404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationInvite
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
@@ -53,7 +55,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
 
 class OrganizationInviteViewSet(
-    mixins.DestroyModelMixin, mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+    NestedViewSetMixin,
+    mixins.DestroyModelMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationInviteSerializer
     pagination_class = None
@@ -63,7 +69,17 @@ class OrganizationInviteViewSet(
     ordering_fields = ["created_by"]
     ordering = ["-created_by"]
 
-    def get_queryset(self) -> QuerySet:
+    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
+        parents_query_dict = self.get_parents_query_dict()
+        print(parents_query_dict)
+        if parents_query_dict:
+            try:
+                return queryset.filter(**parents_query_dict)
+            except ValueError:
+                raise Http404
+        else:
+            return queryset
+
         organization_id = self.kwargs["organization_pk"]
         if organization_id == "@current":
             organization_id = self.request.user.organization.id

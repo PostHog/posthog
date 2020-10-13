@@ -1,4 +1,5 @@
 from django.db.models import QuerySet, query
+from django.http.response import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 
@@ -27,7 +28,17 @@ class OrganizationMemberViewSet(
     ordering_fields = ["level", "joined_at", "user_first_name"]
     ordering = ["level", "-joined_at"]
 
-    def get_queryset(self) -> QuerySet:
+    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
+        parents_query_dict = self.get_parents_query_dict()
+        print(parents_query_dict)
+        if parents_query_dict:
+            try:
+                return queryset.filter(**parents_query_dict)
+            except ValueError:
+                raise Http404
+        else:
+            return queryset
+
         organization_id = self.kwargs["organization_pk"]
         if organization_id == "@current":
             organization_id = self.request.user.organization.id

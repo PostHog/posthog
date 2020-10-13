@@ -17,7 +17,7 @@ class Command(BaseCommand):
                 company_name="Hogflix",
                 email="test@posthog.com",
                 password="pass",
-                first_name="Mr. Pokee",
+                first_name="Jane Doe",
                 is_staff=True,
                 is_superuser=True,
                 team_fields={
