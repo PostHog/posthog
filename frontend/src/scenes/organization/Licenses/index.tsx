@@ -5,6 +5,7 @@ import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { userLogic } from 'scenes/userLogic'
 
 const columns = [
     {
@@ -42,9 +43,11 @@ function _Licenses(): JSX.Element {
     const [form] = Form.useForm()
     const { licenses, licensesLoading, error } = useValues(licenseLogic)
     const { createLicense } = useActions(licenseLogic)
+    const { user } = useValues(userLogic)
+
     return (
         <div>
-            <h1 className="page-header">Organization Licenses</h1>
+            <h1 className="page-header">Organization Licenses – {user?.organization.name}</h1>
             <i>
                 <p>
                     Here you can add and manage your PostHog enterprise licenses.

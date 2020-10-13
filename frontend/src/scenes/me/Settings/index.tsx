@@ -8,16 +8,18 @@ import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { ChangePassword } from './ChangePassword'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 import { OptOutCapture } from 'scenes/organization/OptOutCapture'
+import { userLogic } from 'scenes/userLogic'
 
 export const MySettings = hot(_MySettings)
 function _MySettings(): JSX.Element {
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
 
     useAnchor(location.hash)
 
     return (
         <div>
-            <h1 className="page-header">My Settings</h1>
+            <h1 className="page-header">My Settings – {user?.name}</h1>
             <Divider />
             <h2 id="password">Change Password</h2>
             <ChangePassword />

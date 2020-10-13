@@ -79,7 +79,7 @@ function _Members({ user }) {
 
     return (
         <>
-            <h1 className="page-header">Organization Members</h1>
+            <h1 className="page-header">Organization Members - {user?.organization.name}</h1>
             <div style={{ maxWidth: 672 }}>
                 <i>
                     <p>

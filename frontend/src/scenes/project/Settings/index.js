@@ -12,7 +12,6 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
-import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 export const Setup = hot(_Setup)
@@ -25,7 +24,7 @@ function _Setup() {
 
     return (
         <div>
-            <h1 className="page-header">Project Settings</h1>
+            <h1 className="page-header">Project Settings – {user.team.name}</h1>
             <Divider />
             <h2 id="snippet">Website Event Autocapture</h2>
             To integrate PostHog into your webiste and get event autocapture with no additional work, include the
