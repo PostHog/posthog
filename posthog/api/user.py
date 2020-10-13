@@ -101,7 +101,7 @@ def user(request):
 def redirect_to_site(request):
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
-    use_new_toolbar = request.user.toolbar_mode == "toolbar"
+    use_new_toolbar = request.user.toolbar_mode != "disabled"
 
     if not app_url:
         return HttpResponse(status=404)
