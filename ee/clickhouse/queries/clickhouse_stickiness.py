@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from django.utils import timezone
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
@@ -99,7 +99,7 @@ class ClickhouseStickiness(BaseQuery):
                 filters="AND uuid IN {filters}".format(filters=prop_filters) if filter.properties else "",
             )
 
-        aggregated_counts = ch_client.execute(content_sql, params)
+        aggregated_counts = sync_execute(content_sql, params)
 
         response: Dict[int, int] = {}
         for result in aggregated_counts:

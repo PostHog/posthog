@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, lazy, Suspense } from 'react'
+import React, { useState, useRef, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './logic'
 import hedgehogBlue from '../../../public/hedgehog-blue.png'
@@ -17,10 +17,8 @@ function Signup() {
         emailOptIn: { value: true },
     })
     const passwordInput = useRef(null)
-    const logic = signupLogic()
-    const { createAccount } = useActions(logic)
-    const { account, accountLoading } = useValues(logic)
-
+    const { createAccount } = useActions(signupLogic)
+    const { accountLoading } = useValues(signupLogic)
     const { plan } = queryString.parse(location.search)
 
     const updateForm = (name, target, valueAttr = 'value') => {
@@ -53,10 +51,6 @@ function Signup() {
         }
         createAccount(payload)
     }
-
-    useEffect(() => {
-        if (account && Object.keys(account).length > 0) window.location.href = '/'
-    }, [account])
 
     return (
         <div className="signup-form">

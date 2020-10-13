@@ -13,14 +13,14 @@ import {
     ApiTwoTone,
 } from '@ant-design/icons'
 import { volcano, green, red, grey, blue } from '@ant-design/colors'
+import { router } from 'kea-router'
 
-function PreflightItem(props) {
+function PreflightItem({ name, status, caption, failedState }) {
     /*
     status === undefined -> Item still loading (no positive or negative response yet)
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    const { name, status, caption, failedState } = props
     let textColor
 
     if (status) textColor = green.primary
@@ -50,9 +50,8 @@ function PreflightItem(props) {
 
 function PreflightCheck() {
     const [state, setState] = useState({})
-    const logic = preflightLogic()
-    const { preflight } = useValues(logic)
-    const { loadPreflight, loadPreflightSuccess } = useActions(logic)
+    const { preflight, preflightLoading } = useValues(preflightLogic)
+    const { resetPreflight } = useActions(preflightLogic)
     const isReady = preflight.django && preflight.db && preflight.redis
 
     const checks = [
@@ -88,16 +87,10 @@ function PreflightCheck() {
         },
     ]
 
-    const runChecks = () => {
-        // Clear the previous result first and add the timeout to show the loading animation
-        loadPreflightSuccess({})
-        setTimeout(() => loadPreflight(), 1000)
-    }
-
     const handleModeChange = (mode) => {
         setState({ ...state, mode })
         if (mode) {
-            runChecks()
+            resetPreflight()
             localStorage.setItem('preflightMode', mode)
         } else {
             localStorage.removeItem('preflightMode')
@@ -105,7 +98,7 @@ function PreflightCheck() {
     }
 
     const handlePreflightFinished = () => {
-        window.location.href = '/signup'
+        router.actions.push('/signup')
     }
 
     useEffect(() => {
@@ -148,7 +141,7 @@ function PreflightCheck() {
                         paddingTop: 32,
                     }}
                 >
-                    <Card style={{ width: 600, width: '100%' }}>
+                    <Card style={{ width: '100%' }}>
                         <Row style={{ display: 'flex', justifyContent: 'space-between', lineHeight: '32px' }}>
                             {!state.mode && <b style={{ fontSize: 16 }}>Select preflight mode</b>}
                             {state.mode && (
@@ -169,7 +162,7 @@ function PreflightCheck() {
                                         data-attr="preflight-refresh"
                                         icon={<SyncOutlined />}
                                         onClick={() => window.location.reload()}
-                                        disabled={Object.keys(preflight).length === 0}
+                                        disabled={preflightLoading || Object.keys(preflight).length === 0}
                                     >
                                         Refresh
                                     </Button>

@@ -10,6 +10,7 @@ import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
 import { AnnotationScope, annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 const { TextArea } = Input
 
@@ -50,7 +51,10 @@ function _Annotations(): JSX.Element {
                 const { created_by } = annotation
 
                 return (
-                    <Link to={`/person/${encodeURIComponent(created_by.id)}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(created_by.id)}`}
+                        className={rrwebBlockClass + ' ph-no-capture'}
+                    >
                         {created_by?.name || created_by?.email}
                     </Link>
                 )

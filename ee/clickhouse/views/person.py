@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.sql.person import (
     GET_PERSON_TOP_PROPERTIES,
@@ -34,9 +34,9 @@ class ClickhousePerson(PersonViewSet):
 
         if request.GET.get("id"):
             people = request.GET["id"].split(",")
-            result = ch_client.execute(PEOPLE_SQL.format(content_sql=people), {"offset": 0})
+            result = sync_execute(PEOPLE_SQL.format(content_sql=people), {"offset": 0})
         else:
-            result = ch_client.execute(
+            result = sync_execute(
                 PEOPLE_BY_TEAM_SQL.format(filters=queryset_category_pass), {"offset": 0, "team_id": team.pk},
             )
 
@@ -64,18 +64,16 @@ class ClickhousePerson(PersonViewSet):
     def retrieve(self, request, pk=None):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = super().retrieve(request, pk)
-            return Response(result)
+            return super().retrieve(request, pk)
 
-        qres = ch_client.execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
+        qres = sync_execute(PEOPLE_SQL.format(content_sql=[pk]), {"offset": 0})
         res = ClickhousePersonSerializer(qres[0]).data if len(qres) > 0 else []
         return Response(res)
 
     def list(self, request):
 
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
-            result = super().list(request)
-            return Response(result)
+            return super().list(request)
 
         team = self.request.user.team
         filtered = self._ch_filter_request(self.request, team)
@@ -90,7 +88,7 @@ class ClickhousePerson(PersonViewSet):
             return Response(result)
 
         distinct_id = str(request.GET["distinct_id"])
-        result = ch_client.execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=[distinct_id]), {"offset": 0})
+        result = sync_execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=[distinct_id]), {"offset": 0})
         res = ClickhousePersonSerializer(result[0]).data if len(result) > 0 else []
         return Response(res)
 
@@ -102,6 +100,6 @@ class ClickhousePerson(PersonViewSet):
             return Response(result)
 
         team = self.request.user.team
-        qres = ch_client.execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
+        qres = sync_execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
 
         return Response([{"name": element[0], "count": element[1]} for element in qres])

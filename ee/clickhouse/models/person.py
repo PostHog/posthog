@@ -16,6 +16,7 @@ from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
     GET_PERSON_SQL,
+    GET_PERSONS_BY_DISTINCT_IDS,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
     PERSON_DISTINCT_ID_EXISTS_SQL,
@@ -146,8 +147,17 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data
-
     return {}
+
+
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
+    result = sync_execute(
+        GET_PERSONS_BY_DISTINCT_IDS,
+        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+    )
+    if len(result) > 0:
+        return list(ClickhousePersonSerializer(result, many=True).data)
+    return []
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:

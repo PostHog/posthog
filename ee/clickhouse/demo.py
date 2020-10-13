@@ -75,7 +75,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 event="$pageview",
                 team=team,
                 distinct_id=distinct_id,
-                properties={"$current_url": "%s1/" % base_url, "$browser": browser, "$lib": "web",},
+                properties={"$current_url": "%s/1" % base_url, "$browser": browser, "$lib": "web",},
                 timestamp=date + relativedelta(seconds=15),
                 event_uuid=event_uuid,
             )
@@ -97,7 +97,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                     event="$autocapture",
                     distinct_id=distinct_id,
                     properties={
-                        "$current_url": "%s1/" % base_url,
+                        "$current_url": "%s/1" % base_url,
                         "$browser": browser,
                         "$lib": "web",
                         "$event_type": "click",
@@ -112,7 +112,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                     event="$pageview",
                     team=team,
                     distinct_id=distinct_id,
-                    properties={"$current_url": "%s2/" % base_url, "$browser": browser, "$lib": "web",},
+                    properties={"$current_url": "%s/2" % base_url, "$browser": browser, "$lib": "web",},
                     timestamp=date + relativedelta(seconds=30),
                     event_uuid=event_uuid,
                 )
@@ -135,7 +135,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         event="$autocapture",
                         distinct_id=distinct_id,
                         properties={
-                            "$current_url": "%s2/" % base_url,
+                            "$current_url": "%s/2" % base_url,
                             "$browser": browser,
                             "$lib": "web",
                             "$event_type": "click",
@@ -160,7 +160,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         event="$pageview",
                         team=team,
                         distinct_id=distinct_id,
-                        properties={"$current_url": "%s3/" % base_url, "$browser": browser, "$lib": "web",},
+                        properties={"$current_url": "%s/3" % base_url, "$browser": browser, "$lib": "web",},
                         timestamp=date + relativedelta(seconds=60),
                         event_uuid=event_uuid,
                     )

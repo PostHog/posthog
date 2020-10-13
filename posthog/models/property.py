@@ -44,7 +44,12 @@ class Property:
             return value
 
     def property_to_Q(self) -> Q:
+        from .cohort import CohortPeople
+
         value = self._parse_value(self.value)
+        if self.type == "cohort":
+            return Q(Exists(CohortPeople.objects.filter(cohort_id=int(value), person_id=OuterRef("id"),).only("id")))
+
         if self.operator == "is_not":
             return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":

@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Element, Event, Filter, Person, Property
+from posthog.models import Cohort, Element, Event, Filter, Person
 
 
 class TestFilter(BaseTest):
@@ -136,6 +136,21 @@ class TestPropertiesToQ(BaseTest):
         events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
+
+    def test_person_cohort_properties(self):
+        person1_distinct_id = "person1"
+        person1 = Person.objects.create(team=self.team, distinct_ids=[person1_distinct_id], properties={"group": 1})
+        cohort1 = Cohort.objects.create(team=self.team, groups={}, name="cohort1")
+        cohort1.people.add(person1)
+
+        filters = {"cohort": [{"key": "1", "value": "true"}]}
+
+        matched_person = (
+            Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+            .filter(Filter(data=filters).properties_to_Q(team_id=self.team.pk, is_person_query=True))
+            .exists()
+        )
+        self.assertTrue(matched_person)
 
     def test_boolean_filters(self):
         event1 = Event.objects.create(team=self.team, event="$pageview")

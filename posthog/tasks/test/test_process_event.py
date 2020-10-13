@@ -21,7 +21,7 @@ from posthog.models import (
 from posthog.tasks.process_event import process_event
 
 
-class ProcessEvent(BaseTest):
+class TestProcessEvent(BaseTest):
     def test_capture_new_person(self) -> None:
         user = self._create_user("tim")
         action1 = Action.objects.create(team=self.team)
@@ -191,6 +191,26 @@ class ProcessEvent(BaseTest):
 
         event = Event.objects.get()
         self.assertEqual(event.properties["$ip"], "11.12.13.14")
+
+    def test_ip_override(self) -> None:
+        user = self._create_user("tim")
+        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+        process_event(
+            "asdfasdfasdf",
+            "11.12.13.14",
+            "",
+            {
+                "event": "$pageview",
+                "properties": {"$ip": "1.0.0.1", "distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
+            },
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        event = Event.objects.get()
+        self.assertEqual(event.properties["$ip"], "1.0.0.1")
 
     def test_anonymized_ip_capture(self) -> None:
         self.team.anonymize_ips = True

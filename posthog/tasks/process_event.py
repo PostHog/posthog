@@ -116,7 +116,7 @@ def _capture(
         team.ingested_event = True
         team.save()
 
-    if not team.anonymize_ips:
+    if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     Event.objects.create(

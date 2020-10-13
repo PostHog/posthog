@@ -8,7 +8,7 @@ from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
+from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS
 from posthog.cache import get_cached_value, set_cached_value
@@ -65,7 +65,12 @@ def create_elements(event_uuid: UUID, elements: List[Element], team: Team, use_c
 
 
 def get_elements_by_elements_hash(elements_hash: str, team_id: int):
-    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, {"elements_hashes": [elements_hash], "team_id": team_id})
+    return ClickhouseElementSerializer(result, many=True).data
+
+
+def get_elements_by_elements_hashes(elements_hashes: List[str], team_id: int):
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, {"elements_hashes": elements_hashes, "team_id": team_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 

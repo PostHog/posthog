@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -114,7 +114,7 @@ class ClickhouseActions(ActionViewSet):
             filters="{filters}".format(filters=prop_filters) if filter.properties else "",
         )
 
-        people = ch_client.execute(PEOPLE_SQL.format(content_sql=content_sql), params)
+        people = sync_execute(PEOPLE_SQL.format(content_sql=content_sql), params)
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people
@@ -132,7 +132,7 @@ class ClickhouseActions(ActionViewSet):
             filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             breakdown_filter="",
         )
-        people = ch_client.execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=content_sql), params)
+        people = sync_execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=content_sql), params)
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people

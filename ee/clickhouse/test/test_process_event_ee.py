@@ -266,6 +266,26 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         events = get_events()
         self.assertEqual(events[0]["properties"]["$ip"], '"11.12.13.14"')
 
+    def test_ip_override(self) -> None:
+        user = self._create_user("tim")
+        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+        process_event_ee(
+            "asdfasdfasdf",
+            "11.12.13.14",
+            "",
+            {
+                "event": "$pageview",
+                "properties": {"$ip": "1.0.0.1", "distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
+            },
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        event = get_events()[0]
+        self.assertEqual(event["properties"]["$ip"], '"1.0.0.1"')
+
     def test_anonymized_ip_capture(self) -> None:
         self.team.anonymize_ips = True
         self.team.save()

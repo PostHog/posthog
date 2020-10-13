@@ -95,7 +95,9 @@ class UserManager(BaseUserManager):
             team_fields.setdefault("name", company_name)
             team = Team.objects.create_with_data(organization=organization, **team_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
-            user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN)
+            user.join(
+                organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
+            )
             return organization, team, user
 
     def create_and_join(
@@ -127,7 +129,7 @@ class User(AbstractUser):
 
     username = None  # type: ignore
     current_organization = models.ForeignKey(
-        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
+        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
@@ -153,7 +155,7 @@ class User(AbstractUser):
         # If we're on multi-tenancy, grab the organization's price
         if not MULTI_TENANCY_MISSING:
             try:
-                return OrganizationBilling.objects.get(organization=self.organization).get_price_id()
+                return OrganizationBilling.objects.get(organization=self.organization).get_plan_key()
             except OrganizationBilling.DoesNotExist:
                 return None
         # Otherwise, try to find a valid license on this instance

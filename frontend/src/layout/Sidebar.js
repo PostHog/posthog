@@ -20,6 +20,7 @@ import {
     MessageOutlined,
     ProjectOutlined,
     LockOutlined,
+    WalletOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -31,6 +32,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from './../../public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -63,6 +65,7 @@ const submenuOverride = {
     organizationMembers: 'organization',
     organizationInvites: 'organization',
     organizationLicenses: 'organization',
+    billing: 'organization',
 }
 
 export const Sidebar = hot(_Sidebar)
@@ -77,6 +80,8 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const { location } = useValues(router)
     const { push } = useActions(router)
     const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
@@ -257,6 +262,15 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">Invites</span>
                             <Link to={'/organization/invites'} onClick={collapseSidebar} />
                         </Menu.Item>
+
+                        {featureFlags && featureFlags['billing-management-page'] && (
+                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
+                                <WalletOutlined />
+                                <span className="sidebar-label">Billing</span>
+                                <Link to="/billing" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+
                         {!user.is_multi_tenancy && user.ee_available && (
                             <Menu.Item
                                 key="organizationLicenses"

@@ -108,10 +108,6 @@ SAMPLE BY uuid
     engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
 )
 
-SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
-SELECT * FROM events_with_array_props_view where team_id = %(team_id)s {conditions} ORDER BY timestamp desc {limit}
-"""
-
 MAT_EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE MATERIALIZED VIEW events_with_array_props_mv
 TO events_with_array_props_view
@@ -144,19 +140,31 @@ ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT value FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+"""
+
+SELECT_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s AND trim(BOTH '\"' FROM value) LIKE %(value)s LIMIT 50
+"""
+
+SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
+SELECT
+    ewap.*
+FROM
+    events_with_array_props_view ewap
+where ewap.team_id = %(team_id)s
+AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
-    *
+    ewap.*
 FROM events_with_array_props_view AS ewap
-WHERE uuid IN
-(
-    SELECT event_id
-    FROM events_properties_view AS ep
-    WHERE {filters} AND team_id = %(team_id)s
-) {conditions} {limit}
+WHERE 
+ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+{filters}
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """

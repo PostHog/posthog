@@ -114,7 +114,7 @@ class Selector(object):
 
     def __init__(self, selector: str):
         self.parts = []
-        tags = re.split(" ", selector)
+        tags = re.split(" ", selector.strip())
         tags.reverse()
         for index, tag in enumerate(tags):
             if tag == ">":

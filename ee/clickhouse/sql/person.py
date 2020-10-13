@@ -168,6 +168,29 @@ GET_PERSON_BY_DISTINCT_ID = """
 SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
 """
 
+GET_PERSONS_BY_DISTINCT_IDS = """
+SELECT 
+    p.id,
+    p.created_at,
+    p.team_id,
+    p.properties,
+    p.is_identified,
+    groupArray(pid.distinct_id) as distinct_ids
+FROM 
+    person as p 
+INNER JOIN 
+    person_distinct_id as pid on p.id = pid.person_id 
+WHERE 
+    team_id = %(team_id)s 
+    AND distinct_id IN (%(distinct_ids)s)
+GROUP BY
+    p.id,
+    p.created_at,
+    p.team_id,
+    p.properties,
+    p.is_identified
+"""
+
 PERSON_DISTINCT_ID_EXISTS_SQL = """
 SELECT count(*) FROM person_distinct_id
 inner join (

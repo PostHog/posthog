@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
@@ -20,7 +21,8 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from sentry_sdk import push_scope
+from rest_framework.exceptions import APIException
+from sentry_sdk import capture_exception, push_scope
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -32,17 +34,16 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
-    Returns a tuple of datetime objects representing the start and end of the immediate
-    previous week to the passed date.
+    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
     """
 
-    if not at_date:
-        at_date = timezone.now()
+    if not at:
+        at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at_date - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
@@ -50,6 +51,14 @@ def get_previous_week(at_date: Optional[datetime.datetime] = None) -> Tuple[date
     )  # very start of the previous Monday
 
     return (period_start, period_end)
+
+
+def exception_reporting(exception: BaseException, context: Dict) -> None:
+    """
+    Determines which exceptions to report to Sentry and sends them.
+    """
+    if not isinstance(exception, APIException):
+        capture_exception(exception)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:

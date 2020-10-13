@@ -58,10 +58,7 @@ class TeamManager(models.Manager):
         )
         return team
 
-    def get_cached_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
-        team_from_cache = TEAM_CACHE.get(token)
-        if team_from_cache:
-            return team_from_cache
+    def get_team_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
         if not is_personal_api_key:
             try:
                 team = Team.objects.get(api_token=token)
@@ -82,7 +79,6 @@ class TeamManager(models.Manager):
                 team = personal_api_key.team
                 personal_api_key.last_used_at = timezone.now()
                 personal_api_key.save()
-        TEAM_CACHE[token] = team
         return team
 
 
@@ -116,6 +112,8 @@ class Team(models.Model):
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+
+    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

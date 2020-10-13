@@ -2,6 +2,7 @@ import React from 'react'
 import { Tooltip, Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 interface InlineProps {
     children: JSX.Element | string
@@ -27,7 +28,7 @@ export function CopyToClipboardInline({
     return (
         <Tooltip title="Click to copy">
             <span
-                className={isValueSensitive ? 'ph-no-capture' : undefined}
+                className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
                 style={{ cursor: 'pointer' }}
                 onClick={() => {
                     copyToClipboard(explicitValue ?? children.toString(), description)
@@ -50,7 +51,7 @@ export function CopyToClipboardInput({
 }: InputProps): JSX.Element {
     return (
         <Input
-            className={isValueSensitive ? 'ph-no-capture' : undefined}
+            className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
             type="text"
             value={value}
             placeholder={placeholder || 'nothing to show here'}

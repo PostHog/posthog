@@ -109,17 +109,17 @@ function _People() {
                     tab={<span data-attr="people-types-tab">All</span>}
                     key="all"
                     data-attr="people-types-tab"
-                ></TabPane>
+                />
                 <TabPane
                     tab={<span data-attr="people-types-tab">Identified</span>}
                     key="identified"
                     data-attr="people-types-tab"
-                ></TabPane>
+                />
                 <TabPane
                     tab={<span data-attr="people-types-tab">Anonymous</span>}
                     key="anonymous"
                     data-attr="people-types-tab"
-                ></TabPane>
+                />
             </Tabs>
             <PeopleTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
 

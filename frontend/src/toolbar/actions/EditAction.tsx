@@ -112,7 +112,12 @@ export function EditAction(): JSX.Element {
                                                 <StepField field={field} step={step} item="href" label="Link href" />
                                                 <StepField field={field} step={step} item="text" label="Text" />
                                                 <StepField field={field} step={step} item="selector" label="Selector" />
-                                                <StepField field={field} step={step} item="url" label="URL" />
+                                                <StepField
+                                                    field={field}
+                                                    step={step}
+                                                    item="url"
+                                                    label="URL of current page"
+                                                />
                                             </>
                                         ) : null}
 

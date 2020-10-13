@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Event, Filter
+from posthog.models import Event, Filter, Person, Team
 from posthog.queries.sessions import Sessions
 
 
@@ -21,7 +21,10 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
-
+            team_2 = Team.objects.create()
+            Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
+            # Test team leakage
+            Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
 
@@ -39,12 +42,15 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
+            # 4 minutes
             with freeze_time("2012-01-14T03:25:34.000Z"):
                 event_factory(team=self.team, event="2nd action", distinct_id="1")
                 event_factory(team=self.team, event="2nd action", distinct_id="2")
+
             with freeze_time("2012-01-15T03:59:34.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="1")
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
+            # 2 minutes
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
