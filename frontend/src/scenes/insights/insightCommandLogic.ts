@@ -2,7 +2,9 @@ import {
     Command,
     commandPaletteLogic,
     CommandRegistrations,
-    CommandResultTemplate,
+    CommandResult,
+    CommandFlow,
+    RegExpCommandPairs,
 } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
 import { kea } from 'kea'
@@ -13,33 +15,31 @@ import { dateMapping } from 'lib/utils'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
-export const insightCommandLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
+export const insightCommandLogic = kea<
+    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+>({
     connect: [commandPaletteLogic, compareFilterLogic, dateFilterLogic],
     events: () => ({
         afterMount: () => {
-            const results: CommandResultTemplate[] = [
-                {
-                    key: 'insight-compare',
-                    icon: RiseOutlined,
-                    display: 'Toggle "Compare Previous" on Graph',
-                    executor: () => {
-                        compareFilterLogic.actions.toggleCompare()
-                    },
-                },
-                ...Object.entries(dateMapping).map(([key, value]) => ({
-                    key: `insight-${key}`,
-                    icon: RiseOutlined,
-                    display: `Set Time Range to ${key}`,
-                    executor: () => {
-                        dateFilterLogic.actions.setDates(value[0], value[1])
-                    },
-                })),
-            ]
-
             const funnelCommands: Command[] = [
                 {
                     key: 'insight-graph',
-                    resolver: results,
+                    resolver: [
+                        {
+                            icon: RiseOutlined,
+                            display: 'Toggle "Compare Previous" on Graph',
+                            executor: () => {
+                                compareFilterLogic.actions.toggleCompare()
+                            },
+                        },
+                        ...Object.entries(dateMapping).map(([key, value]) => ({
+                            icon: RiseOutlined,
+                            display: `Set Time Range to ${key}`,
+                            executor: () => {
+                                dateFilterLogic.actions.setDates(value[0], value[1])
+                            },
+                        })),
+                    ],
                     scope: INSIGHT_COMMAND_SCOPE,
                 },
             ]
@@ -48,7 +48,7 @@ export const insightCommandLogic = kea<commandPaletteLogicType<Command, CommandR
             }
         },
         beforeUnmount: () => {
-            commandPaletteLogic.actions.deregisterAllWithMatch(INSIGHT_COMMAND_SCOPE)
+            commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
         },
     }),
 })

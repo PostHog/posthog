@@ -97,7 +97,9 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
+export const commandPaletteLogic = kea<
+    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+>({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [appUrlsLogic, ['appUrls', 'suggestions']],
@@ -116,7 +118,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
-        deregisterAllWithMatch: (keyPrefix: string) => ({ keyPrefix }),
+        deregisterScope: (scope: string) => ({ scope }),
     },
     reducers: {
         isPaletteShown: [
@@ -168,8 +170,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const cleanedCommands = { ...commands }
-                    delete cleanedCommands[commandKey]
+                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
                     return cleanedCommands
                 },
             },
@@ -193,21 +194,19 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
             }
             // Capture command execution, without useless data
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { icon, index, ...cleanedResult } = result
+            const { icon, index, ...cleanedResult }: Record<string, any> = result
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             window.posthog?.capture('palette command executed', cleanedResult)
         },
-        deregisterAllWithMatch: ({ keyPrefix }) => {
+        deregisterScope: ({ scope }) => {
             for (const command of Object.values(values.commandRegistrations)) {
-                if (command.key.includes(keyPrefix) || command.scope.includes(keyPrefix)) {
-                    actions.deregisterCommand(command.key)
-                }
+                if (command.scope === scope) actions.deregisterCommand(command.key)
             }
         },
         setInput: async ({ input }, breakpoint) => {
-            await breakpoint(500)
+            await breakpoint(300)
             if (input.length > 8) {
                 const response = await api.get('api/person/?key_identifier=' + input)
                 const person = response.results[0]
@@ -250,7 +249,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 appUrlsLogic({ actionId: null }).selectors.appUrls,
                 appUrlsLogic({ actionId: null }).selectors.suggestions,
             ],
-            (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]) => ({
+            (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
                 ...rawCommandRegistrations,
                 custom_dashboards: {
                     key: 'custom_dashboards',

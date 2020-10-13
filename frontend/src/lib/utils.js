@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
@@ -449,21 +449,6 @@ export function copyToClipboard(value, description) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
         return false
     }
-}
-
-export function useOutsideClickHandler(refOrRefs, handleClickOutside) {
-    useEffect(() => {
-        function handleClick(event) {
-            const handleCondition = Array.isArray(refOrRefs)
-                ? !refs.some((ref) => ref.current?.contains(event.target))
-                : !refOrRefs.current?.contains(event.target)
-            if (handleCondition) handleClickOutside()
-        }
-        document.addEventListener('mousedown', handleClick)
-        return () => {
-            document.removeEventListener('mousedown', handleClick)
-        }
-    }, [refOrRefs, handleClickOutside])
 }
 
 export function clamp(value, min, max) {
