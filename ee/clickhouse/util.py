@@ -6,7 +6,6 @@ from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.elements import DROP_ELEMENTS_TABLE_SQL, ELEMENTS_TABLE_SQL
 from ee.clickhouse.sql.events import (
     DROP_EVENTS_TABLE_SQL,
     DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
@@ -29,12 +28,10 @@ class ClickhouseTestMixin:
     def tearDown(self):
         try:
             self._destroy_event_tables()
-            sync_execute(DROP_ELEMENTS_TABLE_SQL)
             sync_execute(DROP_PERSON_TABLE_SQL)
             sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
 
             self._create_event_tables()
-            sync_execute(ELEMENTS_TABLE_SQL)
             sync_execute(PERSONS_TABLE_SQL)
             sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
         except ServerException:

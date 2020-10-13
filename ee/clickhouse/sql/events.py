@@ -29,7 +29,7 @@ CREATE TABLE {table_name}
     timestamp DateTime64(6, 'UTC'),
     team_id Int64,
     distinct_id VARCHAR,
-    elements_hash VARCHAR,
+    elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
     {extra_fields}
 ) ENGINE = {engine} 
@@ -63,7 +63,7 @@ properties,
 timestamp,
 team_id,
 distinct_id,
-elements_hash,
+elements_chain,
 created_at,
 _timestamp,
 _offset
@@ -73,7 +73,7 @@ FROM kafka_{table_name}
 )
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_hash)s, %(created_at)s, now(), 0
+INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
 """
 
 GET_EVENTS_SQL = """
@@ -93,7 +93,7 @@ CREATE TABLE events_with_array_props_view
     timestamp DateTime64(6, 'UTC'),
     team_id Int64,
     distinct_id VARCHAR,
-    elements_hash VARCHAR,
+    elements_chain VARCHAR,
     created_at DateTime64,
     array_property_keys Array(VARCHAR),
     array_property_values Array(VARCHAR),
@@ -118,7 +118,7 @@ properties,
 timestamp,
 team_id,
 distinct_id,
-elements_hash,
+elements_chain,
 created_at,
 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
 arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
@@ -196,3 +196,19 @@ INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
 EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
 INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """
+
+EXTRACT_TAG_REGEX = "extract(elements_chain, '^(.*?)[.|:]')"
+EXTRACT_TEXT_REGEX = "extract(elements_chain, 'text=\"(.*?)\"')"
+
+ELEMENT_TAG_COUNT = """
+SELECT concat('<', {tag_regex}, '> ', {text_regex}) AS tag_name,
+       events.elements_chain,
+       count(*) as tag_count
+FROM events
+WHERE events.team_id = %(team_id)s AND event = '$autocapture'
+GROUP BY tag_name, elements_chain
+ORDER BY tag_count desc, tag_name
+LIMIT %(limit)s
+""".format(
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
+)

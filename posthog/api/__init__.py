@@ -48,14 +48,11 @@ router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, ba
 router.register(r"team/user", team_user.TeamUserViewSet)
 
 if check_ee_enabled():
-    try:
-        from ee.clickhouse.views.actions import ClickhouseActions
-        from ee.clickhouse.views.events import ClickhouseEvents
-        from ee.clickhouse.views.insights import ClickhouseInsights
-        from ee.clickhouse.views.paths import ClickhousePathsViewSet
-        from ee.clickhouse.views.person import ClickhousePerson
-    except ImportError:
-        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres.")
+    from ee.clickhouse.views.actions import ClickhouseActions
+    from ee.clickhouse.views.events import ClickhouseEvents
+    from ee.clickhouse.views.insights import ClickhouseInsights
+    from ee.clickhouse.views.paths import ClickhousePathsViewSet
+    from ee.clickhouse.views.person import ClickhousePerson
 
     router.register(r"action", ClickhouseActions, basename="action")
     router.register(r"event", ClickhouseEvents, basename="event")
