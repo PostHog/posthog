@@ -62,7 +62,11 @@ function CreateKeyModal({
 }
 
 function RowValue(value: string): JSX.Element {
-    return value ? <CopyToClipboardInline description="key value">{value}</CopyToClipboardInline> : <i>secret</i>
+    return value ? (
+        <CopyToClipboardInline description="personal API key value">{value}</CopyToClipboardInline>
+    ) : (
+        <i>secret</i>
+    )
 }
 
 function RowActionsCreator(
@@ -156,7 +160,7 @@ export function PersonalAPIKeys(): JSX.Element {
                     setIsCreateKeyModalVisible(true)
                 }}
             >
-                + Create a Personal API Key
+                + Create Personal API Key
             </Button>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable />

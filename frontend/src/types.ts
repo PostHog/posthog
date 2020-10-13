@@ -172,3 +172,15 @@ export interface BillingSubscription {
     subscription_url: string
     stripe_checkout_session: string
 }
+
+export interface DashboardType {
+    id: number
+    name: string
+    pinned: string
+    items: []
+    created_at: string
+    created_by: number
+    is_shared: boolean
+    share_token: string
+    deleted: boolean
+}
