@@ -116,7 +116,7 @@ SESSION_SQL = """
                 groupArray(event) as events, 
                 groupArray(uuid) as uuids, 
                 groupArray(properties) as property_list, 
-                groupArray(elements_chain) as elements_hashes, 
+                groupArray(elements_chain) as elements_chains, 
                 groupArray(distinct_id) as distinct_ids, 
                 groupArray(new_session) AS gids
             FROM (
@@ -164,7 +164,7 @@ SESSION_SQL = """
             timestamps as timestamp,
             uuids as uuid,
             property_list as properties,
-            elements_hashes as elements_chain,
+            elements_chains as elements_chain,
             arrayEnumerate(gids) AS idx 
     ) 
     GROUP BY 

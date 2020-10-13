@@ -47,7 +47,6 @@ def create_event(
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "elements_hash": "",
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "elements_chain": elements_chain,
     }

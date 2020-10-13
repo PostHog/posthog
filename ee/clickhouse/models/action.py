@@ -5,8 +5,6 @@ from django.forms.models import model_to_dict
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.actions import (
     ACTION_QUERY,
-    ELEMENT_ACTION_FILTER,
-    ELEMENT_PROP_FILTER,
     EVENT_ACTION_FILTER,
     EVENT_NO_PROP_FILTER,
     FILTER_EVENT_BY_ACTION_SQL,
