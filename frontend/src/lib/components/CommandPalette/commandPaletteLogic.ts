@@ -97,10 +97,10 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 }
 
 export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
-    connect: () => ({
+    connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [appUrlsLogic, ['appUrls', 'suggestions']],
-    }),
+    },
     actions: {
         hidePalette: true,
         showPalette: true,
@@ -354,8 +354,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
         afterMount: () => {
             const { push } = router.actions
 
-            const globalCommands: Command = {
-                key: 'global-commands',
+            const goTo: Command = {
+                key: 'go-to',
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: [
@@ -487,14 +487,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                         },
                     },
                     {
-                        icon: LinkOutlined,
-                        display: 'Open PostHog Docs',
-                        synonyms: ['technical documentation'],
-                        executor: () => {
-                            open('https://posthog.com/docs')
-                        },
-                    },
-                    {
                         icon: PlusOutlined,
                         display: 'Create Action',
                         executor: () => {
@@ -559,6 +551,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                 open(argument)
                             },
                         })
+                    results.push({
+                        icon: LinkOutlined,
+                        display: 'Open PostHog Docs',
+                        synonyms: ['technical documentation'],
+                        executor: () => {
+                            open('https://posthog.com/docs')
+                        },
+                    })
                     return results
                 },
             }
@@ -572,7 +572,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                     executor: () => ({
                         instruction: 'Give your key a label',
                         icon: TagOutlined,
-                        scope: 'Creating a Personal API Key',
+                        scope: 'Creating Personal API Key',
                         resolver: (argument) => {
                             if (argument?.length)
                                 return {
@@ -581,6 +581,31 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
                                         push('/setup', {}, 'personal-api-keys')
+                                    },
+                                }
+                            return null
+                        },
+                    }),
+                },
+            }
+
+            const createDashboard: Command = {
+                key: 'create-dashboard',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: FundOutlined,
+                    display: 'Create Dashboard',
+                    executor: () => ({
+                        instruction: 'Name your new dashboard',
+                        icon: TagOutlined,
+                        scope: 'Creating Dashboard',
+                        resolver: (argument) => {
+                            if (argument?.length)
+                                return {
+                                    icon: FundOutlined,
+                                    display: `Create Dashboard "${argument}"`,
+                                    executor: () => {
+                                        push(`/dashboard/`)
                                     },
                                 }
                             return null
@@ -629,17 +654,19 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 },
             }
 
-            actions.registerCommand(globalCommands)
+            actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
+            actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
         },
         beforeUnmount: () => {
-            actions.deregisterCommand('global-commands')
+            actions.deregisterCommand('go-to')
             actions.deregisterCommand('open-urls')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
+            actions.deregisterCommand('create-dashboard')
             actions.deregisterCommand('share-feedback')
         },
     }),

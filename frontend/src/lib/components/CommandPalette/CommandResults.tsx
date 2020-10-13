@@ -75,7 +75,7 @@ export function CommandResults(): JSX.Element {
     })
 
     return (
-        <div>
+        <div className="palette__results">
             {commandSearchResultsGrouped.map(([scope, results]) => (
                 <ResultsGroup key={scope} scope={scope} results={results} activeResultIndex={activeResultIndex} />
             ))}
