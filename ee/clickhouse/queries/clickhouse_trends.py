@@ -101,7 +101,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
 """
 
 BREAKDOWN_CONDITIONS_SQL = """
-where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to} {actions_query}
+where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
 """
 
 BREAKDOWN_PROP_JOIN_SQL = """
@@ -110,7 +110,7 @@ INNER JOIN (
     FROM events_properties_view AS ep
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
-ON e.uuid = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON e.uuid = ep.event_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
@@ -118,7 +118,7 @@ BREAKDOWN_COHORT_JOIN_SQL = """
 INNER JOIN (
     {cohort_queries}
 ) ep
-ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to} {actions_query}
+ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
 """
 
 BREAKDOWN_COHORT_FILTER_SQL = """
@@ -180,6 +180,9 @@ class ClickhouseTrends(BaseQuery):
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
+        props_to_filter = [*filter.properties, *entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", props_to_filter, team)
+
         action_query = ""
         action_params: Dict = {}
 
@@ -197,16 +200,12 @@ class ClickhouseTrends(BaseQuery):
         )
 
         aggregate_operation, join_condition, math_params = self._process_math(entity)
-        params = {**params, **math_params}
+        params = {**params, **math_params, **prop_filter_params}
 
         if filter.breakdown_type == "cohort":
             breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             if "all" in breakdown:
-                params = {
-                    **params,
-                    "event": entity.id,
-                    **action_params,
-                }
+                params = {**params, "event": entity.id, **action_params}
                 null_sql = NULL_SQL.format(
                     interval=inteval_annotation,
                     seconds_in_interval=seconds_in_interval,
@@ -218,6 +217,7 @@ class ClickhouseTrends(BaseQuery):
                     parsed_date_to=parsed_date_to,
                     actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
+                    filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
                 breakdown_query = BREAKDOWN_DEFAULT_SQL.format(
                     null_sql=null_sql,
@@ -227,18 +227,14 @@ class ClickhouseTrends(BaseQuery):
                 )
             else:
                 cohort_queries, cohort_ids = self._format_breakdown_cohort_join_query(breakdown, team)
-                params = {
-                    **params,
-                    "values": cohort_ids,
-                    "event": entity.id,
-                    **action_params,
-                }
+                params = {**params, "values": cohort_ids, "event": entity.id, **action_params}
                 breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL.format(
                     cohort_queries=cohort_queries,
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
                     actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
+                    filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
                 breakdown_query = BREAKDOWN_QUERY_SQL.format(
                     null_sql=null_sql,
@@ -272,6 +268,7 @@ class ClickhouseTrends(BaseQuery):
                 parsed_date_to=parsed_date_to,
                 actions_query="and uuid IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
+                filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
@@ -398,7 +395,9 @@ class ClickhouseTrends(BaseQuery):
         inteval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+
+        props_to_filter = [*filter.properties, *entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses("uuid", props_to_filter, team)
 
         aggregate_operation, join_condition, math_params = self._process_math(entity)
 
@@ -417,7 +416,7 @@ class ClickhouseTrends(BaseQuery):
                     actions_query=action_query,
                     parsed_date_from=(parsed_date_from or ""),
                     parsed_date_to=(parsed_date_to or ""),
-                    filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                    filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                     event_join=join_condition,
                     aggregate_operation=aggregate_operation,
                 )
@@ -430,7 +429,7 @@ class ClickhouseTrends(BaseQuery):
                 team_id=team.pk,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
             )
