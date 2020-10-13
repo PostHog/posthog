@@ -45,6 +45,10 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
 
 
 def _pad_value(val: str):
+
+    if val == "true" or val == "false" or val.isdigit():
+        return val
+
     if not val.startswith('"'):
         val = '"' + val
 
