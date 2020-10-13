@@ -3,7 +3,6 @@ import './TopContent.scss'
 import React from 'react'
 import { LatestVersion } from '~/layout/LatestVersion'
 import { User } from '~/layout/User'
-import { WorkerStats } from '~/layout/WorkerStats'
 
 export function TopContent() {
     return (
@@ -19,7 +18,6 @@ export function TopContent() {
                 }}
             >
                 <LatestVersion />
-                <WorkerStats />
                 <User />
             </div>
         </div>
