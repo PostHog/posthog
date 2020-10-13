@@ -15,6 +15,8 @@ import { EventName } from 'scenes/actions/EventName'
 
 import { eventToName, toParams } from 'lib/utils'
 
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+
 export function EventsTable({
     fixedFilters,
     filtersEnabled = true,
@@ -96,7 +98,10 @@ export function EventsTable({
             render: function renderPerson({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
                 return showLinkToPerson ? (
-                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
+                        className={'ph-no-capture ' + rrwebBlockClass}
+                    >
                         {event.person}
                     </Link>
                 ) : (
@@ -112,7 +117,12 @@ export function EventsTable({
                 let param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
                 if (filtersEnabled)
                     return (
-                        <FilterPropertyLink property={param} value={event.properties[param]} filters={{ properties }} />
+                        <FilterPropertyLink
+                            className={'ph-no-capture ' + rrwebBlockClass}
+                            property={param}
+                            value={event.properties[param]}
+                            filters={{ properties }}
+                        />
                     )
                 return <Property value={event.properties[param]} />
             },
@@ -173,7 +183,7 @@ export function EventsTable({
                 loading={isLoading}
                 columns={columns}
                 size="small"
-                className="ph-no-capture"
+                className={rrwebBlockClass + ' ph-no-capture'}
                 locale={{
                     emptyText: (
                         <span>

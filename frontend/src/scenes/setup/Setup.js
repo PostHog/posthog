@@ -23,7 +23,7 @@ export const Setup = hot(_Setup)
 function _Setup() {
     const { user } = useValues(userLogic)
     const { location } = useValues(router)
-    const showSessionRecord = window.posthog && window.posthog.isFeatureEnabled('session-recording-player')
+    const showSessionRecord = window.posthog?.isFeatureEnabled('session-recording-player')
 
     useAnchor(location.hash)
 
