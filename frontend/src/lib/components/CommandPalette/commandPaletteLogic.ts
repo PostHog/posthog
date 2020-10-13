@@ -11,6 +11,7 @@ import {
     RiseOutlined,
     ContainerOutlined,
     AimOutlined,
+    CheckOutlined,
     SyncOutlined,
     TagOutlined,
     ClockCircleOutlined,
@@ -47,7 +48,7 @@ export interface CommandResultTemplate {
     display: string
     synonyms?: string[]
     prefixApplied?: string
-    executor?: CommandExecutor
+    executor?: CommandExecutor | true // true means "just clear input"
     guarantee?: boolean // show result always and first, regardless of fuzzy search
 }
 
@@ -183,9 +184,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
             if (values.isPaletteShown) window.posthog?.capture('palette shown')
         },
         executeResult: ({ result }: { result: CommandResult }) => {
-            const possibleFlow = result.executor?.() ?? null
-            actions.activateFlow(possibleFlow)
-            if (!possibleFlow) actions.hidePalette()
+            if (result.executor === true) {
+                actions.activateFlow(null)
+            } else {
+                const possibleFlow = result.executor?.() ?? null
+                actions.activateFlow(possibleFlow)
+                if (!possibleFlow) actions.hidePalette()
+            }
             // Capture command execution, without useless data
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult } = result
@@ -628,6 +633,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                     ? undefined
                                     : () => {
                                           window.posthog?.capture('palette feedback', { message: argument })
+                                          return {
+                                              scope: 'Sharing Feedback',
+                                              resolver: {
+                                                  icon: CheckOutlined,
+                                                  display: 'Message Sent!',
+                                              },
+                                          }
                                       },
                             },
                             {
