@@ -43,6 +43,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
             event1 = event_factory(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},)
+            event1 = event_factory(
+                event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
+            )
             with self.assertNumQueries(7):
                 response = self.client.get("/api/event/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")

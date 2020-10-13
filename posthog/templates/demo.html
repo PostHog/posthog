@@ -1,31 +1,38 @@
 <html>
-    <head>
-        <title>HogFlix</title>
-        <script src="/static/array.js"></script>
-        <script>
-            posthog.init('{{api_token}}', {
-                api_host: window.location.origin,
-            });
-        </script>
-        <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
-    </head>
-    <body>
-<div class='container'>
-    <div class='alert alert-warning'>
-        <strong>Welcome to the PostHog demo environment!</strong><br />
-        By going through this demo you can simulate a user going through a signup funnel. <a href='/'>You can explore the data in PostHog</a>.<br /><br />
-        Once you're done, you can delete all the demo data <a href='/setup'>in the setup page</a>.
-    </div>
 
-    {% if request.path == '/demo' %}
+<head>
+    <title>HogFlix</title>
+    <script src="/static/array.js"></script>
+    <script>
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin,
+        });
+    </script>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
+</head>
 
-    <h1>Welcome to HogFlix</h1>
+<body>
+
+    <div class='container'>
+        <div class='alert alert-warning'>
+            <strong>Welcome to the PostHog demo environment!</strong><br />
+            By going through this demo you can simulate a user going through a signup funnel. <a href='/'>You can
+                explore the data in PostHog</a>.<br /><br />
+            Once you're done, you can delete all the demo data <a href='/setup'>in the setup page</a>.
+        </div>
+
+        {% if request.path == '/demo' %}
+
+        <h1>Welcome to HogFlix</h1>
         For all your hedgehog movies.<br /><br />
 
         <a class='btn btn-lg btn-success' href='/demo/1' id='sign-up'>Sign up</a>
-    {% endif %}
+        {% endif %}
 
-    {% if request.path == '/demo/1' %}
+        {% if request.path == '/demo/1' %}
         <h1>HogFlix</h1>
         <form action='/demo/2'>
             <label>Username</label>
@@ -34,98 +41,156 @@
             <input class='form-control' type='password' name='password' />
             <button type='submit' class='btn btn-success'>Sign up!</button>
         </form>
-    {% endif %}
-    {% if request.path == '/demo/2' %}
+        {% endif %}
+        {% if request.path == '/demo/2' %}
         <h1>Pay for HogFlix</h1>
         <form action='/demo/3'>
             <label>Credit card number</label>
             <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
             <button type='submit' class='btn btn-success'>Pay $10!</button>
         </form>
-    {% endif %}
-    {% if request.path == '/demo/3' %}
+        {% endif %}
+        {% if request.path == '/demo/3' %}
         <h1>Watch some Flix!</h1>
         <div class='card-deck'>
             <div class='card' style="width: 18rem">
-                <img src='https://m.media-amazon.com/images/M/MV5BNDc1ZTlmOWUtNDY2YS00OGU5LTg2MTYtYTk2MmQzMGE2NzUwXkEyXkFqcGdeQXVyODkzNTgxMDg@._V1_SY1000_CR0,0,675,1000_AL_.jpg' class='card-img-top' />
+                <img src='https://m.media-amazon.com/images/M/MV5BNDc1ZTlmOWUtNDY2YS00OGU5LTg2MTYtYTk2MmQzMGE2NzUwXkEyXkFqcGdeQXVyODkzNTgxMDg@._V1_SY1000_CR0,0,675,1000_AL_.jpg'
+                    class='card-img-top' />
                 <div class='card-body'>
                     <h5 class='card-title'>Sonic The Hedgehog (2020)</h5>
-                    <p class='card-text'>Based on the global blockbuster videogame franchise from Sega, SONIC THE HEDGEHOG tells the story of the world's speediest hedgehog as he embraces his new home on Earth.</p>
+                    <p class='card-text'>Based on the global blockbuster videogame franchise from Sega, SONIC THE
+                        HEDGEHOG tells the story of the world's speediest hedgehog as he embraces his new home on Earth.
+                    </p>
                     <a href='https://netflix.com' target="_blank" class='btn btn-danger'>Watch now!</a>
                 </div>
             </div>
             <div class='card' style="width: 18rem">
-                <img src='https://m.media-amazon.com/images/M/MV5BMTc0Mzg3OTQyN15BMl5BanBnXkFtZTcwODA2OTc4NQ@@._V1_SY1000_CR0,0,677,1000_AL_.jpg' class='card-img-top' />
+                <img src='https://m.media-amazon.com/images/M/MV5BMTc0Mzg3OTQyN15BMl5BanBnXkFtZTcwODA2OTc4NQ@@._V1_SY1000_CR0,0,677,1000_AL_.jpg'
+                    class='card-img-top' />
                 <div class='card-body'>
                     <h5 class='card-title'>The Hedgehog (2009)</h5>
-                    <p class='card-text'>While planning her suicide, a precocious 11-year-old (Garance Le Guillermic) befriends a new neighbor (Togo Igawa) and a prickly recluse (Josiane Balasko).</p>
+                    <p class='card-text'>While planning her suicide, a precocious 11-year-old (Garance Le Guillermic)
+                        befriends a new neighbor (Togo Igawa) and a prickly recluse (Josiane Balasko).</p>
                     <a href='https://netflix.com' target="_blank" class='btn btn-danger'>Watch now!</a>
                 </div>
             </div>
             <div class='card' style="width: 18rem">
-                <img src='https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/Big_buck_bunny_poster_big.jpg' class='card-img-top' />
+                <img src='https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/Big_buck_bunny_poster_big.jpg'
+                    class='card-img-top' />
                 <div class='card-body'><br />
                     <h5 class='card-title'>Big Buck Bunny (2008)</h5>
-                    <p class='card-text'>A large and lovable rabbit deals with three tiny bullies, led by a flying squirrel, who are determined to squelch his happiness.</p>
+                    <p class='card-text'>A large and lovable rabbit deals with three tiny bullies, led by a flying
+                        squirrel, who are determined to squelch his happiness.</p>
                     <a href='/demo/4' class='btn btn-danger'>Watch now!</a>
                 </div>
             </div>
         </div>
-        
 
-    {% endif %}
-    {% if request.path == '/demo/4' %}
-    <style>
-    .video-js .vjs-current-time { display: none; }
-    .video-js .vjs-time-divider { display: none; }
-    .video-js .vjs-duration { display: none; }
-    .video-js .vjs-progress-control { display: none; }
-    .video-js .vjs-live-control { display: none; }
-    .video-js .vjs-seek-to-live-control { display: none; }
-    .video-js .vjs-playback-rate { display: none; }
-    .video-js .vjs-chapters-button { display: none; }
-    .video-js .vjs-descriptions-button { display: none; }
-    .video-js .vjs-subs-caps-button { display: none; }
-    .video-js .vjs-audio-button { display: none; }
-    .video-js .vjs-picture-in-picture-control { display: none; }
-    .video-js .vjs-fullscreen-control { display: none; }
-    .video-js .vjs-modal-dialog { display: none; }
-    .video-js .vjs-big-play-button { display:none; }
-    .video-js .vjs-mute-control { display:none; }
-    .video-js .vjs-remaining-time { display: none; }
-    .video-js .vjs-loading-spinner { display: none; }
-    .video-js .vjs-play-control {
-        color: #fff;
-        background-color: #17a2b8;
-        border-color: #17a2b8;
-        margin-top:20px; }
 
-    </style>
-    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
-    <script>
-        $(document).ready(function() {
-            $("#submit-review").click(function(){
-                review = $("#review-text").val();
-                $("#new-review").text(review);
-                $(".review-area").hide();
+        {% endif %}
+        {% if request.path == '/demo/4' %}
+        <style>
+            .video-js .vjs-current-time {
+                display: none;
+            }
+
+            .video-js .vjs-time-divider {
+                display: none;
+            }
+
+            .video-js .vjs-duration {
+                display: none;
+            }
+
+            .video-js .vjs-progress-control {
+                display: none;
+            }
+
+            .video-js .vjs-live-control {
+                display: none;
+            }
+
+            .video-js .vjs-seek-to-live-control {
+                display: none;
+            }
+
+            .video-js .vjs-playback-rate {
+                display: none;
+            }
+
+            .video-js .vjs-chapters-button {
+                display: none;
+            }
+
+            .video-js .vjs-descriptions-button {
+                display: none;
+            }
+
+            .video-js .vjs-subs-caps-button {
+                display: none;
+            }
+
+            .video-js .vjs-audio-button {
+                display: none;
+            }
+
+            .video-js .vjs-picture-in-picture-control {
+                display: none;
+            }
+
+            .video-js .vjs-fullscreen-control {
+                display: none;
+            }
+
+            .video-js .vjs-modal-dialog {
+                display: none;
+            }
+
+            .video-js .vjs-big-play-button {
+                display: none;
+            }
+
+            .video-js .vjs-mute-control {
+                display: none;
+            }
+
+            .video-js .vjs-remaining-time {
+                display: none;
+            }
+
+            .video-js .vjs-loading-spinner {
+                display: none;
+            }
+
+            .video-js .vjs-play-control {
+                color: #fff;
+                background-color: #17a2b8;
+                border-color: #17a2b8;
+                margin-top: 20px;
+            }
+        </style>
+        <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+        <script>
+            $(document).ready(function () {
+                $("#submit-review").click(function () {
+                    review = $("#review-text").val();
+                    $("#new-review").text(review);
+                    $(".review-area").hide();
+                });
             });
-        });
-    </script>
+        </script>
         <h1>Now Playing: Big Buck Bunny</h1>
         <div class='card-deck'>
             <div class='card' style="width: 18rem">
-              <video
-                id="my-video"
-                class="video-js"
-                controls
-                preload="auto"
-                data-setup="{}"
-              >
-                <source src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4" type="video/mp4" />
-                <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a web browser that supports HTML5 video</p>
-              </video>
-              <script src="https://vjs.zencdn.net/7.6.6/video.js"></script>
-          </div>
+                <video id="my-video" class="video-js" controls preload="auto" data-setup="{}">
+                    <source
+                        src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4"
+                        type="video/mp4" />
+                    <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a web
+                        browser that supports HTML5 video</p>
+                </video>
+                <script src="https://vjs.zencdn.net/7.6.6/video.js"></script>
+            </div>
         </div>
         <div class="container">
             <div class="row" style="margin-top:100px; width:100%;">
@@ -145,17 +210,21 @@
         <div class="row">&nbsp;</div>
         <div class="review-area">
             <label>Leave a review</label>
-            <textarea class='form-control' type='text' name='review' id="review-text" placeholder='What did you think?'></textarea><br />
+            <textarea class='form-control' type='text' name='review' id="review-text"
+                placeholder='What did you think?'></textarea><br />
             <button class='btn btn-success' id='submit-review'>Submit Review</button>
         </div>
 
         <div class="row">&nbsp;</div>
-        <div class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497</div>
-        
+        <div class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
+            Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
+        </div>
 
-    {% endif %}
 
-</div>
+        {% endif %}
 
-    </body>
+    </div>
+
+</body>
+
 </html>

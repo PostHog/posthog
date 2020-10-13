@@ -3,6 +3,11 @@ import { Popover } from 'antd'
 
 export const keyMapping = {
     event: {
+        $timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: [new Date().toISOString()],
+        },
         $browser: {
             label: 'Browser',
             description: 'Name of the browser the user has used.',
@@ -109,24 +114,58 @@ export const keyMapping = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
-        // Events we maybe hide entirely from the list
+        $device: {
+            label: 'Device',
+            description: 'The mobile device that was used.',
+            examples: ['iPad', 'iPhone', 'Android'],
+        },
+        $sentry_url: {
+            label: 'Sentry URL',
+            description: 'Direct link to the exception in Sentry',
+            examples: ['https://sentry.io/...'],
+        },
+        // Events we hide entirely from the list
+        $snapshot_data: {
+            label: 'Snapshot data',
+            description: 'JSON object used for session recordings.',
+            hide: true,
+        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
+            hide: true,
         },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
             examples: ['iPad', 'iPhone', 'Android'],
         },
+        $had_persisted_distinct_id: {
+            label: '$had_persisted_distinct_id',
+            description: '',
+            hide: true,
+        },
+        $sentry_event_id: {
+            label: 'Sentry Event ID',
+            description: 'This is the Sentry key for an event.',
+            examples: ['byroc2ar9ee4ijqp'],
+            hide: true,
+        },
+        $sentry_exception: {
+            label: 'Sentry exception',
+            description: 'Raw Sentry exception data',
+            hide: true,
+        },
         $ce_version: {
             label: '$ce_version',
             description: '',
+            hide: true,
         },
         $anon_distinct_id: {
             label: 'Anon Distinct ID',
             description: 'If the user was previously anonymous, their anonymous ID will be set here.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+            hide: true,
         },
         $event_type: {
             label: 'Event Type',
@@ -137,15 +176,18 @@ export const keyMapping = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
+            hide: true,
         },
         $time: {
             label: 'Time',
             description: 'Time as given by the client.',
+            hide: true,
         },
         $device_id: {
             label: 'Device ID',
             description: 'Unique ID for that device, consistent even if users are logging in/out.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+            hide: true,
         },
     },
     element: {

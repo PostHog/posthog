@@ -9,17 +9,6 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 
 
-def parse_filter(filters: List[Property]) -> Tuple[str, Dict]:
-    result = ""
-    params = {}
-    for idx, prop in enumerate(filters):
-        result += "{cond}(ep.key = %(k{idx})s) AND (trim(BOTH '\"' FROM ep.value) = %(v{idx})s)".format(
-            idx=idx, cond=" AND " if idx > 0 else ""
-        )
-        params.update({"k{}".format(idx): prop.key, "v{}".format(idx): prop.value})
-    return result, params
-
-
 def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
     final = ""
     params = {}

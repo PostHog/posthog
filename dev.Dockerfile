@@ -17,6 +17,7 @@ RUN pip install $(grep -ivE "psycopg2" requirements.txt) --compile\
     && pip install psycopg2-binary
 
 # install dev dependencies
+RUN mkdir /code/requirements/
 COPY requirements/ /code/requirements/
 RUN pip install -r requirements/dev.txt --compile
 
