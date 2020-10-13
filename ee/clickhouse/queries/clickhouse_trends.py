@@ -80,7 +80,7 @@ SELECT groupArray(value) FROM (
                 ARRAY JOIN array_property_keys, array_property_values
             ) ep
             WHERE key = %(key)s
-        ) ep ON e.person_id = ep.id WHERE e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
+        ) ep ON person_id = ep.id WHERE e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
     GROUP BY value
     ORDER BY count DESC
     LIMIT %(limit)s
@@ -153,7 +153,7 @@ INNER JOIN (
     ) ep
     WHERE key = %(key)s
 ) ep 
-ON e.person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
@@ -305,7 +305,6 @@ class ClickhouseTrends(BaseQuery):
             element_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
-
             try:
                 top_elements_array_result = sync_execute(element_query, element_params)
                 top_elements_array = top_elements_array_result[0][0]
@@ -331,7 +330,6 @@ class ClickhouseTrends(BaseQuery):
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
             )
-
         else:
             element_params = {**params, "key": filter.breakdown, "limit": 20}
             element_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -373,7 +371,7 @@ class ClickhouseTrends(BaseQuery):
 
         for idx, stats in enumerate(result):
             extra_label = self._determine_breakdown_label(
-                idx, filter.breakdown_type, filter.breakdown, top_elements_array
+                idx, filter.breakdown_type, filter.breakdown, stats[2].strip('"')
             )
             label = "{} - {}".format(entity.name, extra_label)
             additional_values = {
@@ -382,7 +380,7 @@ class ClickhouseTrends(BaseQuery):
                 if isinstance(filter.breakdown, list)
                 else filter.breakdown
                 if filter.breakdown_type == "cohort"
-                else top_elements_array[idx],
+                else stats[2].strip('"'),
             }
             parsed_result = self._parse_response(stats, filter, additional_values)
             parsed_results.append(parsed_result)
@@ -437,7 +435,7 @@ class ClickhouseTrends(BaseQuery):
         index: int,
         breakdown_type: Optional[str],
         breakdown: Union[str, List[Union[str, int]], None],
-        elements: List,
+        value: Union[str, int],
     ) -> str:
         breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
@@ -445,10 +443,8 @@ class ClickhouseTrends(BaseQuery):
                 return "all users"
             else:
                 return Cohort.objects.get(pk=breakdown[index]).name
-        elif breakdown_type == "person":
-            return ""
         else:
-            return str(elements[index]) or ""
+            return str(value) or ""
 
     def _process_math(self, entity):
         join_condition = ""

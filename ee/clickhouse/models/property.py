@@ -27,7 +27,9 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             )
             clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter)
             final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
-            params.update({"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value})
+            params.update(
+                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
+            )
 
         else:
             filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
