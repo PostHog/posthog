@@ -111,8 +111,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
-        activateFlow: (flow: CommandFlow) => ({ flow }),
-        deactivateFlow: true,
+        activateFlow: (flow: CommandFlow | null) => ({ flow }),
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -133,7 +132,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 setInput: () => 0,
                 executeResult: () => 0,
                 activateFlow: () => 0,
-                deactivateFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
             },
@@ -146,7 +144,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 onArrowUp: () => null,
                 onArrowDown: () => null,
                 activateFlow: () => null,
-                deactivateFlow: () => null,
             },
         ],
         input: [
@@ -154,7 +151,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
             {
                 setInput: (_, { input }) => input,
                 activateFlow: () => '',
-                deactivateFlow: () => '',
                 executeResult: () => '',
             },
         ],
@@ -162,7 +158,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
             null as CommandFlow | null,
             {
                 activateFlow: (_, { flow }) => flow,
-                deactivateFlow: () => null,
             },
         ],
         rawCommandRegistrations: [
