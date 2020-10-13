@@ -164,7 +164,7 @@ INNER JOIN (
     FROM events_properties_view AS ep
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
-ON uuid = ep.event_id where team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
