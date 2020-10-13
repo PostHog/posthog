@@ -114,14 +114,11 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
+        "toolbarVersion": "toolbar",
     }
 
     if settings.JS_URL:
         params["jsURL"] = settings.JS_URL
-
-    if use_new_toolbar:
-        params["action"] = "ph_authorize"
-        params["toolbarVersion"] = "toolbar"
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
