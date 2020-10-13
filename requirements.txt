@@ -27,7 +27,7 @@ django-redis==4.12.1
 django-statsd==2.5.2
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
-drf-exceptions-hog==0.0.2
+drf-exceptions-hog==0.0.3
 fakeredis==1.4.3
 future==0.18.2
 gunicorn==20.0.4

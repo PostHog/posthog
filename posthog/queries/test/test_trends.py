@@ -496,6 +496,29 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(action_response[0]["data"][-1], 5)
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+        def test_per_entity_filtering(self):
+            self._create_events()
+            with freeze_time("2020-01-04T13:00:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "events": [
+                                {"id": "sign up", "properties": [{"key": "$some_property", "value": "value"}],},
+                                {"id": "sign up", "properties": [{"key": "$some_property", "value": "other_value"}],},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["data"][4], 1)
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[1]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[1]["data"][5], 1)
+            self.assertEqual(response[1]["count"], 1)
+
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(

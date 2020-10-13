@@ -17,4 +17,18 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit').click()
         cy.get('[data-attr=feature-flag-table').should('contain', 'beta feature updated')
     })
+
+    it('Delete feature flag', () => {
+        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-name').type('to be deleted').should('have.value', 'to be deleted')
+        cy.get('[data-attr=feature-flag-key').should('have.value', 'to-be-deleted')
+        cy.get('[data-attr=feature-flag-switch').click()
+        cy.get('[data-attr=feature-flag-submit').click()
+        cy.get('[data-attr=feature-flag-table').should('contain', 'to be deleted')
+        cy.get('[data-row-key="to-be-deleted"]').click()
+        cy.get('[data-attr=delete-flag]').click()
+        cy.get('.ant-modal-confirm-btns > .ant-btn-dangerous').click()
+        cy.contains('Feature flag deleted successfully').should('exist')
+    })
 })
