@@ -1,3 +1,4 @@
+// ActionsTable.js
 .tutorial-container {
     color: #c4c4c4;
     margin-top: 32px;
@@ -32,5 +33,53 @@
     .t-element {
         margin-bottom: 16px;
         border-right: 0;
+    }
+}
+
+// ActionEditV2.js
+.action-edit-container {
+    margin-top: 32px;
+
+    label {
+        font-weight: bold;
+    }
+
+    .section-divider {
+        margin-top: 32px;
+        padding-top: 16px;
+        padding-bottom: 16px;
+        border-top: 0.75px solid #c4c4c4;
+    }
+}
+
+// ActionStepV2.js
+.action-step {
+    margin-bottom: 0;
+    height: 100%;
+
+    .remove-wrapper {
+        position: absolute;
+        right: 0;
+        top: 0;
+
+        button {
+            border: 0;
+            border-top-right-radius: 2px;
+            border-bottom-left-radius: 2px;
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 22px;
+            color: #666666;
+        }
+    }
+
+    .type-switcher {
+        width: 100%;
+        margin-top: 16px;
+
+        button {
+            flex: 1;
+            font-size: 0.85rem;
+        }
     }
 }
