@@ -6,6 +6,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
 import _ from 'lodash'
 import {
+    CommentOutlined,
     FundOutlined,
     RiseOutlined,
     ContainerOutlined,
@@ -26,6 +27,8 @@ import {
     InteractionOutlined,
     MailOutlined,
     KeyOutlined,
+    VideoCameraOutlined,
+    SendOutlined,
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
@@ -67,7 +70,7 @@ export interface Command {
 
 export interface CommandFlow {
     icon?: any
-    instruction: string | null
+    instruction?: string
     resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
     scope: string
 }
@@ -82,20 +85,15 @@ const RESULTS_MAX = 5
 
 const GLOBAL_COMMAND_SCOPE = 'global'
 
-function resolveCommand(
-    source: Command | CommandFlow,
-    resultsSoFar: CommandResult[],
-    argument?: string,
-    prefixApplied?: string
-): void {
+function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
     let results = source.resolver instanceof Function ? source.resolver(argument, prefixApplied) : source.resolver
-    if (!results) return // skip if no result
+    if (!results) return [] // skip if no result
     if (!Array.isArray(results)) results = [results] // work with a single result and with an array of results
     const resultsWithCommand: CommandResult[] = results.map((result) => {
         return { ...result, source }
     })
-    resultsSoFar.push(...resultsWithCommand)
+    return resultsWithCommand
 }
 
 export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandRegistrations>>({
@@ -290,21 +288,17 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                 isSqueak: boolean
             ) => {
                 if (isSqueak) return []
-                if (activeFlow) {
-                    const results: CommandResult[] = []
-                    resolveCommand(activeFlow, results, argument)
-                    return results
-                }
-                const directResults: CommandResult[] = []
-                const prefixedResults: CommandResult[] = []
+                if (activeFlow) return resolveCommand(activeFlow, argument)
+                let directResults: CommandResult[] = []
+                let prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
                     if (regexp) {
                         const match = argument.match(regexp)
                         if (match && match[1]) {
-                            resolveCommand(command, prefixedResults, match[2], match[1])
+                            prefixedResults = [...prefixedResults, ...resolveCommand(command, match[2], match[1])]
                         }
                     }
-                    resolveCommand(command, directResults, argument)
+                    directResults = [...directResults, ...resolveCommand(command, argument)]
                 }
                 const allResults = directResults.concat(prefixedResults)
                 let fusableResults: CommandResult[] = []
@@ -359,171 +353,162 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
     events: ({ actions }) => ({
         afterMount: () => {
             const { push } = router.actions
-            const results: CommandResultTemplate[] = [
-                {
-                    icon: FundOutlined,
-                    display: 'Go to Dashboards',
-                    executor: () => {
-                        push('/dashboard')
-                    },
-                },
-                {
-                    icon: RiseOutlined,
-                    display: 'Go to Insights',
-                    executor: () => {
-                        push('/insights')
-                    },
-                },
-                {
-                    icon: RiseOutlined,
-                    display: 'Go to Trends',
-                    executor: () => {
-                        // FIXME: Don't reset insight on change
-                        push('/insights?insight=TRENDS')
-                    },
-                },
-                {
-                    icon: ClockCircleOutlined,
-                    display: 'Go to Sessions',
-                    executor: () => {
-                        // FIXME: Don't reset insight on change
-                        push('/insights?insight=SESSIONS')
-                    },
-                },
-                {
-                    icon: FunnelPlotOutlined,
-                    display: 'Go to Funnels',
-                    executor: () => {
-                        // FIXME: Don't reset insight on change
-                        push('/insights?insight=FUNNELS')
-                    },
-                },
-                {
-                    icon: GatewayOutlined,
-                    display: 'Go to Retention',
-                    executor: () => {
-                        // FIXME: Don't reset insight on change
-                        push('/insights?insight=RETENTION')
-                    },
-                },
-                {
-                    icon: InteractionOutlined,
-                    display: 'Go to User Paths',
-                    executor: () => {
-                        // FIXME: Don't reset insight on change
-                        push('/insights?insight=PATHS')
-                    },
-                },
-                {
-                    icon: ContainerOutlined,
-                    display: 'Go to Events',
-                    executor: () => {
-                        push('/events')
-                    },
-                },
-                {
-                    icon: AimOutlined,
-                    display: 'Go to Actions',
-                    executor: () => {
-                        push('/actions')
-                    },
-                },
-                {
-                    icon: SyncOutlined,
-                    display: 'Go to Live Actions',
-                    executor: () => {
-                        push('/actions/live')
-                    },
-                },
-                {
-                    icon: ClockCircleOutlined,
-                    display: 'Go to Live Sessions',
-                    executor: () => {
-                        push('/sessions')
-                    },
-                },
-                {
-                    icon: UserOutlined,
-                    display: 'Go to People',
-                    synonyms: ['people'],
-                    executor: () => {
-                        push('/people')
-                    },
-                },
-                {
-                    icon: UsergroupAddOutlined,
-                    display: 'Go to Cohorts',
-                    executor: () => {
-                        push('/people/cohorts')
-                    },
-                },
-                {
-                    icon: ExperimentOutlined,
-                    display: 'Go to Experiments',
-                    synonyms: ['feature flags', 'a/b tests'],
-                    executor: () => {
-                        push('/experiments/feature_flags')
-                    },
-                },
-                {
-                    icon: SettingOutlined,
-                    display: 'Go to Setup',
-                    synonyms: ['settings', 'configuration'],
-                    executor: () => {
-                        push('/setup')
-                    },
-                },
-                {
-                    icon: MessageOutlined,
-                    display: 'Go to Annotations',
-                    executor: () => {
-                        push('/annotations')
-                    },
-                },
-                {
-                    icon: TeamOutlined,
-                    display: 'Go to Team',
-                    executor: () => {
-                        push('/team')
-                    },
-                },
-                {
-                    icon: LinkOutlined,
-                    display: 'Open PostHog Docs',
-                    synonyms: ['technical documentation'],
-                    executor: () => {
-                        open('https://posthog.com/docs')
-                    },
-                },
-                {
-                    icon: MailOutlined,
-                    display: 'Email PostHog',
-                    synonyms: ['help', 'support'],
-                    executor: () => {
-                        open('mailto:hey@posthog.com')
-                    },
-                },
-                {
-                    icon: PlusOutlined,
-                    display: 'Create Action',
-                    executor: () => {
-                        push('/action')
-                    },
-                },
-                {
-                    icon: LogoutOutlined,
-                    display: 'Log Out',
-                    executor: () => {
-                        window.location.href = '/logout'
-                    },
-                },
-            ]
 
             const globalCommands: Command = {
                 key: 'global-commands',
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
-                resolver: results,
+                resolver: [
+                    {
+                        icon: FundOutlined,
+                        display: 'Go to Dashboards',
+                        executor: () => {
+                            push('/dashboard')
+                        },
+                    },
+                    {
+                        icon: RiseOutlined,
+                        display: 'Go to Insights',
+                        executor: () => {
+                            push('/insights')
+                        },
+                    },
+                    {
+                        icon: RiseOutlined,
+                        display: 'Go to Trends',
+                        executor: () => {
+                            // FIXME: Don't reset insight on change
+                            push('/insights?insight=TRENDS')
+                        },
+                    },
+                    {
+                        icon: ClockCircleOutlined,
+                        display: 'Go to Sessions',
+                        executor: () => {
+                            // FIXME: Don't reset insight on change
+                            push('/insights?insight=SESSIONS')
+                        },
+                    },
+                    {
+                        icon: FunnelPlotOutlined,
+                        display: 'Go to Funnels',
+                        executor: () => {
+                            // FIXME: Don't reset insight on change
+                            push('/insights?insight=FUNNELS')
+                        },
+                    },
+                    {
+                        icon: GatewayOutlined,
+                        display: 'Go to Retention',
+                        executor: () => {
+                            // FIXME: Don't reset insight on change
+                            push('/insights?insight=RETENTION')
+                        },
+                    },
+                    {
+                        icon: InteractionOutlined,
+                        display: 'Go to User Paths',
+                        executor: () => {
+                            // FIXME: Don't reset insight on change
+                            push('/insights?insight=PATHS')
+                        },
+                    },
+                    {
+                        icon: ContainerOutlined,
+                        display: 'Go to Events',
+                        executor: () => {
+                            push('/events')
+                        },
+                    },
+                    {
+                        icon: AimOutlined,
+                        display: 'Go to Actions',
+                        executor: () => {
+                            push('/actions')
+                        },
+                    },
+                    {
+                        icon: SyncOutlined,
+                        display: 'Go to Live Actions',
+                        executor: () => {
+                            push('/actions/live')
+                        },
+                    },
+                    {
+                        icon: ClockCircleOutlined,
+                        display: 'Go to Live Sessions',
+                        executor: () => {
+                            push('/sessions')
+                        },
+                    },
+                    {
+                        icon: UserOutlined,
+                        display: 'Go to People',
+                        synonyms: ['people'],
+                        executor: () => {
+                            push('/people')
+                        },
+                    },
+                    {
+                        icon: UsergroupAddOutlined,
+                        display: 'Go to Cohorts',
+                        executor: () => {
+                            push('/people/cohorts')
+                        },
+                    },
+                    {
+                        icon: ExperimentOutlined,
+                        display: 'Go to Experiments',
+                        synonyms: ['feature flags', 'a/b tests'],
+                        executor: () => {
+                            push('/experiments/feature_flags')
+                        },
+                    },
+                    {
+                        icon: SettingOutlined,
+                        display: 'Go to Setup',
+                        synonyms: ['settings', 'configuration'],
+                        executor: () => {
+                            push('/setup')
+                        },
+                    },
+                    {
+                        icon: MessageOutlined,
+                        display: 'Go to Annotations',
+                        executor: () => {
+                            push('/annotations')
+                        },
+                    },
+                    {
+                        icon: TeamOutlined,
+                        display: 'Go to Team',
+                        executor: () => {
+                            push('/team')
+                        },
+                    },
+                    {
+                        icon: LinkOutlined,
+                        display: 'Open PostHog Docs',
+                        synonyms: ['technical documentation'],
+                        executor: () => {
+                            open('https://posthog.com/docs')
+                        },
+                    },
+                    {
+                        icon: PlusOutlined,
+                        display: 'Create Action',
+                        executor: () => {
+                            push('/action')
+                        },
+                    },
+                    {
+                        icon: LogoutOutlined,
+                        display: 'Log Out',
+                        executor: () => {
+                            window.location.href = '/logout'
+                        },
+                    },
+                ],
             }
 
             const calculator: Command = {
@@ -549,6 +534,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                     }
                 },
             }
+
             const openUrls: Command = {
                 key: 'open-urls',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -576,6 +562,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                     return results
                 },
             }
+
             const createPersonalApiKey: Command = {
                 key: 'create-personal-api-key',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -601,16 +588,59 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                     }),
                 },
             }
+
+            const shareFeedback: Command = {
+                key: 'share-feedback',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: CommentOutlined,
+                    display: 'Share Feedback',
+                    synonyms: ['send opinion', 'ask question', 'message posthog'],
+                    executor: () => ({
+                        scope: 'Sharing Feedback',
+                        instruction: "What's on your mind?",
+                        icon: CommentOutlined,
+                        resolver: (argument) => [
+                            {
+                                icon: SendOutlined,
+                                display: 'Send Message Directly to PostHog',
+                                executor: !argument?.length
+                                    ? undefined
+                                    : () => {
+                                          window?.posthog.capture('palette feedback', { message: argument })
+                                      },
+                            },
+                            {
+                                icon: VideoCameraOutlined,
+                                display: 'Schedule Quick Call',
+                                executor: () => {
+                                    open('https://calendly.com/posthog-feedback')
+                                },
+                            },
+                            {
+                                icon: MailOutlined,
+                                display: 'Email Core Team',
+                                executor: () => {
+                                    open('mailto:hey@posthog.com')
+                                },
+                            },
+                        ],
+                    }),
+                },
+            }
+
             actions.registerCommand(globalCommands)
             actions.registerCommand(openUrls)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
+            actions.registerCommand(shareFeedback)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('global-commands')
             actions.deregisterCommand('open-urls')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
+            actions.deregisterCommand('share-feedback')
         },
     }),
 })

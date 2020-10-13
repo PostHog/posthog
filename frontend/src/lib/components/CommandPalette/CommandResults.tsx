@@ -59,22 +59,18 @@ export function ResultsGroup({ scope, results, activeResultIndex }: ResultsGroup
 export function CommandResults(): JSX.Element {
     useMountedLogic(commandPaletteLogic)
 
-    const { activeResultIndex, isPaletteShown, commandSearchResults, commandSearchResultsGrouped } = useValues(
-        commandPaletteLogic
-    )
+    const { activeResultIndex, commandSearchResults, commandSearchResultsGrouped } = useValues(commandPaletteLogic)
     const { executeResult, onArrowUp, onArrowDown } = useActions(commandPaletteLogic)
 
     useEventListener('keydown', (event: KeyboardEvent) => {
-        if (isPaletteShown) {
-            if (event.key === 'Enter' && commandSearchResults.length) {
-                const result = commandSearchResults[activeResultIndex]
-                const isExecutable = !!result.executor
-                if (isExecutable) executeResult(result)
-            } else if (event.key === 'ArrowDown') {
-                onArrowDown(commandSearchResults.length - 1)
-            } else if (event.key === 'ArrowUp') {
-                onArrowUp()
-            }
+        if (event.key === 'Enter' && commandSearchResults.length) {
+            const result = commandSearchResults[activeResultIndex]
+            const isExecutable = !!result.executor
+            if (isExecutable) executeResult(result)
+        } else if (event.key === 'ArrowDown') {
+            onArrowDown(commandSearchResults.length - 1)
+        } else if (event.key === 'ArrowUp') {
+            onArrowUp()
         }
     })
 
