@@ -8,15 +8,9 @@ const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
 // main = app
-// toolbar = new toolbar
-// editor = old toolbar
+// toolbar = toolbar
 // shared_dashboard = publicly available dashboard
-module.exports = () => [
-    createEntry('main'),
-    createEntry('toolbar'),
-    createEntry('editor'),
-    createEntry('shared_dashboard'),
-]
+module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
 
 function createEntry(entry) {
     return {
@@ -29,8 +23,6 @@ function createEntry(entry) {
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.tsx'
-                    : entry === 'editor'
-                    ? './frontend/src/editor/index.js'
                     : entry === 'shared_dashboard'
                     ? './frontend/src/scenes/dashboard/SharedDashboard.js'
                     : null,
