@@ -1,5 +1,6 @@
 import datetime
 import json
+from datetime import timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -7,7 +8,7 @@ from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, INSERT_ELEMENTS_SQL
+from ee.clickhouse.sql.elements import GET_ALL_ELEMENTS_SQL, GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, INSERT_ELEMENTS_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_ELEMENTS
 from posthog.cache import get_cached_value, set_cached_value
@@ -25,7 +26,7 @@ def create_element(
     data = {
         "uuid": str(UUIDT()),
         "event_uuid": str(event_uuid),
-        "created_at": timestamp.isoformat(),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "text": element.text or "",
         "tag_name": element.tag_name or "",
         "href": element.href or "",
@@ -64,7 +65,12 @@ def create_elements(event_uuid: UUID, elements: List[Element], team: Team, use_c
 
 
 def get_elements_by_elements_hash(elements_hash: str, team_id: int):
-    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASH_SQL, {"elements_hash": elements_hash, "team_id": team_id})
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, {"elements_hashes": [elements_hash], "team_id": team_id})
+    return ClickhouseElementSerializer(result, many=True).data
+
+
+def get_elements_by_elements_hashes(elements_hashes: List[str], team_id: int):
+    result = sync_execute(GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL, {"elements_hashes": elements_hashes, "team_id": team_id})
     return ClickhouseElementSerializer(result, many=True).data
 
 
@@ -74,7 +80,7 @@ def get_all_elements(final: bool = False):
 
 
 class ClickhouseElementSerializer(serializers.Serializer):
-    uuid = serializers.SerializerMethodField()
+    id = serializers.SerializerMethodField()
     text = serializers.SerializerMethodField()
     tag_name = serializers.SerializerMethodField()
     href = serializers.SerializerMethodField()
@@ -88,7 +94,7 @@ class ClickhouseElementSerializer(serializers.Serializer):
     created_at = serializers.SerializerMethodField()
     elements_hash = serializers.SerializerMethodField()
 
-    def get_uuid(self, element):
+    def get_id(self, element):
         return element[0]
 
     def get_event_uuid(self, element):

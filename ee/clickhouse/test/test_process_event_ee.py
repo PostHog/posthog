@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.element import get_all_elements, get_elements_by_elements_hash
 from ee.clickhouse.models.event import get_events
-from ee.clickhouse.models.person import create_person, get_person_by_distinct_id, get_person_distinct_ids, get_persons
+from ee.clickhouse.models.person import get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
@@ -265,6 +265,26 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
         events = get_events()
         self.assertEqual(events[0]["properties"]["$ip"], '"11.12.13.14"')
+
+    def test_ip_override(self) -> None:
+        user = self._create_user("tim")
+        Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
+
+        process_event_ee(
+            "asdfasdfasdf",
+            "11.12.13.14",
+            "",
+            {
+                "event": "$pageview",
+                "properties": {"$ip": "1.0.0.1", "distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
+            },
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        event = get_events()[0]
+        self.assertEqual(event["properties"]["$ip"], '"1.0.0.1"')
 
     def test_anonymized_ip_capture(self) -> None:
         self.team.anonymize_ips = True

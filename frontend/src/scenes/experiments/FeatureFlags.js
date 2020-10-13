@@ -5,6 +5,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { Table, Switch, Drawer, Button } from 'antd'
 import moment from 'moment'
 import { EditFeatureFlag } from './EditFeatureFlag'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -68,7 +69,7 @@ function _FeatureFlags() {
                     onClick: () => setOpenFeatureFlag(featureFlag),
                 })}
                 size="small"
-                rowClassName="cursor-pointer"
+                rowClassName={'cursor-pointer ' + rrwebBlockClass}
                 data-attr="feature-flag-table"
             />
             {openFeatureFlag && (

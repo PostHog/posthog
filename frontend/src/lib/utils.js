@@ -255,6 +255,12 @@ export const deletePersonData = (person, callback) => {
         })
 }
 
+export const savePersonData = (person) => {
+    api.update('api/person/' + person.id, person).then(() => {
+        toast('Person Updated')
+    })
+}
+
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
 
 export const idToKey = (array, keyField = 'id') => {
@@ -343,7 +349,7 @@ export function humanFriendlyDetailedTime(date, withSeconds = false) {
     } else if (moment(date).isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
-    if (withSeconds) formatString += ':s a'
+    if (withSeconds) formatString += ':ss a'
     else formatString += ' a'
     return moment(date).format(formatString)
 }
@@ -352,6 +358,14 @@ export function stripHTTP(url) {
     url = url.replace(/(^[0-9]+_)/, '')
     url = url.replace(/(^\w+:|^)\/\//, '')
     return url
+}
+
+export function isURL(string) {
+    if (!string) return false
+    // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
+    var expression = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    var regex = new RegExp(expression)
+    return string.match && string.match(regex)
 }
 
 export const eventToName = (event) => {

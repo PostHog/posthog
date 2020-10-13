@@ -95,13 +95,26 @@ class SelectorPart(object):
             params.append(value)
         return {"where": where, "params": params}
 
+    def clickhouse_query(self, query) -> str:
+        where = []
+        for key, value in self.data.items():
+            if "attr__" in key:
+                where.append(query.format("attr__{}".format(key.split("attr__")[1]), value))
+            else:
+                if "__contains" in key:
+                    where.append(" {} IN {}".format(key.replace("__contains", ""), value))
+                else:
+                    where.append(" {} = '{}'".format(key, value))
+        separator = "AND "
+        return separator.join(where)
+
 
 class Selector(object):
     parts: List[SelectorPart] = []
 
     def __init__(self, selector: str):
         self.parts = []
-        tags = re.split(" ", selector)
+        tags = re.split(" ", selector.strip())
         tags.reverse()
         for index, tag in enumerate(tags):
             if tag == ">":

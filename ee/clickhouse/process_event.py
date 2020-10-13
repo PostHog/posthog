@@ -39,7 +39,6 @@ def _capture_ee(
                 nth_child=el.get("nth_child"),
                 nth_of_type=el.get("nth_of_type"),
                 attributes={key: value for key, value in el.items() if key.startswith("attr__")},
-                order=index,
             )
             for index, el in enumerate(elements)
         ]
@@ -48,7 +47,7 @@ def _capture_ee(
         pk=team_id
     )
 
-    if not team.anonymize_ips:
+    if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
     store_names_and_properties(team=team, event=event, properties=properties)

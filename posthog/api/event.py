@@ -255,6 +255,10 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request) -> response.Response:
+        result = self.get_values(request)
+        return response.Response(result)
+
+    def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
         key = request.GET.get("key")
         params = [key, key]
         if request.GET.get("value"):
@@ -290,7 +294,7 @@ class EventViewSet(viewsets.ModelViewSet):
             params,
         )
 
-        return response.Response([{"name": convert_property_value(value.value)} for value in values])
+        return [{"name": convert_property_value(value.value)} for value in values]
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request) -> response.Response:

@@ -154,6 +154,11 @@ if PRIMARY_DB == CLICKHOUSE:
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
+if PRIMARY_DB == CLICKHOUSE:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
+else:
+    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
+
 
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
@@ -399,6 +404,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
+}
+
+EXCEPTIONS_HOG = {
+    "EXCEPTION_REPORTING": "posthog.utils.exception_reporting",
 }
 
 # Email

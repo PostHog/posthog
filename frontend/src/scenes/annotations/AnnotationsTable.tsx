@@ -6,6 +6,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
 import { DeleteOutlined, RedoOutlined } from '@ant-design/icons'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 const { TextArea } = Input
 
@@ -50,7 +51,10 @@ export function AnnotationsTable(props: Props): JSX.Element {
                 const { created_by } = annotation
 
                 return (
-                    <Link to={`/person/${encodeURIComponent(created_by.id)}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(created_by.id)}`}
+                        className={rrwebBlockClass + ' ph-no-capture'}
+                    >
                         {created_by?.name || created_by?.email}
                     </Link>
                 )

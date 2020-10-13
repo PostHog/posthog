@@ -10,6 +10,11 @@ export interface UserType {
     posthog_version: string
     team: TeamType
     toolbar_mode: string
+    billing: OrganizationBilling
+}
+
+export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
+    team: Partial<TeamType>
 }
 
 export interface PersonalAPIKeyType {
@@ -29,9 +34,11 @@ export interface TeamType {
     completed_snippet_onboarding: boolean
     event_names: string[]
     event_properties: string[]
+    event_properties_numerical: string[]
     opt_out_capture: boolean
     signup_token: string
     slack_incoming_webhook: string
+    session_recording_opt_in: boolean
 }
 
 export interface ActionType {
@@ -123,4 +130,45 @@ export interface InsightHistory {
 
 export interface SavedFunnel extends InsightHistory {
     created_by: string
+}
+
+export interface EventType {
+    elements: ElementType[]
+    elements_hash: string | null
+    event: string
+    id: number
+    properties: Record<string, any>
+    timestamp: string
+}
+
+export interface SessionType {
+    distinct_id: string
+    event_count: number
+    events: EventType[]
+    global_session_id: string
+    length: number
+    properties: Record<string, any>
+    start_time: string
+}
+
+export interface OrganizationBilling {
+    plan: PlanInterface
+    current_usage: { value: number; formatted: string } | null
+    should_setup_billing: boolean
+    stripe_checkout_session: string
+    subscription_url: string
+}
+
+export interface PlanInterface {
+    key: string
+    name: string
+    custom_setup_billing_message: string
+    image_url: string
+    self_serve: boolean
+    allowance: null | Record<string, string | number>
+}
+
+export interface BillingSubscription {
+    subscription_url: string
+    stripe_checkout_session: string
 }

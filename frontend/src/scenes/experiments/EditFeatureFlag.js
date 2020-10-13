@@ -6,6 +6,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
 import { DeleteOutlined, WarningOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
+import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 const editLogic = kea({
     actions: () => ({
@@ -89,6 +91,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item
                 name="name"
                 label="Name"
+                className={rrwebBlockClass}
                 rules={[
                     { required: true, message: 'Please give your feature flag a name, like "experimental feature".' },
                 ]}
@@ -126,7 +129,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <Switch />
             </Form.Item>
 
-            <Form.Item label="Filter by user properties">
+            <Form.Item className={rrwebBlockClass} label="Filter by user properties">
                 <PropertyFilters
                     pageKey="feature-flag"
                     propertyFilters={filters?.properties}

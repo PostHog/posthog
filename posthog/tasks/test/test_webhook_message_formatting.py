@@ -10,7 +10,7 @@ from posthog.tasks.webhooks import (
 )
 
 
-class WebhookMessage(BaseTest):
+class TestWebhookMessage(BaseTest):
     def test_determine_webhook(self) -> None:
         self.team.slack_incoming_webhook = "https://hooks.slack.com/services/"
         webhook_type = determine_webhook_type(self.team)

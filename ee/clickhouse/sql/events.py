@@ -80,6 +80,10 @@ GET_EVENTS_SQL = """
 SELECT * FROM events_with_array_props_view
 """
 
+GET_EVENTS_BY_TEAM_SQL = """
+SELECT * FROM events_with_array_props_view WHERE team_id = %(team_id)s
+"""
+
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
@@ -103,10 +107,6 @@ SAMPLE BY uuid
 """.format(
     engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
 )
-
-SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
-SELECT * FROM events_with_array_props_view where team_id = %(team_id)s {conditions} ORDER BY timestamp desc {limit}
-"""
 
 MAT_EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE MATERIALIZED VIEW events_with_array_props_mv
@@ -140,17 +140,59 @@ ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT value FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+"""
+
+SELECT_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s AND trim(BOTH '\"' FROM value) LIKE %(value)s LIMIT 50
+"""
+
+SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
+SELECT
+    ewap.*
+FROM
+    events_with_array_props_view ewap
+where ewap.team_id = %(team_id)s
+AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
+ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
-    *
+    ewap.*
 FROM events_with_array_props_view AS ewap
-WHERE uuid IN
-(
-    SELECT event_id
-    FROM events_properties_view AS ep
-    WHERE {filters} AND team_id = %(team_id)s
-) {conditions} {limit}
+WHERE 
+ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+{filters}
+ORDER BY ewap.timestamp DESC {limit}
+"""
+
+SELECT_ONE_EVENT_SQL = """
+SELECT * FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+"""
+
+EVENT_PROP_CLAUSE = """
+SELECT event_id
+FROM events_properties_view AS ep
+WHERE {filters} AND team_id = %(team_id)s
+"""
+
+GET_EARLIEST_TIMESTAMP_SQL = """
+SELECT timestamp from events order by timestamp limit 1
+"""
+
+NULL_SQL = """
+SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
+"""
+
+NULL_BREAKDOWN_SQL = """
+SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
+"""
+
+EVENT_JOIN_PERSON_SQL = """
+INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+"""
+
+EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
+INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """

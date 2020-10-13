@@ -1,13 +1,27 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import moment from 'moment'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
 import { createActionFromEvent } from './createActionFromEvent'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
+    const [showHiddenProps, setShowHiddenProps] = useState(false)
+
+    let displayedEventProperties = {}
+    let hiddenPropsCount = 0
+    for (let key of Object.keys(event.properties)) {
+        if (keyMapping.event[key] && keyMapping.event[key].hide) {
+            hiddenPropsCount += 1
+        }
+        if (!keyMapping.event[key] || !keyMapping.event[key].hide || showHiddenProps) {
+            displayedEventProperties[key] = event.properties[key]
+        }
+    }
+
     return (
         <>
             <Button
@@ -26,10 +40,21 @@ export function EventDetails({ event }) {
                 <TabPane tab="Properties" key="properties">
                     <PropertiesTable
                         properties={{
-                            Timestamp: moment(event.timestamp).toISOString(),
-                            ...event.properties,
+                            $timestamp: moment(event.timestamp).toISOString(),
+                            ...displayedEventProperties,
                         }}
                     />
+                    {hiddenPropsCount > 0 && (
+                        <small>
+                            <Button
+                                style={{ margin: '8px 0 0 8px' }}
+                                type="link"
+                                onClick={() => setShowHiddenProps(!showHiddenProps)}
+                            >
+                                {hiddenPropsCount} hidden properties. Click to {showHiddenProps ? 'hide' : 'show'}.
+                            </Button>
+                        </small>
+                    )}
                 </TabPane>
                 {event.elements && event.elements.length > 0 && (
                     <TabPane tab="Elements" key="elements">

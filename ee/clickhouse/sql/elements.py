@@ -6,10 +6,6 @@ DROP_ELEMENTS_TABLE_SQL = """
 DROP TABLE elements
 """
 
-DROP_ELEMENTS_GROUP_TABLE_SQL = """
-DROP TABLE elements_group
-"""
-
 ELEMENTS_TABLE = "elements"
 
 ELEMENTS_TABLE_BASE_SQL = """
@@ -95,7 +91,7 @@ INSERT INTO elements SELECT
     0
 """
 
-GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
+GET_ELEMENTS_BY_ELEMENTS_HASHES_SQL = """
     SELECT 
         argMax(uuid, _timestamp) uuid,
         any(event_uuid) event_uuid, 
@@ -114,9 +110,9 @@ GET_ELEMENTS_BY_ELEMENTS_HASH_SQL = """
         now(),
         0
     FROM elements
-    WHERE elements_hash = %(elements_hash)s AND team_id=%(team_id)s
+    WHERE elements_hash IN %(elements_hashes)s AND team_id=%(team_id)s
     GROUP BY team_id, elements_hash, order
-    ORDER BY order
+    ORDER BY team_id, elements_hash, order
 """
 
 GET_ALL_ELEMENTS_SQL = """
@@ -188,4 +184,16 @@ array_attribute_keys as key,
 array_attribute_values as value
 from elements_with_array_props_view
 ARRAY JOIN array_attribute_keys, array_attribute_values
+"""
+
+ELEMENT_TAG_COUNT = """
+SELECT concat('<', elements.tag_name, '> ', elements.text) AS tag_name,
+       events.elements_hash as tag_hash,
+       count(*) as tag_count
+FROM events
+JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt64(0))
+WHERE events.team_id = %(team_id)s AND event = '$autocapture'
+GROUP BY tag_name, tag_hash
+ORDER BY tag_count desc, tag_name
+LIMIT %(limit)s
 """

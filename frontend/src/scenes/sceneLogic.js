@@ -25,6 +25,8 @@ export const scenes = {
     licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
     preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
     signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
+    ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
+    billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
@@ -56,6 +58,9 @@ export const routes = {
     '/setup/licenses': 'licenses',
     '/preflight': 'preflight',
     '/signup': 'signup',
+    '/ingestion': 'ingestion',
+    '/ingestion/*': 'ingestion',
+    '/billing': 'billing',
 }
 
 export const sceneLogic = kea({
@@ -119,7 +124,7 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         setScene: () => {
-            window.posthog && window.posthog.capture('$pageview')
+            window.posthog?.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {

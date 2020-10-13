@@ -44,7 +44,12 @@ class Property:
             return value
 
     def property_to_Q(self) -> Q:
+        from .cohort import CohortPeople
+
         value = self._parse_value(self.value)
+        if self.type == "cohort":
+            return Q(Exists(CohortPeople.objects.filter(cohort_id=int(value), person_id=OuterRef("id"),).only("id")))
+
         if self.operator == "is_not":
             return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
@@ -59,9 +64,22 @@ class Property:
             )
         return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
 
+    def format_ch_property_json_extract(self) -> str:
+        value = self._parse_value(self.value)
+        if self.operator == "is_not":
+            return " JSONExtractString(properties, '{}') != '{}' ".format(self.key, value)
+
+        return " JSONExtractString(properties, '{}') {} '{}' ".format(self.key, self.operator or "=", value)
+
 
 class PropertyMixin:
     properties: List[Property] = []
+
+    def format_ch(self, team_id: int) -> str:
+        props = ""
+        for prop in self.properties:
+            props += prop.format_ch_property_json_extract()
+        return props
 
     def properties_to_Q(self, team_id: int, is_person_query: bool = False) -> Q:
         """

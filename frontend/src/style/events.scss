@@ -12,4 +12,7 @@
     .event-new-events {
         background-color: $gray-300;
     }
+    .event-row-is-exception {
+        background-color: lighten($danger, 40%);
+    }
 }
