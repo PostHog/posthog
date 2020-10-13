@@ -53,11 +53,11 @@
     outline: none;
     background: transparent;
     color: #fff;
-    overflow-y: scroll;
+    overflow-y: auto;
 }
 
 .palette__results {
-    overflow-y: scroll;
+    overflow-y: auto;
 }
 
 .palette__result {
