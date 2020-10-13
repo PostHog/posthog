@@ -638,6 +638,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType<Command, CommandR
                                               resolver: {
                                                   icon: CheckOutlined,
                                                   display: 'Message Sent!',
+                                                  executor: true,
                                               },
                                           }
                                       },
