@@ -4,6 +4,7 @@ import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function PeopleTable({ people, loading, actions, onChange }) {
     let columns = [
@@ -13,7 +14,10 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             key: 'name',
             render: function RenderName(_, person) {
                 return (
-                    <Link to={'/person/' + encodeURIComponent(person.distinct_ids[0])} className="ph-no-capture">
+                    <Link
+                        to={'/person/' + encodeURIComponent(person.distinct_ids[0])}
+                        className={'ph-no-capture ' + rrwebBlockClass}
+                    >
                         {person.name}
                     </Link>
                 )

@@ -32,7 +32,7 @@ services:
             CLICKHOUSE_VERIFY: 'False'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
+            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
         depends_on:
@@ -57,7 +57,7 @@ services:
             CLICKHOUSE_VERIFY: 'False'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
+            SECRET_KEY: 'asdflaisdjkfalsdkjf'
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
         depends_on:

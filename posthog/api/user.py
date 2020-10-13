@@ -33,6 +33,7 @@ def user(request):
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
+            team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
@@ -84,6 +85,7 @@ def user(request):
                 "event_properties": team.event_properties,
                 "event_properties_numerical": team.event_properties_numerical,
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
+                "session_recording_opt_in": team.session_recording_opt_in,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,

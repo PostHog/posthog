@@ -8,6 +8,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
+import { collectAllElementsDeep, querySelectorAllDeep } from '@mariusandra/query-selector-shadow-dom'
 
 export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
     actions: {
@@ -77,6 +78,8 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
         elements: [
             (selectors) => [selectors.events],
             (events) => {
+                // cache all elements in shadow roots
+                const allElements = collectAllElementsDeep('', document, null)
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
                     let combinedSelector
@@ -86,12 +89,14 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            const domElements = Array.from(document.querySelectorAll(combinedSelector))
+                            const domElements = Array.from(
+                                querySelectorAllDeep(combinedSelector, document, allElements)
+                            ) as HTMLElement[]
 
                             if (domElements.length === 1) {
                                 const e = event.elements[i]
 
-                                // element like "svg" as the first one
+                                // element like "svg" (only tag, no class/id/etc) as the first one
                                 if (
                                     i === 0 &&
                                     e.tag_name &&

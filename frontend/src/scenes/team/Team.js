@@ -5,6 +5,7 @@ import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { teamLogic } from './teamLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 function Team({ user }) {
     const logic = teamLogic()
@@ -84,7 +85,12 @@ function Team({ user }) {
                         <Spin />
                     </Row>
                 ) : (
-                    <Table dataSource={userDataMarked} columns={columns} rowKey="distinct_id" />
+                    <Table
+                        dataSource={userDataMarked}
+                        className={rrwebBlockClass}
+                        columns={columns}
+                        rowKey="distinct_id"
+                    />
                 )}
             </div>
         </>

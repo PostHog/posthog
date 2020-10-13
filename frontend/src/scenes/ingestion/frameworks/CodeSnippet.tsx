@@ -39,6 +39,7 @@ export enum Language {
     HTML = 'html',
     XML = 'xml',
     HTTP = 'http',
+    Markup = 'markup',
 }
 
 SyntaxHighlighter.registerLanguage(Language.Bash, bash)
@@ -57,6 +58,7 @@ SyntaxHighlighter.registerLanguage(Language.JSON, json)
 SyntaxHighlighter.registerLanguage(Language.YAML, yaml)
 SyntaxHighlighter.registerLanguage(Language.HTML, markup)
 SyntaxHighlighter.registerLanguage(Language.XML, markup)
+SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
 export function CodeSnippet({

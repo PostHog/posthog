@@ -9,10 +9,18 @@ import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
+import SessionsPlayerButton from './SessionsPlayerButton'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
-export function SessionsTable(): JSX.Element {
-    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(sessionsTableLogic)
-    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(sessionsTableLogic)
+interface SessionsTableProps {
+    personIds?: string[]
+    isPersonPage?: boolean
+}
+
+export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
+    const logic = sessionsTableLogic({ personIds })
+    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(logic)
+    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(logic)
 
     const columns = [
         {
@@ -20,7 +28,10 @@ export function SessionsTable(): JSX.Element {
             key: 'person',
             render: function RenderSession(session: SessionType) {
                 return (
-                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(session.distinct_id)}`}
+                        className={rrwebBlockClass + ' ph-no-capture'}
+                    >
                         {session.properties?.email || session.distinct_id}
                     </Link>
                 )
@@ -74,9 +85,19 @@ export function SessionsTable(): JSX.Element {
         },
     ]
 
+    if ((window as any).posthog && (window as any).posthog.isFeatureEnabled('session-recording-player')) {
+        columns.push({
+            title: 'Play Session',
+            render: function RenderEndPoint(session: SessionType) {
+                return <SessionsPlayerButton session={session}></SessionsPlayerButton>
+            },
+            ellipsis: true,
+        })
+    }
+
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">Sessions By Day</h1>
+            {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
             <Space className="mb-2">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker value={selectedDate} onChange={dateChanged} allowClear={false} />

@@ -113,7 +113,7 @@ def get_event(request):
             ),
         )
 
-    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+    team = Team.objects.get_team_from_token(token, is_personal_api_key)
     if team is None:
         return cors_response(
             request,

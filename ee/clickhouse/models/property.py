@@ -3,21 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
-from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL
+from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 from posthog.models.team import Team
-
-
-def parse_filter(filters: List[Property]) -> Tuple[str, Dict]:
-    result = ""
-    params = {}
-    for idx, prop in enumerate(filters):
-        result += "{cond}(ep.key = %(k{idx})s) AND (ep.value = %(v{idx})s)".format(
-            idx=idx, cond=" AND " if idx > 0 else ""
-        )
-        params.update({"k{}".format(idx): prop.key, "v{}".format(idx): prop.value})
-    return result, params
 
 
 def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
@@ -31,6 +21,17 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             params = {**params, **cohort_filter_params}
             final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=person_id_query)
 
+        elif prop.type == "person":
+            prepend = "person"
+            filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
+                idx=idx, operator=get_operator(prop.operator), prepend=prepend
+            )
+            clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter)
+            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
+            params.update(
+                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
+            )
+
         else:
             filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
                 idx=idx, operator=get_operator(prop.operator), prepend=prepend
@@ -40,10 +41,15 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             params.update(
                 {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
             )
+
     return final, params
 
 
 def _pad_value(val: str):
+
+    if val == "true" or val == "false" or val.isdigit():
+        return val
+
     if not val.startswith('"'):
         val = '"' + val
 
@@ -73,6 +79,9 @@ def get_operator(operator: Optional[str]):
         return "="
 
 
-def get_property_values_for_key(key: str, team: Team):
-    result = sync_execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})
-    return result
+def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    if value:
+        return sync_execute(
+            SELECT_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)}
+        )
+    return sync_execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})

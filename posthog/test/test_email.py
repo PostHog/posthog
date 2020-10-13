@@ -20,6 +20,7 @@ class TestEmail(TestCase):
         person.add_distinct_id(base_distinct_id)
         return person
 
+    @freeze_time("2020-09-21")
     def setUp(self):
         super().setUp()
         self.organization = Organization.objects.create()

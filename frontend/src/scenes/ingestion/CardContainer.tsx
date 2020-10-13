@@ -2,32 +2,44 @@ import React from 'react'
 import { Col, Card, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
-export function CardContainer(props) {
+export function CardContainer({
+    index,
+    totalSteps,
+    onBack,
+    children,
+    nextButton,
+    onSubmit,
+}: {
+    index: number
+    totalSteps?: number
+    onBack?: () => void
+    children: React.ReactNode
+    nextButton?: boolean
+    onSubmit?: () => void
+}): JSX.Element {
     return (
         <Col>
             <Card
                 headStyle={{ minHeight: 60 }}
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
-                        {props.index !== 0 && (
+                        {index !== 0 && (
                             <ArrowLeftOutlined
                                 className="button-border clickable"
                                 style={{ marginRight: 4 }}
-                                onClick={() => props.onBack()}
-                            ></ArrowLeftOutlined>
+                                onClick={onBack}
+                            />
                         )}
-                        {`Step ${props.index + 1} ${props.totalSteps ? 'of' : ''} ${
-                            props.totalSteps ? props.totalSteps : ''
-                        }`}
+                        {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
                     </Row>
                 }
                 className="card"
-                style={{ width: '65vw', maxHeight: '70vh', overflow: 'scroll' }}
+                style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto' }}
             >
-                {props.children}
+                {children}
             </Card>
 
-            {props.nextButton && (
+            {nextButton && (
                 <Card
                     data-attr="wizard-continue-button"
                     className="card big-button"
@@ -42,7 +54,7 @@ export function CardContainer(props) {
                         cursor: 'pointer',
                         backgroundColor: '#007bff',
                     }}
-                    onClick={props.onSubmit}
+                    onClick={onSubmit}
                 >
                     <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
                 </Card>

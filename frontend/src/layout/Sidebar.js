@@ -19,6 +19,7 @@ import {
     MessageOutlined,
     TeamOutlined,
     LockOutlined,
+    WalletOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -29,6 +30,7 @@ import { HogIcon } from 'lib/icons/HogIcon'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from './../../public/posthog-logo-white.svg'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -59,6 +61,7 @@ const submenuOverride = {
     cohorts: 'people',
     setup: 'settings',
     annotations: 'settings',
+    billing: 'settings',
     licenses: 'settings',
 }
 
@@ -74,6 +77,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const { location } = useValues(router)
     const { push } = useActions(router)
     const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
@@ -240,6 +244,15 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Annotations'}</span>
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
+
+                        {featureFlags && featureFlags['billing-management-page'] && (
+                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
+                                <WalletOutlined />
+                                <span className="sidebar-label">Billing</span>
+                                <Link to="/billing" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+
                         {!user.is_multi_tenancy && user.ee_available && (
                             <Menu.Item key="licenses" style={itemStyle} data-attr="menu-item-licenses">
                                 <LockOutlined />
