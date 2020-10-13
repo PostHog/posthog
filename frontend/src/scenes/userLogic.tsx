@@ -88,12 +88,16 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         id: user.id,
                     })
 
-                    const PostHog = (window as any).posthog
-                    if (PostHog) {
-                        PostHog.identify(user.distinct_id, {
+                    const posthog = (window as any).posthog
+                    if (posthog) {
+                        if (posthog.get_distinct_id() !== user.distinct_id) {
+                            posthog.reset()
+                        }
+
+                        posthog.identify(user.distinct_id, {
                             email: user.anonymize_data ? null : user.email,
                         })
-                        PostHog.register({
+                        posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
                         })
