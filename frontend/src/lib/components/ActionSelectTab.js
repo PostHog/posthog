@@ -8,7 +8,7 @@ import { useValues } from 'kea'
 export function ActionSelectTab({ entityType, chooseEntityType, allTypes }) {
     const { featureFlags } = useValues(featureFlagLogic)
     const icon = (type) => {
-        //TODO: Move to kea logic
+        // TODO: Move to kea logic
         if (type === 'actions') {
             return <AimOutlined style={{ paddingRight: 6 }} />
         } else if (type === 'events') {

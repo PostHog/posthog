@@ -61,7 +61,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </div>
                 )}
 
-                <div className="match-group-section card">
+                <div className="match-group-section card" style={{ overflow: 'visible' }}>
                     <h3>Match groups</h3>
                     <div>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
@@ -83,7 +83,11 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 simmer={simmer}
                                 isOnlyStep={action.steps.length === 1}
                                 onDelete={() => {
-                                    setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
+                                    const identifier = step.id ? 'id' : 'isNew'
+                                    setAction({
+                                        ...action,
+                                        steps: action.steps.filter((s) => s[identifier] !== step[identifier]),
+                                    })
                                     setEdited(true)
                                 }}
                                 onChange={(newStep) => {

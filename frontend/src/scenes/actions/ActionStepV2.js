@@ -288,16 +288,16 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, actionId, isOnlyStep, index, identifier } = this.props
+        let { step, actionId, isOnlyStep, index, identifier, onDelete } = this.props
 
         return (
             <Col span={24} md={12}>
-                <div className="action-step card">
+                <div className="action-step card" style={{ overflow: 'visible' }}>
                     {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
                     <div className="card-body">
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
-                                <button type="button" aria-label="delete" onClick={this.props.onDelete}>
+                                <button type="button" aria-label="delete" onClick={onDelete}>
                                     <span aria-hidden="true">&times;</span>
                                 </button>
                             </div>
