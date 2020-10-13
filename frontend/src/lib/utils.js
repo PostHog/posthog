@@ -354,7 +354,7 @@ export function stripHTTP(url) {
 export function isURL(string) {
     if (!string) return false
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    var expression = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    var expression = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
     var regex = new RegExp(expression)
     return string.match && string.match(regex)
 }
@@ -440,4 +440,20 @@ export function copyToClipboard(value, description) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
         return false
     }
+}
+
+export function clamp(value, min, max) {
+    return value > max ? max : value < min ? min : value
+}
+
+export function isMobile() {
+    return navigator.userAgent.includes('Mobile')
+}
+
+export function isMac() {
+    return navigator.platform.includes('Mac')
+}
+
+export function platformCommandControlKey() {
+    return isMac() ? '⌘' : 'Ctrl'
 }

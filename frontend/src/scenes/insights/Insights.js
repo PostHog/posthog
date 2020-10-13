@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Card, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
@@ -44,6 +44,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { insightCommandLogic } from './insightCommandLogic'
 
 const { TabPane } = Tabs
 
@@ -110,6 +111,7 @@ function determineInsightType(activeView, display) {
 
 export const Insights = hot(_Insights)
 function _Insights() {
+    useMountedLogic(insightCommandLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))

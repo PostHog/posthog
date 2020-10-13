@@ -137,7 +137,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             title=""
                         >
                             <LineChartOutlined />
-                            <span className="sidebar-label">{dashboard.name}</span>
+                            <span className="sidebar-label">{dashboard.name ?? 'Untitled'}</span>
                             <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
                         </Menu.Item>
                     ))}
@@ -245,7 +245,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
 
-                        {featureFlags && featureFlags['billing-management-page'] && (
+                        {featureFlags['billing-management-page'] && (
                             <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>

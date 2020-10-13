@@ -26,7 +26,11 @@ export const dashboardsModel = kea({
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
+            addDashboard: async ({ name, show = false }) => {
+                const result = await api.create('api/dashboard', { name, pinned: true })
+                if (show) router.actions.push(`/dashboard/${result.id}`)
+                return result
+            },
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
             setIsSharedDashboard: async ({ id, isShared }) =>
                 await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
@@ -74,7 +78,9 @@ export const dashboardsModel = kea({
         dashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                const list = Object.values(rawDashboards).sort((a, b) => a.name.localeCompare(b.name))
+                const list = Object.values(rawDashboards).sort((a, b) =>
+                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                )
                 return [...list.filter((d) => d.pinned), ...list.filter((d) => !d.pinned)]
             },
         ],

@@ -46,7 +46,7 @@ export const actionsLogic = kea<actionsLogicType<ActionType>>({
             (s) => [s.allActions],
             (allActions) =>
                 [...allActions].sort((a, b) =>
-                    (a.name || 'Untitled').localeCompare(b.name || 'Untitled')
+                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
                 ) as ActionType[],
         ],
         actionCount: [(s) => [s.sortedActions], (sortedActions) => sortedActions.length],
