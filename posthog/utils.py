@@ -187,11 +187,11 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
-    if settings.DEBUG:
-        context["js_posthog_host"] = "window.location.origin"
+    if settings.DEBUG or settings.SELF_CAPTURE:
+        context["posthog_capture_host"] = "window.location.origin"
     else:
-        context["js_posthog_apikey"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["posthog_capture_key"] = "'sTMFPsFhdP1Ssg'"
+        context["posthog_capture_host"] = "'https://app.posthog.com'"
 
     html = template.render(context, request=request)
     return HttpResponse(html)
