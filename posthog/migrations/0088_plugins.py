@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0086_team_session_recording_opt_in"),
+        ("posthog", "0087_fix_annotation_created_at"),
     ]
 
     operations = [
@@ -22,7 +22,8 @@ class Migration(migrations.Migration):
                 ("configSchema", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("tag", models.CharField(blank=True, max_length=200, null=True)),
                 ("archive", models.BinaryField(blank=True, null=True)),
-                ("locked", models.BooleanField(default=False)),
+                ("from_cli", models.BooleanField(default=False)),
+                ("from_web", models.BooleanField(default=False)),
             ],
         ),
         migrations.CreateModel(

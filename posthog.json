@@ -1,12 +1,6 @@
 {
     "plugins": [
         {
-            "url": "https://github.com/fuziontech/helloworldplugin",
-            "config": {
-                "bar": "foo"
-            }
-        },
-        {
             "name": "posthog-currency-normalization-plugin",
             "path": "../posthog-currency-normalization-plugin/",
             "config": {

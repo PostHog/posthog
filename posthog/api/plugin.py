@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.models import Plugin, PluginConfig
-from posthog.plugins import Plugins
+from posthog.plugins import Plugins, download_plugin_github_zip
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -16,29 +16,25 @@ class PluginSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "url", "configSchema", "tag"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
-        validated_data["archive"] = self._download_github_zip(validated_data["url"], validated_data["tag"])
-        plugin = Plugin.objects.create(**validated_data)
+        if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
+            raise Exception('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+        validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
+        plugin = Plugin.objects.create(from_web=True, **validated_data)
         Plugins().publish_reload_command()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
+        if plugin.from_cli:
+            raise Exception('Can not update plugin "{}", which is configured from the CLI!'.format(plugin.name))
         plugin.name = validated_data.get("name", plugin.name)
         plugin.description = validated_data.get("description", plugin.description)
         plugin.url = validated_data.get("url", plugin.url)
         plugin.configSchema = validated_data.get("configSchema", plugin.configSchema)
         plugin.tag = validated_data.get("tag", plugin.tag)
-        plugin.archive = self._download_github_zip(plugin.url, plugin.tag)
+        plugin.archive = download_plugin_github_zip(plugin.url, plugin.tag)
         plugin.save()
         Plugins().publish_reload_command()
         return plugin
-
-    def _download_github_zip(self, repo: str, tag: str):
-        URL_TEMPLATE = "{repo}/archive/{tag}.zip"
-        url = URL_TEMPLATE.format(repo=repo, tag=tag)
-        response = requests.get(url)
-        if not response.ok:
-            raise Exception("Could not download archive from GitHub")
-        return response.content
 
 
 class PluginViewSet(viewsets.ModelViewSet):
@@ -53,6 +49,8 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         plugin = Plugin.objects.get(pk=pk)
+        if plugin.from_cli:
+            raise Exception('Can not delete plugin "{}", which is configured from the CLI!'.format(plugin.name))
         plugin.delete()
         Plugins().publish_reload_command()
         return Response(status=204)
