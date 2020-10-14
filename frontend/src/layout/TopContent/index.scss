@@ -1,4 +1,6 @@
 .layout-top-content {
+    display: flex;
+    justify-content: space-between;
     .hide-when-small {
         display: inline;
     }

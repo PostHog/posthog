@@ -89,7 +89,6 @@ function _People() {
             <input
                 className="form-control"
                 name="search"
-                autoFocus
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.keyCode === 13 && fetchPeople()}
@@ -105,11 +104,7 @@ function _People() {
                 }}
                 type="card"
             >
-                <TabPane
-                    tab={<span data-attr="people-types-tab">All</span>}
-                    key="all"
-                    data-attr="people-types-tab"
-                />
+                <TabPane tab={<span data-attr="people-types-tab">All</span>} key="all" data-attr="people-types-tab" />
                 <TabPane
                     tab={<span data-attr="people-types-tab">Identified</span>}
                     key="identified"

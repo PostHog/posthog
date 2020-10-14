@@ -4,7 +4,6 @@ import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
-import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -44,7 +43,7 @@ export function AnnotationMarker({
     graphColor,
     index,
 }: Record<string, any>): JSX.Element | null {
-    const popupRef = useRef()
+    const popupRef = useRef<HTMLDivElement | null>(null)
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [applyAll, setApplyAll] = useState(true)
@@ -139,45 +138,49 @@ export function AnnotationMarker({
                     </div>
                 ) : (
                     <div ref={popupRef} style={{ minWidth: 300 }}>
-                        {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
-                            <div key={data.id} style={{ marginBottom: 25 }}>
-                                <Row justify="space-between" align="middle">
-                                    <div>
-                                        <b style={{ marginRight: 5 }}>
-                                            {data.created_by === 'local'
-                                                ? name || email
-                                                : data.created_by &&
-                                                  (data.created_by.first_name || data.created_by.email)}
-                                        </b>
-                                        <i style={{ color: 'gray', marginRight: 6 }}>
-                                            {humanFriendlyDetailedTime(data.created_at)}
-                                        </i>
-                                        {data.scope === AnnotationScope.Project ? (
-                                            <Tooltip
-                                                title={`This annotation is shown on all charts in project ${project.name}`}
-                                            >
-                                                <ProjectOutlined />
-                                            </Tooltip>
-                                        ) : data.scope === AnnotationScope.Organization ? (
-                                            <Tooltip
-                                                title={`This annotation is shown on all charts in organization ${organization.name}`}
-                                            >
-                                                <DeploymentUnitOutlined />
-                                            </Tooltip>
-                                        ) : null}
-                                    </div>
-                                    {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
-                                        <DeleteOutlined
-                                            className="button-border clickable"
-                                            onClick={() => {
-                                                onDelete(data)
-                                            }}
-                                        ></DeleteOutlined>
-                                    )}
-                                </Row>
-                                <span>{data.content}</span>
-                            </div>
-                        ))}
+                        {[...annotations]
+                            .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
+                            .map((data) => (
+                                <div key={data.id} style={{ marginBottom: 25 }}>
+                                    <Row justify="space-between" align="middle">
+                                        <div>
+                                            <b style={{ marginRight: 5 }}>
+                                                {data.created_by === 'local'
+                                                    ? name || email
+                                                    : data.created_by &&
+                                                      (data.created_by.first_name || data.created_by.email)}
+                                            </b>
+                                            <i style={{ color: 'gray', marginRight: 6 }}>
+                                                {humanFriendlyDetailedTime(data.created_at)}
+                                            </i>
+                                            {data.scope === AnnotationScope.Project ? (
+                                                <Tooltip
+                                                    title={`This annotation is shown on all charts in project ${project.name}`}
+                                                >
+                                                    <ProjectOutlined />
+                                                </Tooltip>
+                                            ) : data.scope === AnnotationScope.Organization ? (
+                                                <Tooltip
+                                                    title={`This annotation is shown on all charts in organization ${organization.name}`}
+                                                >
+                                                    <DeploymentUnitOutlined />
+                                                </Tooltip>
+                                            ) : null}
+                                        </div>
+                                        {(!data.created_by ||
+                                            data.created_by.id === id ||
+                                            data.created_by === 'local') && (
+                                            <DeleteOutlined
+                                                className="button-border clickable"
+                                                onClick={() => {
+                                                    onDelete(data)
+                                                }}
+                                            ></DeleteOutlined>
+                                        )}
+                                    </Row>
+                                    <span>{data.content}</span>
+                                </div>
+                            ))}
                         {textAreaVisible && (
                             <TextArea
                                 maxLength={300}
@@ -261,10 +264,9 @@ export function AnnotationMarker({
                             : dashboardColors[graphColor] || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
-                    border: dynamic ? null : '1px solid ' + _color,
+                    border: dynamic ? undefined : '1px solid ' + _color,
                     zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
-
-                    boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : null,
+                    boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : undefined,
                 }}
                 type="primary"
                 onClick={() => {
