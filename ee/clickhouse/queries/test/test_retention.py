@@ -36,7 +36,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                 ("person1", self._date(month=1, day=-6)),
                 ("person2", self._date(month=1, day=-6)),
                 ("person2", self._date(month=1, day=1)),
-                ("alias1", self._date(month=1, day=1)),
+                ("person1", self._date(month=1, day=1)),
                 ("person2", self._date(month=1, day=15)),
             ]
         )
