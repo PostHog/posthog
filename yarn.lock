@@ -983,17 +983,6 @@
   resolved "https://registry.yarnpkg.com/@mariusandra/query-selector-shadow-dom/-/query-selector-shadow-dom-0.7.2-posthog.2.tgz#9f32cced63db384e33b6423d2cb539257019401b"
   integrity sha512-TodRWt0WvumbIdbGZMj7VQ300GpuX5gA2vZCla7Y/1D8UBbNXLAwyrKl6flUjPopvvnRp3PhNbYgWVsFXi+V3w==
 
-"@mariusandra/react-grid-layout@0.18.3":
-  version "0.18.3"
-  resolved "https://registry.yarnpkg.com/@mariusandra/react-grid-layout/-/react-grid-layout-0.18.3.tgz#6d1f844882222cf2b9f08a1b4aae4789229180f6"
-  integrity sha512-fuXwL/fZWorKtqJ0LMhVhVCH8XrTkVs0C00HSioNJe7tH9D33S3a4+JPd8tzjaMNEcfGkkuTjKJ09+B6LnQZnA==
-  dependencies:
-    classnames "2.x"
-    lodash.isequal "^4.0.0"
-    prop-types "^15.0.0"
-    react-draggable "^4.0.0"
-    react-resizable "^1.10.0"
-
 "@mariusandra/simmerjs@0.7.1-posthog.1":
   version "0.7.1-posthog.1"
   resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.7.1-posthog.1.tgz#45da4a0f98915de40c7a1a0adb9d19dd5adf4167"
@@ -8155,6 +8144,17 @@ react-draggable@^4.0.0, react-draggable@^4.0.3, react-draggable@^4.2.0:
     classnames "^2.2.5"
     prop-types "^15.6.0"
 
+react-grid-layout@^1.1.1:
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/react-grid-layout/-/react-grid-layout-1.1.1.tgz#2643f84b95298e9c23d5e66ef86d7098a7184759"
+  integrity sha512-qrFzp94nG9NWWLcmZMvgqfi0TyOZ9JwjlvAc+2uywg8rYtZm/fLp33Io8XHJCfYOHzQrtZgXzEQBUvjO9XtL+g==
+  dependencies:
+    classnames "2.x"
+    lodash.isequal "^4.0.0"
+    prop-types "^15.0.0"
+    react-draggable "^4.0.0"
+    react-resizable "^1.10.0"
+
 react-hot-loader@^4.12.21:
   version "4.12.21"
   resolved "https://registry.yarnpkg.com/react-hot-loader/-/react-hot-loader-4.12.21.tgz#332e830801fb33024b5a147d6b13417f491eb975"
@@ -8209,9 +8209,9 @@ react-redux@^7.2.0:
     react-is "^16.9.0"
 
 react-resizable@^1.10.0:
-  version "1.10.1"
-  resolved "https://registry.yarnpkg.com/react-resizable/-/react-resizable-1.10.1.tgz#f0c2cf1d83b3470b87676ce6d6b02bbe3f4d8cd4"
-  integrity sha512-Jd/bKOKx6+19NwC4/aMLRu/J9/krfxlDnElP41Oc+oLiUWs/zwV1S9yBfBZRnqAwQb6vQ/HRSk3bsSWGSgVbpw==
+  version "1.11.0"
+  resolved "https://registry.yarnpkg.com/react-resizable/-/react-resizable-1.11.0.tgz#0b237c4aff16937b7663de1045861749683227ad"
+  integrity sha512-VoGz2ddxUFvildS8r8/29UZJeyiM3QJnlmRZSuXm+FpTqq/eIrMPc796Y9XQLg291n2hFZJtIoP1xC3hSTw/jg==
   dependencies:
     prop-types "15.x"
     react-draggable "^4.0.3"
