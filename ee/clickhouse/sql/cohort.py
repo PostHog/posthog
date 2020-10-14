@@ -9,9 +9,7 @@ SELECT * FROM events WHERE distinct_id IN (
 """
 
 COHORT_DISTINCT_ID_FILTER_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
-    SELECT person_id FROM {table_name}
-)
+SELECT distinct_id FROM person_distinct_id WHERE person_id IN ({query})
 """
 
 
@@ -33,7 +31,7 @@ INSERT INTO {table_name} SELECT person_id FROM ({query})
 """
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT person_id FROM person_distinct_id where person_id IN {query}
+SELECT distinct_id FROM person_distinct_id where distinct_id IN {query}
 """
 
 FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL = """
