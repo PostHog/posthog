@@ -4,6 +4,5 @@
     "defaultCommandTimeout": 20000,
     "requestTimeout": 8000,
     "pageLoadTimeout": 80000,
-    "retries": { "runMode": 1, "openMode": 1 },
     "projectId": "twojfp"
 }
