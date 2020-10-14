@@ -4,7 +4,6 @@ import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/com
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
-import _ from 'lodash'
 import {
     CommentOutlined,
     FundOutlined,
@@ -37,7 +36,7 @@ import {
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { copyToClipboard, isURL } from 'lib/utils'
+import { copyToClipboard, isURL, sample, uniqueBy } from 'lib/utils'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
@@ -306,8 +305,8 @@ export const commandPaletteLogic = kea<
                     if (result.guarantee) guaranteedResults.push(result)
                     else fusableResults.push(result)
                 }
-                fusableResults = _.uniqBy(fusableResults, 'display')
-                guaranteedResults = _.uniqBy(guaranteedResults, 'display')
+                fusableResults = uniqueBy(fusableResults, (result) => result.display)
+                guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
                           keys: ['display', 'synonyms'],
@@ -315,7 +314,7 @@ export const commandPaletteLogic = kea<
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
                 const finalResults = guaranteedResults.concat(fusedResults)
                 // put global scope last
                 return finalResults.sort((resultA, resultB) =>
