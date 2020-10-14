@@ -37,7 +37,7 @@ import {
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { copyToClipboard, isURL } from 'lib/utils'
+import { copyToClipboard, isMobile, isURL } from 'lib/utils'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
@@ -182,10 +182,10 @@ export const commandPaletteLogic = kea<
 
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog?.capture('palette shown')
+            window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog?.capture('palette shown')
+            if (values.isPaletteShown) window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
@@ -201,6 +201,7 @@ export const commandPaletteLogic = kea<
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
+            cleanedResult.isMobile = isMobile()
             window.posthog?.capture('palette command executed', cleanedResult)
         },
         deregisterScope: ({ scope }) => {
