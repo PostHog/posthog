@@ -19,7 +19,8 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
         # Load plugins, except under "migrate/makemigrations" as those init the Plugins model which might not be there
-        if not "makemigrations" in sys.argv and not "migrate" in sys.argv:
+        # Also skip the TEST environment
+        if not settings.TEST and not "makemigrations" in sys.argv and not "migrate" in sys.argv:
             Plugins()
 
         if settings.DEBUG:
