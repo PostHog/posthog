@@ -25,6 +25,7 @@ class PostHogConfig(AppConfig):
             and not "makemigrations" in sys.argv
             and not "migrate" in sys.argv
             and not "manage.py" in sys.argv
+            and not "mypy" in sys.argv
         ):
             Plugins()
 
