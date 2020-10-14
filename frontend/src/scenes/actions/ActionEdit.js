@@ -139,11 +139,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                         placeholder="try: [action.name] triggered by [user.name]"
                                         value={action.slack_message_format}
                                         onChange={(e) => {
-                                            // If the user has cleared the message format, set it to null
-                                            // so that it will be cleared on the backend (rather than set
-                                            // to the empty string)
-                                            const slack_message_format = e.target.value == '' ? null : e.target.value
-                                            setAction({ ...action, slack_message_format })
+                                            setAction({ ...action, slack_message_format: e.target.value })
                                             setEdited(true)
                                         }}
                                         disabled={!slackEnabled || !action.post_to_slack}
