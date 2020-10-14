@@ -16,7 +16,6 @@ class PluginSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "url", "configSchema", "tag"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
-        request = self.context["request"]
         validated_data["archive"] = self._download_github_zip(validated_data["url"], validated_data["tag"])
         plugin = Plugin.objects.create(**validated_data)
         Plugins().publish_reload_command()
@@ -67,7 +66,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         request = self.context["request"]
         plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
-        Plugins().publish_reload_command()
+        Plugins().publish_reload_command(plugin_config.team.pk)
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
@@ -75,7 +74,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         plugin_config.config = validated_data.get("config", plugin_config.config)
         plugin_config.order = validated_data.get("order", plugin_config.order)
         plugin_config.save()
-        Plugins().publish_reload_command()
+        Plugins().publish_reload_command(plugin_config.team.pk)
         return plugin_config
 
 

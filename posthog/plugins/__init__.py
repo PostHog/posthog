@@ -37,10 +37,7 @@ class PosthogEvent:
 class PluginCache:
     def __init__(self, plugin_name: str):
         self.plugin_name = plugin_name
-        if settings.TEST:
-            self.redis = fakeredis.FakeStrictRedis()
-        elif settings.REDIS_URL:
-            self.redis = redis.from_url(settings.REDIS_URL, db=0)
+        self.redis = get_redis_instance()
 
     def format_key(self, key):
         key = "{plugin_name}_{key}".format(plugin_name=self.plugin_name, key=key)
@@ -108,6 +105,7 @@ class _Plugins:
     def __init__(self):
         from posthog.models.plugin import Plugin, PluginConfig
 
+        self.redis = get_redis_instance()
         self.plugins: List[Plugin] = []  # type not loaded yet
         self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
@@ -332,19 +330,18 @@ class _Plugins:
         self.load_plugin_configs()
 
     def start_reload_pubsub(self):
-        if REDIS_INSTANCE:
-            pubsub = REDIS_INSTANCE.pubsub()
+        if self.redis:
+            pubsub = self.redis.pubsub()
             pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
             pubsub.run_in_thread(sleep_time=1, daemon=True)  # type: ignore
         else:
-            print("🔻🔻🔻 Can not listen to plugin reload commands! No REDIS_INSTANCE defined!")
+            print("🔻🔻🔻 Can not listen to plugin reload commands! No redis instance found!")
 
-    @staticmethod
-    def publish_reload_command():
-        if REDIS_INSTANCE:
-            REDIS_INSTANCE.publish("plugin-reload-channel", "yeah!")
+    def publish_reload_command(self, team_id: int = None):
+        if self.redis:
+            self.redis.publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
         else:
-            print("🔻🔻🔻 Error reloading plugins! No REDIS_INSTANCE defined!")
+            print("🔻🔻🔻 Error reloading plugins! No redis instance found!")
 
 
 Plugins = SingletonDecorator(_Plugins)
