@@ -29,10 +29,10 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             elements_string.split(";"),
             [
-                r'a.small:text="bla bla"nth-child="1"nth-of-type="0"href="/a-url"prop="value"number="33"data-attr="something \" that could mess up"',
+                r'a.small:data-attr="something \" that could mess up"href="/a-url"nth-child="1"nth-of-type="0"number="33"prop="value"text="bla bla"',
                 'button.btn.btn-primary:nth-child="0"nth-of-type="0"',
                 'div:nth-child="0"nth-of-type="0"',
-                'div:nth-child="0"nth-of-type="0"attr_id="nested"',
+                'div:attr_id="nested"nth-child="0"nth-of-type="0"',
             ],
         )
 

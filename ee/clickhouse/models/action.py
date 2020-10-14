@@ -1,3 +1,4 @@
+from re import escape
 from typing import Dict, List, Optional, Tuple
 
 from django.forms.models import model_to_dict
@@ -5,6 +6,7 @@ from django.forms.models import model_to_dict
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.actions import (
     ACTION_QUERY,
+    ELEMENT_ACTION_FILTER,
     EVENT_ACTION_FILTER,
     EVENT_NO_PROP_FILTER,
     FILTER_EVENT_BY_ACTION_SQL,
@@ -63,16 +65,16 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
         return "", {}
 
     or_queries = []
-    for step in steps:
+    for index, step in enumerate(steps):
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            element_query, element_params, index = filter_element(step, prepend, index)
+            element_query, element_params, index = filter_element(step, "{}{}".format(index, prepend), index)
             params = {**params, **element_params}
             or_queries.append(element_query)
 
         # filter event
         elif step.event:
-            event_query, event_params, index = filter_event(step, prepend, index)
+            event_query, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
             params = {**params, **event_params}
             or_queries.append(event_query)
     or_separator = "OR uuid IN"
@@ -113,26 +115,51 @@ def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
     return event_filter, params, index + 1
 
 
+def _create_regex(selector: Selector) -> str:
+    regex = r"^.*?"
+    for idx, tag in enumerate(selector.parts):
+        if tag.data.get("tag_name"):
+            regex += "{}[.:]?".format(tag.data["tag_name"])
+        if tag.data.get("attr_class__contains"):
+            regex += ".*?\.{}".format("\..*?".join(sorted(tag.data["attr_class__contains"])))
+        if idx < len(selector.parts) - 1:
+            regex += "([^;]*?;)" if tag.direct_descendant else "(.*?;)"
+        else:
+            # is last selector
+            regex += ".*?$"
+    print("regex:", regex)
+    return regex
+
+
 def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
     event_filter, params, index = filter_event(step, prepend, index) if step.url else ("", {}, index + 1)
 
     filters = model_to_dict(step)
 
-    prop_queries = []
     if filters.get("selector"):
-        selector = Selector(filters["selector"])
-        for idx, tag in enumerate(selector.parts):
-            prop_queries.append(tag.clickhouse_query(query=ELEMENT_PROP_FILTER))
+        selector = Selector(filters["selector"], escape_slashes=False)
+        params["{}selector_regex".format(prepend)] = _create_regex(selector)
 
-    for key in ["tag_name", "text", "href"]:
+    attributes: Dict[str, str] = {}
+    for key in sorted(["tag_name", "text", "href"]):
         if filters.get(key):
-            prop_queries.append("{} = '{}'".format(key, filters[key]))
-    separator = " AND "
-    selector_query = separator.join(prop_queries)
+            attributes[key] = filters[key]
+
+    attributes_regex = False
+    # if len(attributes.keys()) > 0:
+    #     attributes_regex = True
+    #     params['{}attributes_regex'.format(prepend)] = '.*?({}).*?'.format('.*?'.join(['{}="{}"'.format(key, value) for key, value in attributes.items()]))
+    #     print('attribute_regex', '.*?({}).*?'.format('.*?'.join(['{}="{}"'.format(key, value) for key, value in attributes.items()])))
 
     return (
         ELEMENT_ACTION_FILTER.format(
-            element_filter=selector_query, event_filter="AND uuid IN {}".format(event_filter) if event_filter else ""
+            selector_regex="match(elements_chain, %({}selector_regex)s)".format(prepend)
+            if filters.get("selector")
+            else "1=1",
+            attributes_regex="AND match(elements_chain, %({}attributes_regex)s)".format(prepend)
+            if attributes_regex
+            else "",
+            event_filter="AND uuid IN {}".format(event_filter) if event_filter else "",
         ),
         params,
         index + 1,

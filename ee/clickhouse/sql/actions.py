@@ -25,7 +25,11 @@ INSERT INTO {table_name} SELECT uuid FROM ({query})
 """
 
 ACTION_QUERY = """
-SELECT * FROM events WHERE uuid IN {action_filter}
+SELECT
+    events.*,
+    pid.person_id as person_id FROM events
+INNER JOIN person_distinct_id as pid ON events.distinct_id=pid.distinct_id
+WHERE uuid IN {action_filter}
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
@@ -33,18 +37,18 @@ SELECT * FROM events WHERE uuid IN {action_filter}
 ELEMENT_ACTION_FILTER = """
 (
     SELECT uuid FROM events WHERE 
-    elements_hash IN (
-        SELECT elements_hash FROM elements WHERE {element_filter} GROUP BY elements_hash
-    ) {event_filter}
+    {selector_regex}
+    {attributes_regex}
+    {event_filter}
 )
 """
 
-ELEMENT_PROP_FILTER = """
-(
-    SELECT uuid FROM elements_properties_view WHERE
-    key = {} AND value = {}
-)
-"""
+# ELEMENT_PROP_FILTER = """
+# (
+#     SELECT uuid FROM elements_properties_view WHERE
+#     key = {} AND value = {}
+# )
+# """
 
 EVENT_ACTION_FILTER = """
 (

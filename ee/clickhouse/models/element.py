@@ -34,7 +34,7 @@ def elements_to_string(elements: List[Element],) -> str:
         if element.tag_name:
             el_string += element.tag_name
         if element.attr_class:
-            for single_class in element.attr_class:
+            for single_class in sorted(element.attr_class):
                 el_string += ".{}".format(single_class)
         attributes = {
             **({"text": element.text} if element.text else {}),
@@ -44,7 +44,7 @@ def elements_to_string(elements: List[Element],) -> str:
             **({"attr_id": element.attr_id} if element.attr_id else {}),
             **element.attributes,
         }
-        attributes = {_escape(key): _escape(str(value)) for key, value in attributes.items()}
+        attributes = {_escape(key): _escape(str(value)) for key, value in sorted(attributes.items())}
         el_string += ":"
         el_string += "".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
         ret.append(el_string)
