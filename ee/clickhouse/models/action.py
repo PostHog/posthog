@@ -87,9 +87,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
         or_queries.append(query)
     or_separator = "OR uuid IN"
     formatted_query = or_separator.join(or_queries)
-    import ipdb
 
-    ipdb.set_trace()
     return formatted_query, params
 
 
@@ -140,7 +138,6 @@ def _create_regex(selector: Selector) -> str:
         regex += r"($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += ".*"
-    print("regex:", regex)
     return regex
 
 
@@ -163,10 +160,6 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
         attributes_regex = True
         params["{}attributes_regex".format(prepend)] = ".*?({}).*?".format(
             ".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
-        )
-        print(
-            "attribute_regex",
-            ".*?({}).*?".format(".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])),
         )
 
     return (

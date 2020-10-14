@@ -305,7 +305,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             events = _get_events_for_action(action_watch_movie)
             self.assertEqual(events[0].pk, event_watched_movie.pk)
-            self.assertEqual(events[0].person_id, person.pk)
+            self.assertEqual(events[0].distinct_id, "is_now_signed_up")
 
         def test_no_person_leakage_from_other_teams(self):
             action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
@@ -317,11 +317,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             team2 = Team.objects.create()
-            person2 = _create_person(distinct_ids=["anonymous_user"], team=team2)
+            person2 = _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
             events = _get_events_for_action(action_watch_movie)
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].person_id, person.pk)
+            self.assertEqual(events[0].distinct_id, "anonymous_user")
 
         def test_person_property(self):
             _create_person(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})

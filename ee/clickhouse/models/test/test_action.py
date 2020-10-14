@@ -22,7 +22,7 @@ def _get_events_for_action(action: Action) -> List[Event]:
     ret = []
     for event in bla:
         ev = Event(pk=event[0])
-        ev.person_id = event[-1]
+        ev.distinct_id = event[5]
         ret.append(ev)
     return ret
 

@@ -26,11 +26,10 @@ INSERT INTO {table_name} SELECT uuid FROM ({query})
 
 ACTION_QUERY = """
 SELECT
-    events.*,
-    pid.person_id as person_id FROM events
-RIGHT JOIN person_distinct_id as pid ON events.distinct_id=pid.distinct_id
+    events.*
+FROM events
 WHERE uuid IN {action_filter}
-AND events.team_id = %(team_id)s AND pid.team_id=%(team_id)s
+AND events.team_id = %(team_id)s
 ORDER BY events.timestamp DESC
 """
 
