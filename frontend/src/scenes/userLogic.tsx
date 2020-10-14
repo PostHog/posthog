@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
         completedOnboarding: true,
+        logout: true,
     }),
 
     reducers: {
@@ -114,6 +115,10 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             } catch (error) {
                 actions.userUpdateFailure(error, updateKey)
             }
+        },
+        logout: () => {
+            window.posthog?.reset()
+            window.location.href = '/logout'
         },
     }),
 })
