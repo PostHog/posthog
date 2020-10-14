@@ -16,11 +16,11 @@ function _FeatureFlags() {
 
     let columns = [
         {
-            title: 'name',
+            title: 'Name',
             dataIndex: 'name',
         },
         {
-            title: 'key',
+            title: 'Key',
             dataIndex: 'key',
         },
 
@@ -37,7 +37,7 @@ function _FeatureFlags() {
             },
         },
         {
-            title: 'active',
+            title: 'Active',
             render: function RenderActive(featureFlag) {
                 return (
                     <Switch

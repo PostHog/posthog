@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import pytz
+from django.forms.models import model_to_dict
 
 from posthog.api.test.base import BaseTest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -22,7 +23,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),
                     ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(5, 9)),
                     ("person1", self._date(6)),
                     ("person2", self._date(1)),
                     ("person2", self._date(2)),
@@ -67,7 +68,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),
                     ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(5, 9)),
                     ("person1", self._date(6)),
                     ("person2", self._date(1)),
                     ("person2", self._date(2)),
@@ -123,7 +124,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),
                     ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(5, 9)),
                     ("person1", self._date(6)),
                     ("person2", self._date(1)),
                     ("person2", self._date(2)),
@@ -163,7 +164,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),
                     ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(5, 9)),
                     ("person1", self._date(6)),
                     ("person2", self._date(1)),
                     ("person2", self._date(2)),
@@ -222,4 +223,50 @@ def retention_test_factory(retention, event_factory, person_factory):
 
 
 class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create)):  # type: ignore
-    pass
+    def test_retention_period(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+        )
+
+        self._create_pageviews(
+            [
+                ("person1", self._date(0)),
+                ("person1", self._date(1)),
+                ("person1", self._date(2, month=1)),
+                ("person1", self._date(10, month=1)),
+                ("person1", self._date(15)),
+                ("person1", self._date(18)),
+                ("alias1", self._date(5, 9)),
+                ("person1", self._date(6)),
+                ("person2", self._date(1)),
+                ("person2", self._date(2)),
+                ("person2", self._date(3)),
+                ("person2", self._date(6)),
+                ("person2", self._date(13)),
+            ]
+        )
+
+        result = Retention().run(
+            Filter(data={"date_from": self._date(0, hour=0), "period": "Week"}), self.team, total_intervals=7,
+        )
+
+        self.assertEqual(
+            self.pluck(result, "values", "count"),
+            [[2, 2, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [0, 0, 0, 0, 0], [1, 0, 1, 0], [0, 0, 0], [1, 0], [0],],
+        )
+
+        self.assertEqual(
+            self.pluck(result, "date"),
+            [
+                "Wed. 10 June",
+                "Wed. 17 June",
+                "Wed. 24 June",
+                "Wed. 1 July",
+                "Wed. 8 July",
+                "Wed. 15 July",
+                "Wed. 22 July",
+            ],
+        )

@@ -1,14 +1,14 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { ActionFilter } from '../ActionFilter/ActionFilter'
+import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Tooltip, Row } from 'antd'
-import { BreakdownFilter } from '../BreakdownFilter'
+import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/utils'
-import { ShownAsFilter } from '../ShownAsFilter'
+import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { trendsLogic } from '../trendsLogic'
-import { ViewType } from '../insightLogic'
+import { trendsLogic } from '../../trendsLogic'
+import { ViewType } from '../../insightLogic'
 
 export function TrendTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
@@ -22,6 +22,7 @@ export function TrendTab(): JSX.Element {
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={false}
+                copy="Add graph series"
             />
             <hr />
             <h4 className="secondary">Filters</h4>

@@ -49,13 +49,17 @@ export function RetentionTable() {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
+                rowClassName={window.posthog?.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
+                            if (window.posthog?.isFeatureEnabled('ch-retention-endpoint')) {
+                                return
+                            }
+
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
