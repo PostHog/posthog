@@ -98,7 +98,7 @@ jobs:
                   OPT_OUT_CAPTURE: 1
               run: |
                   python manage.py collectstatic --noinput
-                  mkdir -p cypress/screenshots 
+                  mkdir -p cypress/screenshots
                   ./bin/docker-migrate
                   ./bin/docker-worker &
                   ./bin/docker-server &
@@ -115,6 +115,8 @@ jobs:
                   # Recommended: pass the GitHub token lets this action correctly
                   # determine the unique run id necessary to re-run the checks
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # Tolerate flaky tests
+                  CYPRESS_RETRIES: 3
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
