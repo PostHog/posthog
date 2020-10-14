@@ -13,6 +13,10 @@ export interface UserType {
     billing: OrganizationBilling
 }
 
+export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
+    team: Partial<TeamType>
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string
@@ -30,9 +34,11 @@ export interface TeamType {
     completed_snippet_onboarding: boolean
     event_names: string[]
     event_properties: string[]
+    event_properties_numerical: string[]
     opt_out_capture: boolean
     signup_token: string
     slack_incoming_webhook: string
+    session_recording_opt_in: boolean
 }
 
 export interface ActionType {
@@ -165,6 +171,18 @@ export interface PlanInterface {
 export interface BillingSubscription {
     subscription_url: string
     stripe_checkout_session: string
+}
+
+export interface DashboardType {
+    id: number
+    name: string
+    pinned: string
+    items: []
+    created_at: string
+    created_by: number
+    is_shared: boolean
+    share_token: string
+    deleted: boolean
 }
 
 export interface PluginConfigSchema {

@@ -155,6 +155,20 @@ function createEntry(entry) {
                         },
                     ],
                 },
+                {
+                    // Apply rule for sound files
+                    test: /\.(mp3)$/,
+                    use: [
+                        {
+                            // Using file-loader too
+                            loader: 'file-loader',
+                            options: {
+                                name: '[name].[contenthash].[ext]',
+                                outputPath: 'sounds',
+                            },
+                        },
+                    ],
+                },
             ],
         },
         devServer: {

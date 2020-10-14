@@ -1,29 +1,40 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
+import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { changeType } from 'lib/utils/changeType'
-import { Button, Modal } from 'antd'
+import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+import { SessionsTable } from '../sessions/SessionsTable'
+
+const { TabPane } = Tabs
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
+    const { push } = router.actions
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
+    const [activeTab, setActiveTab] = useState('events')
+
     useEffect(() => {
-        let url = ''
         if (distinctId) {
-            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
+            api.get(`api/person/?distinct_id=${distinctId}`).then((response) => {
+                if (response.results.length > 0) {
+                    setPerson(response.results[0])
+                } else {
+                    push('/404')
+                }
+            })
         } else {
-            url = `api/person/${id}`
+            api.get(`api/person/${id}`).then(setPerson)
         }
-        api.get(url).then(setPerson)
     }, [distinctId, id])
 
     function _handleChange(event) {
@@ -116,7 +127,30 @@ function _Person({ _: distinctId, id }) {
                 <br />
                 <br />
             </div>
-            <Events fixedFilters={{ person_id: person.id }} />
+            <Tabs
+                defaultActiveKey={activeTab}
+                onChange={(tab) => {
+                    setActiveTab(tab)
+                }}
+            >
+                <TabPane
+                    tab={<span data-attr="people-types-tab">Events</span>}
+                    key="events"
+                    data-attr="people-types-tab"
+                />
+                {window.posthog?.isFeatureEnabled('session-recording-player') && (
+                    <TabPane
+                        tab={<span data-attr="people-types-tab">Sessions By Day</span>}
+                        key="sessions"
+                        data-attr="people-types-tab"
+                    />
+                )}
+            </Tabs>
+            {activeTab === 'events' ? (
+                <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+            ) : (
+                <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
+            )}
         </div>
     ) : null
 }

@@ -80,9 +80,12 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_properties(self, event):
         if len(event) >= 10 and event[8] and event[9]:
-            return dict(zip(event[8], event[9]))
+            prop_vals = [res.strip('"') for res in event[9]]
+            return dict(zip(event[8], prop_vals))
         else:
-            return json.loads(event[2])
+            props = json.loads(event[2])
+            unpadded = {key: value.strip('"') for key, value in props.items()}
+            return unpadded
 
     def get_event(self, event):
         return event[1]
@@ -97,7 +100,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return self.context["people"][event[5]]["properties"].get("email", event[5])
 
     def get_elements(self, event):
-        if not event[6] or not self.context["elements"] or event[6] not in self.context["elements"]:
+        if not event[6] or not self.context.get("elements") or event[6] not in self.context["elements"]:
             return []
         return self.context["elements"][event[6]]
 

@@ -14,7 +14,7 @@ class TestTeamUser(APIBaseTest):
     def create_user_for_team(self, team: Team, organization: Organization) -> User:
         suffix = random.randint(100000, 999999)
         user = User.objects.create_and_join(
-            organization, team, f"user{suffix}@posthog.com", self.TESTS_PASSWORD, first_name=f"User #{suffix}",
+            organization, team, f"user{suffix}@posthog.com", self.CONFIG_PASSWORD, first_name=f"User #{suffix}",
         )
         return user
 
@@ -175,7 +175,7 @@ class TestTeamUser(APIBaseTest):
 
 
 class TestTeamSignup(APIBaseTest):
-    TESTS_EMAIL = None
+    CONFIG_USER_EMAIL = None
 
     @tag("skip_on_multitenancy")
     @patch("posthog.api.team.settings.EE_AVAILABLE", False)
