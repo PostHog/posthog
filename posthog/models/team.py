@@ -14,8 +14,6 @@ from .dashboard_item import DashboardItem
 from .personal_api_key import PersonalAPIKey
 from .utils import UUIDT, generate_random_token, sane_repr
 
-TEAM_CACHE: Dict[str, "Team"] = {}
-
 
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":

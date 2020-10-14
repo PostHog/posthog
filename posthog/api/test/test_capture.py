@@ -28,7 +28,6 @@ class TestCapture(BaseTest):
     def _dict_from_b64(self, data: str) -> dict:
         return json.loads(base64.b64decode(data))
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_capture_event(self, patch_process_event):
         data = {
@@ -65,7 +64,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_personal_api_key(self, patch_process_event):
         key = PersonalAPIKey(label="X", user=self.user, team=self.team)
@@ -104,7 +102,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_multiple_events(self, patch_process_event):
         self.client.post(
@@ -121,7 +118,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(patch_process_event.call_count, 2)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_emojis_in_text(self, patch_process_event):
         self.team.api_token = "xp9qT2VLY76JJg"
@@ -139,7 +135,6 @@ class TestCapture(BaseTest):
             patch_process_event.call_args[1]["data"]["properties"]["$elements"][0]["$el_text"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_incorrect_padding(self, patch_process_event):
         response = self.client.get(
@@ -150,7 +145,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()["status"], 1)
         self.assertEqual(patch_process_event.call_args[1]["data"]["event"], "whatevefr")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_empty_request_returns_an_error(self, patch_process_event):
         """
@@ -167,7 +161,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(patch_process_event.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_batch(self, patch_process_event):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
@@ -188,7 +181,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_batch_gzip_header(self, patch_process_event):
         data = {
@@ -218,7 +210,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_batch_gzip_param(self, patch_process_event):
         data = {
@@ -247,7 +238,6 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_batch_lzstring(self, patch_process_event):
         data = {
@@ -316,7 +306,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_engage(self, patch_process_event):
         response = self.client.get(
@@ -345,7 +334,6 @@ class TestCapture(BaseTest):
             {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_python_library(self, patch_process_event):
         self.client.post(
@@ -358,7 +346,6 @@ class TestCapture(BaseTest):
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments["team_id"], self.team.pk)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_base64_decode_variations(self, patch_process_event):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
@@ -384,7 +371,6 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_js_library_underscore_sent_at(self, patch_process_event):
         now = timezone.now()
@@ -414,7 +400,6 @@ class TestCapture(BaseTest):
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_long_distinct_id(self, patch_process_event):
         now = timezone.now()
