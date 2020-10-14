@@ -187,7 +187,7 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
-    if settings.DEBUG or settings.SELF_CAPTURE:
+    if settings.SELF_CAPTURE:
         context["posthog_capture_host"] = "window.location.origin"
     else:
         context["posthog_capture_key"] = "'sTMFPsFhdP1Ssg'"
