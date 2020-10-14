@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from 'react'
-import { CommandResult as CommandResultType } from './commandPaletteLogic'
+import { CommandResultDisplayable } from './commandPaletteLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
 
 interface CommandResultProps {
-    result: CommandResultType
+    result: CommandResultDisplayable
     focused?: boolean
 }
 
@@ -44,7 +44,7 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
 
 interface ResultsGroupProps {
     scope: string
-    results: CommandResultType[]
+    results: CommandResultDisplayable[]
     activeResultIndex: number
 }
 

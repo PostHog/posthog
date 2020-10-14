@@ -52,9 +52,12 @@ export interface CommandResultTemplate {
     guarantee?: boolean // show result always and first, regardless of fuzzy search
 }
 
-export type CommandResult = CommandResultTemplate & {
+export interface CommandResult extends CommandResultTemplate {
     source: Command | CommandFlow
-    index?: number
+}
+
+export interface CommandResultDisplayable extends CommandResult {
+    index: number
 }
 
 export type CommandResolver = (
@@ -76,7 +79,7 @@ export interface CommandFlow {
     scope: string
 }
 
-export type CommandRegistrations = {
+export interface CommandRegistrations {
     [commandKey: string]: Command
 }
 
@@ -188,7 +191,7 @@ export const commandPaletteLogic = kea<
             if (result.executor === true) {
                 actions.activateFlow(null)
             } else {
-                const possibleFlow = result.executor?.() ?? null
+                const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
                 if (!possibleFlow) actions.hidePalette()
             }
@@ -337,12 +340,15 @@ export const commandPaletteLogic = kea<
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
-                let rollingIndex = 0
-                const resultsGroupedInOrder = Object.entries(resultsGrouped)
-                for (const [, group] of resultsGroupedInOrder) {
-                    for (const result of group) {
-                        result.index = rollingIndex++
+                let rollingGroupIndex = 0
+                let rollingResultIndex = 0
+                const resultsGroupedInOrder: [string, CommandResultDisplayable[]][] = []
+                for (const [group, results] of Object.entries(resultsGrouped)) {
+                    resultsGroupedInOrder.push([group, []])
+                    for (const result of results) {
+                        resultsGroupedInOrder[rollingGroupIndex][1].push({ ...result, index: rollingResultIndex++ })
                     }
+                    rollingGroupIndex++
                 }
                 return resultsGroupedInOrder
             },
