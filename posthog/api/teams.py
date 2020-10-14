@@ -1,15 +1,32 @@
 import json
-from typing import Union
+from typing import Dict, Union
 
+import posthoganalytics
+from django.conf import settings
+from django.contrib.auth import login, password_validation
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import (
+    generics,
+    mixins,
+    permissions,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
+from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework.settings import api_settings
+from rest_framework.utils import model_meta
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
-from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team
+from posthog.api.user import UserSerializer
+from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team, User
+from posthog.models.user import MULTI_TENANCY_MISSING
 from posthog.utils import convert_property_value
 
 
@@ -48,6 +65,15 @@ class TeamSerializer(serializers.ModelSerializer):
             "opt_out_capture",
         )
 
+    def create(self, validated_data: Dict[str, any]) -> Team:
+        raise_errors_on_nested_writes("create", self, validated_data)
+        request = self.context["request"]
+        with transaction.atomic():
+            team = Team.objects.create(**validated_data, organization=request.user.organization)
+            request.user.current_team = team
+            request.user.save()
+        return team
+
 
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all()
@@ -65,17 +91,6 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = get_object_or_404(queryset, pk=pk)
         serializer = TeamSerializer(team)
         return response.Response(serializer.data)
-
-
-import posthoganalytics
-from django.conf import settings
-from django.contrib.auth import login, password_validation
-from django.db import transaction
-from rest_framework import generics, permissions, serializers
-
-from posthog.api.user import UserSerializer
-from posthog.models import Team, User
-from posthog.models.user import MULTI_TENANCY_MISSING
 
 
 class TeamSignupSerializer(serializers.Serializer):

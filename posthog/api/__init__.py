@@ -19,6 +19,7 @@ from . import (
     paths,
     person,
     personal_api_key,
+    teams,
 )
 
 
@@ -47,18 +48,19 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"insight", insight.InsightViewSet)
+teams_router = router.register(r"projects", teams.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
     r"members",
     organization_member.OrganizationMemberViewSet,
     "organization_members",
-    parents_query_lookups=["organization"],
+    parents_query_lookups=["organization_id"],
 )
 organizations_router.register(
     r"invites",
     organization_invite.OrganizationInviteViewSet,
     "organization_invites",
-    parents_query_lookups=["organization"],
+    parents_query_lookups=["organization_id"],
 )
 
 if check_ee_enabled():

@@ -54,16 +54,14 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             key: 'uses',
         },
         {
-            title: 'Uses Limit',
-            dataIndex: 'max_uses',
-            key: 'max_uses',
-            render: (max_uses?: number) => max_uses ?? 'unlimited',
-        },
-        {
-            title: 'Target Email',
-            dataIndex: 'target_email',
+            title: 'Limit',
+            dataIndex: 'limit',
             key: 'target_email',
-            render: (targetEmail: string) => targetEmail ?? 'no email specified',
+            render: (target_email: number | null | undefined, invite: Record<string, any>) =>
+                target_email ??
+                (invite.max_uses ?? null === null
+                    ? 'wildcard'
+                    : `${invite.max_uses - invite.uses} ${invite.max_uses - invite.uses === 1 ? 'use' : 'uses'} left`),
         },
         {
             title: 'Created At',

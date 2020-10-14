@@ -84,6 +84,8 @@ class OrganizationInvite(UUIDModel):
         ]
 
     def validate(self, user: Optional[Any] = None) -> None:
+        if self.target_email is not None and user.email != self.target_email:
+            raise ValueError("Invite intended for another user email.")
         if self.max_uses is not None and self.uses >= self.max_uses:
             raise ValueError("Uses limit used up.")
         if (

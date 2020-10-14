@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
+import { router } from 'kea-router'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 
@@ -39,23 +40,27 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     selectors: ({ selectors }) => ({
         eventProperties: [
             () => [selectors.user],
-            (user) =>
-                user?.team.event_properties.map(
-                    (property: string) => ({ value: property, label: property } as EventProperty)
-                ) || ([] as EventProperty[]),
+            (user): EventProperty[] =>
+                user?.team
+                    ? user.team.event_properties.map(
+                          (property: string) => ({ value: property, label: property } as EventProperty)
+                      )
+                    : [],
         ],
         eventPropertiesNumerical: [
             () => [selectors.user],
-            (user) =>
-                user?.team.event_properties_numerical.map(
-                    (property: string) => ({ value: property, label: property } as EventProperty)
-                ) || ([] as EventProperty[]),
+            (user): EventProperty[] =>
+                user?.team
+                    ? user.team.event_properties_numerical.map(
+                          (property: string) => ({ value: property, label: property } as EventProperty)
+                      )
+                    : [],
         ],
-        eventNames: [() => [selectors.user], (user) => user?.team.event_names || []],
+        eventNames: [() => [selectors.user], (user) => user?.team?.event_names ?? []],
         customEventNames: [
-            () => [selectors.user],
-            (user) => {
-                return user?.team.event_names.filter((event: string) => !event.startsWith('!')) || []
+            () => [selectors.eventNames],
+            (eventNames) => {
+                return eventNames.filter((event: string) => !event.startsWith('!'))
             },
         ],
         eventNamesGrouped: [
@@ -65,17 +70,21 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     { label: 'Custom events', options: [] as EventProperty[] },
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
-                user?.team.event_names.forEach((name: string) => {
-                    const format = { label: name, value: name } as EventProperty
-                    if (posthogEvents.includes(name)) return data[1].options.push(format)
-                    data[0].options.push(format)
-                })
+                if (user?.team)
+                    user.team.event_names.forEach((name: string) => {
+                        const format = { label: name, value: name } as EventProperty
+                        if (posthogEvents.includes(name)) return data[1].options.push(format)
+                        data[0].options.push(format)
+                    })
                 return data
             },
         ],
     }),
 
     listeners: ({ actions }) => ({
+        setUser: ({ user }) => {
+            if (user && !user.team) router.actions.push('/organization/members')
+        },
         loadUser: async () => {
             try {
                 const user = await api.get('api/user')

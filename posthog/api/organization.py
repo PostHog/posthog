@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import QuerySet, query
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework.serializers import raise_errors_on_nested_writes
 
 from posthog.models import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
@@ -25,12 +26,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
+        raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
             organization = Organization.objects.create(**validated_data)
             OrganizationMembership.objects.create(
                 organization=organization, user=request.user, level=OrganizationMembership.Level.ADMIN
             )
+            request.user.current_organization = organization
+            request.user.current_team = None
+            request.user.save()
         return organization
 
 

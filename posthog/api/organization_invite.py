@@ -64,28 +64,19 @@ class OrganizationInviteViewSet(
     serializer_class = OrganizationInviteSerializer
     pagination_class = None
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
-    queryset = OrganizationInvite.objects.none()
+    queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
     ordering_fields = ["created_by"]
     ordering = ["-created_by"]
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
         parents_query_dict = self.get_parents_query_dict()
-        print(parents_query_dict)
         if parents_query_dict:
+            if parents_query_dict["organization_id"] == "@current":
+                parents_query_dict["organization_id"] = self.request.user.organization.id
             try:
-                return queryset.filter(**parents_query_dict)
+                return queryset.filter(**parents_query_dict).select_related("created_by").select_related("last_used_by")
             except ValueError:
                 raise Http404
         else:
             return queryset
-
-        organization_id = self.kwargs["organization_pk"]
-        if organization_id == "@current":
-            organization_id = self.request.user.organization.id
-        return (
-            OrganizationInvite.objects.filter(organization_id=organization_id)
-            .select_related("created_by")
-            .select_related("last_used_by")
-            .order_by("-created_at")
-        )

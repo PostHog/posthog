@@ -30,9 +30,9 @@ class UserSerializer(serializers.ModelSerializer):
 @authenticate_secondarily
 def user(request):
     organization = request.user.organization
-    organizations = list(request.user.organizations.all().values("name", "id"))
+    organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
     team = request.user.team
-    teams = list(request.user.teams.all().values("name", "id"))
+    teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
 
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -98,7 +98,6 @@ def user(request):
             "distinct_id": request.user.distinct_id,
             "name": request.user.first_name,
             "email": request.user.email,
-            "has_events": Event.objects.filter(team=team).exists(),
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,

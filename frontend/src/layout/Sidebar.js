@@ -120,116 +120,116 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 >
                     <Logo />
 
-                    <Menu.Item
-                        key="toolbar"
-                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
-                        onClick={() => setToolbarModalOpen(true)}
-                        data-attr="menu-item-toolbar"
-                    >
-                        <div className="sidebar-toolbar-imitation">
-                            <HogIcon />
-                        </div>
-                        <span className="sidebar-label">Launch Toolbar!</span>
-                    </Menu.Item>
-
-                    {pinnedDashboards.map((dashboard, index) => (
+                    {!!user?.team && [
                         <Menu.Item
-                            key={`dashboard-${dashboard.id}`}
-                            style={itemStyle}
-                            data-attr={'pinned-dashboard-' + index}
-                            title=""
+                            key="toolbar"
+                            style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
+                            onClick={() => setToolbarModalOpen(true)}
+                            data-attr="menu-item-toolbar"
                         >
-                            <LineChartOutlined />
-                            <span className="sidebar-label">{dashboard.name}</span>
-                            <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
-                        </Menu.Item>
-                    ))}
+                            <div className="sidebar-toolbar-imitation">
+                                <HogIcon />
+                            </div>
+                            <span className="sidebar-label">Launch Toolbar!</span>
+                        </Menu.Item>,
+                        ...pinnedDashboards.map((dashboard, index) => (
+                            <Menu.Item
+                                key={`dashboard-${dashboard.id}`}
+                                style={itemStyle}
+                                data-attr={'pinned-dashboard-' + index}
+                                title=""
+                            >
+                                <LineChartOutlined />
+                                <span className="sidebar-label">{dashboard.name}</span>
+                                <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )),
 
-                    <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards" title="">
-                        <FundOutlined />
-                        <span className="sidebar-label">Dashboards</span>
-                        <Link to="/dashboard" onClick={collapseSidebar} />
-                    </Menu.Item>
+                        <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards" title="">
+                            <FundOutlined />
+                            <span className="sidebar-label">Dashboards</span>
+                            <Link to="/dashboard" onClick={collapseSidebar} />
+                        </Menu.Item>,
 
-                    {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
+                        pinnedDashboards.length > 0 ? <Menu.Divider /> : null,
+                        <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
+                            <RiseOutlined />
+                            <span className="sidebar-label">{'Insights'}</span>
+                            <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
+                        </Menu.Item>,
 
-                    <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
-                        <RiseOutlined />
-                        <span className="sidebar-label">{'Insights'}</span>
-                        <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
-                    </Menu.Item>
-
-                    <Menu.SubMenu
-                        key="events"
-                        title={
-                            <span style={itemStyle} data-attr="menu-item-events">
+                        <Menu.SubMenu
+                            key="events"
+                            title={
+                                <span style={itemStyle} data-attr="menu-item-events">
+                                    <ContainerOutlined />
+                                    <span className="sidebar-label">{'Events'}</span>
+                                </span>
+                            }
+                            onTitleClick={() => {
+                                collapseSidebar()
+                                location.pathname !== '/events' && push('/events')
+                            }}
+                        >
+                            <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                                 <ContainerOutlined />
-                                <span className="sidebar-label">{'Events'}</span>
-                            </span>
-                        }
-                        onTitleClick={() => {
-                            collapseSidebar()
-                            location.pathname !== '/events' && push('/events')
-                        }}
-                    >
-                        <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
-                            <ContainerOutlined />
-                            <span className="sidebar-label">{'All Events'}</span>
-                            <Link to={'/events'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
-                            <AimOutlined />
-                            <span className="sidebar-label">{'Actions'}</span>
-                            <Link to={'/actions'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                            <SyncOutlined />
-                            <span className="sidebar-label">{'Live Actions'}</span>
-                            <Link to={'/actions/live'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
-                            <ClockCircleOutlined />
-                            <span className="sidebar-label">{'Sessions'}</span>
-                            <Link to={'/sessions'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                    </Menu.SubMenu>
+                                <span className="sidebar-label">{'All Events'}</span>
+                                <Link to={'/events'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                            <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
+                                <AimOutlined />
+                                <span className="sidebar-label">{'Actions'}</span>
+                                <Link to={'/actions'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
+                                <SyncOutlined />
+                                <span className="sidebar-label">{'Live Actions'}</span>
+                                <Link to={'/actions/live'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                            <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
+                                <ClockCircleOutlined />
+                                <span className="sidebar-label">{'Sessions'}</span>
+                                <Link to={'/sessions'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        </Menu.SubMenu>,
 
-                    <Menu.SubMenu
-                        key="people"
-                        title={
-                            <span style={itemStyle} data-attr="menu-item-people">
+                        <Menu.SubMenu
+                            key="people"
+                            title={
+                                <span style={itemStyle} data-attr="menu-item-people">
+                                    <UserOutlined />
+                                    <span className="sidebar-label">{'People'}</span>
+                                </span>
+                            }
+                            onTitleClick={() => {
+                                collapseSidebar()
+                                location.pathname !== '/people/individuals' && push('/people/individuals')
+                            }}
+                        >
+                            <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
                                 <UserOutlined />
-                                <span className="sidebar-label">{'People'}</span>
-                            </span>
-                        }
-                        onTitleClick={() => {
-                            collapseSidebar()
-                            location.pathname !== '/people/individuals' && push('/people/individuals')
-                        }}
-                    >
-                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
-                            <UserOutlined />
-                            <span className="sidebar-label">Individuals</span>
-                            <Link to={'/people/individuals'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
-                            <UsergroupAddOutlined />
-                            <span className="sidebar-label">Cohorts</span>
-                            <Link to={'/people/cohorts'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                    </Menu.SubMenu>
+                                <span className="sidebar-label">Individuals</span>
+                                <Link to={'/people/individuals'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                            <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
+                                <UsergroupAddOutlined />
+                                <span className="sidebar-label">Cohorts</span>
+                                <Link to={'/people/cohorts'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        </Menu.SubMenu>,
 
-                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
-                        <ExperimentOutlined />
-                        <span className="sidebar-label">Feature Flags</span>
-                        <Link to={'/feature_flags'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                        <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
+                            <ExperimentOutlined />
+                            <span className="sidebar-label">Feature Flags</span>
+                            <Link to={'/feature_flags'} onClick={collapseSidebar} />
+                        </Menu.Item>,
 
-                    <Menu.Item key="annotations" style={itemStyle} data-attr="menu-item-annotations">
-                        <MessageOutlined />
-                        <span className="sidebar-label">Annotations</span>
-                        <Link to={'/annotations'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                        <Menu.Item key="annotations" style={itemStyle} data-attr="menu-item-annotations">
+                            <MessageOutlined />
+                            <span className="sidebar-label">Annotations</span>
+                            <Link to={'/annotations'} onClick={collapseSidebar} />
+                        </Menu.Item>,
+                    ]}
 
                     <Menu.SubMenu
                         key="organization"
@@ -284,17 +284,19 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         )}
                     </Menu.SubMenu>
 
-                    <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
-                        <ProjectOutlined />
-                        <span className="sidebar-label">Project</span>
-                        <Link to={'/project/settings'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                    {!!user?.team && [
+                        <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
+                            <ProjectOutlined />
+                            <span className="sidebar-label">Project</span>
+                            <Link to={'/project/settings'} onClick={collapseSidebar} />
+                        </Menu.Item>,
 
-                    <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
-                        <SmileOutlined />
-                        <span className="sidebar-label">Me</span>
-                        <Link to={'/me/settings'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                        <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
+                            <SmileOutlined />
+                            <span className="sidebar-label">Me</span>
+                            <Link to={'/me/settings'} onClick={collapseSidebar} />
+                        </Menu.Item>,
+                    ]}
                 </Menu>
 
                 <Modal
