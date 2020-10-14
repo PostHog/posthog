@@ -1,9 +1,8 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
-
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -38,6 +37,7 @@ export function EventsTable({
     const {
         location: { search },
     } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -161,7 +161,15 @@ export function EventsTable({
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">{isLiveActions ? 'Live Actions' : isPersonPage ? '' : 'Events'}</h1>
+            <h1 className="page-header">
+                {isLiveActions
+                    ? 'Live Actions'
+                    : isPersonPage
+                    ? ''
+                    : !featureFlags['actions-ux-201012']
+                    ? 'Events'
+                    : 'Raw Events Stream'}
+            </h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
