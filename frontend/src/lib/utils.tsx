@@ -492,7 +492,7 @@ export function groupBy<T>(items: T[], groupResolver: (item: T) => string | numb
     for (const item of items) {
         const group = groupResolver(item)
         if (!(group in itemsGrouped)) itemsGrouped[group] = [] // Ensure there's an array to push to
-        itemsGrouped[group].push({ ...item })
+        itemsGrouped[group].push(item)
     }
     return itemsGrouped
 }
