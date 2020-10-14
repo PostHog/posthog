@@ -214,7 +214,7 @@ class _Plugins:
                             plugin.name, plugin.url, plugin.tag
                         )
                     )
-                    print("🔻🔻 Exception: {}".format(e.msg))
+                    print("🔻🔻 Exception: {}".format(e.msg))  # type: ignore
                     os.unlink(plugin_path)  # temporary file no longer needed
                     return
 

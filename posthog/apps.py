@@ -20,7 +20,12 @@ class PostHogConfig(AppConfig):
 
         # Load plugins, except under "migrate/makemigrations" as those init the Plugins model which might not be there
         # Also skip the TEST environment
-        if not settings.TEST and not "makemigrations" in sys.argv and not "migrate" in sys.argv:
+        if (
+            not settings.TEST
+            and not "makemigrations" in sys.argv
+            and not "migrate" in sys.argv
+            and not "manage.py" in sys.argv
+        ):
             Plugins()
 
         if settings.DEBUG:
