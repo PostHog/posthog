@@ -195,8 +195,18 @@ class _Plugins:
                 except KeyError:
                     pass  # no requirements.txt found
 
-                importer = zipimport.zipimporter(plugin_path)
-                module = importer.load_module(module_name)
+                try:
+                    importer = zipimport.zipimporter(plugin_path)
+                    module = importer.load_module(module_name)
+                except zipimport.ZipImportError as e:
+                    print(
+                        '🔻🔻 Could not load zip plugin: name="{}", url="{}", tag="{}"'.format(
+                            plugin.name, plugin.url, plugin.tag
+                        )
+                    )
+                    print("🔻🔻 Exception: {}".format(e.msg))
+                    os.unlink(plugin_path)  # temporary file no longer needed
+                    return
 
                 os.unlink(plugin_path)  # temporary file no longer needed
 
@@ -306,7 +316,8 @@ class _Plugins:
         event = f(event)
         return event
 
-    def reload_plugins(self, message):
+    # using argument message just to be compatible with the pubsub interface
+    def reload_plugins(self, message=None):
         self.load_plugins()
         self.load_plugin_configs()
 
