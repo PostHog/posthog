@@ -9,6 +9,7 @@ class Plugin(models.Model):
     configSchema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
+    locked: models.BooleanField = models.BooleanField(default=False)
 
 
 class PluginConfig(models.Model):

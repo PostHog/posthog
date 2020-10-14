@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0085_org_models"),
+        ("posthog", "0086_team_session_recording_opt_in"),
     ]
 
     operations = [
@@ -19,11 +19,21 @@ class Migration(migrations.Migration):
                 ("name", models.CharField(blank=True, max_length=200, null=True)),
                 ("description", models.TextField(blank=True, null=True)),
                 ("url", models.CharField(blank=True, max_length=800, null=True)),
-                ("enabled", models.BooleanField(default=False)),
-                ("order", models.IntegerField(null=True, blank=True)),
-                ("config", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("configSchema", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
+                ("tag", models.CharField(blank=True, max_length=200, null=True)),
+                ("archive", models.BinaryField(blank=True, null=True)),
+                ("locked", models.BooleanField(default=False)),
+            ],
+        ),
+        migrations.CreateModel(
+            name="PluginConfig",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
+                ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Plugin")),
+                ("enabled", models.BooleanField(default=False)),
+                ("order", models.IntegerField(blank=True, null=True)),
+                ("config", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
             ],
         ),
     ]
