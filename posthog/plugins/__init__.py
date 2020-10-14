@@ -124,6 +124,16 @@ class _Plugins:
 
         self.plugins = list(Plugin.objects.all())
 
+        # unregister plugins no longer in use
+        active_plugin_ids = {}
+        for plugin in self.plugins:
+            active_plugin_ids[plugin.id] = True
+        plugin_ids = list(self.plugins_by_id.keys())
+        for plugin_id in plugin_ids:
+            if not active_plugin_ids.get(plugin_id, None):
+                self.unregister_plugin(plugin_id)
+
+        # register plugins not yet seen
         for plugin in self.plugins:
             local_plugin = plugin.url.startswith("file:") and not plugin.archive
             old_plugin = self.plugins_by_id.get(plugin.id, None)
