@@ -169,7 +169,7 @@ function _Insights() {
             </Row>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
-                    <Card className="mb-3">
+                    <Card className="mb-3" style={{ overflow: 'visible' }}>
                         <div className="card-body px-4 mb-0">
                             {/* 
                             These are insight specific filters. 
