@@ -8,8 +8,18 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, formatPropertyLabel } from 'lib/utils'
 import _ from 'lodash'
+import '../../../scenes/actions/Actions.scss'
 
-const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts, logic, pageKey }) {
+const FilterRow = React.memo(function FilterRow({
+    item,
+    index,
+    filters,
+    cohorts,
+    logic,
+    pageKey,
+    showConditionBadge,
+    totalCount,
+}) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
     const { key } = item
@@ -32,7 +42,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
-                    <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
+                    <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {formatPropertyLabel(item, cohorts, keyMapping)}
                         </span>
@@ -52,11 +62,25 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
                     style={{ cursor: 'pointer', float: 'none' }}
                 />
             )}
+            {key && showConditionBadge && index + 1 < totalCount && (
+                <span
+                    style={{ marginLeft: 16, right: 16, position: 'absolute' }}
+                    className="match-condition-badge mc-and"
+                >
+                    AND
+                </span>
+            )}
         </Row>
     )
 })
 
-export function PropertyFilters({ endpoint = null, propertyFilters = null, onChange = null, pageKey }) {
+export function PropertyFilters({
+    endpoint = null,
+    propertyFilters = null,
+    onChange = null,
+    pageKey,
+    showConditionBadges = false,
+}) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -71,9 +95,11 @@ export function PropertyFilters({ endpoint = null, propertyFilters = null, onCha
                             logic={logic}
                             item={item}
                             index={index}
+                            totalCount={filters.length - 1} // empty state
                             filters={filters}
                             cohorts={cohorts}
                             pageKey={pageKey}
+                            showConditionBadge={showConditionBadges}
                         />
                     )
                 })}

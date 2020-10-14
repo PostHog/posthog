@@ -22,6 +22,7 @@ export function TrendTab(): JSX.Element {
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={false}
+                copy="Add graph series"
             />
             <hr />
             <h4 className="secondary">Filters</h4>
