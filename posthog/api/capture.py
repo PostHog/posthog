@@ -59,12 +59,12 @@ def _get_token(data, request) -> Optional[str]:
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
     try:
-        return str(data["$distinct_id"])
+        return str(data["$distinct_id"])[0:200]
     except KeyError:
         try:
-            return str(data["properties"]["distinct_id"])
+            return str(data["properties"]["distinct_id"])[0:200]
         except KeyError:
-            return str(data["distinct_id"])
+            return str(data["distinct_id"])[0:200]
 
 
 @csrf_exempt
