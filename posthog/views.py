@@ -58,15 +58,20 @@ def system_status(request):
         )
         metrics.append({"metric": "Postgres Event table", "value": f"ca {event_table_count} rows ({event_table_size})"})
 
-    if redis_alive:
-        redis_info = get_redis_info()
-        redis_queue_depth = get_redis_queue_depth()
-        metrics.append({"metric": "Redis current queue depth", "value": f"{redis_queue_depth}"})
-        metrics.append({"metric": "Redis memory used", "value": f"{redis_info['used_memory_human']}"})
-        metrics.append({"metric": "Redis memory peak", "value": f"{redis_info['used_memory_peak_human']}"})
-        metrics.append(
-            {"metric": "Redis total memory available", "value": f"{redis_info['total_system_memory_human']}"}
-        )
+    if not redis_alive:
+        import redis
+
+        try:
+            redis_info = get_redis_info()
+            redis_queue_depth = get_redis_queue_depth()
+            metrics.append({"metric": "Redis current queue depth", "value": f"{redis_queue_depth}"})
+            metrics.append({"metric": "Redis memory used", "value": f"{redis_info['used_memory_human']}"})
+            metrics.append({"metric": "Redis memory peak", "value": f"{redis_info['used_memory_peak_human']}"})
+            metrics.append(
+                {"metric": "Redis total memory available", "value": f"{redis_info['total_system_memory_human']}"}
+            )
+        except redis.exceptions.ConnectionError as e:
+            metrics.append({"metric": "Redis metrics", "value": f"Redis connected but failed to return metrics: {e}"})
 
     return JsonResponse({"results": metrics})
 
