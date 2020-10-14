@@ -35,6 +35,7 @@ export function CommandPalette(): JSX.Element | null {
             // Lastly hide palette
             else hidePalette()
         } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
             togglePalette()
         }
     })
