@@ -46,7 +46,7 @@ function Logo() {
     )
 }
 
-// to show the right page i n the sidebar
+// to show the right page in the sidebar
 const sceneOverride = {
     action: 'actions',
     person: 'people',
