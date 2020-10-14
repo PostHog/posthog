@@ -28,8 +28,10 @@ ACTION_QUERY = """
 SELECT
     events.*,
     pid.person_id as person_id FROM events
-INNER JOIN person_distinct_id as pid ON events.distinct_id=pid.distinct_id
+RIGHT JOIN person_distinct_id as pid ON events.distinct_id=pid.distinct_id
 WHERE uuid IN {action_filter}
+AND events.team_id = %(team_id)s AND pid.team_id=%(team_id)s
+ORDER BY events.timestamp DESC
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
@@ -37,9 +39,10 @@ WHERE uuid IN {action_filter}
 ELEMENT_ACTION_FILTER = """
 (
     SELECT uuid FROM events WHERE 
-    {selector_regex}
-    {attributes_regex}
-    {event_filter}
+        team_id = %(team_id)s
+        {selector_regex}
+        {attributes_regex}
+        {event_filter}
 )
 """
 

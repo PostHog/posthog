@@ -65,6 +65,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             # test :nth-child()
             action2 = Action.objects.create(team=self.team)
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", nth_child=3, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
             ActionStep.objects.create(event="$autocapture", action=action2, selector="div > a:nth-child(2)")
             action2.calculate_events()
 
@@ -94,9 +103,10 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             # this test also specifically tests the back to back receipt of
             # the same type of events by action to test the query cache
             _create_person(distinct_ids=["whatever"], team=self.team)
+            # _create_person(distinct_ids=["whatever2"], team=self.team)
 
             action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", tag_name="a")
+            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
             event1 = _create_event(
@@ -313,6 +323,19 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0].person_id, person.pk)
 
+        def test_person_property(self):
+            _create_person(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
+            _create_person(team=self.team, distinct_ids=["person2"])
+            _create_event(event="$pageview", distinct_id="person1", team=self.team)
+            _create_event(event="$pageview", distinct_id="person2", team=self.team)
+            action = Action.objects.create(name="pageview", team=self.team)
+            ActionStep.objects.create(
+                action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+            )
+            action.calculate_events()
+            events = _get_events_for_action(action)
+            self.assertEqual(len(events), 1)
+
     return TestFilterByActions
 
 
@@ -469,16 +492,6 @@ class TestPreCalculation(BaseTest):
         ActionStep.objects.all().delete()
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by("id")], [])
-
-    def test_save_with_person_property(self):
-        Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
-        Event.objects.create(event="$pageview", distinct_id="person1", team=self.team)
-        action = Action.objects.create(name="pageview", team=self.team)
-        ActionStep.objects.create(
-            action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
-        )
-        action.calculate_events()
-        self.assertEqual(action.events.count(), 1)
 
     def test_empty(self):
         Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})

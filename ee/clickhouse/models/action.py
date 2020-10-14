@@ -15,7 +15,7 @@ from ee.clickhouse.sql.actions import (
 )
 from ee.clickhouse.sql.clickhouse import DROP_TABLE_IF_EXISTS_SQL
 from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.models import Action, Team
+from posthog.models import Action, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
@@ -68,17 +68,28 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
     for index, step in enumerate(steps):
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            element_query, element_params, index = filter_element(step, "{}{}".format(index, prepend), index)
+            query, element_params, index = filter_element(step, "{}{}".format(index, prepend), index)
             params = {**params, **element_params}
-            or_queries.append(element_query)
-
         # filter event
-        elif step.event:
-            event_query, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
+        else:
+            query, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
             params = {**params, **event_params}
-            or_queries.append(event_query)
+
+        if step.properties:
+            from ee.clickhouse.models.property import parse_prop_clauses
+
+            prop_query, prop_params = parse_prop_clauses(
+                "uuid", Filter(data={"properties": step.properties}).properties, action.team
+            )
+            query += "{}".format(prop_query)
+            params = {**params, **prop_params}
+
+        or_queries.append(query)
     or_separator = "OR uuid IN"
     formatted_query = or_separator.join(or_queries)
+    import ipdb
+
+    ipdb.set_trace()
     return formatted_query, params
 
 
@@ -99,7 +110,7 @@ def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
             operation = "trim(BOTH '\"' FROM value) = '{}'".format(step.url)
             params.update({"prop_val_{}".format(index): step.url})
         elif step.url_matching == ActionStep.REGEX:
-            operation = "like(trim(BOTH '\"' FROM value), '{}')".format(step.url)
+            operation = "match(trim(BOTH '\"' FROM value), '{}')".format(step.url)
             params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
             operation = "trim(BOTH '\"' FROM value) LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
@@ -116,17 +127,19 @@ def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
 
 
 def _create_regex(selector: Selector) -> str:
-    regex = r"^.*?"
+    regex = r""
     for idx, tag in enumerate(selector.parts):
         if tag.data.get("tag_name"):
-            regex += "{}[.:]?".format(tag.data["tag_name"])
+            regex += tag.data["tag_name"]
         if tag.data.get("attr_class__contains"):
-            regex += ".*?\.{}".format("\..*?".join(sorted(tag.data["attr_class__contains"])))
-        if idx < len(selector.parts) - 1:
-            regex += "([^;]*?;)" if tag.direct_descendant else "(.*?;)"
-        else:
-            # is last selector
-            regex += ".*?$"
+            regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
+        if tag.ch_attributes:
+            regex += ".*?"
+            for key, value in sorted(tag.ch_attributes.items()):
+                regex += '{}="{}".*?'.format(key, value)
+        regex += r"($|;|:([^;^\s]*(;|$|\s)))"
+        if tag.direct_descendant:
+            regex += ".*"
     print("regex:", regex)
     return regex
 
@@ -141,21 +154,26 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
         params["{}selector_regex".format(prepend)] = _create_regex(selector)
 
     attributes: Dict[str, str] = {}
-    for key in sorted(["tag_name", "text", "href"]):
+    for key in ["href", "text"]:
         if filters.get(key):
             attributes[key] = filters[key]
 
     attributes_regex = False
-    # if len(attributes.keys()) > 0:
-    #     attributes_regex = True
-    #     params['{}attributes_regex'.format(prepend)] = '.*?({}).*?'.format('.*?'.join(['{}="{}"'.format(key, value) for key, value in attributes.items()]))
-    #     print('attribute_regex', '.*?({}).*?'.format('.*?'.join(['{}="{}"'.format(key, value) for key, value in attributes.items()])))
+    if len(attributes.keys()) > 0:
+        attributes_regex = True
+        params["{}attributes_regex".format(prepend)] = ".*?({}).*?".format(
+            ".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
+        )
+        print(
+            "attribute_regex",
+            ".*?({}).*?".format(".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])),
+        )
 
     return (
         ELEMENT_ACTION_FILTER.format(
-            selector_regex="match(elements_chain, %({}selector_regex)s)".format(prepend)
+            selector_regex="AND match(elements_chain, %({}selector_regex)s)".format(prepend)
             if filters.get("selector")
-            else "1=1",
+            else "",
             attributes_regex="AND match(elements_chain, %({}attributes_regex)s)".format(prepend)
             if attributes_regex
             else "",
