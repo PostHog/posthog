@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0086_team_session_recording_opt_in"),
+        ("posthog", "0087_fix_annotation_created_at"),
     ]
 
     operations = [
