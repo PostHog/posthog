@@ -28,7 +28,7 @@ class TestPlugins(BaseTest):
             "plugin_test_distinct_id",
             "",
             "",
-            {"event": "$pageview", "properties": properties,},
+            {"event": "$pageview", "properties": properties.copy(),},
             self.team.pk,
             now().isoformat(),
             now().isoformat(),
