@@ -38,7 +38,8 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
-    if on_permitted_domain(request.user.team, request):
+    team = request.user.team
+    if team and on_permitted_domain(team, request):
         response: Dict[str, Any] = {"isAuthenticated": True}
         editor_params = {}
 

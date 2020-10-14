@@ -147,7 +147,7 @@ function CreateProjectModal({
 
     return (
         <Modal
-            title="Creating an Project"
+            title="Creating a Project"
             okText="Create Project"
             cancelText="Cancel"
             onOk={() => {

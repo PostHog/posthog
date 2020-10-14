@@ -1,6 +1,6 @@
 import React from 'react'
 import { LatestVersion } from './LatestVersion'
-import { User } from './User'
+import { Organization, Projects, User } from './TopSelectors'
 import { CommandPaletteButton } from './CommandPaletteButton'
 import { isMobile } from 'lib/utils'
 import './index.scss'
@@ -31,6 +31,8 @@ export function TopContent(): JSX.Element {
                 }}
             >
                 <LatestVersion />
+                <Organization />
+                <Projects />
                 <User />
             </div>
         </div>
