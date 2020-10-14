@@ -190,6 +190,7 @@ export const commandPaletteLogic = kea<
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
                 actions.activateFlow(null)
+                actions.hidePalette()
             } else {
                 const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
