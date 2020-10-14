@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Optional, Type
 from .utils import download_plugin_github_zip
 
 
-def sync_posthog_json_plugins(raise_errors=False):
+def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
     from posthog.models.plugin import Plugin
 
-    json_plugins = get_json_plugins(raise_errors=raise_errors)
+    json_plugins = get_json_plugins(raise_errors=raise_errors, filename=filename)
 
     config_plugins: Dict[str, Dict[str, Any]] = {}
 
@@ -40,9 +40,9 @@ def sync_posthog_json_plugins(raise_errors=False):
         # return plugin_configs
 
 
-def get_json_plugins(raise_errors=False):
+def get_json_plugins(raise_errors=False, filename="posthog.json"):
     try:
-        with open("posthog.json", "r") as f:
+        with open(filename, "r") as f:
             return json.loads(f.read()).get("plugins", [])
     except json.JSONDecodeError as e:
         print_or_raise(
