@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { CommandResult as CommandResultType } from './commandPaletteLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -12,7 +12,12 @@ interface CommandResultProps {
 function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
     const { onMouseEnterResult, onMouseLeaveResult, executeResult } = useActions(commandPaletteLogic)
 
+    const ref = useRef<HTMLDivElement | null>(null)
+
     const isExecutable = !!result.executor
+    useEffect(() => {
+        ref.current?.scrollIntoView()
+    }, [focused])
 
     return (
         <div
@@ -28,6 +33,8 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
             onClick={() => {
                 if (isExecutable) executeResult(result)
             }}
+            title={result.display}
+            ref={ref}
         >
             <result.icon className="palette__icon" />
             <div className="palette__display">{result.display}</div>
