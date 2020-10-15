@@ -136,7 +136,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 properties={"$current_url": "https://something.com"},
             )
             filter = Filter(data={"properties": [{"key": "group", "value": 1, "type": "person"}]})
-            events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
+            events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(events[0], event2)
             self.assertEqual(len(events), 1)
 
