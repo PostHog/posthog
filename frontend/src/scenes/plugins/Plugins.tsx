@@ -15,7 +15,7 @@ function _Plugins(): JSX.Element {
         return <div />
     }
 
-    if (!user?.plugin_access?.view) {
+    if (!user?.plugin_access?.configure) {
         useEffect(() => {
             window.location.href = '/'
         }, [])

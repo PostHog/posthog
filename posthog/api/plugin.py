@@ -51,7 +51,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.INSTALL_PLUGINS_FROM_WEB and not settings.CONFIGURE_PLUGINS_FROM_WEB:
             return queryset.none()
         return queryset
 

@@ -282,7 +282,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             </Menu.Item>
                         )}
 
-                        {user.plugin_access?.view && (
+                        {user.plugin_access?.configure && (
                             <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
                                 <ApiOutlined />
                                 <span className="sidebar-label">Plugins</span>
