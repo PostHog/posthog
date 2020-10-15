@@ -30,7 +30,6 @@ SELECT
 FROM events
 WHERE uuid IN {action_filter}
 AND events.team_id = %(team_id)s
-ORDER BY events.timestamp DESC
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
@@ -41,6 +40,7 @@ ELEMENT_ACTION_FILTER = """
         team_id = %(team_id)s
         {selector_regex}
         {attributes_regex}
+        {tag_name_regex}
         {event_filter}
 )
 """

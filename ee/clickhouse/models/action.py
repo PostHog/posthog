@@ -150,6 +150,9 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
         selector = Selector(filters["selector"], escape_slashes=False)
         params["{}selector_regex".format(prepend)] = _create_regex(selector)
 
+    if filters.get("tag_name"):
+        params["{}tag_name_regex".format(prepend)] = r"^{}($|;|:([^;^\s]*(;|$|\s)))".format(filters["tag_name"])
+
     attributes: Dict[str, str] = {}
     for key in ["href", "text"]:
         if filters.get(key):
@@ -169,6 +172,9 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
             else "",
             attributes_regex="AND match(elements_chain, %({}attributes_regex)s)".format(prepend)
             if attributes_regex
+            else "",
+            tag_name_regex="AND match(elements_chain, %({}tag_name_regex)s)".format(prepend)
+            if 1 == 2  # filters.get('tag_name')
             else "",
             event_filter="AND uuid IN {}".format(event_filter) if event_filter else "",
         ),
