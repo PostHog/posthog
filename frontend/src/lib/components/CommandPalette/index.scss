@@ -1,4 +1,5 @@
 .palette__overlay {
+    z-index: 2147483021;
     position: fixed;
     top: 0;
     left: 0;
@@ -10,7 +11,6 @@
 }
 
 .palette__box {
-    z-index: 99999;
     position: absolute;
     top: 30%;
     display: flex;
@@ -19,6 +19,16 @@
     max-width: 100%;
     max-height: 60%;
     color: #fff;
+    @media (max-width: 500px) {
+        top: 10%;
+        max-height: 80%;
+        width: 100%;
+    }
+    @media (max-height: 500px) {
+        top: 0%;
+        max-height: 100%;
+        max-width: 90%;
+    }
 }
 
 .palette__row {
@@ -40,11 +50,8 @@
 }
 
 .palette__display {
-    padding-left: 1.5rem;
+    padding: 0 0 0 1.5rem;
     font-size: 1rem;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
 }
 
 .palette__input {
