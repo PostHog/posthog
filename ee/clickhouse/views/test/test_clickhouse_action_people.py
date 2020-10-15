@@ -1,7 +1,6 @@
 from uuid import uuid4
 
 from ee.clickhouse.models.action import populate_action_event_table
-from ee.clickhouse.models.cohort import populate_cohort_person_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
@@ -24,7 +23,6 @@ def _create_cohort(**kwargs):
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
-    populate_cohort_person_table(cohort)
     return cohort
 
 

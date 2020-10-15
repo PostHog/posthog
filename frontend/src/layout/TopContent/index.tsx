@@ -1,7 +1,6 @@
 import React from 'react'
 import { LatestVersion } from './LatestVersion'
 import { User } from './User'
-import { WorkerStats } from './WorkerStats'
 import { CommandPaletteButton } from './CommandPaletteButton'
 import { isMobile } from 'lib/utils'
 import './index.scss'
@@ -32,7 +31,6 @@ export function TopContent(): JSX.Element {
                 }}
             >
                 <LatestVersion />
-                <WorkerStats />
                 <User />
             </div>
         </div>

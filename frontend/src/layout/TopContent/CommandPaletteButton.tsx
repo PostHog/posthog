@@ -16,7 +16,7 @@ export function CommandPaletteButton(): JSX.Element {
             title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
         >
             <SearchOutlined size={1} style={{ marginRight: '0.5rem' }} />
-            {platformCommandControlKey()} + K
+            {platformCommandControlKey('K')}
         </span>
     )
 }

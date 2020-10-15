@@ -26,7 +26,6 @@ export function UpdateEmailPreferences() {
             </label>
             {saved && <p className="text-success">Preference saved.</p>}
             <br />
-            <br />
         </div>
     )
 }

@@ -258,7 +258,7 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                 <span>
                     {data.examples ? (
                         <>
-                            <p>{data.description}</p>
+                            <span>{data.description}</span>
                             <span>
                                 <i>Example: </i>
                                 {data.examples.join(', ')}

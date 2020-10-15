@@ -1,8 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import moment from 'moment'
-import _ from 'lodash'
-import { determineDifferenceType, deleteWithUndo, toParams } from '~/lib/utils'
+import { determineDifferenceType, deleteWithUndo, toParams, groupBy } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 
@@ -114,12 +113,8 @@ export const annotationsLogic = kea({
         ],
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
-            (annotationsList, diffType) => {
-                const groupedResults = _.groupBy(annotationsList, (annote) =>
-                    moment(annote['date_marker']).startOf(diffType)
-                )
-                return groupedResults
-            },
+            (annotationsList, diffType) =>
+                groupBy(annotationsList, (annotation) => moment(annotation['date_marker']).startOf(diffType)),
         ],
     }),
     listeners: ({ actions, props }) => ({
