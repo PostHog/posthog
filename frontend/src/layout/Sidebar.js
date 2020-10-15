@@ -20,6 +20,7 @@ import {
     TeamOutlined,
     LockOutlined,
     WalletOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -63,6 +64,7 @@ const submenuOverride = {
     annotations: 'settings',
     billing: 'settings',
     licenses: 'settings',
+    systemStatus: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -259,6 +261,14 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
                                 <Link to="/billing" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+
+                        {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
+                            <Menu.Item key="systemStatus" style={itemStyle} data-attr="menu-item-system-status">
+                                <DatabaseOutlined />
+                                <span className="sidebar-label">System Status</span>
+                                <Link to={'/system_status'} onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
 
