@@ -115,6 +115,7 @@ def update_plugin_from_config(db_plugin, config_plugin):
         db_plugin.url = new_url
         db_plugin.tag = new_tag
         if db_plugin.url.startswith("file:"):
+            db_plugin.archive = None
             json = load_json_file(os.path.join(db_plugin.url.replace("file:", "", 1), "plugin.json"))
             if json:
                 db_plugin.description = json["description"]
