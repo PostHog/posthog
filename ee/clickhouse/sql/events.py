@@ -77,11 +77,29 @@ INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(
 """
 
 GET_EVENTS_SQL = """
-SELECT * FROM events_with_array_props_view
+SELECT
+    ewap.uuid,
+    ewap.event,
+    ewap.properties,
+    ewap.timestamp,
+    ewap.team_id,
+    ewap.distinct_id,
+    ewap.elements_chain,
+    ewap.created_at
+FROM events_with_array_props_view as ewap
 """
 
 GET_EVENTS_BY_TEAM_SQL = """
-SELECT * FROM events_with_array_props_view WHERE team_id = %(team_id)s
+SELECT
+    ewap.uuid,
+    ewap.event,
+    ewap.properties,
+    ewap.timestamp,
+    ewap.team_id,
+    ewap.distinct_id,
+    ewap.elements_chain,
+    ewap.created_at
+FROM events_with_array_props_view as ewap WHERE team_id = %(team_id)s
 """
 
 EVENTS_WITH_PROPS_TABLE_SQL = """
@@ -149,7 +167,14 @@ SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
 SELECT
-    ewap.*
+    ewap.uuid,
+    ewap.event,
+    ewap.properties,
+    ewap.timestamp,
+    ewap.team_id,
+    ewap.distinct_id,
+    ewap.elements_chain,
+    ewap.created_at
 FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
@@ -159,7 +184,14 @@ ORDER BY ewap.timestamp DESC {limit}
 
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
-    ewap.*
+    ewap.uuid,
+    ewap.event,
+    ewap.properties,
+    ewap.timestamp,
+    ewap.team_id,
+    ewap.distinct_id,
+    ewap.elements_chain,
+    ewap.created_at
 FROM events_with_array_props_view AS ewap
 WHERE 
 ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
@@ -168,7 +200,16 @@ ORDER BY ewap.timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
-SELECT * FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+SELECT
+    ewap.uuid,
+    ewap.event,
+    ewap.properties,
+    ewap.timestamp,
+    ewap.team_id,
+    ewap.distinct_id,
+    ewap.elements_chain,
+    ewap.created_at
+FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 EVENT_PROP_CLAUSE = """

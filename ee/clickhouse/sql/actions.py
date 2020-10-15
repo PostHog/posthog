@@ -1,7 +1,16 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
 FILTER_EVENT_BY_ACTION_SQL = """
-SELECT * FROM events where uuid IN (
+SELECT
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
+FROM events where uuid IN (
     SELECT uuid FROM {table_name}
 )
 """
@@ -26,7 +35,14 @@ INSERT INTO {table_name} SELECT uuid FROM ({query})
 
 ACTION_QUERY = """
 SELECT
-    events.*
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
 FROM events
 WHERE uuid IN {action_filter}
 AND events.team_id = %(team_id)s
