@@ -37,6 +37,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.filters,
                 })
+                await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()
                 if (response.offset) {
@@ -113,21 +114,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     urlToAction: ({ actions, values }) => ({
         '/sessions': (_: any, { date, properties }: { date: string; properties: Record<string, any> }) => {
             const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            if (
-                !values.selectedDate ||
-                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
-                JSON.stringify(properties || {}) !== JSON.stringify(values.filters)
-            ) {
-                actions.setFilters(properties || {}, newDate)
-            }
+            actions.setFilters(properties || {}, newDate)
         },
         '/person/*': (_: any, { date, properties }: { date: string; properties: Record<string, any> }) => {
             const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            if (
-                !values.selectedDate ||
-                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
-                JSON.stringify(properties || {}) !== JSON.stringify(values.filters)
-            ) {
+            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
                 actions.setFilters(properties || {}, newDate)
             }
         },

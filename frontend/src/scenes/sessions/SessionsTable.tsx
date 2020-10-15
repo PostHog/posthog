@@ -104,11 +104,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <DatePicker value={selectedDate} onChange={(date) => setFilters(filters, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
-            <PropertyFilters
-                propertyFilters={filters}
-                pageKey={'sessions-' + (personIds && JSON.stringify(personIds))}
-                onChange={(properties) => setFilters(properties, selectedDate)}
-            />
+            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
