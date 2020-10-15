@@ -1,17 +1,19 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useValues, useActions, useMountedLogic } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
-import { ActionFilter } from '../ActionFilter/ActionFilter'
+import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
 import { useState } from 'react'
-import SaveModal from '../SaveModal'
+import SaveModal from '../../SaveModal'
+import { funnelCommandLogic } from './funnelCommandLogic'
 
 export function FunnelTab(): JSX.Element {
+    useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic)
     const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const { actions, actionsLoading } = useValues(actionsModel)
@@ -44,6 +46,7 @@ export function FunnelTab(): JSX.Element {
                     setFilters={(filters): void => setFilters(filters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
+                    copy="Add funnel step"
                 />
                 <hr />
                 <h4 className="secondary">Filters</h4>

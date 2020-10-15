@@ -5,6 +5,7 @@ import { objectsEqual } from 'lib/utils'
 export const compareFilterLogic = kea({
     actions: () => ({
         setCompare: (compare) => ({ compare }),
+        toggleCompare: true,
     }),
     reducers: ({ actions }) => ({
         compare: [
@@ -24,6 +25,9 @@ export const compareFilterLogic = kea({
             if (!objectsEqual(compare, values.compare)) {
                 router.actions.push(pathname, searchParams)
             }
+        },
+        [actions.toggleCompare]: () => {
+            actions.setCompare(!values.compare)
         },
     }),
     urlToAction: ({ actions }) => ({

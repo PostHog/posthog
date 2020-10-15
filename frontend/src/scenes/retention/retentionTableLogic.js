@@ -4,6 +4,14 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import moment from 'moment'
+
+export const dateOptions = {
+    h: 'Hour',
+    d: 'Day',
+    w: 'Week',
+    m: 'Month',
+}
 
 function cleanRetentionParams(filters, properties) {
     return {
@@ -20,6 +28,8 @@ export const retentionTableLogic = kea({
             loadRetention: async () => {
                 let params = {}
                 params['properties'] = values.properties
+                if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
+                if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/insight/retention/?${urlParams}`)
@@ -62,9 +72,15 @@ export const retentionTableLogic = kea({
             },
         ],
         filters: [
-            {},
             {
-                setFilters: (_, { filters }) => filters,
+                startEntity: {
+                    events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                },
+                selectedDate: moment().subtract(11, 'days'),
+                period: 'd',
+            },
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         people: {
@@ -98,11 +114,23 @@ export const retentionTableLogic = kea({
         startEntity: [
             () => [selectors.filters],
             (filters) => {
-                const result = Object.keys(filters).reduce(function (r, k) {
-                    return r.concat(filters[k])
+                const result = Object.keys(filters.startEntity).reduce(function (r, k) {
+                    return r.concat(filters.startEntity[k])
                 }, [])
 
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
+            },
+        ],
+        selectedDate: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.selectedDate
+            },
+        ],
+        period: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.period
             },
         ],
     }),
