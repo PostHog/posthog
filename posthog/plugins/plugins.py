@@ -11,8 +11,6 @@ from types import ModuleType
 from typing import Any, Dict, List, Optional, Type
 from zipfile import ZipFile
 
-import pip  # type: ignore
-
 from posthog.cache import get_redis_instance
 from posthog.utils import SingletonDecorator
 
@@ -304,6 +302,8 @@ class _Plugins:
                 self.install_requirement(requirement)
 
     def install_requirement(self, requirement):
+        import pip  # type: ignore
+
         if hasattr(pip, "main"):
             pip.main(["install", requirement])
         else:
