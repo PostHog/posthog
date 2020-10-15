@@ -22,6 +22,9 @@ chain_to_elements_regex = re.compile(
     re.MULTILINE,
 )
 
+# Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
+split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
+
 
 def _escape(input: str) -> str:
     return input.replace('"', r"\"")
@@ -53,7 +56,7 @@ def elements_to_string(elements: List[Element],) -> str:
 
 def chain_to_elements(chain: str) -> List[Element]:
     elements = []
-    for idx, el_string in enumerate(chain.split(";")):
+    for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
         parsed = re.finditer(chain_to_elements_regex, el_string)
         element = Element(order=idx)
         for ii in parsed:
