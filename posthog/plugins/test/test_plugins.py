@@ -53,7 +53,7 @@ class TestPlugins(BaseTest):
             tag="3c4c77e7d7878e87be3c2373b658c74ec3085f49",
             archive=base64.b64decode(HELLO_WORLD_PLUGIN),
             from_web=True,
-            from_cli=False,
+            from_json=False,
         )
         plugin_config = PluginConfig.objects.create(
             team=self.team, plugin=plugin, enabled=True, order=0, config={"bar": "foo"},

@@ -19,9 +19,9 @@ def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
     db_plugins = {}
     for plugin in list(Plugin.objects.all()):
         # was added from the CLI, but no longer requested
-        if plugin.from_cli and not config_plugins.get(plugin.name, None):
+        if plugin.from_json and not config_plugins.get(plugin.name, None):
             if plugin.from_web:
-                plugin.from_cli = False
+                plugin.from_json = False
                 plugin.save()
             else:
                 plugin.delete()
@@ -91,7 +91,7 @@ def create_plugin_from_config(config_plugin=None, raise_errors=False):
         tag=tag,
         archive=archive,
         config_schema=config_schema,
-        from_cli=True,
+        from_json=True,
     )
 
 
@@ -100,14 +100,14 @@ def config_and_db_plugin_in_sync(config_plugin, db_plugin):
 
     return (
         not url.startswith("file:")
-        and db_plugin.from_cli
+        and db_plugin.from_json
         and db_plugin.url == url
         and db_plugin.tag == config_plugin.get("tag", "")
     )
 
 
 def update_plugin_from_config(db_plugin, config_plugin):
-    db_plugin.from_cli = True
+    db_plugin.from_json = True
     new_url = config_plugin.get("url", "file:{}".format(config_plugin.get("path", "")))
     new_tag = config_plugin.get("tag", "")
 

@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ("config_schema", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("tag", models.CharField(blank=True, max_length=200, null=True)),
                 ("archive", models.BinaryField(blank=True, null=True)),
-                ("from_cli", models.BooleanField(default=False)),
+                ("from_json", models.BooleanField(default=False)),
                 ("from_web", models.BooleanField(default=False)),
             ],
         ),

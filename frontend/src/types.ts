@@ -199,7 +199,7 @@ export interface PluginType {
     url: string
     tag: string
     config_schema: Record<string, PluginConfigSchema>
-    from_cli: boolean
+    from_json: boolean
     from_web: boolean
 }
 

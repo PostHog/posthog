@@ -24,8 +24,8 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if plugin.from_cli:
-            raise Exception('Can not update plugin "{}", which is configured from the CLI!'.format(plugin.name))
+        if plugin.from_json:
+            raise Exception('Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name))
         plugin.name = validated_data.get("name", plugin.name)
         plugin.description = validated_data.get("description", plugin.description)
         plugin.url = validated_data.get("url", plugin.url)
@@ -49,8 +49,8 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         plugin = Plugin.objects.get(pk=pk)
-        if plugin.from_cli:
-            raise Exception('Can not delete plugin "{}", which is configured from the CLI!'.format(plugin.name))
+        if plugin.from_json:
+            raise Exception('Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name))
         plugin.delete()
         Plugins().publish_reload_command()
         return Response(status=204)

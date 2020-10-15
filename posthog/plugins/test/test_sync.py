@@ -78,7 +78,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
@@ -97,7 +97,7 @@ class TestPluginsSync(BaseTest):
                 config_schema={},
                 tag="",
                 from_web=True,
-                from_cli=False,
+                from_json=False,
             )
             self.assertEqual(len(Plugin.objects.all()), 1)
 
@@ -111,7 +111,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
@@ -125,7 +125,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, False)
+            self.assertEqual(plugin.from_json, False)
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
@@ -151,7 +151,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
         self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-        self.assertEqual(plugin.from_cli, True)
+        self.assertEqual(plugin.from_json, True)
         self.assertEqual(plugin.from_web, False)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
@@ -170,7 +170,7 @@ class TestPluginsSync(BaseTest):
             tag="BAD TAG",
             archive=bytes("blabla".encode("utf-8")),
             from_web=True,
-            from_cli=False,
+            from_json=False,
         )
         self.assertEqual(len(Plugin.objects.all()), 1)
 
@@ -192,7 +192,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
         self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-        self.assertEqual(plugin.from_cli, True)
+        self.assertEqual(plugin.from_json, True)
         self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
@@ -206,7 +206,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
         self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-        self.assertEqual(plugin.from_cli, False)
+        self.assertEqual(plugin.from_json, False)
         self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
@@ -229,7 +229,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
             self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
@@ -242,7 +242,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
@@ -263,7 +263,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
             self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
-            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
             self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")

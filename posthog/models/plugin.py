@@ -9,7 +9,7 @@ class Plugin(models.Model):
     config_schema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    from_cli: models.BooleanField = models.BooleanField(default=False)
+    from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
 
 
