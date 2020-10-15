@@ -4,22 +4,30 @@ import { PluginModal } from 'scenes/plugins/PluginModal'
 import { CustomPlugin } from 'scenes/plugins/CustomPlugin'
 import { Repository } from 'scenes/plugins/Repository'
 import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
+    const { user } = useValues(userLogic)
+    if (!user) {
+        return <div />
+    }
+
     return (
         <div>
             <InstalledPlugins />
 
-            <br />
-            <br />
-
-            <Repository />
-
-            <br />
-            <br />
-
-            <CustomPlugin />
+            {user.plugin_access?.install ? (
+                <>
+                    <br />
+                    <br />
+                    <Repository />
+                    <br />
+                    <br />
+                    <CustomPlugin />
+                </>
+            ) : null}
 
             <PluginModal />
         </div>

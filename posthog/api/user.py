@@ -93,6 +93,11 @@ def user(request):
             "billing_plan": request.user.billing_plan,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": request.user.ee_available,
+            "plugin_access": {
+                "view": True,
+                "install": settings.INSTALL_PLUGINS_FROM_WEB,
+                "configure": settings.CONFIGURE_PLUGINS_FROM_WEB,
+            },
         }
     )
 

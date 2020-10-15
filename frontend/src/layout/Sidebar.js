@@ -282,11 +282,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             </Menu.Item>
                         )}
 
-                        <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
-                            <ApiOutlined />
-                            <span className="sidebar-label">Plugins</span>
-                            <Link to="/setup/plugins" onClick={collapseSidebar} />
-                        </Menu.Item>
+                        {user.plugin_access?.view && (
+                            <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
+                                <ApiOutlined />
+                                <span className="sidebar-label">Plugins</span>
+                                <Link to="/setup/plugins" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                     </Menu.SubMenu>
 
                     <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">

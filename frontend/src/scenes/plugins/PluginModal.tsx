@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input, Modal, Popconfirm, Switch } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export function PluginModal(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
@@ -30,17 +32,19 @@ export function PluginModal(): JSX.Element {
             confirmLoading={pluginsLoading}
             footer={
                 <>
-                    <Popconfirm
-                        placement="topLeft"
-                        title="Are you sure you wish to uninstall this plugin?"
-                        onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
-                        okText="Yes"
-                        cancelText="No"
-                    >
-                        <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
-                            <DeleteOutlined /> Uninstall
-                        </Button>
-                    </Popconfirm>
+                    {user?.plugin_access?.install && (
+                        <Popconfirm
+                            placement="topLeft"
+                            title="Are you sure you wish to uninstall this plugin?"
+                            onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
+                            okText="Yes"
+                            cancelText="No"
+                        >
+                            <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
+                                <DeleteOutlined /> Uninstall
+                            </Button>
+                        </Popconfirm>
+                    )}
                     <Button onClick={() => editPlugin(null)}>Cancel</Button>
                     <Button type="primary" loading={pluginsLoading} onClick={() => form.submit()}>
                         Save

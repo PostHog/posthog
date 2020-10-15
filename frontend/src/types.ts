@@ -11,10 +11,17 @@ export interface UserType {
     team: TeamType
     toolbar_mode: 'disabled' | 'toolbar'
     billing: OrganizationBilling
+    plugin_access: PluginAccess
 }
 
 export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
     team: Partial<TeamType>
+}
+
+export interface PluginAccess {
+    view: boolean
+    install: boolean
+    configure: boolean
 }
 
 export interface PersonalAPIKeyType {
