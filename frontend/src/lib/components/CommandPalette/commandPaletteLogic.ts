@@ -37,6 +37,7 @@ import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
 import { copyToClipboard, isURL, sample, uniqueBy } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
@@ -495,7 +496,7 @@ export const commandPaletteLogic = kea<
                         icon: LogoutOutlined,
                         display: 'Log Out',
                         executor: () => {
-                            window.location.href = '/logout'
+                            userLogic.actions.logout()
                         },
                     },
                 ],

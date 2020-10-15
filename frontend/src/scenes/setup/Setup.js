@@ -82,10 +82,11 @@ function _Setup() {
             <h2>Security and Feature Updates</h2>
             <UpdateEmailPreferences />
             <Divider />
-            <h2>
-                PostHog Toolbar <span style={{ color: 'red' }}>[BETA]</span>
-            </h2>
+            <h2>PostHog Toolbar</h2>
             <ToolbarSettings />
+            <br />
+            <br />
+            <br />
         </div>
     )
 }

@@ -21,6 +21,7 @@ import {
     LockOutlined,
     WalletOutlined,
     ApiOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -65,6 +66,7 @@ const submenuOverride = {
     billing: 'settings',
     licenses: 'settings',
     plugins: 'settings',
+    systemStatus: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -83,6 +85,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
+    const toolbarEnabled = user.toolbar_mode !== 'disabled'
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
@@ -119,17 +122,19 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 >
                     <Logo />
 
-                    <Menu.Item
-                        key="toolbar"
-                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
-                        onClick={() => setToolbarModalOpen(true)}
-                        data-attr="menu-item-toolbar"
-                    >
-                        <div className="sidebar-toolbar-imitation">
-                            <HogIcon />
-                        </div>
-                        <span className="sidebar-label">Launch Toolbar!</span>
-                    </Menu.Item>
+                    {toolbarEnabled ? (
+                        <Menu.Item
+                            key="toolbar"
+                            style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
+                            onClick={() => setToolbarModalOpen(true)}
+                            data-attr="menu-item-toolbar"
+                        >
+                            <div className="sidebar-toolbar-imitation">
+                                <HogIcon />
+                            </div>
+                            <span className="sidebar-label">Launch Toolbar!</span>
+                        </Menu.Item>
+                    ) : null}
 
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
@@ -258,6 +263,14 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
                                 <Link to="/billing" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+
+                        {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
+                            <Menu.Item key="systemStatus" style={itemStyle} data-attr="menu-item-system-status">
+                                <DatabaseOutlined />
+                                <span className="sidebar-label">System Status</span>
+                                <Link to={'/system_status'} onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
 

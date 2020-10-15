@@ -58,7 +58,7 @@ export function ToolbarButton(): JSX.Element {
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
     const { isAuthenticated } = useValues(toolbarLogic)
-    const { authenticate, hideButton } = useActions(toolbarLogic)
+    const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
@@ -143,7 +143,7 @@ export function ToolbarButton(): JSX.Element {
                 rotation={closeRotation}
                 content={<Close style={{ width: 14, height: 14 }} />}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
-                onClick={hideButton}
+                onClick={logout}
                 style={{
                     cursor: 'pointer',
                     background: '#393939',

@@ -52,7 +52,7 @@ const FilterRow = React.memo(function FilterRow({
                     </Button>
                 )}
             </Popover>
-            {Object.keys(filters[index]).length && (
+            {!!Object.keys(filters[index]).length && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {

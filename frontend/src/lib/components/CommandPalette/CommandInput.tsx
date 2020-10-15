@@ -26,6 +26,7 @@ export function CommandInput(): JSX.Element {
                     setInput(event.target.value)
                 }}
                 placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
+                data-attr="command-palette-input"
             />
         </div>
     )
