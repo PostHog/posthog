@@ -79,6 +79,6 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
 
         if self.CONFIG_USER_EMAIL:
             self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
-
+            self.organization_membership = self.user.organization_memberships.get()
             if self.CONFIG_AUTO_LOGIN:
                 self.client.force_login(self.user)

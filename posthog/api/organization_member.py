@@ -1,11 +1,28 @@
-from django.db.models import QuerySet, query
+from django.db.models import Model, QuerySet, query
 from django.http.response import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.request import Request
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions, extract_organization
+
+
+class OrganizationAdminWriteExcludingDeletePermissions(BasePermission):
+    """Require organization admin level to change object, allowing everyone read AND delete."""
+
+    message = "Your organization access level is insufficient."
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if request.method in SAFE_METHODS or request.method == "DELETE":
+            return True
+        organization = extract_organization(object)
+        return (
+            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
 
 
 class OrganizationMembershipSerializer(serializers.ModelSerializer):
@@ -27,7 +44,7 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMembershipSerializer
     pagination_class = None
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWriteExcludingDeletePermissions]
     queryset = OrganizationMembership.objects.all()
     lookup_field = "user_id"
     ordering_fields = ["level", "joined_at", "user_first_name"]
@@ -57,15 +74,15 @@ class OrganizationMemberViewSet(
 
     def destroy(self, request, *args, **kwargs):
         """Member removal with validation (admin permissions)."""
-        member_to_delete = self.get_object()
+        membership_to_delete = self.get_object()
         try:
             if (
-                member_to_delete != request.user
+                membership_to_delete.user != request.user
                 and request.user.organization_memberships.get(organization=request.user.organization).level
                 < OrganizationMembership.Level.ADMIN
             ):
                 raise exceptions.PermissionDenied("You are not permitted to delete other organization members.")
         except OrganizationMembership.DoesNotExist:
             raise exceptions.NotFound("User does not exist or does not belong to the organization.")
-        OrganizationMembership.objects.get(organization=request.user.organization, user=member_to_delete)
+        membership_to_delete.delete()
         return response.Response(status=status.HTTP_204_NO_CONTENT)

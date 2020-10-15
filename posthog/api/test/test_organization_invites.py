@@ -1,4 +1,4 @@
-from posthog.models.organization import OrganizationInvite
+from posthog.models.organization import OrganizationInvite, OrganizationMembership
 
 from .base import APIBaseTest
 
@@ -44,8 +44,21 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-    def test_delete_organization_member(self):
+    def test_delete_organization_invite_only_if_admin(self):
         invite = OrganizationInvite.objects.create(organization=self.organization)
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        self.assertDictEqual(
+            response.data,
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Your organization access level is insufficient.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         self.assertIsNone(response.data)
         self.assertEqual(response.status_code, 204)
