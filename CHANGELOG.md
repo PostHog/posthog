@@ -4,7 +4,7 @@
 
 - [ClickHouse 👆🏠](https://github.com/PostHog/posthog/pulls?page=1&q=is%3Apr+clickhouse+is%3Aclosed)
 
-![Clickhouse Screenshot](../images/blog/array/clickhouse.png)
+![Clickhouse Screenshot](https://posthog.com/static/497eaa939ba2d66d6e2492a3631d468f/2cefc/clickhouse.png)
 
 If you've followed our progress on GitHub over the past months, you'll know that ClickHouse has been the talk of the town.
 
@@ -20,7 +20,7 @@ If you're interested in using PostHog with ClickHouse, send us an email at _sale
 
 - [Command Palette](https://github.com/PostHog/posthog/pull/1819)
 
-![Command Palette Screenshot](../images/blog/array/command-palette.png)
+![Command Palette Screenshot](https://posthog.com/static/8513e8c18553e4fc9a3e6948dab5c35b/2cefc/command-palette.png)
 
 <br />
 
@@ -37,7 +37,7 @@ Stay tuned for more exciting features that were built during the hackathon.
 
 - [Backend Feature Flags](https://github.com/PostHog/posthog-python/pull/9)
 
-![Backend Feature Flags Code](../images/blog/array/backend-flags.png)
+![Backend Feature Flags Code](https://posthog.com/static/b12efdcc6c415513af002951f35c8528/2cefc/backend-flags.png)
 
 
 Based on community feedback, we made it easier for feature flags to be integrated into your backend, in addition to our frontend JavaScript implementation.
@@ -48,7 +48,7 @@ We have ourselves been using feature flags with the Python integration to slowly
 
 - [Weekly Report Email](https://github.com/PostHog/posthog/pull/1700)
 
-![Weekly Email Screenshot](../images/blog/array/weekly-email.png)
+![Weekly Email Screenshot](https://posthog.com/static/054f1fcbdb9fcb12383b34c0019f5966/2cefc/weekly-email.png)
 
 To help users keep up with their key metrics in a simple way, we have introduced a weekly email that gives you an overview of your active and churned users over the previous week.
 
