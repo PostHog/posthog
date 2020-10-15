@@ -38,8 +38,8 @@ def elements_to_string(elements: List[Element],) -> str:
                 el_string += ".{}".format(single_class)
         attributes = {
             **({"text": element.text} if element.text else {}),
-            "nth-child": element.nth_child,
-            "nth-of-type": element.nth_of_type,
+            "nth-child": element.nth_child or 0,
+            "nth-of-type": element.nth_of_type or 0,
             **({"href": element.href} if element.href else {}),
             **({"attr_id": element.attr_id} if element.attr_id else {}),
             **element.attributes,
