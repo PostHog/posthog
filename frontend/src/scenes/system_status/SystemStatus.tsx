@@ -24,7 +24,6 @@ function _Status(): JSX.Element {
             <p style={{ maxWidth: 600 }}>
                 <i>Here you can find all the critical runtime details about your PostHog installation.</i>
             </p>
-            <br />
             {error && (
                 <Alert
                     message={error.detail || <span>Something went wrong. Please try again or contact us.</span>}
