@@ -4,6 +4,7 @@ from typing import Any, Dict
 import requests
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from posthog.models import Plugin, PluginConfig
@@ -17,7 +18,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
-            raise Exception('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+            raise APIException('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
         plugin = Plugin.objects.create(from_web=True, **validated_data)
         Plugins().publish_reload_command()
@@ -25,7 +26,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if plugin.from_json:
-            raise Exception('Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name))
+            raise APIException('Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name))
         plugin.name = validated_data.get("name", plugin.name)
         plugin.description = validated_data.get("description", plugin.description)
         plugin.url = validated_data.get("url", plugin.url)
@@ -50,7 +51,7 @@ class PluginViewSet(viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         plugin = Plugin.objects.get(pk=pk)
         if plugin.from_json:
-            raise Exception('Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name))
+            raise APIException('Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name))
         plugin.delete()
         Plugins().publish_reload_command()
         return Response(status=204)
