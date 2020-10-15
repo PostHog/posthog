@@ -64,7 +64,7 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
 
 def get_formatted_message(action: Action, event: Event, site_url: str,) -> Tuple[str, str]:
     message_format = action.slack_message_format
-    if message_format is None:
+    if not message_format:
         message_format = "[action.name] was triggered by [user.name]"
 
     try:
