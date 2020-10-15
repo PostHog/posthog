@@ -11,6 +11,8 @@ export function PluginModal(): JSX.Element {
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
+    const canDelete = user?.plugin_access?.install && !editingPlugin?.from_json
+
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
@@ -32,7 +34,7 @@ export function PluginModal(): JSX.Element {
             confirmLoading={pluginsLoading}
             footer={
                 <>
-                    {user?.plugin_access?.install && !editingPlugin?.from_json && (
+                    {canDelete && (
                         <Popconfirm
                             placement="topLeft"
                             title="Are you sure you wish to uninstall this plugin?"
