@@ -6,7 +6,6 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptInSessionRecording } from './OptInSessionRecording'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { userLogic } from 'scenes/userLogic'
-import { DeleteDemoData } from './DeleteDemoData'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
@@ -28,7 +27,7 @@ function _Setup() {
             <Divider />
             <h2 id="snippet">Website Event Autocapture</h2>
             To integrate PostHog into your webiste and get event autocapture with no additional work, include the
-            following snippet in your&nbsp;ebsite's&nbsp;HTML. Ideally, put it just above the&nbsp;
+            following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
             <code>{'<head>'}</code>&nbsp;tag.
             <br />
             For more guidance, including on identying users,{' '}
@@ -57,9 +56,6 @@ function _Setup() {
             <Divider />
             <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
             <WebhookIntegration />
-            <Divider />
-            <h2 id="demodata">Delete Hogflix Demo Data</h2>
-            <DeleteDemoData />
             <Divider />
             {showSessionRecord && (
                 <>

@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from rest_framework import permissions
 
-from posthog.demo import delete_demo_data, demo
+from posthog.demo import demo
 from posthog.email import is_email_available
 
 from .api import api_not_found, capture, dashboard, decide, router, teams, user
@@ -228,7 +228,6 @@ urlpatterns = [
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     re_path(r"^demo.*", decorators.login_required(demo)),
-    path("delete_demo_data/", decorators.login_required(delete_demo_data)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),

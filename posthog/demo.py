@@ -215,16 +215,3 @@ def demo(request):
             create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
-
-
-def delete_demo_data(request):
-    team = request.user.team
-
-    people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
-    Event.objects.filter(team=team, distinct_id__in=people.values("distinct_id")).delete()
-    Person.objects.filter(team=team, properties__is_demo=True).delete()
-    Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
-    Action.objects.filter(team=team, name__contains="HogFlix").delete()
-    DashboardItem.objects.filter(team=team, name__contains="HogFlix").delete()
-
-    return JsonResponse({"status": "ok"})
