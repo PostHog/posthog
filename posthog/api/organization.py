@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.serializers import raise_errors_on_nested_writes
 
-from posthog.models import Organization, OrganizationMembership
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -33,8 +33,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
             OrganizationMembership.objects.create(
                 organization=organization, user=request.user, level=OrganizationMembership.Level.ADMIN
             )
+            team = Team.objects.create(organization=organization, name="Default")
             request.user.current_organization = organization
-            request.user.current_team = None
+            request.user.current_team = team
             request.user.save()
         return organization
 

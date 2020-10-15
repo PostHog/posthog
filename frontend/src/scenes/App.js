@@ -99,7 +99,7 @@ function App() {
                     <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
                         <BillingToolbar />
-                        {user.team && !user.team.ingested_event && image ? (
+                        {!user.team.ingested_event && image ? (
                             <SendEventsOverlay image={image} user={user} />
                         ) : (
                             <Scene user={user} {...params} />

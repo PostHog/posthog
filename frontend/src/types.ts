@@ -18,8 +18,8 @@ export interface UserType {
 }
 
 export interface UserUpdateType {
-    user: Omit<Partial<UserType>, 'team'>
-    team: Partial<TeamType>
+    user?: Omit<Partial<UserType>, 'team'>
+    team?: Partial<TeamType>
 }
 export interface PersonalAPIKeyType {
     id: string
@@ -36,7 +36,7 @@ export interface OrganizationType {
     name: string
     created_at: string
     updated_at: boolean
-    teams?: TeamType[]
+    teams: TeamType[]
 }
 
 export interface TeamType {

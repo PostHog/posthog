@@ -54,10 +54,7 @@ def user(request):
                 request.user.current_organization = request.user.organizations.get(
                     id=data["user"]["current_organization_id"]
                 )
-                try:
-                    request.user.current_team = request.user.organization.teams.first()
-                except Team.DoesNotExist:
-                    request.user.current_team = None
+                request.user.current_team = request.user.organization.teams.get()
             except KeyError:
                 pass
             except ObjectDoesNotExist:

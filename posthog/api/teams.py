@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Union
+from typing import Any, Dict, Union
 
 import posthoganalytics
 from django.conf import settings
@@ -65,7 +65,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "opt_out_capture",
         )
 
-    def create(self, validated_data: Dict[str, any]) -> Team:
+    def create(self, validated_data: Dict[str, Any]) -> Team:
         raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():

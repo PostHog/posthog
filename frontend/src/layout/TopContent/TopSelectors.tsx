@@ -181,7 +181,7 @@ export function Projects(): JSX.Element {
             <Dropdown
                 overlay={
                     <Menu>
-                        {user?.organization.teams?.map(
+                        {user?.organization.teams.map(
                             (team) =>
                                 user?.team === null ||
                                 (team.id !== user?.team.id && (

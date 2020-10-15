@@ -51,7 +51,7 @@ class OrganizationMemberViewSet(
         if lookup_value == "@me":
             return queryset.get(user=self.request.user)
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404()(queryset, **filter_kwargs)
+        obj = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)
         return obj
 
