@@ -5,6 +5,7 @@ import {
     ProjectOutlined,
     SmileOutlined,
     DeploymentUnitOutlined,
+    MailOutlined,
     LogoutOutlined,
     PlusOutlined,
     EnterOutlined,
@@ -23,7 +24,13 @@ export function User(): JSX.Element {
         <Dropdown
             overlay={
                 <Menu>
-                    <Menu.Item key="0">
+                    <Menu.Item key="user-email">
+                        <a href="/me/settings">
+                            <MailOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                            {user ? user.email : <i>loading</i>}
+                        </a>
+                    </Menu.Item>
+                    <Menu.Item key="user-logout">
                         <a href="/logout" data-attr="user-options-logout" style={{ color: red.primary }}>
                             <LogoutOutlined color={red.primary} size={1} style={{ marginRight: '0.5rem' }} />
                             Logout
@@ -34,7 +41,7 @@ export function User(): JSX.Element {
         >
             <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" title="Me">
                 <SmileOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                <b>{user ? user.email : <i>loading</i>}</b>
+                <b>{user ? user.name || user.email : <i>loading</i>}</b>
             </div>
         </Dropdown>
     )
