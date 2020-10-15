@@ -8,6 +8,8 @@ export function Link({ to, preventClick = false, ...props }) {
             {...props}
             onClick={(event) => {
                 if (event.metaKey || event.ctrlKey) {
+                    event.preventDefault()
+                    event.stopPropagation()
                     return window.open(to, '_blank')
                 }
 
