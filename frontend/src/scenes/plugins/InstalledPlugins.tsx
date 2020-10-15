@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { GithubOutlined, CheckOutlined, ToolOutlined, PauseOutlined } from '@ant-design/icons'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
+import { userLogic } from 'scenes/userLogic'
 
 function trimTag(tag: string): string {
     if (tag.match(/^[a-f0-9]{40}$/)) {
@@ -16,12 +17,15 @@ function trimTag(tag: string): string {
 }
 
 export function InstalledPlugins(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { installedPlugins, loading } = useValues(pluginsLogic)
     const { editPlugin } = useActions(pluginsLogic)
 
+    const canInstall = user?.plugin_access?.install
+
     return (
         <div>
-            <h1 className="page-header">Installed Plugins</h1>
+            <h1 className="page-header">{canInstall ? 'Installed Plugins' : 'Plugins'}</h1>
             <Table
                 data-attr="plugins-table"
                 size="small"
