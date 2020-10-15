@@ -20,6 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
         completedOnboarding: true,
+        logout: true,
     }),
 
     reducers: {
@@ -88,12 +89,16 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         id: user.id,
                     })
 
-                    const PostHog = (window as any).posthog
-                    if (PostHog) {
-                        PostHog.identify(user.distinct_id, {
+                    const posthog = (window as any).posthog
+                    if (posthog) {
+                        if (posthog.get_distinct_id() !== user.distinct_id) {
+                            posthog.reset()
+                        }
+
+                        posthog.identify(user.distinct_id, {
                             email: user.anonymize_data ? null : user.email,
                         })
-                        PostHog.register({
+                        posthog.register({
                             posthog_version: user.posthog_version,
                             has_slack_webhook: !!user.team?.slack_incoming_webhook,
                         })
@@ -110,6 +115,10 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             } catch (error) {
                 actions.userUpdateFailure(error, updateKey)
             }
+        },
+        logout: () => {
+            window.posthog?.reset()
+            window.location.href = '/logout'
         },
     }),
 })
