@@ -1,11 +1,9 @@
 import secrets
-from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
 
-from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -15,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
+from posthog.default_dashboards import DEFAULT_DASHBOARD_APP, DEFAULT_DASHBOARD_WEB
 from posthog.models import Dashboard, DashboardItem, Filter
 from posthog.utils import generate_cache_key, render_template
 
@@ -31,6 +30,21 @@ class DashboardSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         team = request.user.team
         dashboard = Dashboard.objects.create(team=team, **validated_data)
+
+        from_template = request.data.get("copyFromTemplate", None)
+
+        if from_template:
+            if from_template == DEFAULT_DASHBOARD_APP:
+                from posthog.default_dashboards import create_default_app_dashboard_items
+
+                create_default_app_dashboard_items(dashboard)
+                return dashboard
+
+            if from_template == DEFAULT_DASHBOARD_WEB:
+                from posthog.default_dashboards import create_default_web_dashboard_items
+
+                create_default_web_dashboard_items(dashboard)
+                return dashboard
 
         if request.data.get("items"):
             for item in request.data["items"]:

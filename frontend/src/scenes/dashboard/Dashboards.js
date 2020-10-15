@@ -1,30 +1,47 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Spin } from 'antd'
+import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
-import { PushpinFilled, PushpinOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 
 export const Dashboards = hot(_Dashboards)
 function _Dashboards() {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)
-    const { addNewDashboard } = useActions(dashboardsLogic)
+    const [openNewDashboard, setOpenNewDashboard] = useState(false)
 
     return (
         <div>
             <div style={{ marginBottom: 20 }}>
-                <Button data-attr={'new-dashboard'} onClick={addNewDashboard} style={{ float: 'right' }}>
+                <Button
+                    data-attr={'new-dashboard'}
+                    onClick={() => setOpenNewDashboard(true)}
+                    style={{ float: 'right' }}
+                >
                     <PlusOutlined style={{ verticalAlign: 'baseline' }} />
                     New Dashboard
                 </Button>
                 <h1 className="page-header">Dashboards</h1>
             </div>
+
+            {openNewDashboard && (
+                <Drawer
+                    title={'New Dashboard'}
+                    width={400}
+                    onClose={() => setOpenNewDashboard(false)}
+                    destroyOnClose={true}
+                    visible={true}
+                >
+                    <NewDashboard model={dashboardsModel} />
+                </Drawer>
+            )}
 
             {dashboardsLoading ? (
                 <Spin />
@@ -70,9 +87,66 @@ function _Dashboards() {
                     />
                 </Table>
             ) : (
-                <p>
-                    You have no dashboards. <Link onClick={addNewDashboard}>Click here to add one!</Link>
-                </p>
+                <div>
+                    <p>Create your first dashboard:</p>
+
+                    <Row gutter={24}>
+                        <Col xs={24} xl={6} gutter={24}>
+                            <Card
+                                title="Empty"
+                                size="small"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                    addDashboard({
+                                        name: 'New Dashboard',
+                                        show: true,
+                                        copyFromTemplate: '',
+                                    })
+                                }
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                    <AppstoreAddOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col xs={24} xl={6} gutter={24}>
+                            <Card
+                                title="App Default"
+                                size="small"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                    addDashboard({
+                                        name: 'Default App Dashboard',
+                                        show: true,
+                                        copyFromTemplate: 'DEFAULT_APP',
+                                    })
+                                }
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                    <AppstoreAddOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col s={24} xl={6} gutter={24}>
+                            <Card
+                                title="Web Default"
+                                size="small"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() =>
+                                    addDashboard({
+                                        name: 'Default Web Dashboard',
+                                        show: true,
+                                        copyFromTemplate: 'DEFAULT_WEB',
+                                    })
+                                }
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
+                                    <AppstoreAddOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                    </Row>
+                </div>
             )}
         </div>
     )
