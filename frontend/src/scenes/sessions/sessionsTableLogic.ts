@@ -3,19 +3,21 @@ import api from 'lib/api'
 import moment from 'moment'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { SessionType } from '~/types'
+import { PropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 
 type Moment = moment.Moment
 
-const buildURL = (selectedDateURLparam: string, filters: Record<string, any>): [string, Record<string, any>] => {
+const buildURL = (selectedDateURLparam: string): [string, Record<string, any>] => {
     const today = moment().startOf('day').format('YYYY-MM-DD')
     const params: Record<string, any> = {}
+
+    const { properties } = router.values.searchParams // eslint-disable-line
     if (selectedDateURLparam !== today) {
         params.date = selectedDateURLparam
     }
-    if (filters && JSON.stringify(filters) !== '{}') {
-        params.properties = filters
+    if (properties) {
+        params.properties = properties
     }
 
     return [router.values.location.pathname, params]
@@ -35,7 +37,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     date_to: selectedDateURLparam,
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
-                    properties: values.filters,
+                    properties: values.properties,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
@@ -53,7 +55,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
         nextDay: true,
-        setFilters: (filters: Record<string, any>, selectedDate: Moment | null) => ({ filters, selectedDate }),
+        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
     }),
     reducers: {
         sessions: {
@@ -69,10 +71,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             },
         ],
         selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
-        filters: [
-            {},
+        properties: [
+            [],
             {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (_, { properties }) => properties,
             },
         ],
     },
@@ -100,26 +102,26 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.filters, moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
         },
         nextDay: () => {
-            actions.setFilters(values.filters, moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
         },
     }),
     actionToUrl: ({ values }) => ({
         setFilters: () => {
-            return buildURL(values.selectedDateURLparam, values.filters)
+            return buildURL(values.selectedDateURLparam)
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, { date, properties }: { date: string; properties: Record<string, any> }) => {
+        '/sessions': (_: any, { date, properties }: { date: string; properties: Array<PropertyFilter> }) => {
             const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            actions.setFilters(properties || {}, newDate)
+            actions.setFilters(properties || [], newDate)
         },
-        '/person/*': (_: any, { date, properties }: { date: string; properties: Record<string, any> }) => {
+        '/person/*': (_: any, { date, properties }: { date: string; properties: Array<PropertyFilter> }) => {
             const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
             if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
-                actions.setFilters(properties || {}, newDate)
+                actions.setFilters(properties || [], newDate)
             }
         },
     }),
