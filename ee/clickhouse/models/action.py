@@ -1,3 +1,4 @@
+import re
 from re import escape
 from typing import Dict, List, Optional, Tuple
 
@@ -156,7 +157,7 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
     attributes: Dict[str, str] = {}
     for key in ["href", "text"]:
         if filters.get(key):
-            attributes[key] = filters[key]
+            attributes[key] = re.escape(filters[key])
 
     attributes_regex = False
     if len(attributes.keys()) > 0:
@@ -174,7 +175,7 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
             if attributes_regex
             else "",
             tag_name_regex="AND match(elements_chain, %({}tag_name_regex)s)".format(prepend)
-            if 1 == 2  # filters.get('tag_name')
+            if filters.get("tag_name")
             else "",
             event_filter="AND uuid IN {}".format(event_filter) if event_filter else "",
         ),
