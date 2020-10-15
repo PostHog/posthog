@@ -111,8 +111,7 @@ class _Plugins:
         self.plugins_by_id: Dict[int, PluginModule] = {}
         self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
 
-        # TODO: improve and uncomment
-        # sync_posthog_json_plugins()
+        sync_posthog_json_plugins()
 
         self.load_plugins()
         self.load_plugin_configs()
