@@ -22,14 +22,6 @@ describe('Dashboards', () => {
             })
     })
 
-    it('Create dashboard', () => {
-        cy.get('[data-attr="new-dashboard"]').click({ force: true })
-
-        cy.get('[data-attr=modal-prompt]').clear().type('Test Dashboard')
-        cy.contains('OK').click()
-        cy.contains('Test Dashboard').should('exist')
-    })
-
     it('Click on a dashboard item dropdown and view graph', () => {
         cy.get('[data-attr=dashboard-name-0]').click()
         cy.get('[data-attr=dashboard-item-0-dropdown]').click()
