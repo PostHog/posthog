@@ -1,7 +1,9 @@
 import base64
+import io
 import json
 import os
 import tempfile
+import zipfile
 from contextlib import contextmanager
 from unittest import mock
 
@@ -23,6 +25,19 @@ def plugins_in_posthog_json(plugins):
     finally:
         if filename:
             os.unlink(filename)
+
+
+@contextmanager
+def extracted_base64_zip(base64_archive):
+    tmp_folder = None
+    try:
+        zip_file = zipfile.ZipFile(io.BytesIO(base64.b64decode(base64_archive)), "r")
+        zip_root_folder = zip_file.namelist()[0]
+        tmp_folder = tempfile.TemporaryDirectory()
+        zip_file.extractall(path=tmp_folder.name)
+        yield os.path.join(tmp_folder.name, zip_root_folder)
+    finally:
+        tmp_folder.cleanup()
 
 
 # This method will be used by the mock to replace requests.get
@@ -50,69 +65,74 @@ class TestPluginsSync(BaseTest):
         return json_path
 
     def test_load_plugin_local(self, mock_get):
-        self.assertEqual(len(Plugin.objects.all()), 0)
+        with extracted_base64_zip(HELLO_WORLD_PLUGIN) as plugin_path:
+            self.assertEqual(len(Plugin.objects.all()), 0)
 
-        with plugins_in_posthog_json(
-            [{"name": "helloworldplugin", "path": "../helloworldplugin/", "config": {},}]
-        ) as filename:
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
-            self.assertEqual(len(Plugin.objects.all()), 1)
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
-            self.assertEqual(len(Plugin.objects.all()), 1)
+            with plugins_in_posthog_json(
+                [{"name": "helloworldplugin", "path": plugin_path, "config": {},}]
+            ) as filename:
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
+                self.assertEqual(len(Plugin.objects.all()), 1)
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
+                self.assertEqual(len(Plugin.objects.all()), 1)
 
-        plugin = Plugin.objects.get()
-        self.assertEqual(plugin.name, "helloworldplugin")
-        self.assertEqual(plugin.url, "file:../helloworldplugin/")
-        self.assertEqual(plugin.from_cli, True)
-        self.assertEqual(plugin.from_app, False)
-        self.assertEqual(plugin.archive, None)
-        self.assertEqual(plugin.tag, "")
+            plugin = Plugin.objects.get()
+            self.assertEqual(plugin.name, "helloworldplugin")
+            self.assertEqual(plugin.url, "file:{}".format(plugin_path))
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_web, False)
+            self.assertEqual(plugin.archive, None)
+            self.assertEqual(plugin.tag, "")
 
-        with plugins_in_posthog_json([]) as filename:
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
+            with plugins_in_posthog_json([]) as filename:
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
 
-        self.assertEqual(len(Plugin.objects.all()), 0)
+            self.assertEqual(len(Plugin.objects.all()), 0)
 
     def test_load_plugin_local_if_exists_from_app(self, mock_get):
-        Plugin.objects.create(
-            name="helloworldplugin",
-            description="",
-            url="file:../helloworldplugin/",
-            configSchema={},
-            tag="",
-            from_web=True,
-            from_cli=False,
-        )
-        self.assertEqual(len(Plugin.objects.all()), 1)
-
-        with plugins_in_posthog_json(
-            [{"name": "helloworldplugin", "path": "../helloworldplugin/", "config": {},}]
-        ) as filename:
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
-            self.assertEqual(len(Plugin.objects.all()), 1)
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
+        with extracted_base64_zip(HELLO_WORLD_PLUGIN) as plugin_path:
+            Plugin.objects.create(
+                name="helloworldplugin",
+                description="BAD DESCRIPTION",
+                url="file:{}".format(plugin_path),
+                configSchema={},
+                tag="",
+                from_web=True,
+                from_cli=False,
+            )
             self.assertEqual(len(Plugin.objects.all()), 1)
 
-        plugin = Plugin.objects.get()
-        self.assertEqual(plugin.name, "helloworldplugin")
-        self.assertEqual(plugin.url, "file:../helloworldplugin/")
-        self.assertEqual(plugin.from_cli, True)
-        self.assertEqual(plugin.from_app, True)
-        self.assertEqual(plugin.archive, None)
-        self.assertEqual(plugin.tag, "")
+            with plugins_in_posthog_json(
+                [{"name": "helloworldplugin", "path": plugin_path, "config": {},}]
+            ) as filename:
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
+                self.assertEqual(len(Plugin.objects.all()), 1)
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
+                self.assertEqual(len(Plugin.objects.all()), 1)
 
-        with plugins_in_posthog_json([]) as filename:
-            sync_posthog_json_plugins(raise_errors=True, filename=filename)
+            plugin = Plugin.objects.get()
+            self.assertEqual(plugin.name, "helloworldplugin")
+            self.assertEqual(plugin.url, "file:{}".format(plugin_path))
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.from_cli, True)
+            self.assertEqual(plugin.from_web, True)
+            self.assertEqual(plugin.archive, None)
+            self.assertEqual(plugin.tag, "")
 
-        self.assertEqual(len(Plugin.objects.all()), 1)
+            with plugins_in_posthog_json([]) as filename:
+                sync_posthog_json_plugins(raise_errors=True, filename=filename)
 
-        plugin = Plugin.objects.get()
-        self.assertEqual(plugin.name, "helloworldplugin")
-        self.assertEqual(plugin.url, "file:../helloworldplugin/")
-        self.assertEqual(plugin.from_cli, False)
-        self.assertEqual(plugin.from_app, True)
-        self.assertEqual(plugin.archive, None)
-        self.assertEqual(plugin.tag, "")
+            self.assertEqual(len(Plugin.objects.all()), 1)
+
+            plugin = Plugin.objects.get()
+            self.assertEqual(plugin.name, "helloworldplugin")
+            self.assertEqual(plugin.url, "file:{}".format(plugin_path))
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.from_cli, False)
+            self.assertEqual(plugin.from_web, True)
+            self.assertEqual(plugin.archive, None)
+            self.assertEqual(plugin.tag, "")
 
     def test_load_plugin_http(self, mock_get):
         self.assertEqual(len(Plugin.objects.all()), 0)
@@ -135,8 +155,9 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
         self.assertEqual(plugin.from_cli, True)
-        self.assertEqual(plugin.from_app, False)
+        self.assertEqual(plugin.from_web, False)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
 
@@ -148,7 +169,7 @@ class TestPluginsSync(BaseTest):
     def test_load_plugin_http_if_exists_from_app(self, mock_get):
         Plugin.objects.create(
             name="helloworldplugin",
-            description="",
+            description="BAD DESCRIPTION",
             url="https://github.com/PostHog/helloworldplugin/",
             configSchema={},
             tag="BAD TAG",
@@ -176,8 +197,9 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
         self.assertEqual(plugin.from_cli, True)
-        self.assertEqual(plugin.from_app, True)
+        self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
 
@@ -189,7 +211,8 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
         self.assertEqual(plugin.from_cli, False)
-        self.assertEqual(plugin.from_app, True)
+        self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")

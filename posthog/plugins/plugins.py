@@ -155,7 +155,7 @@ class _Plugins:
                 plugin_path = os.path.realpath(plugin.url.replace("file:", "", 1))
 
                 try:
-                    requirements_path = os.path.join(plugin_path, "requirements.tx1t")
+                    requirements_path = os.path.join(plugin_path, "requirements.txt")
                     requirements_file = open(requirements_path, "r")
                     requirements = requirements_file.read().split("\n")
                     requirements = [x for x in requirements if x]
