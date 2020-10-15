@@ -146,11 +146,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 4)
             self.assertEqual(events[0].pk, event4.pk)
             self.assertEqual(events[1].pk, event3.pk)
             self.assertEqual(events[2].pk, event2.pk)
             self.assertEqual(events[3].pk, event1.pk)
-            self.assertEqual(len(events), 4)
 
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)

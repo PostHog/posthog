@@ -30,6 +30,7 @@ SELECT
 FROM events
 WHERE uuid IN {action_filter}
 AND events.team_id = %(team_id)s
+ORDER BY events.timestamp DESC
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
