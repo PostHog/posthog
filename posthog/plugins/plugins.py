@@ -40,11 +40,15 @@ class PluginCache:
         return key
 
     def set(self, key: str, value: Any):
+        if not self.redis:
+            raise Exception("Redis not configured!")
         key = self.format_key(key)
         value = pickle.dumps(value)
         self.redis.set(key, value)
 
     def get(self, key) -> Any:
+        if not self.redis:
+            raise Exception("Redis not configured!")
         key = self.format_key(key)
         str_value = self.redis.get(key)
         if not str_value:
@@ -336,7 +340,7 @@ class _Plugins:
         else:
             print("🔻🔻🔻 Can not listen to plugin reload commands! No redis instance found!")
 
-    def publish_reload_command(self, team_id: int = None):
+    def publish_reload_command(self, team_id: Optional[int] = None):
         if self.redis:
             self.redis.publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
         else:

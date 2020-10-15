@@ -37,7 +37,8 @@ def extracted_base64_zip(base64_archive):
         zip_file.extractall(path=tmp_folder.name)
         yield os.path.join(tmp_folder.name, zip_root_folder)
     finally:
-        tmp_folder.cleanup()
+        if tmp_folder:
+            tmp_folder.cleanup()
 
 
 # This method will be used by the mock to replace requests.get
