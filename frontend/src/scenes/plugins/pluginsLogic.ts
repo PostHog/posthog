@@ -159,7 +159,7 @@ export const pluginsLogic = kea<
             {
                 setCustomPluginUrl: () => null,
                 installPlugin: () => null,
-                installPluginFailure: (_, { error }) => error,
+                installPluginFailure: (_, { error }) => error || '',
             },
         ],
         pluginConfigs: {

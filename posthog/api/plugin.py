@@ -15,7 +15,7 @@ from posthog.plugins import Plugins, download_plugin_github_zip
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.INSTALL_PLUGINS_FROM_WEB:
@@ -23,6 +23,8 @@ class PluginSerializer(serializers.ModelSerializer):
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise APIException('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
+        if "from_json" in validated_data:  # prevent hackery
+            del validated_data["from_json"]
         plugin = Plugin.objects.create(from_web=True, **validated_data)
         Plugins().publish_reload_command()
         return plugin
@@ -46,6 +48,12 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not settings.INSTALL_PLUGINS_FROM_WEB:
+            return queryset.none()
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request):
@@ -93,6 +101,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 class PluginConfigViewSet(viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not settings.CONFIGURE_PLUGINS_FROM_WEB:
+            return queryset.none()
+        return queryset.filter(team_id=self.request.user.team.pk)
 
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore

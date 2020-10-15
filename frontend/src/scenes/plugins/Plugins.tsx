@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { PluginModal } from 'scenes/plugins/PluginModal'
 import { CustomPlugin } from 'scenes/plugins/CustomPlugin'
@@ -10,7 +10,15 @@ import { userLogic } from 'scenes/userLogic'
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
     const { user } = useValues(userLogic)
+
     if (!user) {
+        return <div />
+    }
+
+    if (!user?.plugin_access?.view) {
+        useEffect(() => {
+            window.location.href = '/'
+        }, [])
         return <div />
     }
 

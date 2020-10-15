@@ -3,10 +3,6 @@
         {
             "name": "posthog-currency-normalization-plugin",
             "path": "../posthog-currency-normalization-plugin/"
-        },
-        {
-            "name": "posthog-maxmind-plugin",
-            "path": "../posthog-maxmind-plugin/"
         }
     ],
     "globalPlugins": {

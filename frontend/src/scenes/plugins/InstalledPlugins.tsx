@@ -53,13 +53,15 @@ export function InstalledPlugins(): JSX.Element {
                                             )}
                                         </Col>
                                         <Col>
-                                            <a
-                                                href={`${plugin.url}/tree/${plugin.tag}`}
-                                                target="_blank"
-                                                rel="noreferrer noopener"
-                                            >
-                                                <GithubOutlined /> {trimTag(plugin.tag)}
-                                            </a>
+                                            {!plugin.url?.startsWith('file:') && (
+                                                <a
+                                                    href={`${plugin.url}/tree/${plugin.tag}`}
+                                                    target="_blank"
+                                                    rel="noreferrer noopener"
+                                                >
+                                                    <GithubOutlined /> {trimTag(plugin.tag)}
+                                                </a>
+                                            )}
                                         </Col>
                                     </Row>
                                 </>

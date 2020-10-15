@@ -32,7 +32,7 @@ export function PluginModal(): JSX.Element {
             confirmLoading={pluginsLoading}
             footer={
                 <>
-                    {user?.plugin_access?.install && (
+                    {user?.plugin_access?.install && !editingPlugin?.from_json && (
                         <Popconfirm
                             placement="topLeft"
                             title="Are you sure you wish to uninstall this plugin?"

@@ -68,7 +68,7 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
-INSTALL_PLUGINS_FROM_WEB = get_bool_from_env("INSTALL_PLUGINS_FROM_WEB", False)
+INSTALL_PLUGINS_FROM_WEB = get_bool_from_env("INSTALL_PLUGINS_FROM_WEB", True)
 CONFIGURE_PLUGINS_FROM_WEB = get_bool_from_env("CONFIGURE_PLUGINS_FROM_WEB", True)
 
 # This is set as a cross-domain cookie with a random value.
