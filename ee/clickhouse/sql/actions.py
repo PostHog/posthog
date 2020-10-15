@@ -46,12 +46,6 @@ ELEMENT_ACTION_FILTER = """
 )
 """
 
-# ELEMENT_PROP_FILTER = """
-# (
-#     SELECT uuid FROM elements_properties_view WHERE
-#     key = {} AND value = {}
-# )
-# """
 
 EVENT_ACTION_FILTER = """
 (
