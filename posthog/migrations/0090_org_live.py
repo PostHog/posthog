@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0087_fix_annotation_created_at"),
+        ("posthog", "0089_auto_20201015_1031"),
     ]
 
     operations = [
