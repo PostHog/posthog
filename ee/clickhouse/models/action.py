@@ -152,7 +152,7 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
         params["{}selector_regex".format(prepend)] = _create_regex(selector)
 
     if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"^{}($|;|:([^;^\s]*(;|$|\s)))".format(filters["tag_name"])
+        params["{}tag_name_regex".format(prepend)] = r"(^|;)a(\.|$|;|:)".format(filters["tag_name"])
 
     attributes: Dict[str, str] = {}
     for key in ["href", "text"]:
