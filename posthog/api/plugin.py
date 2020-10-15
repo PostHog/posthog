@@ -13,7 +13,7 @@ from posthog.plugins import Plugins, download_plugin_github_zip
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "configSchema", "tag"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
@@ -29,7 +29,7 @@ class PluginSerializer(serializers.ModelSerializer):
         plugin.name = validated_data.get("name", plugin.name)
         plugin.description = validated_data.get("description", plugin.description)
         plugin.url = validated_data.get("url", plugin.url)
-        plugin.configSchema = validated_data.get("configSchema", plugin.configSchema)
+        plugin.config_schema = validated_data.get("config_schema", plugin.config_schema)
         plugin.tag = validated_data.get("tag", plugin.tag)
         plugin.archive = download_plugin_github_zip(plugin.url, plugin.tag)
         plugin.save()

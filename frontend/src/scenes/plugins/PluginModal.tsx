@@ -57,15 +57,15 @@ export function PluginModal(): JSX.Element {
                         <Form.Item label="Enabled?" fieldKey="__enabled" name="__enabled" valuePropName="checked">
                             <Switch />
                         </Form.Item>
-                        {Object.keys(editingPlugin.configSchema).map((configKey) => (
+                        {Object.keys(editingPlugin.config_schema).map((configKey) => (
                             <Form.Item
                                 key={configKey}
-                                label={editingPlugin.configSchema[configKey].name || configKey}
+                                label={editingPlugin.config_schema[configKey].name || configKey}
                                 name={configKey}
-                                required={editingPlugin.configSchema[configKey].required}
+                                required={editingPlugin.config_schema[configKey].required}
                                 rules={[
                                     {
-                                        required: editingPlugin.configSchema[configKey].required,
+                                        required: editingPlugin.config_schema[configKey].required,
                                         message: 'Please enter a value!',
                                     },
                                 ]}

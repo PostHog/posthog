@@ -90,7 +90,7 @@ def create_plugin_from_config(config_plugin=None, raise_errors=False):
         url=url,
         tag=tag,
         archive=archive,
-        configSchema=config_schema,
+        config_schema=config_schema,
         from_cli=True,
     )
 
@@ -119,13 +119,13 @@ def update_plugin_from_config(db_plugin, config_plugin):
             json = load_json_file(os.path.join(db_plugin.url.replace("file:", "", 1), "plugin.json"))
             if json:
                 db_plugin.description = json["description"]
-                db_plugin.configSchema = json["config"]
+                db_plugin.config_schema = json["config"]
         else:
             db_plugin.archive = download_plugin_github_zip(db_plugin.url, db_plugin.tag)
             json = load_json_zip_bytes(db_plugin.archive, "plugin.json")
             if json:
                 db_plugin.description = json["description"]
-                db_plugin.configSchema = json["config"]
+                db_plugin.config_schema = json["config"]
 
     db_plugin.save()
 

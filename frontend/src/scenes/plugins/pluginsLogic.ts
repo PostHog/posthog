@@ -66,7 +66,7 @@ export const pluginsLogic = kea<
                         description: json.description,
                         url: json.url,
                         tag,
-                        configSchema: json.config,
+                        config_schema: json.config,
                     })
 
                     return { ...plugins, [response.id]: response }
@@ -185,7 +185,7 @@ export const pluginsLogic = kea<
                         let pluginConfig = pluginConfigs[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
-                            Object.entries(plugin.configSchema).forEach(([key, { default: def }]) => {
+                            Object.entries(plugin.config_schema).forEach(([key, { default: def }]) => {
                                 config[key] = def
                             })
 

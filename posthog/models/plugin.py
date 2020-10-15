@@ -6,7 +6,7 @@ class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
-    configSchema: JSONField = JSONField(default=dict)
+    config_schema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     from_cli: models.BooleanField = models.BooleanField(default=False)

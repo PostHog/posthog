@@ -198,7 +198,9 @@ export interface PluginType {
     description: string
     url: string
     tag: string
-    configSchema: Record<string, PluginConfigSchema>
+    config_schema: Record<string, PluginConfigSchema>
+    from_cli: boolean
+    from_web: boolean
 }
 
 export interface PluginConfigType {

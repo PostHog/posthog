@@ -47,10 +47,13 @@ class TestPlugins(BaseTest):
             name="helloworldplugin",
             description="Hello World Plugin that runs in test mode",
             url="https://github.com/PostHog/helloworldplugin",
-            configSchema={"bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}},
+            config_schema={
+                "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
+            },
             tag="3c4c77e7d7878e87be3c2373b658c74ec3085f49",
             archive=base64.b64decode(HELLO_WORLD_PLUGIN),
-            locked=False,
+            from_web=True,
+            from_cli=False,
         )
         plugin_config = PluginConfig.objects.create(
             team=self.team, plugin=plugin, enabled=True, order=0, config={"bar": "foo"},
