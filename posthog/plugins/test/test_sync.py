@@ -82,6 +82,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
             self.assertEqual(plugin.tag, "")
 
             with plugins_in_posthog_json([]) as filename:
@@ -116,6 +117,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
             with plugins_in_posthog_json([]) as filename:
                 sync_posthog_json_plugins(raise_errors=True, filename=filename)
@@ -130,6 +132,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
     def test_load_plugin_http(self, mock_get):
         self.assertEqual(len(Plugin.objects.all()), 0)
@@ -156,6 +159,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.from_web, False)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
+        self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
         with plugins_in_posthog_json([]) as filename:
             sync_posthog_json_plugins(raise_errors=True, filename=filename)
@@ -197,6 +201,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
+        self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
         with plugins_in_posthog_json([]) as filename:
             sync_posthog_json_plugins(raise_errors=True, filename=filename)
@@ -211,6 +216,7 @@ class TestPluginsSync(BaseTest):
         self.assertEqual(plugin.from_web, True)
         self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
         self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
+        self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
     def test_load_plugin_local_to_http_and_back(self, mock_get):
         with extracted_base64_zip(HELLO_WORLD_PLUGIN) as plugin_path:
@@ -234,6 +240,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
             self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
             with plugins_in_posthog_json([{"name": "helloworldplugin", "path": plugin_path,}]) as filename:
                 sync_posthog_json_plugins(raise_errors=True, filename=filename)
@@ -247,6 +254,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
             self.assertEqual(plugin.tag, "")
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
             with plugins_in_posthog_json(
                 [
@@ -268,3 +276,4 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN))
             self.assertEqual(plugin.tag, "3c4c77e7d7878e87be3c2373b658c74ec3085f49")
+            self.assertEqual(plugin.config_schema["bar"]["type"], "string")
