@@ -227,6 +227,13 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">Annotations</span>
                         <Link to={'/annotations'} onClick={collapseSidebar} />
                     </Menu.Item>
+
+                    <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
+                        <ProjectOutlined />
+                        <span className="sidebar-label">Project</span>
+                        <Link to={'/project/settings'} onClick={collapseSidebar} />
+                    </Menu.Item>
+
                     <Menu.SubMenu
                         key="organization"
                         title={
@@ -279,12 +286,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             </Menu.Item>
                         )}
                     </Menu.SubMenu>
-
-                    <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
-                        <ProjectOutlined />
-                        <span className="sidebar-label">Project</span>
-                        <Link to={'/project/settings'} onClick={collapseSidebar} />
-                    </Menu.Item>
 
                     <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
                         <SmileOutlined />

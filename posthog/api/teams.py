@@ -8,26 +8,28 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    generics,
-    mixins,
-    permissions,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
-from rest_framework.decorators import action
+from rest_framework import generics, permissions, request, response, serializers, viewsets
 from rest_framework.serializers import raise_errors_on_nested_writes
-from rest_framework.settings import api_settings
-from rest_framework.utils import model_meta
-from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
 from posthog.api.user import UserSerializer
-from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team, User
+from posthog.models import Team, User
 from posthog.models.user import MULTI_TENANCY_MISSING
-from posthog.utils import convert_property_value
+from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+
+
+class PremiumMultiprojectPermissions(permissions.BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = "You must upgrade your PostHog plan to be able to create and administrate multiple organizations."
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if (
+            request.method in CREATE_METHODS
+            and not request.user.is_feature_available("multistructure")
+            and request.user.organizations.count() >= 1
+        ):
+            return False
+        return True
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -76,8 +78,17 @@ class TeamSerializer(serializers.ModelSerializer):
 
 
 class TeamViewSet(viewsets.ModelViewSet):
-    queryset = Team.objects.all()
     serializer_class = TeamSerializer
+    queryset = Team.objects.all()
+    pagination_class = None
+    permission_classes = [
+        OrganizationMemberPermissions,
+        OrganizationAdminWritePermissions,
+        PremiumMultiprojectPermissions,
+    ]
+    lookup_field = "id"
+    ordering_fields = ["created_by"]
+    ordering = ["-created_by"]
 
     def get_queryset(self):
         queryset = super().get_queryset()

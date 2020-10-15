@@ -1,8 +1,8 @@
 from typing import Any, Dict
 
-from django.db.models import QuerySet, query
+from django.db.models import QuerySet
 from django.http.response import Http404
-from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationInvite

@@ -15,6 +15,7 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
+    available_features: string[]
 }
 
 export interface UserUpdateType {

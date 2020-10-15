@@ -70,11 +70,13 @@ export const routes = {
 }
 
 export const sceneLogic = kea({
-    actions: () => ({
+    actions: {
         loadScene: (scene, params) => ({ scene, params }),
         setScene: (scene, params) => ({ scene, params }),
         setLoadedScene: (scene, loadedScene) => ({ scene, loadedScene }),
-    }),
+        showUpgradeModal: (featureName) => ({ featureName }),
+        hideUpgradeModal: true,
+    },
     reducers: ({ actions }) => ({
         scene: [
             null,
@@ -106,6 +108,13 @@ export const sceneLogic = kea({
             {
                 [actions.loadScene]: (_, { scene }) => scene,
                 [actions.setScene]: () => null,
+            },
+        ],
+        upgradeModalFeatureName: [
+            null,
+            {
+                [actions.showUpgradeModal]: (_, { featureName }) => featureName,
+                [actions.hideUpgradeModal]: () => null,
             },
         ],
     }),

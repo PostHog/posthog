@@ -17,6 +17,7 @@ import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
+import { UpgradeModal } from './UpgradeModal'
 
 const darkerScenes = {
     dashboard: true,
@@ -88,6 +89,7 @@ function App() {
 
     return (
         <>
+            <UpgradeModal />
             <Layout className="bg-white">
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout

@@ -31,8 +31,8 @@ export function TopContent(): JSX.Element {
                 }}
             >
                 <LatestVersion />
-                <Organization />
                 <Projects />
+                <Organization />
                 <User />
             </div>
         </div>

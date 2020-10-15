@@ -3,11 +3,36 @@ from typing import Any, Dict
 from django.db import transaction
 from django.db.models import QuerySet, query
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, mixins, response, serializers, status, viewsets
-from rest_framework.serializers import raise_errors_on_nested_writes
+from rest_framework import (
+    exceptions,
+    mixins,
+    permissions,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 
 from posthog.models import Organization, OrganizationMembership, Team
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+
+
+class PremiumMultiorganizationPermissions(permissions.BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = (
+        "You must upgrade your PostHog plan to be able to create and administrate multiple projects in an organization."
+    )
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if (
+            request.method in CREATE_METHODS
+            and not request.user.is_feature_available("multistructure")
+            and request.user.organization.teams.count() >= 1
+        ):
+            return False
+        return True
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -26,7 +51,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
-        raise_errors_on_nested_writes("create", self, validated_data)
+        serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
             organization = Organization.objects.create(**validated_data)
@@ -41,9 +66,15 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
+    PREMIUM_FEATURES = ["multistructure"]
+
     serializer_class = OrganizationSerializer
     pagination_class = None
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [
+        OrganizationMemberPermissions,
+        OrganizationAdminWritePermissions,
+        PremiumMultiorganizationPermissions,
+    ]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering_fields = ["created_by"]

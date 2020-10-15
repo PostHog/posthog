@@ -1,10 +1,20 @@
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { Alert, Dropdown, Input, Menu, Modal } from 'antd'
+import {
+    ProjectOutlined,
+    SmileOutlined,
+    DeploymentUnitOutlined,
+    LogoutOutlined,
+    PlusOutlined,
+    EnterOutlined,
+} from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { red } from '@ant-design/colors'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { guardPremiumFeature } from 'scenes/UpgradeModal'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export function User(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -15,14 +25,16 @@ export function User(): JSX.Element {
                 <Menu>
                     <Menu.Item key="0">
                         <a href="/logout" data-attr="user-options-logout" style={{ color: red.primary }}>
+                            <LogoutOutlined color={red.primary} size={1} style={{ marginRight: '0.5rem' }} />
                             Logout
                         </a>
                     </Menu.Item>
                 </Menu>
             }
         >
-            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light">
-                Me: <b>{user ? user.email : <i>loading</i>}</b>
+            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" title="Me">
+                <SmileOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                <b>{user ? user.email : <i>loading</i>}</b>
             </div>
         </Dropdown>
     )
@@ -77,6 +89,7 @@ function CreateOrganizationModal({
 
 export function Organization(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { showUpgradeModal } = useActions(sceneLogic)
     const { userUpdateRequest } = useActions(userLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -98,7 +111,8 @@ export function Organization(): JSX.Element {
                                                 })
                                             }
                                         >
-                                            → {organization.name}
+                                            <EnterOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                            {organization.name}
                                         </a>
                                     </Menu.Item>
                                 )
@@ -107,10 +121,19 @@ export function Organization(): JSX.Element {
                             <a
                                 href="#"
                                 onClick={() => {
-                                    setIsModalVisible(true)
+                                    guardPremiumFeature(
+                                        user,
+                                        showUpgradeModal,
+                                        'multistructure',
+                                        'multiple projects and organizations',
+                                        () => {
+                                            setIsModalVisible(true)
+                                        }
+                                    )
                                 }}
                             >
-                                <i>+ New Organization</i>
+                                <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                <i>New Organization</i>
                             </a>
                         </Menu.Item>
                     </Menu>
@@ -120,8 +143,10 @@ export function Organization(): JSX.Element {
                     data-attr="user-options-dropdown"
                     className="btn btn-sm btn-light"
                     style={{ marginRight: '0.75rem' }}
+                    title="Organizations"
                 >
-                    Organization: <b>{user ? user.organization.name : <i>loading</i>}</b>
+                    <DeploymentUnitOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                    <b>{user ? user.organization.name : <i>loading</i>}</b>
                 </div>
             </Dropdown>
         </>
@@ -162,9 +187,8 @@ function CreateProjectModal({
             }}
             onCancel={closeModal}
             visible={isVisible}
-            autoFocus
         >
-            <Input addonBefore="Name" ref={inputRef} placeholder='for example "Anvil Shop"' maxLength={64} />
+            <Input addonBefore="Name" ref={inputRef} placeholder='for example "Anvil Shop"' maxLength={64} autoFocus />
             {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
         </Modal>
     )
@@ -173,6 +197,7 @@ function CreateProjectModal({
 export function Projects(): JSX.Element {
     const { user } = useValues(userLogic)
     const { userUpdateRequest } = useActions(userLogic)
+    const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     return (
@@ -190,7 +215,8 @@ export function Projects(): JSX.Element {
                                             href=""
                                             onClick={() => userUpdateRequest({ user: { current_team_id: team.id } })}
                                         >
-                                            → {team.name}
+                                            <EnterOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                            {team.name}
                                         </a>
                                     </Menu.Item>
                                 ))
@@ -199,10 +225,19 @@ export function Projects(): JSX.Element {
                             <a
                                 href="#"
                                 onClick={() => {
-                                    setIsModalVisible(true)
+                                    guardPremiumFeature(
+                                        user,
+                                        showUpgradeModal,
+                                        'multistructure',
+                                        'multiple projects and organizations',
+                                        () => {
+                                            setIsModalVisible(true)
+                                        }
+                                    )
                                 }}
                             >
-                                <i>+ New Project</i>
+                                <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                <i>New Project</i>
                             </a>
                         </Menu.Item>
                     </Menu>
@@ -212,8 +247,10 @@ export function Projects(): JSX.Element {
                     data-attr="user-options-dropdown"
                     className="btn btn-sm btn-light"
                     style={{ marginRight: '0.75rem' }}
+                    title="Organization Projects"
                 >
-                    Project: {user ? user.team ? <b>{user.team.name}</b> : <i>none yet</i> : <i>loading</i>}
+                    <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                    {user ? user.team ? <b>{user.team.name}</b> : <i>none yet</i> : <i>loading</i>}
                 </div>
             </Dropdown>
         </>

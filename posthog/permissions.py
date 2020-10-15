@@ -6,6 +6,8 @@ from rest_framework.request import Request
 
 from posthog.models import Organization, OrganizationMembership, organization
 
+CREATE_METHODS = ["POST", "PUT"]
+
 
 def extract_organization(object: Model) -> Organization:
     if isinstance(object, Organization):
@@ -19,6 +21,8 @@ def extract_organization(object: Model) -> Organization:
 
 
 class OrganizationMemberPermissions(BasePermission):
+    """Require organization membership to access object."""
+
     message = "You don't belong to the organization."
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
@@ -27,6 +31,8 @@ class OrganizationMemberPermissions(BasePermission):
 
 
 class OrganizationAdminWritePermissions(BasePermission):
+    """Require organization admin level to change object, allowing everyone read."""
+
     message = "Your organization access level is insufficient."
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
@@ -40,6 +46,8 @@ class OrganizationAdminWritePermissions(BasePermission):
 
 
 class OrganizationAdminAnyPermissions(BasePermission):
+    """Require organization admin level to change and also read object."""
+
     message = "Your organization access level is insufficient."
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
