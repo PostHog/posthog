@@ -61,7 +61,7 @@ class SelectorPart(object):
     def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool):
         self.direct_descendant = direct_descendant
         self.data: Dict[str, Union[str, List]] = {}
-        self.ch_attributes = {}  # attributes for CH
+        self.ch_attributes: Dict[str, Union[str, List]] = {}  # attributes for CH
 
         result = re.search(attribute_regex, tag)
         if result and "[id=" in tag:

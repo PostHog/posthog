@@ -128,7 +128,7 @@ def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
 def _create_regex(selector: Selector) -> str:
     regex = r""
     for idx, tag in enumerate(selector.parts):
-        if tag.data.get("tag_name"):
+        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
             regex += tag.data["tag_name"]
         if tag.data.get("attr_class__contains"):
             regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
@@ -152,7 +152,7 @@ def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, D
         params["{}selector_regex".format(prepend)] = _create_regex(selector)
 
     if filters.get("tag_name"):
-        params["{}tag_name_regex".format(prepend)] = r"(^|;)a(\.|$|;|:)".format(filters["tag_name"])
+        params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
 
     attributes: Dict[str, str] = {}
     for key in ["href", "text"]:
