@@ -7,6 +7,7 @@ import {
     TeamOutlined,
     SendOutlined,
     DeploymentUnitOutlined,
+    CloudServerOutlined,
     UserOutlined,
     RiseOutlined,
     SyncOutlined,
@@ -21,6 +22,7 @@ import {
     ProjectOutlined,
     LockOutlined,
     WalletOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -64,8 +66,9 @@ const submenuOverride = {
     organizationSettings: 'organization',
     organizationMembers: 'organization',
     organizationInvites: 'organization',
-    organizationLicenses: 'organization',
     billing: 'organization',
+    instanceStatus: 'instance',
+    instanceLicenses: 'instance',
 }
 
 export const Sidebar = hot(_Sidebar)
@@ -84,6 +87,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
+    const toolbarEnabled = user.toolbar_mode !== 'disabled'
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
@@ -119,17 +123,19 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     mode="inline"
                 >
                     <Logo />
-                    <Menu.Item
-                        key="toolbar"
-                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
-                        onClick={() => setToolbarModalOpen(true)}
-                        data-attr="menu-item-toolbar"
-                    >
-                        <div className="sidebar-toolbar-imitation">
-                            <HogIcon />
-                        </div>
-                        <span className="sidebar-label">Launch Toolbar!</span>
-                    </Menu.Item>
+                    {toolbarEnabled && (
+                        <Menu.Item
+                            key="toolbar"
+                            style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
+                            onClick={() => setToolbarModalOpen(true)}
+                            data-attr="menu-item-toolbar"
+                        >
+                            <div className="sidebar-toolbar-imitation">
+                                <HogIcon />
+                            </div>
+                            <span className="sidebar-label">Launch Toolbar!</span>
+                        </Menu.Item>
+                    )}
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
                             key={`dashboard-${dashboard.id}`}
@@ -273,20 +279,41 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <Link to="/billing" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
-
-                        {!user.is_multi_tenancy && user.ee_available && (
-                            <Menu.Item
-                                key="organizationLicenses"
-                                style={itemStyle}
-                                data-attr="menu-item-organizaiton-licenses"
-                            >
-                                <LockOutlined />
-                                <span className="sidebar-label">Licenses</span>
-                                <Link to={'/organization/licenses'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
                     </Menu.SubMenu>
 
+                    {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
+                        <Menu.SubMenu
+                            key="instance"
+                            title={
+                                <span style={itemStyle} data-attr="menu-item-instance">
+                                    <CloudServerOutlined />
+                                    <span className="sidebar-label">Instance</span>
+                                </span>
+                            }
+                            onTitleClick={() => {
+                                collapseSidebar()
+                                if (location.pathname !== '/instance/status') push('/instance/status')
+                            }}
+                        >
+                            <Menu.Item key="instanceStatus" style={itemStyle} data-attr="menu-item-instance-status">
+                                <DatabaseOutlined />
+                                <span className="sidebar-label">Systems Status</span>
+                                <Link to={'/instance/status'} onClick={collapseSidebar} />
+                            </Menu.Item>
+
+                            {user.ee_available && (
+                                <Menu.Item
+                                    key="instanceLicenses"
+                                    style={itemStyle}
+                                    data-attr="menu-item-instance-licenses"
+                                >
+                                    <LockOutlined />
+                                    <span className="sidebar-label">Licenses</span>
+                                    <Link to={'/instance/licenses'} onClick={collapseSidebar} />
+                                </Menu.Item>
+                            )}
+                        </Menu.SubMenu>
+                    )}
                     <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
                         <SmileOutlined />
                         <span className="sidebar-label">Me</span>

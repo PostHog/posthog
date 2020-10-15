@@ -8,8 +8,8 @@ export interface UserType {
     opt_out_capture: null
     posthog_version: string
     organization: OrganizationType
-    team: TeamType | null
-    toolbar_mode: string
+    team: TeamType
+    toolbar_mode: 'disabled' | 'toolbar'
     billing: OrganizationBilling
     organizations: OrganizationType[]
     teams: TeamType[]

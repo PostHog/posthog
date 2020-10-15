@@ -22,7 +22,7 @@ from posthog.email import is_email_available
 from .api import api_not_found, capture, dashboard, decide, router, teams, user
 from .models import OrganizationInvite, User
 from .utils import render_template
-from .views import health, preflight_check, stats
+from .views import health, preflight_check, stats, system_status
 
 
 def home(request, **kwargs):
@@ -214,6 +214,7 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    opt_slash_path("_system_status", system_status),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),

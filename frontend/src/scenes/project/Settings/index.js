@@ -67,7 +67,7 @@ function _Setup() {
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />
             <Divider />
-            <h2>PostHog Toolbar Beta</h2>
+            <h2>PostHog Toolbar</h2>
             <ToolbarSettings />
         </div>
     )
