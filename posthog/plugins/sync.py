@@ -93,13 +93,22 @@ def create_plugin_from_config(config_plugin=None, raise_errors=False):
 
 
 def config_and_db_plugin_in_sync(config_plugin, db_plugin):
-    # TODO
-    pass
+    url = config_plugin.get("url", "file:{}".format(config_plugin.get("path", "")))
+    return db_plugin.url == url and db_plugin.tag == config_plugin.get("tag", "") and db_plugin.from_cli
 
 
 def update_plugin_from_config(db_plugin, config_plugin):
-    # TODO
-    pass
+    db_plugin.from_cli = True
+    new_url = config_plugin.get("url", "file:{}".format(config_plugin.get("path", "")))
+    new_tag = config_plugin.get("tag", "")
+
+    if new_url != db_plugin.url or new_tag != db_plugin.tag:
+        db_plugin.url = new_url
+        db_plugin.tag = new_tag
+        if not db_plugin.url.startswith("file:"):
+            db_plugin.archive = download_plugin_github_zip(db_plugin.url, db_plugin.tag)
+
+    db_plugin.save()
 
 
 def print_or_raise(msg, raise_errors):
