@@ -66,7 +66,7 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
                 }}
                 style={{ width: '100%' }}
                 filterOption={(input, option) =>
-                    option.children && option.children.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                    option.children && option.children.props.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0
                 }
                 value={{ value: determineValue(active) }}
                 listHeight={300}
