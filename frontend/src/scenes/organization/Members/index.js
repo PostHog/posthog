@@ -82,10 +82,7 @@ function _Members({ user }) {
             <h1 className="page-header">Organization Members - {user?.organization.name}</h1>
             <div style={{ maxWidth: 672 }}>
                 <i>
-                    <p>
-                        View and manage all members of {user.organization.name} here. Build an even better product
-                        together.
-                    </p>
+                    <p>View and manage all organization members here. Build an even better product together.</p>
                 </i>
             </div>
             <Button

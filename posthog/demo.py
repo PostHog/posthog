@@ -197,11 +197,16 @@ def _recalculate(team: Team) -> None:
 
 
 def demo(request):
-    team = request.user.team
-    if not Event.objects.filter(team=team).exists():
+    user = request.user
+    organization = user.organization
+    team = organization.teams.filter(name="Demo – HogFlix", ingested_event=True).first()
+    if team is None:
+        team = Team.objects.create(organization=organization, name="Demo – HogFlix")
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         _recalculate(team=team)
+    user.current_team = team
+    user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
         team.save()

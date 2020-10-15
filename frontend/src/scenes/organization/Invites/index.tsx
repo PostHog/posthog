@@ -96,7 +96,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             <h1 className="page-header">Organization Invites – {user.organization.name}</h1>
             <div style={{ maxWidth: 672 }}>
                 <i>
-                    <p>Create, send out, and delete {user.organization.name} invites.</p>
+                    <p>Create, send out, and delete organization invites.</p>
                 </i>
             </div>
             <Button
