@@ -1,9 +1,9 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from django.core.cache import cache
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
