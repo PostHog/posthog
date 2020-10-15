@@ -78,7 +78,7 @@ class ToolbarCookieMiddleware(SessionMiddleware):
             toolbar_cookie_name not in response.cookies
             and request.user
             and request.user.is_authenticated
-            and request.user.toolbar_mode == "toolbar"
+            and request.user.toolbar_mode != "disabled"
         ):
             response.set_cookie(
                 toolbar_cookie_name,  # key
