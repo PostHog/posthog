@@ -204,7 +204,7 @@ export function LineGraph({
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
                                       return (
-                                          formatLabel(label, entityData.action) +
+                                          (entityData.action ? formatLabel(label, entityData.action) : label) +
                                           ' - ' +
                                           tooltipItem.yLabel.toLocaleString()
                                       )

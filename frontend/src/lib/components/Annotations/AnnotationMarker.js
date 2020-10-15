@@ -4,7 +4,6 @@ import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined, GlobalOutlined, CloseOutlined } from '@ant-design/icons'
-import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -138,37 +137,41 @@ export function AnnotationMarker({
                     </div>
                 ) : (
                     <div ref={popupRef} style={{ minWidth: 300 }}>
-                        {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
-                            <div key={data.id} style={{ marginBottom: 25 }}>
-                                <Row justify="space-between" align="middle">
-                                    <div>
-                                        <b style={{ marginRight: 5 }}>
-                                            {data.created_by === 'local'
-                                                ? name || email
-                                                : data.created_by &&
-                                                  (data.created_by.first_name || data.created_by.email)}
-                                        </b>
-                                        <i style={{ color: 'gray', marginRight: 6 }}>
-                                            {humanFriendlyDetailedTime(data.created_at)}
-                                        </i>
-                                        {data.scope !== 'dashboard_item' && (
-                                            <Tooltip title="This note is shown on all charts">
-                                                <GlobalOutlined></GlobalOutlined>
-                                            </Tooltip>
+                        {[...annotations]
+                            .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
+                            .map((data) => (
+                                <div key={data.id} style={{ marginBottom: 25 }}>
+                                    <Row justify="space-between" align="middle">
+                                        <div>
+                                            <b style={{ marginRight: 5 }}>
+                                                {data.created_by === 'local'
+                                                    ? name || email
+                                                    : data.created_by &&
+                                                      (data.created_by.first_name || data.created_by.email)}
+                                            </b>
+                                            <i style={{ color: 'gray', marginRight: 6 }}>
+                                                {humanFriendlyDetailedTime(data.created_at)}
+                                            </i>
+                                            {data.scope !== 'dashboard_item' && (
+                                                <Tooltip title="This note is shown on all charts">
+                                                    <GlobalOutlined></GlobalOutlined>
+                                                </Tooltip>
+                                            )}
+                                        </div>
+                                        {(!data.created_by ||
+                                            data.created_by.id === id ||
+                                            data.created_by === 'local') && (
+                                            <DeleteOutlined
+                                                className="button-border clickable"
+                                                onClick={() => {
+                                                    onDelete(data)
+                                                }}
+                                            ></DeleteOutlined>
                                         )}
-                                    </div>
-                                    {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
-                                        <DeleteOutlined
-                                            className="button-border clickable"
-                                            onClick={() => {
-                                                onDelete(data)
-                                            }}
-                                        ></DeleteOutlined>
-                                    )}
-                                </Row>
-                                <span>{data.content}</span>
-                            </div>
-                        ))}
+                                    </Row>
+                                    <span>{data.content}</span>
+                                </div>
+                            ))}
                         {textAreaVisible && (
                             <TextArea
                                 maxLength={300}

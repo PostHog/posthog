@@ -8,15 +8,15 @@ from posthog.models import Action, ActionStep, Cohort, Event, Person
 
 class TestPerson(BaseTest):
     def test_merge_people(self):
-        person0 = Person.objects.create(distinct_ids=["person_0"], team=self.team, properties={"$os": "Microsoft"},)
+        person0 = Person.objects.create(distinct_ids=["person_0"], team=self.team, properties={"$os": "Microsoft"})
         person0.created_at = datetime.datetime(2020, 1, 1, tzinfo=pytz.UTC)
         person0.save()
 
-        person1 = Person.objects.create(distinct_ids=["person_1"], team=self.team, properties={"$os": "Chrome"},)
+        person1 = Person.objects.create(distinct_ids=["person_1"], team=self.team, properties={"$os": "Chrome"})
         person1.created_at = datetime.datetime(2019, 7, 1, tzinfo=pytz.UTC)
         person1.save()
 
-        event1 = Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
+        Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="user signed up")
         action.calculate_events()
@@ -43,4 +43,10 @@ class TestPerson(BaseTest):
 
         self.assertEqual(
             person0.created_at, datetime.datetime(2019, 7, 1, tzinfo=pytz.UTC),
-        )  # oldest time is kept
+        )  # oldest created_at is kept
+
+    def test_person_is_identified(self):
+        person_identified = Person.objects.create(team=self.team, is_identified=True)
+        person_anonymous = Person.objects.create(team=self.team)
+        self.assertEqual(person_identified.is_identified, True)
+        self.assertEqual(person_anonymous.is_identified, False)

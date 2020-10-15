@@ -416,6 +416,27 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
+    def test_long_distinct_id(self, patch_process_event):
+        now = timezone.now()
+        tomorrow = now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
+
+        data = {
+            "event": "movie played",
+            "timestamp": tomorrow.isoformat(),
+            "properties": {"distinct_id": "a" * 250, "token": self.team.api_token},
+        }
+
+        self.client.get(
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            content_type="application/json",
+            HTTP_ORIGIN="https://localhost",
+        )
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(len(arguments["distinct_id"]), 200)
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.tasks.process_event.process_event.delay")
     def test_sent_at_field(self, patch_process_event):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)

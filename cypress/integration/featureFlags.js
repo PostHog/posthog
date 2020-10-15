@@ -28,7 +28,6 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table').should('contain', 'to be deleted')
         cy.get('[data-row-key="to-be-deleted"]').click()
         cy.get('[data-attr=delete-flag]').click()
-        cy.get('.ant-modal-confirm-btns > .ant-btn-dangerous').click()
-        cy.contains('Feature flag deleted successfully').should('exist')
+        cy.contains('Click here to undo').should('exist')
     })
 })

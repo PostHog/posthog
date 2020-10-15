@@ -88,6 +88,7 @@ $body-color: #37352f;
     box-shadow: 0px 0px 13px rgba(0, 0, 0, 0.1);
     border: 0;
     margin-bottom: 3rem;
+    overflow: hidden;
     .card-header {
         font-weight: 500;
         font-size: 15px;
@@ -455,6 +456,10 @@ label.disabled {
     background-color: #f0f0f0 !important;
 }
 
+.btn-sm {
+    line-height: 20px;
+}
+
 @media screen and (max-width: 480px) {
     h1.title {
         line-height: 1.1em;
@@ -473,5 +478,20 @@ label.disabled {
             margin-top: 0 !important;
             height: 200px;
         }
+    }
+}
+
+.match-condition-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    color: white;
+    font-weight: bold;
+
+    &.mc-or {
+        background-color: #4263eb;
+    }
+
+    &.mc-and {
+        background-color: #f7a501;
     }
 }

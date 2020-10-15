@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
 from django.utils import timezone
@@ -24,7 +25,10 @@ class TeamManager(models.Manager):
         if users:
             team.users.set(users)
 
-        action = Action.objects.create(team=team, name="Pageviews")
+        if not users or not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
+            # Don't create default `Pageviews` action on actions-ux-201012 feature flag (use first user as proxy for org)
+            action = Action.objects.create(team=team, name="Pageviews")
+
         ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(

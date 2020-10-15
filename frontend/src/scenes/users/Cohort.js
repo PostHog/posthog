@@ -6,10 +6,9 @@ import { Button } from 'antd'
 
 import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
-import _ from 'lodash'
 
 const isSubmitDisabled = (cohorts) => {
-    if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => !_.isEmpty(group))
+    if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => Object.keys(group).length)
     return true
 }
 
