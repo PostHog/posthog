@@ -142,18 +142,19 @@ class TestPerson(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
 
-    def test_cant_see_another_orgs_pii_with_filters(self):
+    def test_cant_see_another_organization_pii_with_filters(self):
 
+        # Completely different organization
         another_org: Organization = Organization.objects.create()
-        another_team: Team = Team.objects.create(organization=self.organization)
-
-        another_person1: Person = Person.objects.create(
+        another_team: Team = Team.objects.create(organization=another_org)
+        Person.objects.create(
             team=another_team, distinct_ids=["distinct_id", "x_another_one"],
         )
-        another_person2: Person = Person.objects.create(
+        Person.objects.create(
             team=another_team, distinct_ids=["x_distinct_id_2"], properties={"email": "team2_another@gmail.com"},
         )
 
+        # Person in current team
         person: Person = Person.objects.create(
             team=self.team, distinct_ids=["distinct_id"],
         )
@@ -163,8 +164,8 @@ class TestPerson(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(
-            response.json()["results"][0]["id"], person.pk
-        )  # note only the person from the same team is returned
+            response.json()["results"][0]["id"], person.pk,
+        )  # note that even with shared distinct IDs, only the person from the same team is returned
 
         response = self.client.get("/api/person/?distinct_id=x_another_one")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

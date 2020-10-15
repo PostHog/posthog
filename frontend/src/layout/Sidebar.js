@@ -81,6 +81,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
+    const toolbarEnabled = user.toolbar_mode !== 'disabled'
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
@@ -117,17 +118,19 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 >
                     <Logo />
 
-                    <Menu.Item
-                        key="toolbar"
-                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
-                        onClick={() => setToolbarModalOpen(true)}
-                        data-attr="menu-item-toolbar"
-                    >
-                        <div className="sidebar-toolbar-imitation">
-                            <HogIcon />
-                        </div>
-                        <span className="sidebar-label">Launch Toolbar!</span>
-                    </Menu.Item>
+                    {toolbarEnabled ? (
+                        <Menu.Item
+                            key="toolbar"
+                            style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
+                            onClick={() => setToolbarModalOpen(true)}
+                            data-attr="menu-item-toolbar"
+                        >
+                            <div className="sidebar-toolbar-imitation">
+                                <HogIcon />
+                            </div>
+                            <span className="sidebar-label">Launch Toolbar!</span>
+                        </Menu.Item>
+                    ) : null}
 
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
@@ -161,17 +164,21 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         title={
                             <span style={itemStyle} data-attr="menu-item-events">
                                 <ContainerOutlined />
-                                <span className="sidebar-label">{'Events'}</span>
+                                <span className="sidebar-label">
+                                    {!featureFlags['actions-ux-201012'] ? 'Events' : 'Events & Actions'}
+                                </span>
                             </span>
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/events' && push('/events')
+                            location.pathname !== '/events' && push('/actions')
                         }}
                     >
                         <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                             <ContainerOutlined />
-                            <span className="sidebar-label">{'All Events'}</span>
+                            <span className="sidebar-label">
+                                {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
+                            </span>
                             <Link to={'/events'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
@@ -179,11 +186,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Actions'}</span>
                             <Link to={'/actions'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                            <SyncOutlined />
-                            <span className="sidebar-label">{'Live Actions'}</span>
-                            <Link to={'/actions/live'} onClick={collapseSidebar} />
-                        </Menu.Item>
+                        {!featureFlags['actions-ux-201012'] && (
+                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
+                                <SyncOutlined />
+                                <span className="sidebar-label">{'Live Actions'}</span>
+                                <Link to={'/actions/live'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>

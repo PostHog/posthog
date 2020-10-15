@@ -140,7 +140,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div className="mt-2">
+        <div className="mt-2" style={{ paddingBottom: 16 }}>
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
@@ -174,22 +174,26 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                     properties={eventPropertiesNumerical}
                 />
             )}
-            <div
-                className="btn btn-sm btn-light ml-2"
-                onClick={() => setEntityFilterVisible(!entityFilterVisible)}
-                data-attr={'show-prop-filter-' + index}
-            >
-                {determineFilterLabel(entityFilterVisible, filter)}
+            <div style={{ paddingTop: 6 }}>
+                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6 }}>&#8627;</span>
+                <div
+                    className="btn btn-sm btn-light ml-2"
+                    onClick={() => setEntityFilterVisible(!entityFilterVisible)}
+                    data-attr={'show-prop-filter-' + index}
+                >
+                    {determineFilterLabel(entityFilterVisible, filter)}
+                </div>
+                <CloseButton
+                    className="ml-2"
+                    onClick={onClose}
+                    style={{
+                        float: 'none',
+                        position: 'absolute',
+                        marginTop: 3,
+                    }}
+                />
             </div>
-            <CloseButton
-                className="ml-2"
-                onClick={onClose}
-                style={{
-                    float: 'none',
-                    position: 'absolute',
-                    marginTop: 3,
-                }}
-            />
+
             {entityFilterVisible && (
                 <div className="ml-3">
                     <PropertyFilters

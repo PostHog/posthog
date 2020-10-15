@@ -8,9 +8,10 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.cohort import format_cohort_table_name
+from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
 from ee.clickhouse.sql.events import (
     EVENT_JOIN_PERSON_SQL,
     EVENT_JOIN_PROPERTY_WITH_KEY_SQL,
@@ -178,7 +179,7 @@ ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {fi
 BREAKDOWN_COHORT_FILTER_SQL = """
 SELECT distinct_id, {cohort_pk} as value
 FROM person_distinct_id
-WHERE person_id IN ({table_name})
+WHERE distinct_id IN ({clause})
 """
 
 
@@ -280,8 +281,8 @@ class ClickhouseTrends(BaseQuery):
                     aggregate_operation=aggregate_operation,
                 )
             else:
-                cohort_queries, cohort_ids = self._format_breakdown_cohort_join_query(breakdown, team)
-                params = {**params, "values": cohort_ids, "event": entity.id, **action_params}
+                cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team)
+                params = {**params, "values": cohort_ids, "event": entity.id, **action_params, **cohort_params}
                 breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL.format(
                     cohort_queries=cohort_queries,
                     parsed_date_from=parsed_date_from,
@@ -386,19 +387,21 @@ class ClickhouseTrends(BaseQuery):
 
         return parsed_results
 
-    def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List]:
+    def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List, Dict]:
         cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
-        cohort_queries = self._parse_breakdown_cohorts(cohorts)
+        cohort_queries, params = self._parse_breakdown_cohorts(cohorts)
         ids = [cohort.pk for cohort in cohorts]
-        return cohort_queries, ids
+        return cohort_queries, ids, params
 
-    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> str:
+    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> Tuple[str, Dict]:
         queries = []
+        params: Dict[str, Any] = {}
         for cohort in cohorts:
-            table_name = format_cohort_table_name(cohort)
-            cohort_query = BREAKDOWN_COHORT_FILTER_SQL.format(table_name=table_name, cohort_pk=cohort.pk)
+            person_id_query, cohort_filter_params = format_filter_query(cohort)
+            params = {**params, **cohort_filter_params}
+            cohort_query = BREAKDOWN_COHORT_FILTER_SQL.format(clause=person_id_query, cohort_pk=cohort.pk)
             queries.append(cohort_query)
-        return " UNION ALL ".join(queries)
+        return " UNION ALL ".join(queries), params
 
     def _parse_response(self, stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
         counts = stats[1]

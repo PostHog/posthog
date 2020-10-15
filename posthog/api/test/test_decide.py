@@ -33,7 +33,7 @@ class TestDecide(BaseTest):
 
     def test_user_on_own_site_disabled(self):
         user = self.team.users.all()[0]
-        user.toolbar_mode = "default"
+        user.toolbar_mode = "disabled"
         user.save()
 
         self.team.app_urls = ["https://example.com/maybesubdomain"]

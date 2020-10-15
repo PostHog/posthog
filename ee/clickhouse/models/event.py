@@ -84,7 +84,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
             return dict(zip(event[8], prop_vals))
         else:
             props = json.loads(event[2])
-            unpadded = {key: value.strip('"') for key, value in props.items()}
+            unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
             return unpadded
 
     def get_event(self, event):
