@@ -47,7 +47,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     def test_delete_organization_invite_only_if_admin(self):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertDictEqual(
+        self.assertEqual(
             response.data,
             {
                 "type": "authentication_error",
