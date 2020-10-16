@@ -76,7 +76,8 @@ export interface CommandFlow {
     icon?: any
     instruction?: string
     resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
-    scope: string
+    scope?: string
+    previousFlow?: CommandFlow | null
 }
 
 export interface CommandRegistrations {
@@ -118,6 +119,7 @@ export const commandPaletteLogic = kea<
         onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
+        backFlow: true,
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -138,6 +140,7 @@ export const commandPaletteLogic = kea<
                 setInput: () => 0,
                 executeResult: () => 0,
                 activateFlow: () => 0,
+                backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
             },
@@ -145,11 +148,12 @@ export const commandPaletteLogic = kea<
         hoverResultIndex: [
             null as number | null,
             {
+                activateFlow: () => null,
+                backFlow: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
                 onArrowDown: () => null,
-                activateFlow: () => null,
             },
         ],
         input: [
@@ -157,13 +161,16 @@ export const commandPaletteLogic = kea<
             {
                 setInput: (_, { input }) => input,
                 activateFlow: () => '',
+                backFlow: () => '',
                 executeResult: () => '',
             },
         ],
         activeFlow: [
             null as CommandFlow | null,
             {
-                activateFlow: (_, { flow }) => flow,
+                activateFlow: (currentFlow, { flow }) =>
+                    flow ? { ...flow, scope: flow.scope ?? currentFlow?.scope, previousFlow: currentFlow } : null,
+                backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
         rawCommandRegistrations: [
