@@ -60,6 +60,14 @@ class PluginBaseClass:
         self.config = config.config
         self.team = config.team
         self.cache = PluginCache(plugin_name=config.name)
+        self.team_init()
+
+    @staticmethod
+    def instance_init():
+        pass
+
+    def team_init(self):
+        pass
 
     def schedule_jobs(self, sender):
         pass
@@ -234,6 +242,7 @@ class _Plugins:
                         plugin=item[1],
                         module=module,
                     )
+                    item[1].instance_init()
 
             if found_plugin:
                 if local_plugin:
