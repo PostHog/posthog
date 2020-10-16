@@ -5,282 +5,341 @@ from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Per
 from posthog.models.event import Selector, SelectorPart
 
 
-class TestFilterByActions(BaseTest):
-    def test_filter_with_selectors(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
+def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
+    class TestFilterByActions(BaseTest):
+        def test_filter_with_selectors(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
 
-        event1 = Event.objects.create(
-            event="$autocapture",
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
-                Element(tag_name="button", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
-            ],
-        )
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
+                    Element(tag_name="button", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
+                ],
+            )
 
-        event2 = Event.objects.create(
-            event="$autocapture",
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-                # make sure elements don't get double counted if they're part of the same event
-                Element(href="/a-url-2", nth_child=0, nth_of_type=0),
-            ],
-        )
+            event2 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(href="/a-url-2", nth_child=0, nth_of_type=0),
+                ],
+            )
 
-        # make sure other teams' data doesn't get mixed in
-        team2 = Team.objects.create()
-        event3 = Event.objects.create(
-            event="$autocapture",
-            team=team2,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                Element(tag_name="div", nth_child=0, nth_of_type=0),
-            ],
-        )
+            # make sure other teams' data doesn't get mixed in
+            team2 = Team.objects.create()
+            event3 = _create_event(
+                event="$autocapture",
+                team=team2,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
 
-        # test direct decendant ordering
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(event="$autocapture", action=action1, selector="div > div > a")
-        ActionStep.objects.create(
-            event="$autocapture", action=action1, selector="div > a.somethingthatdoesntexist",
-        )
-        action1.calculate_events()
+            # test direct decendant ordering
+            action1 = Action.objects.create(team=self.team, name="action1")
+            ActionStep.objects.create(event="$autocapture", action=action1, selector="div > div > a")
+            ActionStep.objects.create(
+                event="$autocapture", action=action1, selector="div > a.somethingthatdoesntexist",
+            )
+            action1.calculate_events()
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], event2)
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].pk, event2.pk)
 
-        # test :nth-child()
-        action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action2, selector="div > a:nth-child(2)")
-        action2.calculate_events()
+            # test :nth-child()
+            action2 = Action.objects.create(team=self.team)
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", nth_child=3, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
+            ActionStep.objects.create(event="$autocapture", action=action2, selector="div > a:nth-child(2)")
+            action2.calculate_events()
 
-        events = Event.objects.filter_by_action(action2)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], event2)
+            events = _get_events_for_action(action2)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].pk, event2.pk)
 
-        # test [id='someId']
-        action3 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action3, selector="[id='someId']")
-        action3.calculate_events()
+            # test [id='someId']
+            action3 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(event="$autocapture", action=action3, selector="[id='someId']")
+            action3.calculate_events()
 
-        events = Event.objects.filter_by_action(action3)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], event2)
+            events = _get_events_for_action(action3)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].pk, event2.pk)
 
-        # test selector without >
-        action4 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(event="$autocapture", action=action4, selector="[id='nested'] a")
-        action4.calculate_events()
+            # test selector without >
+            action4 = Action.objects.create(team=self.team, name="action1")
+            ActionStep.objects.create(event="$autocapture", action=action4, selector="[id='nested'] a")
+            action4.calculate_events()
 
-        events = Event.objects.filter_by_action(action4)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], event1)
+            events = _get_events_for_action(action4)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].pk, event1.pk)
 
-    def test_with_normal_filters(self):
-        # this test also specifically tests the back to back receipt of
-        # the same type of events by action to test the query cache
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
+        def test_with_normal_filters(self):
+            # this test also specifically tests the back to back receipt of
+            # the same type of events by action to test the query cache
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            # _create_person(distinct_ids=["whatever2"], team=self.team)
 
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, href="/a-url", tag_name="a")
-        ActionStep.objects.create(action=action1, href="/a-url-2")
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
+            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
-        event1 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
-        )
+            event1 = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever",
+                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+            )
 
-        event2 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever2",
-            elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
-        )
+            event2 = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+            )
 
-        event3 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
-                # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
-            ],
-        )
+            event3 = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                ],
+            )
 
-        event4 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever2",
-            elements=[
-                Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
-                # make sure elements don't get double counted if they're part of the same event
-                Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
-            ],
-        )
+            event4 = _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[
+                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    # make sure elements don't get double counted if they're part of the same event
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                ],
+            )
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event4)
-        self.assertEqual(events[1], event3)
-        self.assertEqual(events[2], event2)
-        self.assertEqual(events[3], event1)
-        self.assertEqual(len(events), 4)
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 4)
+            self.assertEqual(events[0].pk, event4.pk)
+            self.assertEqual(events[1].pk, event3.pk)
+            self.assertEqual(events[2].pk, event2.pk)
+            self.assertEqual(events[3].pk, event1.pk)
 
-    def test_with_class(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector="a.nav-link.active", tag_name="a")
-        event1 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["active", "nav-link"]),
-            ],
-        )
+        def test_with_class(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(event="$autocapture", action=action1, selector="a.nav-link.active", tag_name="a")
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="span", attr_class=None),
+                    # crazy-class makes sure we don't require exact matching of the entire class string
+                    Element(tag_name="a", attr_class=["active", "crazy-class", "nav-link"]),
+                ],
+            )
+            # no class
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="span", attr_class=None), Element(tag_name="a", attr_class=None),],
+            )
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event1)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action1)
+            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(len(events), 1)
 
-    def test_with_class_with_escaped_symbols(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector="a.na\\\\v-link\\:b\\@ld", tag_name="a")
-        event1 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["na\\v-link:b@ld"]),
-            ],
-        )
+        def test_with_class_with_escaped_symbols(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture", action=action1, selector="a.na\\\\v-link\\:b\\@ld", tag_name="a"
+            )
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="span", attr_class=None),
+                    Element(tag_name="a", attr_class=["na\\v-link:b@ld"]),
+                ],
+            )
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event1)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action1)
+            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(len(events), 1)
 
-    def test_with_class_with_escaped_slashes(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector="a.na\\\\\\\\\\\\v-link\\:b\\@ld", tag_name="a")
-        event1 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[
-                Element(tag_name="span", attr_class=None),
-                Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"]),
-            ],
-        )
+        def test_with_class_with_escaped_slashes(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture", action=action1, selector="a.na\\\\\\\\\\\\v-link\\:b\\@ld", tag_name="a"
+            )
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="span", attr_class=None),
+                    Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"]),
+                ],
+            )
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event1)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action1)
+            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(len(events), 1)
 
-    def test_attributes(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
-        event1 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
-        )
+        def test_attributes(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
+            )
 
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='[data-id="123"]')
-        action1.calculate_events()
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(event="$autocapture", action=action1, selector='[data-id="123"]')
+            action1.calculate_events()
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], event1)
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].pk, event1.pk)
 
-    def test_filter_events_by_url(self):
-        Person.objects.create(distinct_ids=["whatever"], team=self.team)
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(
-            action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
-        )
-        ActionStep.objects.create(action=action1, href="/a-url-2")
+        def test_filter_events_by_url(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture",
+                action=action1,
+                url="https://posthog.com/feedback/123",
+                url_matching=ActionStep.EXACT,
+            )
+            ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
-        action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action2, url="123", url_matching=ActionStep.CONTAINS)
+            action2 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(event="$autocapture", action=action2, url="123", url_matching=ActionStep.CONTAINS)
 
-        action3 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(
-            action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS,
-        )
+            action3 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture", action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS,
+            )
 
-        action4 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(
-            action=action4, url="/123$", url_matching=ActionStep.REGEX,
-        )
+            action4 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture", action=action4, url="/123$", url_matching=ActionStep.REGEX,
+            )
 
-        event1 = Event.objects.create(team=self.team, distinct_id="whatever")
-        event2 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            properties={"$current_url": "https://posthog.com/feedback/123"},
-            elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,)],
-        )
+            event1 = _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
+            event2 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                properties={"$current_url": "https://posthog.com/feedback/123"},
+                elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,)],
+            )
 
-        events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action1)
+            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(len(events), 1)
 
-        events = Event.objects.filter_by_action(action2)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action2)
+            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(len(events), 1)
 
-        events = Event.objects.filter_by_action(action3)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action3)
+            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(len(events), 1)
 
-        events = Event.objects.filter_by_action(action4)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(len(events), 1)
+            events = _get_events_for_action(action4)
+            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(len(events), 1)
 
-    def test_person_with_different_distinct_id(self):
-        action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
-        ActionStep.objects.create(action=action_watch_movie, tag_name="a", href="/movie")
+        def test_person_with_different_distinct_id(self):
+            action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
+            ActionStep.objects.create(action=action_watch_movie, tag_name="a", href="/movie", event="$autocapture")
 
-        person = Person.objects.create(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
-        event_watched_movie_anonymous = Event.objects.create(
-            distinct_id="anonymous_user", team=self.team, elements=[Element(tag_name="a", href="/movie")],
-        )
+            person = _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
+            event_watched_movie_anonymous = _create_event(
+                distinct_id="anonymous_user",
+                team=self.team,
+                elements=[Element(tag_name="a", href="/movie")],
+                event="$autocapture",
+            )
 
-        event_watched_movie = Event.objects.create(
-            distinct_id="is_now_signed_up", team=self.team, elements=[Element(tag_name="a", href="/movie")],
-        )
+            event_watched_movie = _create_event(
+                distinct_id="is_now_signed_up",
+                team=self.team,
+                elements=[Element(tag_name="a", href="/movie")],
+                event="$autocapture",
+            )
 
-        events = Event.objects.filter_by_action(action_watch_movie)
-        self.assertEqual(events[0], event_watched_movie)
-        self.assertEqual(events[0].person_id, person.pk)
+            events = _get_events_for_action(action_watch_movie)
+            self.assertEqual(events[0].pk, event_watched_movie.pk)
+            self.assertEqual(events[0].distinct_id, "is_now_signed_up")
 
-    def test_no_person_leakage_from_other_teams(self):
-        action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
-        ActionStep.objects.create(action=action_watch_movie, event="user signed up")
+        def test_no_person_leakage_from_other_teams(self):
+            action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
+            ActionStep.objects.create(action=action_watch_movie, event="user signed up")
 
-        person = Person.objects.create(distinct_ids=["anonymous_user"], team=self.team)
-        event_watched_movie_anonymous = Event.objects.create(
-            event="user signed up", distinct_id="anonymous_user", team=self.team
-        )
+            person = _create_person(distinct_ids=["anonymous_user"], team=self.team)
+            event_watched_movie_anonymous = _create_event(
+                event="user signed up", distinct_id="anonymous_user", team=self.team
+            )
 
-        team2 = Team.objects.create()
-        person2 = Person.objects.create(distinct_ids=["anonymous_user"], team=team2)
+            team2 = Team.objects.create()
+            person2 = _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
-        events = Event.objects.filter_by_action(action_watch_movie)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].person_id, person.pk)
+            events = _get_events_for_action(action_watch_movie)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].distinct_id, "anonymous_user")
+
+        def test_person_property(self):
+            _create_person(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
+            _create_person(team=self.team, distinct_ids=["person2"])
+            _create_event(event="$pageview", distinct_id="person1", team=self.team)
+            _create_event(event="$pageview", distinct_id="person2", team=self.team)
+            action = Action.objects.create(name="pageview", team=self.team)
+            ActionStep.objects.create(
+                action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+            )
+            action.calculate_events()
+            events = _get_events_for_action(action)
+            self.assertEqual(len(events), 1)
+
+    return TestFilterByActions
+
+
+filter_by_actions_factory(Event.objects.create, Person.objects.create, Event.objects.filter_by_action)
 
 
 class TestElementGroup(BaseTest):
@@ -434,16 +493,6 @@ class TestPreCalculation(BaseTest):
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by("id")], [])
 
-    def test_save_with_person_property(self):
-        Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
-        Event.objects.create(event="$pageview", distinct_id="person1", team=self.team)
-        action = Action.objects.create(name="pageview", team=self.team)
-        ActionStep.objects.create(
-            action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
-        )
-        action.calculate_events()
-        self.assertEqual(action.events.count(), 1)
-
     def test_empty(self):
         Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
         action = Action.objects.create(name="pageview", team=self.team)
@@ -482,80 +531,82 @@ class TestSelectors(BaseTest):
 
     def test_selector_child(self):
         selector1 = Selector("div span")
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": False, "unique_order": 0,},
-        )
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, False)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_selector_child_direct_descendant(self):
         selector1 = Selector("div > span")
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
-        )
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_selector_attribute(self):
         selector1 = Selector('div[data-id="5"] > span')
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__,
-            {
-                "data": {"tag_name": "div", "attributes__attr__data-id": "5"},
-                "direct_descendant": True,
-                "unique_order": 0,
-            },
-        )
+
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div", "attributes__attr__data-id": "5"})
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_selector_id(self):
         selector1 = Selector('[id="5"] > span')
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"attr_id": "5"}, "direct_descendant": True, "unique_order": 0},
-        )
+
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"attr_id": "5"})
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_selector_with_spaces(self):
         selector1 = Selector("span    ")
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0},
-        )
+
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
 
     def test_class(self):
         selector1 = Selector("div.classone.classtwo > span")
+
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
         self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "span"}, "direct_descendant": False, "unique_order": 0,},
+            selector1.parts[1].data, {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"],}
         )
-        self.assertEqual(
-            selector1.parts[1].__dict__,
-            {
-                "data": {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"],},
-                "direct_descendant": True,
-                "unique_order": 0,
-            },
-        )
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_nth_child(self):
         selector1 = Selector("div > span:nth-child(3)")
-        self.assertEqual(
-            selector1.parts[0].__dict__,
-            {"data": {"tag_name": "span", "nth_child": "3"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 0},
-        )
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span", "nth_child": "3"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
 
     def test_unique_order(self):
         selector1 = Selector("div > div")
-        self.assertEqual(
-            selector1.parts[0].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": False, "unique_order": 0,},
-        )
-        self.assertEqual(
-            selector1.parts[1].__dict__, {"data": {"tag_name": "div"}, "direct_descendant": True, "unique_order": 1},
-        )
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 1)

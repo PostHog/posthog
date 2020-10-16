@@ -7,7 +7,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import get_elements_by_elements_hash, get_elements_by_elements_hashes
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
@@ -20,16 +19,6 @@ from posthog.utils import convert_property_value
 
 
 class ClickhouseEvents(EventViewSet):
-    def _get_elements(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
-        element_hashes = [event[6] for event in query_result]
-        elements = get_elements_by_elements_hashes(element_hashes, team.pk)
-        grouped_elements: Dict[str, List[Dict[str, Any]]] = {}
-        for element in elements:
-            if not grouped_elements.get(element["elements_hash"], None):
-                grouped_elements[element["elements_hash"]] = []
-            grouped_elements[element["elements_hash"]].append(element)
-        return grouped_elements
-
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
@@ -67,12 +56,7 @@ class ClickhouseEvents(EventViewSet):
             )
 
         result = ClickhouseEventSerializer(
-            query_result,
-            many=True,
-            context={
-                "elements": self._get_elements(query_result, team),
-                "people": self._get_people(query_result, team),
-            },
+            query_result, many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
         if len(query_result) > 100:
@@ -100,9 +84,6 @@ class ClickhouseEvents(EventViewSet):
         team = request.user.team_set.get()
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
-
-        if result["elements_hash"]:
-            result["elements"] = get_elements_by_elements_hash(result["elements_hash"], team.pk)
 
         return Response(result)
 

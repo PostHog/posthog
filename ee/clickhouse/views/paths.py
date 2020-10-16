@@ -5,7 +5,7 @@ from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
-from ee.clickhouse.sql.elements import ELEMENT_TAG_COUNT
+from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from ee.clickhouse.util import CH_PATH_ENDPOINT, endpoint_enabled
 from posthog.api.paths import PathsViewSet
 from posthog.models import Event, Filter

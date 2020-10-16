@@ -58,25 +58,29 @@ class SelectorPart(object):
         # separate all double slashes "\\" (replace them with "\") and remove all single slashes between them
         return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
 
-    def __init__(self, tag: str, direct_descendant: bool):
+    def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool):
         self.direct_descendant = direct_descendant
         self.data: Dict[str, Union[str, List]] = {}
+        self.ch_attributes: Dict[str, Union[str, List]] = {}  # attributes for CH
 
         result = re.search(attribute_regex, tag)
         if result and "[id=" in tag:
             self.data["attr_id"] = result[3]
+            self.ch_attributes["attr_id"] = result[3]
             tag = result[1]
         if result and "[" in tag:
             self.data["attributes__attr__{}".format(result[2])] = result[3]
+            self.ch_attributes[result[2]] = result[3]
             tag = result[1]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
+            self.ch_attributes["nth-child"] = self.data["nth_child"]
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
             # strip all slashes that are not followed by another slash
-            self.data["attr_class__contains"] = [self._unescape_class(p) for p in parts[1:]]
+            self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
@@ -96,24 +100,11 @@ class SelectorPart(object):
             params.append(value)
         return {"where": where, "params": params}
 
-    def clickhouse_query(self, query) -> str:
-        where = []
-        for key, value in self.data.items():
-            if "attr__" in key:
-                where.append(query.format("attr__{}".format(key.split("attr__")[1]), value))
-            else:
-                if "__contains" in key:
-                    where.append(" {} IN {}".format(key.replace("__contains", ""), value))
-                else:
-                    where.append(" {} = '{}'".format(key, value))
-        separator = "AND "
-        return separator.join(where)
-
 
 class Selector(object):
     parts: List[SelectorPart] = []
 
-    def __init__(self, selector: str):
+    def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
         tags = re.split(" ", selector.strip())
         tags.reverse()
@@ -123,7 +114,7 @@ class Selector(object):
             direct_descendant = False
             if index > 0 and tags[index - 1] == ">":
                 direct_descendant = True
-            part = SelectorPart(tag, direct_descendant)
+            part = SelectorPart(tag, direct_descendant, escape_slashes)
             part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
 

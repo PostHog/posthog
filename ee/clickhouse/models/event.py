@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import create_elements
+from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka.client import ClickhouseProducer
 from ee.kafka.topics import KAFKA_EVENTS
@@ -24,7 +24,6 @@ def create_event(
     distinct_id: str,
     timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[Dict] = {},
-    elements_hash: Optional[str] = "",
     elements: Optional[List[Element]] = None,
 ) -> str:
 
@@ -37,8 +36,9 @@ def create_event(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    if elements and not elements_hash:
-        elements_hash = create_elements(event_uuid=event_uuid, elements=elements, team=team)
+    elements_chain = ""
+    if elements and len(elements) > 0:
+        elements_chain = elements_to_string(elements=elements)
 
     data = {
         "uuid": str(event_uuid),
@@ -47,8 +47,8 @@ def create_event(
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "elements_hash": elements_hash,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "elements_chain": elements_chain,
     }
     p = ClickhouseProducer()
     p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
@@ -65,18 +65,41 @@ def get_events_by_team(team_id: Union[str, int]):
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
+class ElementSerializer(serializers.ModelSerializer):
+    event = serializers.CharField()
+
+    class Meta:
+        model = Element
+        fields = [
+            "event",
+            "text",
+            "tag_name",
+            "attr_class",
+            "href",
+            "attr_id",
+            "nth_child",
+            "nth_of_type",
+            "attributes",
+            "order",
+        ]
+
+
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
+    distinct_id = serializers.SerializerMethodField()
     properties = serializers.SerializerMethodField()
     event = serializers.SerializerMethodField()
     timestamp = serializers.SerializerMethodField()
     person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
-    elements_hash = serializers.SerializerMethodField()
+    elements_chain = serializers.SerializerMethodField()
 
     def get_id(self, event):
         return str(event[0])
+
+    def get_distinct_id(self, event):
+        return event[5]
 
     def get_properties(self, event):
         if len(event) >= 10 and event[8] and event[9]:
@@ -100,11 +123,11 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return self.context["people"][event[5]]["properties"].get("email", event[5])
 
     def get_elements(self, event):
-        if not event[6] or not self.context.get("elements") or event[6] not in self.context["elements"]:
+        if not event[6]:
             return []
-        return self.context["elements"][event[6]]
+        return ElementSerializer(chain_to_elements(event[6]), many=True).data
 
-    def get_elements_hash(self, event):
+    def get_elements_chain(self, event):
         return event[6]
 
 

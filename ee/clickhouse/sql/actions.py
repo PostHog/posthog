@@ -1,7 +1,16 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
 FILTER_EVENT_BY_ACTION_SQL = """
-SELECT * FROM events where uuid IN (
+SELECT
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
+FROM events where uuid IN (
     SELECT uuid FROM {table_name}
 )
 """
@@ -25,7 +34,19 @@ INSERT INTO {table_name} SELECT uuid FROM ({query})
 """
 
 ACTION_QUERY = """
-SELECT * FROM events WHERE uuid IN {action_filter}
+SELECT
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
+FROM events
+WHERE uuid IN {action_filter}
+AND events.team_id = %(team_id)s
+ORDER BY events.timestamp DESC
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
@@ -33,18 +54,14 @@ SELECT * FROM events WHERE uuid IN {action_filter}
 ELEMENT_ACTION_FILTER = """
 (
     SELECT uuid FROM events WHERE 
-    elements_hash IN (
-        SELECT elements_hash FROM elements WHERE {element_filter} GROUP BY elements_hash
-    ) {event_filter}
+        team_id = %(team_id)s
+        {selector_regex}
+        {attributes_regex}
+        {tag_name_regex}
+        {event_filter}
 )
 """
 
-ELEMENT_PROP_FILTER = """
-(
-    SELECT uuid FROM elements_properties_view WHERE
-    key = {} AND value = {}
-)
-"""
 
 EVENT_ACTION_FILTER = """
 (
