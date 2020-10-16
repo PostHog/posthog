@@ -25,7 +25,7 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
-    MailOutlined,
+    ExclamationCircleOutlined,
     KeyOutlined,
     VideoCameraOutlined,
     SendOutlined,
@@ -627,28 +627,33 @@ export const commandPaletteLogic = kea<
                 resolver: {
                     icon: CommentOutlined,
                     display: 'Share Feedback',
-                    synonyms: ['send opinion', 'ask question', 'message posthog'],
+                    synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
                         scope: 'Sharing Feedback',
-                        instruction: "What's on your mind?",
-                        icon: CommentOutlined,
-                        resolver: (argument) => [
+                        resolver: [
                             {
-                                icon: SendOutlined,
                                 display: 'Send Message Directly to PostHog',
-                                executor: !argument?.length
-                                    ? undefined
-                                    : () => {
-                                          window.posthog?.capture('palette feedback', { message: argument })
-                                          return {
-                                              scope: 'Sharing Feedback',
-                                              resolver: {
-                                                  icon: CheckOutlined,
-                                                  display: 'Message Sent!',
-                                                  executor: true,
+                                icon: CommentOutlined,
+                                executor: () => ({
+                                    instruction: "What's on your mind?",
+                                    icon: CommentOutlined,
+                                    resolver: (argument) => ({
+                                        icon: SendOutlined,
+                                        display: 'Send',
+                                        executor: !argument?.length
+                                            ? undefined
+                                            : () => {
+                                                  window.posthog?.capture('palette feedback', { message: argument })
+                                                  return {
+                                                      resolver: {
+                                                          icon: CheckOutlined,
+                                                          display: 'Message Sent!',
+                                                          executor: true,
+                                                      },
+                                                  }
                                               },
-                                          }
-                                      },
+                                    }),
+                                }),
                             },
                             {
                                 icon: VideoCameraOutlined,
@@ -658,10 +663,10 @@ export const commandPaletteLogic = kea<
                                 },
                             },
                             {
-                                icon: MailOutlined,
-                                display: 'Email Core Team',
+                                icon: ExclamationCircleOutlined,
+                                display: 'Create GitHub Issue',
                                 executor: () => {
-                                    open('mailto:hey@posthog.com')
+                                    open('https://github.com/PostHog/posthog/issues/new/choose')
                                 },
                             },
                         ],
