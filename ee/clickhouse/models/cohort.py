@@ -27,10 +27,10 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
                 arg = "v{}_{}".format(prepend, idx)
                 operator_clause, value = get_operator(prop, arg)
 
-                filter = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
+                prop_filters = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
                     idx=idx, operator_clause=operator_clause, prepend=prepend
                 )
-                clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter)
+                clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=prop_filters)
 
                 filters.append("(" + clause + ")")
                 params.update({"k{}_{}".format(prepend, idx): prop.key, arg: value})
