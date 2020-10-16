@@ -1,52 +1,14 @@
 import re
-from re import escape
 from typing import Dict, List, Optional, Tuple
 
 from django.forms.models import model_to_dict
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.actions import (
-    ACTION_QUERY,
-    ELEMENT_ACTION_FILTER,
-    EVENT_ACTION_FILTER,
-    EVENT_NO_PROP_FILTER,
-    FILTER_EVENT_BY_ACTION_SQL,
-    INSERT_INTO_ACTION_TABLE,
-    create_action_mapping_table_sql,
-)
-from ee.clickhouse.sql.clickhouse import DROP_TABLE_IF_EXISTS_SQL
+from ee.clickhouse.sql.actions import ACTION_QUERY, ELEMENT_ACTION_FILTER, EVENT_ACTION_FILTER, EVENT_NO_PROP_FILTER
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Action, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
-
-
-def format_action_table_name(action: Action) -> str:
-    return "action_" + str(action.team.pk) + "_" + str(action.pk)
-
-
-def filter_events_by_action(action: Action) -> List:
-    query = format_events_by_action_query(action)
-    return sync_execute(query)
-
-
-def format_events_by_action_query(action: Action) -> str:
-    table_name = format_action_table_name(action)
-    return FILTER_EVENT_BY_ACTION_SQL.format(table_name=table_name)
-
-
-def populate_action_event_table(action: Action) -> None:
-    query, params = format_action_query(action)
-
-    table_name = format_action_table_name(action)
-
-    sync_execute(DROP_TABLE_IF_EXISTS_SQL.format(table_name))
-
-    sync_execute(create_action_mapping_table_sql(table_name))
-
-    final_query = INSERT_INTO_ACTION_TABLE.format(query=query, table_name=table_name)
-
-    sync_execute(final_query, params)
 
 
 def query_action(action: Action) -> Optional[List]:
