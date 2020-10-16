@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
             name="PluginConfig",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team", null=True)),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Plugin")),
                 ("enabled", models.BooleanField(default=False)),
                 ("order", models.IntegerField(blank=True, null=True)),

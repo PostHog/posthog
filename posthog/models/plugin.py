@@ -14,7 +14,7 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)

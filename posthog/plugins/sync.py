@@ -134,3 +134,53 @@ def print_or_raise(msg, raise_errors):
     if raise_errors:
         raise Exception(msg)
     print("🔻🔻 {}".format(msg))
+
+
+def sync_global_plugin_config(filename="posthog.json"):
+    from posthog.models.plugin import Plugin, PluginConfig
+
+    posthog_json = load_json_file(filename)
+
+    # get all plugins with global configs from posthog.json
+    json_plugin_configs = {}
+    if posthog_json and posthog_json.get("plugins", None):
+        for plugin in posthog_json["plugins"]:
+            global_config = plugin.get("global", None)
+            if global_config:
+                json_plugin_configs[plugin["name"]] = global_config
+
+    # what plugins actually exist in the db?
+    db_plugins = {}
+    for plugin in Plugin.objects.all():
+        db_plugins[plugin.name] = plugin
+
+    # get all global plugins configs from the db... delete if not in posthog.json or plugin not installed
+    db_plugin_configs = {}
+    for plugin_config in list(PluginConfig.objects.filter(team=None)):
+        name = plugin_config.plugin.name
+        if not json_plugin_configs.get(name, None) or not db_plugins.get(name, None):
+            plugin_config.delete()
+            continue
+        db_plugin_configs[name] = plugin_config
+
+    # add new and update changed configs into the db
+    for name, plugin_json in json_plugin_configs.items():
+        enabled = plugin_json.get("enabled", False)
+        order = plugin_json.get("order", 0)
+        config = plugin_json.get("config", {})
+
+        db_plugin_config = db_plugin_configs.get(name, None)
+        if db_plugin_config:
+            if (
+                db_plugin_config.enabled != enabled
+                or db_plugin_config.order != order
+                or json.dumps(db_plugin_config.config) != json.dumps(config)
+            ):
+                db_plugin_config.enabled = enabled
+                db_plugin_config.order = order
+                db_plugin_config.config = config
+                db_plugin_config.save()
+        elif db_plugins.get(name, None):
+            PluginConfig.objects.create(
+                team=None, plugin=db_plugins[name], enabled=enabled, order=order, config=config,
+            )

@@ -19,7 +19,7 @@ class _Plugins:
     def __init__(self):
         from posthog.models.plugin import Plugin, PluginConfig
 
-        from .sync import sync_posthog_json_plugins
+        from .sync import sync_global_plugin_config, sync_posthog_json_plugins
 
         self.redis = get_redis_instance()
         self.plugins: List[Plugin] = []  # type not loaded yet
@@ -28,6 +28,7 @@ class _Plugins:
         self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
 
         sync_posthog_json_plugins()
+        sync_global_plugin_config()
 
         self.load_plugins()
         self.load_plugin_configs()
