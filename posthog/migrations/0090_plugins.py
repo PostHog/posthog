@@ -24,6 +24,7 @@ class Migration(migrations.Migration):
                 ("archive", models.BinaryField(blank=True, null=True)),
                 ("from_json", models.BooleanField(default=False)),
                 ("from_web", models.BooleanField(default=False)),
+                ("error", django.contrib.postgres.fields.jsonb.JSONField(default=None, null=True)),
             ],
         ),
         migrations.CreateModel(
@@ -35,6 +36,7 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=False)),
                 ("order", models.IntegerField(blank=True, null=True)),
                 ("config", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
+                ("error", django.contrib.postgres.fields.jsonb.JSONField(default=None, null=True)),
             ],
         ),
     ]

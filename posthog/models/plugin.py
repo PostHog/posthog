@@ -11,6 +11,7 @@ class Plugin(models.Model):
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
+    error: JSONField = JSONField(default=None)
 
 
 class PluginConfig(models.Model):
@@ -19,3 +20,4 @@ class PluginConfig(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     config: JSONField = JSONField(default=dict)
+    error: JSONField = JSONField(default=None)
