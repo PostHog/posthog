@@ -27,8 +27,7 @@ export function UpgradeModal(): JSX.Element {
                 : 'is'}{' '}
             an advanced PostHog feature.
             <br />
-            Upgrade your organization to a paid plan in order to gain access to it, as well as to other powerful
-            enhancements.
+            Upgrade to a paid plan in order to gain access to it, as well as to other powerful enhancements.
         </Modal>
     )
 }

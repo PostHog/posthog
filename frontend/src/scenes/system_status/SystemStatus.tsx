@@ -20,7 +20,7 @@ function _Status(): JSX.Element {
     const { systemStatus, systemStatusLoading, error } = useValues(systemStatusLogic)
     return (
         <div>
-            <h1 className="page-header">System Status</h1>
+            <h1 className="page-header">Systems Status</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>Here you can find all the critical runtime details about your PostHog installation.</i>
             </p>
