@@ -87,11 +87,20 @@ export const pluginsLogic = kea<
             {} as Record<string, PluginConfigType>,
             {
                 loadPluginConfigs: async () => {
-                    const { results } = await api.get('api/plugin_config')
                     const pluginConfigs: Record<string, PluginConfigType> = {}
+
+                    const [{ results }, globalResults] = await Promise.all([
+                        api.get('api/plugin_config'),
+                        api.get('api/plugin_config/global_plugins/'),
+                    ])
+
                     for (const pluginConfig of results as PluginConfigType[]) {
-                        pluginConfigs[pluginConfig.plugin] = pluginConfig
+                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig, global: false }
                     }
+                    for (const pluginConfig of globalResults as PluginConfigType[]) {
+                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig, global: true }
+                    }
+
                     return pluginConfigs
                 },
                 savePluginConfig: async ({ pluginConfigChanges }) => {

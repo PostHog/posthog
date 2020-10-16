@@ -116,3 +116,17 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
+
+    @action(methods=["GET"], detail=False)
+    def global_plugins(self, request: request.Request):
+        if not settings.INSTALL_PLUGINS_FROM_WEB:
+            return Response([])
+
+        response = []
+        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)
+        for plugin_config in plugin_configs:
+            plugin = PluginConfigSerializer(plugin_config).data
+            plugin["config"] = None
+            response.append(plugin)
+
+        return Response(response)

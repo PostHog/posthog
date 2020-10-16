@@ -216,14 +216,16 @@ class _Plugins:
         # if we have global plugins, add them to the team plugins list for all teams that have team plugins
         global_plugins = self.plugins_by_team.get(None, None)
         if global_plugins and len(global_plugins) > 0:
-            for team, plugins in self.plugins_by_team.items():
-                team_plugin_keys = {}
-                for plugin in plugins:
-                    team_plugin_keys[plugin.name] = True
-                for plugin in global_plugins:
-                    if not team_plugin_keys.get(plugin.name, None):
-                        plugins.append(plugin)
-                plugins.sort(key=order_by_order)
+            global_plugin_keys = {}
+            for plugin in global_plugins:
+                global_plugin_keys[plugin.name] = True
+            for team, team_plugins in self.plugins_by_team.items():
+                new_team_plugins = global_plugins.copy()
+                for plugin in team_plugins:
+                    if not global_plugin_keys.get(plugin.name, None):
+                        new_team_plugins.append(plugin)
+                new_team_plugins.sort(key=order_by_order)
+                self.plugins_by_team[team] = new_team_plugins
 
     def install_requirements(self, plugin_name, requirements):
         if len(requirements) > 0:

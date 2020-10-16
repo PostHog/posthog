@@ -48,7 +48,8 @@ export function InstalledPlugins(): JSX.Element {
                                         <Col>
                                             {plugin.pluginConfig?.enabled ? (
                                                 <div style={{ color: 'var(--green)' }}>
-                                                    <CheckOutlined /> Enabled
+                                                    <CheckOutlined />{' '}
+                                                    {plugin.pluginConfig?.global ? 'Globally Enabled' : 'Enabled'}
                                                 </div>
                                             ) : (
                                                 <div style={{ color: 'var(--orange)' }}>
@@ -83,8 +84,8 @@ export function InstalledPlugins(): JSX.Element {
                         title: '',
                         key: 'config',
                         align: 'right',
-                        render: function RenderConfig(plugin: PluginTypeWithConfig): JSX.Element {
-                            return (
+                        render: function RenderConfig(plugin: PluginTypeWithConfig): JSX.Element | null {
+                            return !plugin.pluginConfig?.global ? (
                                 <Tooltip title="Configure">
                                     <Button
                                         type="primary"
@@ -92,7 +93,7 @@ export function InstalledPlugins(): JSX.Element {
                                         onClick={() => editPlugin(plugin.id)}
                                     />
                                 </Tooltip>
-                            )
+                            ) : null
                         },
                     },
                 ]}

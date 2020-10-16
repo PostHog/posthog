@@ -216,4 +216,5 @@ export interface PluginConfigType {
     enabled: boolean
     order: number
     config: Record<string, any>
+    global?: boolean
 }

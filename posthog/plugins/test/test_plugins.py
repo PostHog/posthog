@@ -198,7 +198,7 @@ class TestPlugins(BaseTest):
         self.assertEqual(events[0].properties.get("hello", None), None)
         self.assertEqual(events[0].properties.get("bar", None), None)
         self.assertEqual(events[1].properties.get("hello", None), "world")
-        self.assertEqual(events[1].properties.get("bar", None), "foo_local")
+        self.assertEqual(events[1].properties.get("bar", None), "foo_global")
 
         local_plugin_config.delete()
 
