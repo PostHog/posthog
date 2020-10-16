@@ -119,10 +119,10 @@ class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
 
-    DEFAULT = "default"
+    DISABLED = "disabled"
     TOOLBAR = "toolbar"
     TOOLBAR_CHOICES = [
-        (DEFAULT, DEFAULT),
+        (DISABLED, DISABLED),
         (TOOLBAR, TOOLBAR),
     ]
 

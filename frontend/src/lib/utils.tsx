@@ -482,8 +482,8 @@ export function isMac(): boolean {
     return navigator.platform.includes('Mac')
 }
 
-export function platformCommandControlKey(): string {
-    return isMac() ? '⌘' : 'Ctrl'
+export function platformCommandControlKey(modifier: string): string {
+    return `${isMac() ? '⌘' : 'Ctrl + '}${modifier}`
 }
 
 export function groupBy<T>(items: T[], groupResolver: (item: T) => string | number): Record<string | number, T[]> {

@@ -1,7 +1,16 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
 FILTER_EVENT_BY_COHORT_SQL = """
-SELECT * FROM events WHERE distinct_id IN (
+SELECT
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
+FROM events WHERE distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
         SELECT person_id FROM {table_name}
     )
