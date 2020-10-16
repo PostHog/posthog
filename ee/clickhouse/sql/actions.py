@@ -1,38 +1,5 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
-FILTER_EVENT_BY_ACTION_SQL = """
-SELECT
-    events.uuid,
-    events.event,
-    events.properties,
-    events.timestamp,
-    events.team_id,
-    events.distinct_id,
-    events.elements_chain,
-    events.created_at
-FROM events where uuid IN (
-    SELECT uuid FROM {table_name}
-)
-"""
-
-
-def create_action_mapping_table_sql(table_name: str) -> str:
-    return """
-        CREATE TABLE IF NOT EXISTS {table_name}
-        (
-            uuid UUID
-        )ENGINE = {engine}
-        ORDER BY (uuid)
-        {storage_policy}
-        """.format(
-        table_name=table_name, engine=table_engine(table_name), storage_policy=STORAGE_POLICY
-    )
-
-
-INSERT_INTO_ACTION_TABLE = """
-INSERT INTO {table_name} SELECT uuid FROM ({query})
-"""
-
 ACTION_QUERY = """
 SELECT
     events.uuid,
@@ -61,7 +28,6 @@ ELEMENT_ACTION_FILTER = """
         {event_filter}
 )
 """
-
 
 EVENT_ACTION_FILTER = """
 (
