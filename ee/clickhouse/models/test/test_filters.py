@@ -40,4 +40,5 @@ def _create_event(**kwargs):
 class TestClickhouseFiltering(
     ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),
 ):
-    pass
+    def test_person_cohort_properties(self):
+        pass
