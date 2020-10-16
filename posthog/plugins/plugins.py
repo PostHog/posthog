@@ -7,6 +7,8 @@ import zipimport
 from typing import Dict, List, Optional
 from zipfile import ZipFile
 
+from django.db.models import F
+
 from posthog.cache import get_redis_instance
 from posthog.utils import SingletonDecorator
 
@@ -179,7 +181,9 @@ class _Plugins:
     def load_plugin_configs(self):
         from posthog.models.plugin import PluginConfig
 
-        self.plugin_configs = list(PluginConfig.objects.filter(enabled=True).order_by("team", "order").all())
+        self.plugin_configs = list(
+            PluginConfig.objects.filter(enabled=True).order_by(F("team_id").desc(nulls_first=True), "order").all()
+        )
         self.plugins_by_team = {}
 
         for plugin_config in self.plugin_configs:
@@ -195,6 +199,7 @@ class _Plugins:
                     team_plugin = TeamPlugin(
                         team=plugin_config.team_id,
                         plugin=plugin_config.plugin_id,
+                        order=plugin_config.order,
                         name=plugin_module.name,
                         tag=plugin_module.tag,
                         config=plugin_config.config,
@@ -207,6 +212,18 @@ class _Plugins:
                 except Exception as e:
                     print('🔻🔻🔻 Error loading plugin "{}" for team {}'.format(plugin_module.name, plugin_config.team_id))
                     print(e)
+
+        # if we have global plugins, add them to the team plugins list for all teams that have team plugins
+        global_plugins = self.plugins_by_team.get(None, None)
+        if global_plugins and len(global_plugins) > 0:
+            for team, plugins in self.plugins_by_team.items():
+                team_plugin_keys = {}
+                for plugin in plugins:
+                    team_plugin_keys[plugin.name] = True
+                for plugin in global_plugins:
+                    if not team_plugin_keys.get(plugin.name, None):
+                        plugins.append(plugin)
+                plugins.sort(key=order_by_order)
 
     def install_requirements(self, plugin_name, requirements):
         if len(requirements) > 0:
@@ -228,14 +245,15 @@ class _Plugins:
 
     def exec_plugins(self, event, team_id):
         team_plugins = self.plugins_by_team.get(team_id, None)
+        global_plugins = self.plugins_by_team.get(None, [])
+        plugins_to_run = team_plugins if team_plugins else global_plugins
 
-        if team_plugins:
-            for plugin in team_plugins:
-                event = self.exec_plugin(plugin.loaded_class, event, "process_event")
-                if event.event == "$identify":
-                    event = self.exec_plugin(plugin.loaded_class, event, "process_identify")
-                if event.event == "$create_alias":
-                    event = self.exec_plugin(plugin.loaded_class, event, "process_alias")
+        for plugin in plugins_to_run:
+            event = self.exec_plugin(plugin.loaded_class, event, "process_event")
+            if event.event == "$identify":
+                event = self.exec_plugin(plugin.loaded_class, event, "process_identify")
+            if event.event == "$create_alias":
+                event = self.exec_plugin(plugin.loaded_class, event, "process_alias")
 
         return event
 
@@ -265,3 +283,7 @@ class _Plugins:
 
 
 Plugins = SingletonDecorator(_Plugins)
+
+
+def order_by_order(e):
+    return e.order

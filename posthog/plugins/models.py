@@ -36,6 +36,7 @@ class PluginModule:
 class TeamPlugin:
     team: int  # team id
     plugin: int  # plugin id
+    order: int  # plugin order
     name: str  # plugin name
     tag: str  # plugin tag
     config: Dict[str, Any]  # config from the DB
