@@ -32,10 +32,16 @@ export function NewDashboard({ dashboard, model }) {
             </Form.Item>
 
             <Form.Item name="copyFromTemplate" label="Start from" className={rrwebBlockClass}>
-                <Select data-attr="copyFromTemplate" style={{ width: '100%' }} defaultValue={''}>
-                    <Select.Option value="">Empty Dashboard</Select.Option>
-                    <Select.Option value="DEFAULT_APP">Default Dashboard - App</Select.Option>
-                    <Select.Option value="DEFAULT_WEB">Default Dashboard - Web</Select.Option>
+                <Select data-attr="copy-from-template" style={{ width: '100%' }} defaultValue={''}>
+                    <Select.Option data-attr="dashboard-select-1" value="">
+                        Empty Dashboard
+                    </Select.Option>
+                    <Select.Option data-attr="dashboard-select-2" value="DEFAULT_APP">
+                        Default Dashboard - App
+                    </Select.Option>
+                    <Select.Option data-attr="dashboard-select-3" value="DEFAULT_WEB">
+                        Default Dashboard - Web
+                    </Select.Option>
                 </Select>
             </Form.Item>
 
