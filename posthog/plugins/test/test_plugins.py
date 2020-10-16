@@ -34,6 +34,20 @@ class TestPlugins(BaseTest):
             now().isoformat(),
         )
 
+    def _create_plugin(self, TEMPLATE):
+        return Plugin.objects.create(
+            name="helloworldplugin",
+            description="Hello World Plugin that runs in test mode",
+            url="https://github.com/PostHog/helloworldplugin",
+            config_schema={
+                "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
+            },
+            tag=TEMPLATE[0],
+            archive=base64.b64decode(TEMPLATE[1]),
+            from_web=True,
+            from_json=False,
+        )
+
     def test_load_plugin(self):
         Person.objects.create(team=self.team, distinct_ids=["plugin_test_distinct_id"])
 
@@ -43,18 +57,7 @@ class TestPlugins(BaseTest):
         self.assertEqual(event.event, "$pageview")
         self.assertEqual(event.properties.get("bar", None), None)
 
-        plugin = Plugin.objects.create(
-            name="helloworldplugin",
-            description="Hello World Plugin that runs in test mode",
-            url="https://github.com/PostHog/helloworldplugin",
-            config_schema={
-                "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
-            },
-            tag="3c4c77e7d7878e87be3c2373b658c74ec3085f49",
-            archive=base64.b64decode(HELLO_WORLD_PLUGIN),
-            from_web=True,
-            from_json=False,
-        )
+        plugin = self._create_plugin(HELLO_WORLD_PLUGIN)
         plugin_config = PluginConfig.objects.create(
             team=self.team, plugin=plugin, enabled=True, order=0, config={"bar": "foo"},
         )
@@ -104,18 +107,7 @@ class TestPlugins(BaseTest):
         self.assertEqual(event.event, "$pageview")
         self.assertEqual(event.properties.get("bar", None), None)
 
-        plugin = Plugin.objects.create(
-            name="helloworldplugin",
-            description="Hello World Plugin that runs in test mode",
-            url="https://github.com/PostHog/helloworldplugin",
-            config_schema={
-                "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
-            },
-            tag="3c4c77e7d7878e87be3c2373b658c74ec3085f49",
-            archive=base64.b64decode(HELLO_WORLD_PLUGIN),
-            from_web=True,
-            from_json=False,
-        )
+        plugin = self._create_plugin(HELLO_WORLD_PLUGIN)
         plugin_config = PluginConfig.objects.create(
             team=None, plugin=plugin, enabled=True, order=0, config={"bar": "foo"},
         )
@@ -156,7 +148,7 @@ class TestPlugins(BaseTest):
         self.assertEqual(len(events), 4)
         self.assertEqual(events[3].properties.get("bar", None), None)
 
-    def test_local_plugin_takes_precedence(self):
+    def test_global_plugin_takes_precedence(self):
         self.assertEqual(Plugin.objects.count(), 0)
         Person.objects.create(team=self.team, distinct_ids=["plugin_test_distinct_id"])
 
@@ -166,18 +158,7 @@ class TestPlugins(BaseTest):
         self.assertEqual(event.event, "$pageview")
         self.assertEqual(event.properties.get("bar", None), None)
 
-        plugin = Plugin.objects.create(
-            name="helloworldplugin",
-            description="Hello World Plugin that runs in test mode",
-            url="https://github.com/PostHog/helloworldplugin",
-            config_schema={
-                "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
-            },
-            tag="3c4c77e7d7878e87be3c2373b658c74ec3085f49",
-            archive=base64.b64decode(HELLO_WORLD_PLUGIN),
-            from_web=True,
-            from_json=False,
-        )
+        plugin = self._create_plugin(HELLO_WORLD_PLUGIN)
         self.assertEqual(Plugin.objects.count(), 1)
         local_plugin_config = PluginConfig.objects.create(
             team=self.team, plugin=plugin, enabled=True, order=2, config={"bar": "foo_local"},
