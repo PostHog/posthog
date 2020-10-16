@@ -293,6 +293,10 @@ def get_redis_heartbeat() -> Union[str, int]:
 
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         return worker_heartbeat
+
+    if settings.DEBUG:
+        return 1
+
     return "offline"
 
 
