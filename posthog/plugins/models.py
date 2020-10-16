@@ -51,21 +51,23 @@ class PluginBaseClass:
         self.cache = PluginCache(scope="{}/{}".format(config.name, config.team))
         self.team_init()
 
+    # Called once per instance when the plugin is loaded before the class is intialized
     @staticmethod
     def instance_init():
         pass
 
+    # Called after the __init__ per team
     def team_init(self):
         pass
 
-    def schedule_jobs(self, sender):
-        pass
-
+    # Called before any event is processed
     def process_event(self, event: PosthogEvent):
-        pass
+        return event
 
+    # Called before any alias event is processed
     def process_alias(self, event: PosthogEvent):
-        pass
+        return event
 
+    # Called before any identify is processed
     def process_identify(self, event: PosthogEvent):
-        pass
+        return event
