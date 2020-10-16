@@ -21,7 +21,6 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
-        self.assertIsNone(response.content)
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 
