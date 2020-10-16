@@ -58,6 +58,7 @@ class PluginCache:
 class PluginBaseClass:
     def __init__(self, config: "TeamPlugin"):
         self.config = config.config
+        self.team = config.team
         self.cache = PluginCache(plugin_name=config.name)
 
     def schedule_jobs(self, sender):
