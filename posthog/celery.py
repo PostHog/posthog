@@ -39,8 +39,9 @@ statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_P
 def setup_periodic_tasks(sender, **kwargs):
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
-        # Heartbeat every 10sec to make sure the worker is alive
-        sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
+
+    # Heartbeat every 10sec to make sure the worker is alive
+    sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
 
     # update events table partitions twice a week
     sender.add_periodic_task(
