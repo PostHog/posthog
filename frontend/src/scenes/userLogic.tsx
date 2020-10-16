@@ -11,7 +11,7 @@ interface EventProperty {
 
 export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType>>({
     actions: () => ({
-        loadUser: true,
+        loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         setUser: (user: UserType | null, updateKey?: string) => ({
             user: user && ({ ...user } as UserType),
             updateKey,
@@ -34,7 +34,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     },
 
     events: ({ actions }) => ({
-        afterMount: actions.loadUser,
+        afterMount: () => actions.loadUser(true),
     }),
 
     selectors: ({ selectors }) => ({
@@ -77,7 +77,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     }),
 
     listeners: ({ actions }) => ({
-        loadUser: async () => {
+        loadUser: async ({ resetOnFailure }) => {
             try {
                 const user = await api.get('api/user')
                 actions.setUser(user)
@@ -105,7 +105,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     }
                 }
             } catch {
-                actions.setUser(null)
+                if (resetOnFailure) {
+                    actions.setUser(null)
+                }
             }
         },
         userUpdateRequest: async ({ update, updateKey }) => {
