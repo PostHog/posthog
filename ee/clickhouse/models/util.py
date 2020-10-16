@@ -1,3 +1,5 @@
+import json
+
 from posthog.models.property import Property
 
 
@@ -26,7 +28,23 @@ def get_operator(prop: Property, arg: str):
             prop.value,
         )
     else:
-        return (
-            "(trim(BOTH '\"' FROM ep.value) =  toString(%({})s))".format(arg),
-            prop.value,
-        )
+        if is_json(prop.value):
+            return (
+                "replaceRegexpAll(trim(BOTH '\"' FROM ep.value),' ', '') = replaceRegexpAll(toString(%({})s),' ', '')".format(
+                    arg
+                ),
+                prop.value,
+            )
+        else:
+            return (
+                "(trim(BOTH '\"' FROM ep.value) = toString(%({})s))".format(arg),
+                prop.value,
+            )
+
+
+def is_json(myjson):
+    try:
+        json.loads(myjson)
+    except ValueError:
+        return False
+    return True

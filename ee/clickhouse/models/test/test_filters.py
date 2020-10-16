@@ -23,6 +23,7 @@ def _filter_events(
 
     if order_by == "id":
         order_by = "uuid"
+
     events = sync_execute(
         GET_EVENTS_WITH_PROPERTIES.format(
             filters=prop_filters, order_by="ORDER BY {}".format(order_by) if order_by else "",
