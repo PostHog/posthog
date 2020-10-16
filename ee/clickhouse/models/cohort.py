@@ -10,7 +10,7 @@ from posthog.models import Action, Cohort, Filter
 def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
     filters = []
     params: Dict[str, Any] = {}
-    for idx, group in enumerate(cohort.groups):
+    for group_idx, group in enumerate(cohort.groups):
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
             action_filter_query, action_params = format_action_filter(action)
@@ -22,7 +22,7 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
             filter = Filter(data=group)
 
             for idx, prop in enumerate(filter.properties):
-                prepend = "cohort_group_{}".format(idx)
+                prepend = "{}_cohort_group_{}".format(cohort.pk, group_idx)
 
                 arg = "v{}_{}".format(prepend, idx)
                 operator_clause, value = get_operator(prop, arg)

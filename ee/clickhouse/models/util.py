@@ -28,7 +28,7 @@ def get_operator(prop: Property, arg: str):
             prop.value,
         )
     else:
-        if is_json(prop.value):
+        if isinstance(prop.value, str) and is_json(prop.value):
             return (
                 "replaceRegexpAll(trim(BOTH '\"' FROM ep.value),' ', '') = replaceRegexpAll(toString(%({})s),' ', '')".format(
                     arg

@@ -48,8 +48,8 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             )
             clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
             final += "{cond} ({clause}) ".format(
-                cond="AND {key} {negation} IN".format(
-                    key=key, negation="NOT" if prop.operator and "not" in prop.operator else "",
+                cond="AND {key} {negation}IN".format(
+                    key=key, negation="NOT " if prop.operator and "not" in prop.operator else "",
                 ),
                 clause=clause,
             )
