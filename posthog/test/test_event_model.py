@@ -15,7 +15,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 team=self.team,
                 distinct_id="whatever",
                 elements=[
-                    Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0),
+                    Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, attr_class=["one-class"]),
                     Element(tag_name="button", nth_child=0, nth_of_type=0),
                     Element(tag_name="div", nth_child=0, nth_of_type=0),
                     Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
