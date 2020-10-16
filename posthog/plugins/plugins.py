@@ -1,111 +1,18 @@
-import datetime
 import importlib
 import importlib.util
 import inspect
 import os
-import pickle
 import tempfile
 import zipimport
-from dataclasses import dataclass
-from types import ModuleType
-from typing import Any, Dict, List, Optional, Type
+from typing import Dict, List, Optional
 from zipfile import ZipFile
 
 from posthog.cache import get_redis_instance
 from posthog.utils import SingletonDecorator
 
+from .models import PluginBaseClass, PluginModule, TeamPlugin
+
 REDIS_INSTANCE = get_redis_instance()
-
-
-@dataclass
-class PosthogEvent:
-    ip: str
-    site_url: str
-    event: str
-    distinct_id: str
-    team_id: int
-    properties: Dict[Any, Any]
-    timestamp: datetime.datetime
-
-
-class PluginCache:
-    def __init__(self, plugin_name: str):
-        self.plugin_name = plugin_name
-        self.redis = get_redis_instance()
-
-    def format_key(self, key):
-        key = "{plugin_name}_{key}".format(plugin_name=self.plugin_name, key=key)
-        return key
-
-    def set(self, key: str, value: Any):
-        if not self.redis:
-            raise Exception("Redis not configured!")
-        key = self.format_key(key)
-        value = pickle.dumps(value)
-        self.redis.set(key, value)
-
-    def get(self, key) -> Any:
-        if not self.redis:
-            raise Exception("Redis not configured!")
-        key = self.format_key(key)
-        str_value = self.redis.get(key)
-        if not str_value:
-            return None
-        value = pickle.loads(str_value)
-        return value
-
-
-class PluginBaseClass:
-    def __init__(self, config: "TeamPlugin"):
-        self.config = config.config
-        self.team = config.team
-        self.cache = PluginCache(plugin_name=config.name)
-        self.team_init()
-
-    @staticmethod
-    def instance_init():
-        pass
-
-    def team_init(self):
-        pass
-
-    def schedule_jobs(self, sender):
-        pass
-
-    def process_event(self, event: PosthogEvent):
-        pass
-
-    def process_alias(self, event: PosthogEvent):
-        pass
-
-    def process_identify(self, event: PosthogEvent):
-        pass
-
-
-# Contains metadata and the python module for a plugin
-@dataclass
-class PluginModule:
-    id: int  # id in the Plugin model
-    name: str  # name in the Plugin model
-    url: str  # url in the Plugin model, can be https: or file:
-    tag: str  # tag in the Plugin model
-    module_name: str  # name of the module, "posthog.plugins.plugin_{id}_{name}_{tag}"
-    plugin_path: str  # path of the local folder or the temporary .zip file for github
-    requirements: List[str]  # requirements.txt split into lines
-    module: ModuleType  # python module
-    plugin: Type[PluginBaseClass]  # plugin base class extracted from the exports in the module
-
-
-# Contains per-team config for a plugin
-@dataclass
-class TeamPlugin:
-    team: int  # team id
-    plugin: int  # plugin id
-    name: str  # plugin name
-    tag: str  # plugin tag
-    config: Dict[str, Any]  # config from the DB
-    loaded_class: Optional[PluginBaseClass]  # link to the class
-    plugin_module: PluginModule  # link to the module
 
 
 class _Plugins:
