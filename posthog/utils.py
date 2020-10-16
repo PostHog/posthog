@@ -18,6 +18,7 @@ import redis
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
@@ -365,3 +366,52 @@ def get_machine_id() -> str:
     # MAC addresses are 6 bits long, so overflow shouldn't happen
     # hashing here as we don't care about the actual address, just it being rather consistent
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
+
+
+def get_table_size(table_name):
+    from django.db import connection
+
+    query = (
+        f'SELECT pg_size_pretty(pg_total_relation_size(relid)) AS "size" '
+        f"FROM pg_catalog.pg_statio_user_tables "
+        f"WHERE relname = '{table_name}'"
+    )
+    cursor = connection.cursor()
+    cursor.execute(query)
+    return dict_from_cursor_fetchall(cursor)
+
+
+def get_table_approx_count(table_name):
+    from django.db import connection
+
+    query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
+    cursor = connection.cursor()
+    cursor.execute(query)
+    return dict_from_cursor_fetchall(cursor)
+
+
+def is_postgres_alive() -> bool:
+    from posthog.models import User
+
+    try:
+        User.objects.count()
+        return True
+    except DatabaseError:
+        return False
+
+
+def is_redis_alive() -> bool:
+    try:
+        return get_redis_heartbeat() != "offline"
+    except BaseException:
+        return False
+
+
+def get_redis_info() -> dict:
+    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    return redis_instance.info()
+
+
+def get_redis_queue_depth() -> int:
+    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    return redis_instance.llen("celery")

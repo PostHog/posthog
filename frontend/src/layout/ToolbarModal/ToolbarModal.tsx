@@ -8,14 +8,14 @@ import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 
 export function ToolbarModal(): React.ReactNode {
     const { user } = useValues(userLogic)
-    const toolbarEnabled = user?.toolbar_mode === 'toolbar'
+    const toolbarEnabled = user?.toolbar_mode !== 'disabled'
 
     return (
         <div className="toolbar-modal">
             <HogIcon style={{ filter: toolbarEnabled ? '' : 'grayscale(1)' }} />
             {!toolbarEnabled ? (
                 <>
-                    <h2>Toolbar – Beta Opt-In</h2>
+                    <h2>Enable the Toolbar to continue</h2>
                     <ToolbarSettings />
                 </>
             ) : (
