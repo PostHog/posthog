@@ -28,9 +28,6 @@ app.autodiscover_tasks()
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
-# Connect to our Redis instance to store the heartbeat
-redis_instance = get_redis_instance()
-
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
@@ -78,14 +75,14 @@ def setup_periodic_tasks(sender, **kwargs):
 
 @app.task
 def redis_heartbeat():
-    redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
+    get_redis_instance().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
 @app.task
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        llen = redis_instance.llen("celery")
+        llen = get_redis_instance().llen("celery")
         g.send("queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
