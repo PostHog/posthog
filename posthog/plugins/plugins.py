@@ -21,11 +21,11 @@ REDIS_INSTANCE = get_redis_instance()
 
 class _Plugins:
     def __init__(self):
-        self.redis = get_redis_instance()
         self.plugins: List[Plugin] = []  # type not loaded yet
         self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
         self.plugins_by_team: Dict[Union[int, None], List[TeamPlugin]] = {}
+        self.pubsub = None
 
         sync_posthog_json_plugins()
         sync_global_plugin_config()
@@ -273,18 +273,13 @@ class _Plugins:
         self.load_plugin_configs()
 
     def start_reload_pubsub(self):
-        if self.redis:
-            pubsub = self.redis.pubsub()
-            pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
-            pubsub.run_in_thread(sleep_time=1, daemon=True)  # type: ignore
-        else:
-            print("🔻🔻🔻 Can not listen to plugin reload commands! No redis instance found!")
+        if not self.pubsub:
+            self.pubsub = get_redis_instance().pubsub()
+            self.pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
+            self.pubsub.run_in_thread(sleep_time=1, daemon=True)  # type: ignore
 
     def publish_reload_command(self, team_id: Optional[int] = None):
-        if self.redis:
-            self.redis.publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
-        else:
-            print("🔻🔻🔻 Error reloading plugins! No redis instance found!")
+        get_redis_instance().publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
 
     @staticmethod
     def register_error(plugin: Union[Plugin, int], plugin_error: PluginError, error: Optional[Exception] = None):
