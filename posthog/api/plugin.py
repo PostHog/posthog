@@ -123,7 +123,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
             return Response([])
 
         response = []
-        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)
+        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)  # type: ignore
         for plugin_config in plugin_configs:
             plugin = PluginConfigSerializer(plugin_config).data
             plugin["config"] = None

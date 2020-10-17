@@ -25,7 +25,7 @@ class _Plugins:
         self.plugins: List[Plugin] = []  # type not loaded yet
         self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
-        self.plugins_by_team: Dict[int, List[TeamPlugin]] = {}
+        self.plugins_by_team: Dict[Union[int, None], List[TeamPlugin]] = {}
 
         sync_posthog_json_plugins()
         sync_global_plugin_config()
@@ -291,9 +291,7 @@ class _Plugins:
             print("🔻🔻🔻 Error reloading plugins! No redis instance found!")
 
     @staticmethod
-    def register_error(
-        plugin: Union["Plugin", "PluginConfig", int], plugin_error: PluginError, error: Optional[Exception] = None
-    ):
+    def register_error(plugin: Union[Plugin, int], plugin_error: PluginError, error: Optional[Exception] = None):
         if isinstance(plugin, int):
             plugin = Plugin.objects.get(pk=plugin)
 

@@ -1,7 +1,7 @@
 import datetime
 from dataclasses import dataclass
 from types import ModuleType
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Union
 
 from .cache import PluginCache
 
@@ -34,7 +34,7 @@ class PluginModule:
 # Contains per-team config for a plugin
 @dataclass
 class TeamPlugin:
-    team: int  # team id
+    team: Union[int, None]  # team id
     plugin: int  # plugin id
     order: int  # plugin order
     name: str  # plugin name
