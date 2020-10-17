@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filter import Filter
 from posthog.models.team import Team
@@ -23,8 +24,10 @@ class ClickhousePaths(BaseQuery):
                 path_type = "JSONExtractString(properties, '$screen_name')"
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
-                path_type = "concat('<', elements.tag_name, '> ', elements.text)"
-                start_comparator = "elements_hash"
+                path_type = "concat('<', {tag_regex}, '> ', {text_regex})".format(
+                    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
+                )
+                start_comparator = "elements_chain"
             elif requested_type == CUSTOM_EVENT:
                 event = None
                 path_type = "event"
@@ -71,10 +74,9 @@ class ClickhousePaths(BaseQuery):
                     person_id,
                     events.uuid AS event_id,
                     {path_type} AS path_type
-                    {select_elements_hash}
+                    {select_elements_chain}
                 FROM events_with_array_props_view AS events
                 JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-                {element_joins}
                 WHERE 
                     events.team_id = %(team_id)s 
                     AND {event_query}
@@ -86,7 +88,7 @@ class ClickhousePaths(BaseQuery):
                     timestamp, 
                     event_id, 
                     path_type
-                    {group_by_elements_hash}
+                    {group_by_elements_chain}
                 ORDER BY 
                     person_id, 
                     timestamp
@@ -103,12 +105,9 @@ class ClickhousePaths(BaseQuery):
             marked_session_start="{} = %(start_point)s".format(start_comparator)
             if filter and filter.start_point
             else "new_session",
-            element_joins="JOIN elements ON (elements.elements_hash = events.elements_hash AND elements.order = toInt64(0))"
-            if event == AUTOCAPTURE_EVENT
-            else "",
             excess_row_filter=excess_row_filter,
-            select_elements_hash=", events.elements_hash as elements_hash" if event == AUTOCAPTURE_EVENT else "",
-            group_by_elements_hash=", events.elements_hash" if event == AUTOCAPTURE_EVENT else "",
+            select_elements_chain=", events.elements_chain as elements_chain" if event == AUTOCAPTURE_EVENT else "",
+            group_by_elements_chain=", events.elements_chain" if event == AUTOCAPTURE_EVENT else "",
         )
 
         # Step 2.

@@ -17,10 +17,6 @@ TABLE_MERGE_ENGINE = (
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
-DROP_TABLE_IF_EXISTS_SQL = """
-DROP TABLE IF EXISTS {}
-"""
-
 GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """

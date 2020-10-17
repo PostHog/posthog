@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -19,7 +18,6 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
-    populate_action_event_table(action)
     return action
 
 
