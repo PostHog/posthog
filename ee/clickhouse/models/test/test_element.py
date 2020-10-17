@@ -16,7 +16,12 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
                     href="/a-url",
                     attr_class=["small"],
                     text="bla bla",
-                    attributes={"prop": "value", "number": 33, "data-attr": 'something " that; could mess up'},
+                    attributes={
+                        "prop": "value",
+                        "number": 33,
+                        "data-attr": 'something " that; could mess up',
+                        "style": "min-height: 100vh;",
+                    },
                     nth_child=1,
                     nth_of_type=0,
                 ),
@@ -30,7 +35,7 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
             elements_string,
             ";".join(
                 [
-                    r'a.small:data-attr="something \" that; could mess up"href="/a-url"nth-child="1"nth-of-type="0"number="33"prop="value"text="bla bla"',
+                    r'a.small:data-attr="something \" that; could mess up"href="/a-url"nth-child="1"nth-of-type="0"number="33"prop="value"style="min-height: 100vh;"text="bla bla"',
                     'button.btn.btn-primary:nth-child="0"nth-of-type="0"',
                     'div:nth-child="0"nth-of-type="0"',
                     'div:attr_id="nested"nth-child="0"nth-of-type="0"',
@@ -43,7 +48,13 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(elements[0].href, "/a-url")
         self.assertEqual(elements[0].attr_class, ["small"])
         self.assertDictEqual(
-            elements[0].attributes, {"prop": "value", "number": "33", "data-attr": r"something \" that; could mess up"}
+            elements[0].attributes,
+            {
+                "prop": "value",
+                "number": "33",
+                "data-attr": r"something \" that; could mess up",
+                "style": "min-height: 100vh;",
+            },
         )
         self.assertEqual(elements[0].nth_child, 1)
         self.assertEqual(elements[0].nth_of_type, 0)

@@ -17,10 +17,7 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 
-chain_to_elements_regex = re.compile(
-    r"(?P<tag_name>^[a-zA-Z\-]*)|\.*(?P<class>.*?)[\.|\:]|(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")",
-    re.MULTILINE,
-)
+parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE,)
 
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
 split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
@@ -57,17 +54,18 @@ def elements_to_string(elements: List[Element],) -> str:
 def chain_to_elements(chain: str) -> List[Element]:
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
-        parsed = re.finditer(chain_to_elements_regex, el_string)
+        tag_and_class, attributes = el_string.split(":", 1)
+        attributes = re.finditer(parse_attributes_regex, attributes)
         element = Element(order=idx)
-        for ii in parsed:
+        if tag_and_class:
+            tag_and_class = tag_and_class.split(".", 1)
+            element.tag_name = tag_and_class[0]
+            if len(tag_and_class) > 1:
+                element.attr_class = tag_and_class[1].split(".")
+
+        for ii in attributes:
             item = ii.groupdict()
-            if item["tag_name"]:
-                element.tag_name = item["tag_name"]
-            elif item["class"]:
-                if not element.attr_class:
-                    element.attr_class = []
-                element.attr_class.append(item["class"])
-            elif item["key"] == "href":
+            if item["key"] == "href":
                 element.href = item["value"]
             elif item["key"] == "nth-child":
                 element.nth_child = int(item["value"])
