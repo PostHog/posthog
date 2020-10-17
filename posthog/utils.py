@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
 import lzstring  # type: ignore
@@ -407,7 +407,7 @@ def is_redis_alive() -> bool:
         return False
 
 
-def get_redis_info() -> dict:
+def get_redis_info() -> Mapping[str, Any]:
     return get_redis_instance().info()
 
 

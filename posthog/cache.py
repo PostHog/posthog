@@ -17,7 +17,8 @@ def get_redis_instance() -> redis.Redis:
         redis_instance = fakeredis.FakeStrictRedis()
     elif settings.REDIS_URL:
         redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    else:
+
+    if not redis_instance:
         raise Exception("Redis not configured!")
 
     return redis_instance
