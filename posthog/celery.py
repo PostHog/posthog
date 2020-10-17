@@ -1,13 +1,14 @@
 import os
 import time
 
-import redis
 import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import worker_process_init
 from django.conf import settings
 from django.db import connection
+
+from posthog.cache import get_redis_instance
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -28,7 +29,7 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # Connect to our Redis instance to store the heartbeat
-redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+redis_instance = get_redis_instance()
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
