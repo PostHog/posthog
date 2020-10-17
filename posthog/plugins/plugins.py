@@ -188,25 +188,23 @@ class _Plugins:
             plugin_module = self.plugins_by_id.get(plugin_config.plugin_id, None)
 
             if plugin_module:
+                team_plugin = TeamPlugin(
+                    team=plugin_config.team_id,
+                    plugin=plugin_config.plugin_id,
+                    order=plugin_config.order,
+                    name=plugin_module.name,
+                    tag=plugin_module.tag,
+                    config=plugin_config.config,
+                    plugin_module=plugin_module,
+                    loaded_class=None,
+                )
                 try:
-                    team_plugin = TeamPlugin(
-                        team=plugin_config.team_id,
-                        plugin=plugin_config.plugin_id,
-                        order=plugin_config.order,
-                        name=plugin_module.name,
-                        tag=plugin_module.tag,
-                        config=plugin_config.config,
-                        plugin_module=plugin_module,
-                        loaded_class=None,
-                    )
                     loaded_class = plugin_module.plugin(team_plugin)
                     team_plugin.loaded_class = loaded_class
                     team_plugins.append(team_plugin)
                 except Exception as e:
-                    self.register_error(
-                        plugin_config.plugin,
-                        PluginError("Error loading plugin for team {}".format(plugin_config.team_id)),
-                        e,
+                    self.register_team_error(
+                        team_plugin, PluginError("Error loading plugin"), e,
                     )
 
         # if we have global plugins, add them to the team plugins list for all teams that have team plugins
@@ -264,10 +262,8 @@ class _Plugins:
             f = getattr(team_plugin.loaded_class, method)
             event = f(event)
         except Exception as e:
-            self.register_error(
-                team_plugin.plugin,
-                PluginError("Error running method '{}' on team '{}'".format(method, team_plugin.team)),
-                e,
+            self.register_team_error(
+                team_plugin, PluginError("Error running method '{}'".format(method)), e,
             )
         return event
 
@@ -303,6 +299,19 @@ class _Plugins:
             plugin.error["exception"] = str(error)
             print("🔻🔻 Exception: {}".format(str(error)))
         plugin.save()
+
+    @staticmethod
+    def register_team_error(team_plugin: TeamPlugin, plugin_error: PluginError, error: Optional[Exception] = None):
+        print('🔻🔻 Plugin name="{}", team="{}", tag="{}"'.format(team_plugin.name, team_plugin.team, team_plugin.tag))
+        print("🔻🔻 Error: {}".format(plugin_error.message))
+
+        plugin_config = PluginConfig.objects.get(team=team_plugin.team, plugin=team_plugin.plugin)
+        if plugin_config:
+            plugin_config.error = {"message": plugin_error.message}
+            if error:
+                plugin_config.error["exception"] = str(error)
+                print("🔻🔻 Exception: {}".format(str(error)))
+            plugin_config.save()
 
 
 Plugins = SingletonDecorator(_Plugins)
