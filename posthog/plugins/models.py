@@ -71,3 +71,9 @@ class PluginBaseClass:
     # Called before any identify is processed
     def process_identify(self, event: PosthogEvent):
         return event
+
+
+class PluginError(Exception):
+    def __init__(self, message="Error"):
+        self.message = message
+        super().__init__(self.message)

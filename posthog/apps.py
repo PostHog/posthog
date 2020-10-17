@@ -5,7 +5,6 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.plugins.plugins import Plugins
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
 
@@ -27,6 +26,8 @@ class PostHogConfig(AppConfig):
             and not "manage.py" in sys.argv
             and not "/mypy" in sys.argv[0]
         ):
+            from posthog.plugins import Plugins
+
             Plugins()
 
         if settings.DEBUG:

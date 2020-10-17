@@ -208,6 +208,9 @@ export interface PluginType {
     config_schema: Record<string, PluginConfigSchema>
     from_json: boolean
     from_web: boolean
+    error?: {
+        message: string
+    }
 }
 
 export interface PluginConfigType {
@@ -217,4 +220,7 @@ export interface PluginConfigType {
     order: number
     config: Record<string, any>
     global?: boolean
+    error?: {
+        message: string
+    }
 }

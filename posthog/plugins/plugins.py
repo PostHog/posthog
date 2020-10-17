@@ -4,25 +4,23 @@ import inspect
 import os
 import tempfile
 import zipimport
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from zipfile import ZipFile
 
 from django.db.models import F
 
 from posthog.cache import get_redis_instance
+from posthog.models.plugin import Plugin, PluginConfig
 from posthog.utils import SingletonDecorator
 
-from .models import PluginBaseClass, PluginModule, TeamPlugin
+from .models import PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
+from .sync import sync_global_plugin_config, sync_posthog_json_plugins
 
 REDIS_INSTANCE = get_redis_instance()
 
 
 class _Plugins:
     def __init__(self):
-        from posthog.models.plugin import Plugin, PluginConfig
-
-        from .sync import sync_global_plugin_config, sync_posthog_json_plugins
-
         self.redis = get_redis_instance()
         self.plugins: List[Plugin] = []  # type not loaded yet
         self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
@@ -37,8 +35,6 @@ class _Plugins:
         self.start_reload_pubsub()
 
     def load_plugins(self):
-        from posthog.models.plugin import Plugin
-
         self.plugins = list(Plugin.objects.all())
 
         # unregister plugins no longer in use
@@ -63,11 +59,7 @@ class _Plugins:
                 self.unregister_plugin(plugin.id)
 
             if not plugin.archive and not local_plugin:
-                print(
-                    '🔻 Plugin "{}" archive not downloaded and it\'s not a local "file:" path ({})'.format(
-                        plugin.name, plugin.url
-                    )
-                )
+                self.register_error(plugin, PluginError('Archive not downloaded and it\'s not a local "file:" plugin'))
                 continue
 
             if local_plugin:
@@ -86,22 +78,18 @@ class _Plugins:
 
                 spec = importlib.util.spec_from_file_location(module_name, os.path.join(plugin_path, "__init__.py"))
                 if spec:
-                    module = importlib.util.module_from_spec(spec)
-                    if module:
-                        spec.loader.exec_module(module)  # type: ignore
-                    else:
-                        print(
-                            '🔻🔻🔻 Could not find module in __init__.py for plugin "{}" in: {}'.format(
-                                plugin.name, plugin_path
-                            )
-                        )
+                    try:
+                        module = importlib.util.module_from_spec(spec)
+                        if module:
+                            spec.loader.exec_module(module)  # type: ignore
+                        else:
+                            self.register_error(plugin, PluginError("Could not find module in __init__.py"))
+                            continue
+                    except Exception as e:
+                        self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
                         continue
                 else:
-                    print(
-                        '🔻🔻🔻 Could not find module in __init__.py for plugin "{}" in: {}'.format(
-                            plugin.name, plugin_path
-                        )
-                    )
+                    self.register_error(plugin, PluginError("Could not find module in __init__.py"))
                     continue
 
             else:
@@ -121,19 +109,22 @@ class _Plugins:
                     self.install_requirements(plugin.name, requirements)
                 except KeyError:
                     pass  # no requirements.txt found
+                except PluginError as e:
+                    self.register_error(plugin, e)
+                    continue
 
                 try:
                     importer = zipimport.zipimporter(plugin_path)
                     module = importer.load_module(module_name)
                 except zipimport.ZipImportError as e:
-                    print(
-                        '🔻🔻 Could not load zip plugin: name="{}", url="{}", tag="{}"'.format(
-                            plugin.name, plugin.url, plugin.tag
-                        )
+                    self.register_error(
+                        plugin, PluginError("Could not find __init__.py from the plugin zip archive"), e
                     )
-                    print("🔻🔻 Exception: {}".format(e.msg))  # type: ignore
                     os.unlink(plugin_path)  # temporary file no longer needed
-                    return
+                    continue
+                except Exception as e:
+                    self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
+                    continue
 
                 os.unlink(plugin_path)  # temporary file no longer needed
 
@@ -141,6 +132,14 @@ class _Plugins:
             for item in module.__dict__.items():
                 if inspect.isclass(item[1]) and item[0] != "PluginBaseClass" and issubclass(item[1], PluginBaseClass):
                     found_plugin = True
+                    try:
+                        item[1].instance_init()
+                    except Exception as e:
+                        self.register_error(
+                            plugin, PluginError('Error running instance_init() on plugin "{}"'.format(plugin.name)), e
+                        )
+                        continue
+
                     self.plugins_by_id[plugin.id] = PluginModule(
                         id=plugin.id,
                         name=plugin.name,
@@ -152,7 +151,6 @@ class _Plugins:
                         plugin=item[1],
                         module=module,
                     )
-                    item[1].instance_init()
 
             if found_plugin:
                 if local_plugin:
@@ -162,10 +160,7 @@ class _Plugins:
                         '🔗 Loaded plugin "{}" from "{}" (cached, tag "{}")'.format(plugin.name, plugin.url, plugin.tag)
                     )
             else:
-                print(
-                    '🔻🔻 For plugin "{}" could not find any exported class of type PluginBaseClass'.format(plugin.name)
-                )
-                print('🔻🔻 Plugin: url="{}", tag="{}"'.format(plugin.url, plugin.tag))
+                self.register_error(plugin, PluginError("Could not find any exported class of type PluginBaseClass"))
                 continue
 
     def unregister_plugin(self, id):
@@ -179,8 +174,6 @@ class _Plugins:
         del self.plugins_by_id[id]
 
     def load_plugin_configs(self):
-        from posthog.models.plugin import PluginConfig
-
         self.plugin_configs = list(
             PluginConfig.objects.filter(enabled=True).order_by(F("team_id").desc(nulls_first=True), "order").all()
         )
@@ -210,8 +203,11 @@ class _Plugins:
                     team_plugin.loaded_class = loaded_class
                     team_plugins.append(team_plugin)
                 except Exception as e:
-                    print('🔻🔻🔻 Error loading plugin "{}" for team {}'.format(plugin_module.name, plugin_config.team_id))
-                    print(e)
+                    self.register_error(
+                        plugin_config.plugin,
+                        PluginError("Error loading plugin for team {}".format(plugin_config.team_id)),
+                        e,
+                    )
 
         # if we have global plugins, add them to the team plugins list for all teams that have team plugins
         global_plugins = self.plugins_by_team.get(None, None)
@@ -227,7 +223,7 @@ class _Plugins:
                 new_team_plugins.sort(key=order_by_order)
                 self.plugins_by_team[team] = new_team_plugins
 
-    def install_requirements(self, plugin_name, requirements):
+    def install_requirements(self, plugin_name: str, requirements: List[str]):
         if len(requirements) > 0:
             print('Loading requirements for plugin "{}": {}'.format(plugin_name, requirements))
 
@@ -237,31 +233,42 @@ class _Plugins:
             if requirement:
                 self.install_requirement(requirement)
 
-    def install_requirement(self, requirement):
+    def install_requirement(self, requirement: str):
         import pip  # type: ignore
 
         if hasattr(pip, "main"):
-            pip.main(["install", requirement])
+            resp = pip.main(["install", requirement])
         else:
-            pip._internal.main(["install", requirement])
+            resp = pip._internal.main(["install", requirement])
 
-    def exec_plugins(self, event, team_id):
+        if resp != 0:
+            raise PluginError("Error installing requirement: {}".format(requirement))
+
+    def exec_plugins(self, event: PosthogEvent, team_id: int):
         team_plugins = self.plugins_by_team.get(team_id, None)
         global_plugins = self.plugins_by_team.get(None, [])
         plugins_to_run = team_plugins if team_plugins else global_plugins
 
-        for plugin in plugins_to_run:
-            event = self.exec_plugin(plugin.loaded_class, event, "process_event")
-            if event.event == "$identify":
-                event = self.exec_plugin(plugin.loaded_class, event, "process_identify")
-            if event.event == "$create_alias":
-                event = self.exec_plugin(plugin.loaded_class, event, "process_alias")
+        for team_plugin in plugins_to_run:
+            if event:
+                event = self.exec_plugin(team_plugin, event, "process_event")
+            if event and event.event == "$identify":
+                event = self.exec_plugin(team_plugin, event, "process_identify")
+            if event and event.event == "$create_alias":
+                event = self.exec_plugin(team_plugin, event, "process_alias")
 
         return event
 
-    def exec_plugin(self, module, event, method="process_event"):
-        f = getattr(module, method)
-        event = f(event)
+    def exec_plugin(self, team_plugin: TeamPlugin, event: PosthogEvent, method="process_event"):
+        try:
+            f = getattr(team_plugin.loaded_class, method)
+            event = f(event)
+        except Exception as e:
+            self.register_error(
+                team_plugin.plugin,
+                PluginError("Error running method '{}' on team '{}'".format(method, team_plugin.team)),
+                e,
+            )
         return event
 
     # using argument message just to be compatible with the pubsub interface
@@ -282,6 +289,22 @@ class _Plugins:
             self.redis.publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
         else:
             print("🔻🔻🔻 Error reloading plugins! No redis instance found!")
+
+    @staticmethod
+    def register_error(
+        plugin: Union["Plugin", "PluginConfig", int], plugin_error: PluginError, error: Optional[Exception] = None
+    ):
+        if isinstance(plugin, int):
+            plugin = Plugin.objects.get(pk=plugin)
+
+        print('🔻🔻 Plugin name="{}", url="{}", tag="{}"'.format(plugin.name, plugin.url, plugin.tag))
+        print("🔻🔻 Error: {}".format(plugin_error.message))
+
+        plugin.error = {"message": plugin_error.message}
+        if error:
+            plugin.error["exception"] = str(error)
+            print("🔻🔻 Exception: {}".format(str(error)))
+        plugin.save()
 
 
 Plugins = SingletonDecorator(_Plugins)
