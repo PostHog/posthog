@@ -315,7 +315,9 @@ class TestPlugins(BaseTest):
         events = Event.objects.all()
         self.assertEqual(events[0].properties.get("hello", None), None)
         self.assertEqual(events[0].properties.get("bar", None), None)
-        self.assertEqual(Plugin.objects.get().error["message"], "Error running method 'process_event' on team '10'")
+        self.assertTrue(
+            Plugin.objects.get().error["message"].startswith("Error running method 'process_event' on team '10'")
+        )
         self.assertEqual(Plugin.objects.get().error["exception"], "this is fine")
 
     def test_raise_instance_init(self):
@@ -345,5 +347,5 @@ class TestPlugins(BaseTest):
         events = Event.objects.all()
         self.assertEqual(events[0].properties.get("hello", None), None)
         self.assertEqual(events[0].properties.get("bar", None), None)
-        self.assertEqual(Plugin.objects.get().error["message"], "Error loading plugin for team 12")
+        self.assertTrue(Plugin.objects.get().error["message"].startswith("Error loading plugin for team"))
         self.assertEqual(Plugin.objects.get().error["exception"], "Something fishy in this team")
