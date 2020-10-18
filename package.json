@@ -57,7 +57,7 @@
         "react-draggable": "^4.2.0",
         "react-grid-layout": "^1.1.1",
         "react-redux": "^7.2.0",
-        "react-shadow": "^17.4.0",
+        "react-shadow": "^18.4.2",
         "react-syntax-highlighter": "^13.5.1",
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
