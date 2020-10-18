@@ -29,7 +29,7 @@ export function SendEventsOverlay({ image }) {
             <div className="overlay">
                 <div className="overlay-inner">
                     <h2>Start sending events to PostHog</h2>
-                    <div style={{ width: 600 }}>
+                    <div style={{ width: '70vw' }}>
                         To get started using PostHog, you'll need to send us some events. By copying the snippet below
                         into the header, you can be up and running in minutes! You can put this snippet on any domain,
                         and it'll capture users across.
