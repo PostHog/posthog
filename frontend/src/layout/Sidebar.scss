@@ -1,9 +1,15 @@
 @media (max-width: 991px) {
+    #root {
+        height: 100%;
+    }
+    .ant-layout.ant-layout-has-sider {
+        height: 100%;
+    }
     // dark overlay
     .sidebar-responsive-overlay {
         opacity: 0;
         &.open {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
@@ -30,6 +36,7 @@
 
 aside.ant-layout-sider {
     min-height: 100vh;
+    padding-bottom: 100px;
 
     .ant-layout-sider-children {
         overflow-y: auto;
