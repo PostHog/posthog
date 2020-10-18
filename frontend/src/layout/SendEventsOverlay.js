@@ -3,9 +3,8 @@ import { router } from 'kea-router'
 import { useValues } from 'kea'
 import { JSSnippet } from 'lib/components/JSSnippet'
 
-export function SendEventsOverlay({ image }) {
+export function SendEventsOverlay() {
     const overlay = useRef()
-    const imageRef = useRef()
     const [animate, setAnimate] = useState(false)
     const { location } = useValues(router)
 
@@ -19,13 +18,6 @@ export function SendEventsOverlay({ image }) {
 
     return (
         <div ref={overlay} className={'send-events-overlay ' + (animate && 'animate')}>
-            <img
-                ref={imageRef}
-                src={`${image}?${Date.now()}`}
-                style={{ opacity: animate ? 1 : 0 }}
-                className="overlay-image"
-                onLoad={() => setAnimate(true)}
-            />
             <div className="overlay">
                 <div className="overlay-inner">
                     <h2>Start sending events to PostHog</h2>
@@ -41,7 +33,7 @@ export function SendEventsOverlay({ image }) {
                     {window.location.href.indexOf('127.0.0.1') > -1 && (
                         <div>
                             <h3>Running locally?</h3>
-                            It's hard to send events to PostHog running locally. If you want to have a play,{' '}
+                            If you want to try PostHog in a playground,{' '}
                             <a href="/demo" target="_blank">
                                 click here for our 'HogFlix' demo environment
                             </a>
