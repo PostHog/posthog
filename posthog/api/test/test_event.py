@@ -269,6 +269,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             for index in range(0, 150):
                 event_factory(team=self.team, event="some event", distinct_id="1")
             response = self.client.get("/api/event/?distinct_id=1").json()
+            self.assertEqual(len(response["results"]), 101)
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
