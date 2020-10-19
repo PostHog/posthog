@@ -235,7 +235,7 @@ class _Plugins:
 
     def install_requirement(self, requirement: str):
         try:
-            resp = subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", requirement])
+            resp = subprocess.check_call([sys.executable, "-m", "pip", "install", requirement])
         except subprocess.CalledProcessError as e:
             resp = e.returncode
 
