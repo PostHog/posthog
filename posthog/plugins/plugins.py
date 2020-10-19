@@ -238,9 +238,9 @@ class _Plugins:
             import pip
 
             if hasattr(pip, "main"):
-                resp = pip.main(["install", requirement])
+                resp = pip.main(["install", "-q", "--no-input", requirement])
             else:
-                resp = pip._internal.main(["install", requirement])
+                resp = pip._internal.main(["install", "-q", "--no-input", requirement])
 
             if resp != 0:
                 raise PluginError("Error installing requirement: {}".format(requirement))
