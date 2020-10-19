@@ -234,15 +234,18 @@ class _Plugins:
                 self.install_requirement(requirement)
 
     def install_requirement(self, requirement: str):
-        import pip
+        try:
+            import pip
 
-        if hasattr(pip, "main"):
-            resp = pip.main(["install", requirement])
-        else:
-            resp = pip._internal.main(["install", requirement])
+            if hasattr(pip, "main"):
+                resp = pip.main(["install", requirement])
+            else:
+                resp = pip._internal.main(["install", requirement])
 
-        if resp != 0:
-            raise PluginError("Error installing requirement: {}".format(requirement))
+            if resp != 0:
+                raise PluginError("Error installing requirement: {}".format(requirement))
+        except Exception as e:
+            raise PluginError("Exception when installing requirement: {}".format(requirement), e)
 
     def exec_plugins(self, event: PosthogEvent, team_id: int):
         team_plugins = self.plugins_by_team.get(team_id, None)
