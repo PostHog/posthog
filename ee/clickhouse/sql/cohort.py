@@ -44,7 +44,3 @@ SELECT distinct_id FROM events where uuid IN (
     SELECT uuid FROM {table_name}
 )
 """
-
-PERSON_PROPERTY_FILTER_SQL = """
-SELECT id FROM person WHERE {filters}
-"""
