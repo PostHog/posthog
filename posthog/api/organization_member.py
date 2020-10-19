@@ -1,5 +1,4 @@
 from django.db.models import Model, QuerySet, query
-from django.http.response import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -15,7 +14,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
     message = "Your cannot edit other organization members or remove anyone but yourself."
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
         if request.method == "DELETE" and object.user_id == request.user.id:
@@ -58,7 +57,7 @@ class OrganizationMemberViewSet(
             try:
                 return queryset.filter(**parents_query_dict)
             except ValueError:
-                raise Http404
+                raise exceptions.NotFound()
         else:
             return queryset
 

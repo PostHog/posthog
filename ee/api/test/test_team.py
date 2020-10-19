@@ -43,7 +43,7 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         response = self.client.delete(f"/api/projects/{team_1.id}")
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Team.objects.filter(id=team_1.id).exists())
-        organization, _, _ = User.objects.bootstrap("X")
+        organization, _, _ = User.objects.bootstrap("X", "someone@x.com", "qwerty", "Someone")
         team_2 = Team.objects.create(organization=organization)
         response = self.client.delete(f"/api/projects/{team_2.id}")
         self.assertEqual(response.status_code, 403)

@@ -10,7 +10,7 @@ from .utils import UUIDModel, sane_repr
 try:
     from ee.models.license import License
 except ImportError:
-    License = None
+    License = None  # type: ignore
 
 try:
     from multi_tenancy.models import OrganizationBilling  # type: ignore
