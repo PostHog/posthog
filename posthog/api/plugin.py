@@ -59,7 +59,7 @@ class PluginViewSet(viewsets.ModelViewSet):
     def repository(self, request: request.Request):
         if not settings.INSTALL_PLUGINS_FROM_WEB:
             return Response([])
-        url = "https://raw.githubusercontent.com/PostHog/plugins/main/plugins.json"
+        url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
