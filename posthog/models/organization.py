@@ -1,13 +1,21 @@
-import uuid as uuidlib
-from enum import IntEnum
-from multiprocessing import Value
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.db import models, transaction
 from django.dispatch import receiver
+from django.utils import timezone
 
 from .utils import UUIDModel, sane_repr
+
+try:
+    from ee.models.license import License
+except ImportError:
+    License = None
+
+try:
+    from multi_tenancy.models import OrganizationBilling  # type: ignore
+except ImportError:
+    OrganizationBilling = None
 
 
 class OrganizationManager(models.Manager):
@@ -41,6 +49,36 @@ class Organization(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     objects = OrganizationManager()
+
+    @property
+    def billing_plan(self) -> Optional[str]:
+        # If the EE folder is missing no features are available
+        if not settings.EE_AVAILABLE:
+            return None
+        # If we're on Cloud, grab the organization's price
+        if OrganizationBilling is not None:
+            try:
+                return OrganizationBilling.objects.get(organization_id=self.id).get_plan_key()
+            except OrganizationBilling.DoesNotExist:
+                return None
+        # Otherwise, try to find a valid license on this instance
+        if License is not None:
+            license = License.objects.filter(valid_until__gte=timezone.now()).first()
+            if license:
+                return license.plan
+        return None
+
+    @property
+    def available_features(self) -> List[str]:
+        plan = self.billing_plan
+        if not plan:
+            return []
+        if plan not in License.PLANS:
+            return []
+        return License.PLANS[plan]
+
+    def is_feature_available(self, feature: str) -> bool:
+        return feature in self.available_features
 
     def __str__(self):
         return self.name

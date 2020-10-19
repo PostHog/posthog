@@ -28,7 +28,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if (
             request.method in CREATE_METHODS
-            and not request.user.is_feature_available("organizations_projects")
+            and not request.user.organization.is_feature_available("organizations_projects")
             and request.user.organization.teams.count() >= 1
         ):
             return False

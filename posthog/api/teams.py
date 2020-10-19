@@ -23,7 +23,6 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
-from posthog.models.user import MULTI_TENANCY_MISSING
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -35,7 +34,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if (
             request.method in CREATE_METHODS
-            and not request.user.is_feature_available("organizations_projects")
+            and not request.user.organization.is_feature_available("organizations_projects")
             and request.user.organizations.count() >= 1
         ):
             return False
@@ -136,12 +135,12 @@ class TeamSignupSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         is_first_user: bool = not User.objects.exists()
-        realm: str = "cloud" if not MULTI_TENANCY_MISSING else "hosted"
+        realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 
         if self.context["request"].user.is_authenticated:
             raise serializers.ValidationError("Authenticated users may not create additional teams.")
 
-        if not is_first_user and MULTI_TENANCY_MISSING:
+        if not is_first_user and not getattr(settings, "MULTI_TENANCY", False):
             raise serializers.ValidationError("This instance does not support multiple teams.")
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])

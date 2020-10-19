@@ -2,7 +2,7 @@ from typing import Optional
 
 from django.utils import timezone
 
-from ee.models import License
+from ee.models.license import License
 from posthog.api.test.base import APIBaseTest, BaseTest, TransactionBaseTest
 
 

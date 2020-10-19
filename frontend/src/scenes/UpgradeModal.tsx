@@ -19,9 +19,7 @@ export function UpgradeModal(): JSX.Element {
             visible={!!upgradeModalFeatureName}
         >
             <b>{upgradeModalFeatureName && capitalizeFirstLetter(upgradeModalFeatureName)}</b> is an advanced PostHog
-            feature.
-            <br />
-            Upgrade now and get access to this, as well as to other powerful enhancements.
+            feature. Upgrade now and get access to this, as well as to other powerful enhancements.
         </Modal>
     )
 }
@@ -33,7 +31,7 @@ export function guardPremiumFeature(
     name: string,
     callback?: () => void
 ): boolean {
-    const featureAvailable = !!user?.available_features.includes(key)
+    const featureAvailable = !!user?.organization.available_features.includes(key)
     if (featureAvailable) callback?.()
     else showUpgradeModal(name)
     return featureAvailable

@@ -10,12 +10,10 @@ export interface UserType {
     organization: OrganizationType
     team: TeamType
     toolbar_mode: 'disabled' | 'toolbar'
-    billing: OrganizationBilling
     organizations: OrganizationType[]
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
-    available_features: string[]
 }
 
 export interface UserUpdateType {
@@ -37,6 +35,9 @@ export interface OrganizationType {
     name: string
     created_at: string
     updated_at: boolean
+    available_features: string[]
+    billing_plan: string
+    billing: OrganizationBilling
     teams: TeamType[]
 }
 

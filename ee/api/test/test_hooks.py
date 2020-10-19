@@ -1,6 +1,6 @@
 from typing import Type
 
-from ee.models import Hook
+from ee.models.hook import Hook
 from posthog.api.test.base import TransactionBaseTest
 
 
