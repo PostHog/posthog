@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from freezegun import freeze_time
 
@@ -266,7 +267,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
         def test_pagination(self):
             person_factory(team=self.team, distinct_ids=["1"])
             for _ in range(0, 150):
-                event_factory(team=self.team, event="some event", distinct_id="1")
+                event_factory(
+                    team=self.team, event="some event", distinct_id="1", timestamp=datetime(2020, 1, 1, 12, 0, 0, _)
+                )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
