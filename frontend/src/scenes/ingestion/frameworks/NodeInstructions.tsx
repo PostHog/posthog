@@ -17,7 +17,7 @@ function NodeSetupSnippet(): JSX.Element {
     const { user } = useValues(userLogic)
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`import PostHog from 'posthog-node'
+            {`impo${''}rt PostHog from 'posthog-node'
 
 const client = new PostHog(
     '${user?.team?.api_token}',

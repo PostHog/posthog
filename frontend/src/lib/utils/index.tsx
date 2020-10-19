@@ -1,5 +1,5 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
-import api from './api'
+import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'

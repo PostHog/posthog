@@ -10,9 +10,7 @@ function FlutterInstallSnippet(): JSX.Element {
 function FlutterCaptureSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Dart}>
-            {
-                "import 'package:posthog_flutter/posthog_flutter.dart';\n\nPosthog.screen(\n\tscreenName: 'Example Screen',\n);"
-            }
+            {`imp${''}ort 'package:posthog_flutter/posthog_flutter.dart';\n\nPosthog.screen(\n\tscreenName: 'Example Screen',\n);`}
         </CodeSnippet>
     )
 }

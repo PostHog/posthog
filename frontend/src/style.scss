@@ -51,16 +51,16 @@ $body-color: #37352f;
 @import 'node_modules/funnel-graph-js/src/scss/main.scss';
 
 // icons
-@import 'style/font/_flaticon';
+@import './style/font/_flaticon';
 
 // our components
-@import 'style/events';
-@import 'style/funnel';
-@import 'style/toast';
-@import 'style/trends';
-@import 'style/send-events-overlay';
-@import 'style/action-filter-dropdown';
-@import 'style/retention-table';
+@import './style/events';
+@import './style/funnel';
+@import './style/toast';
+@import './style/trends';
+@import './style/send-events-overlay';
+@import './style/action-filter-dropdown';
+@import './style/retention-table';
 
 .posthog-title {
     font-weight: 500;

@@ -8,5 +8,17 @@ module.exports = {
         ['import', { libraryName: 'antd', libraryDirectory: 'es', style: 'css' }],
         ['babel-plugin-kea', { path: './frontend/src' }],
     ],
-    presets: ['@babel/preset-env', '@babel/typescript'],
+    presets: [
+        [
+            '@babel/preset-env',
+            {
+                targets: {
+                    esmodules: true,
+                },
+                modules: false,
+                useBuiltIns: false,
+            },
+        ],
+        '@babel/typescript',
+    ],
 }

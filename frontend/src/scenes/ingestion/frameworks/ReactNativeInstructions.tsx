@@ -16,7 +16,7 @@ function RNSetupSnippet(): JSX.Element {
     const url = window.location.origin
     return (
         <CodeSnippet language={Language.JSX}>
-            {"import PostHog from 'posthog-react-native'\n\nawait PostHog.setup('" +
+            {`imp${''}ort PostHog from 'posthog-react-native'\n\nawait PostHog.setup('` +
                 user?.team?.api_token +
                 "', {\n\t// PostHog API host\n\thost: '" +
                 url +
