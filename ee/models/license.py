@@ -41,5 +41,5 @@ class License(models.Model):
     key: models.CharField = models.CharField(max_length=200)
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = ["zapier", "multistructure"]
+    ENTERPRISE_FEATURES = ["zapier", "organizations_projects"]
     PLANS = {ENTERPRISE_PLAN: ENTERPRISE_FEATURES}

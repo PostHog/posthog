@@ -23,7 +23,7 @@ from . import (
 )
 
 
-class HedgeRouter(ExtendedDefaultRouter):
+class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
 
     def __init__(self, *args, **kwargs):
@@ -38,7 +38,7 @@ def api_not_found(request):
     raise exceptions.NotFound(detail="Endpoint not found.")
 
 
-router = HedgeRouter()
+router = DefaultRouterPlusPlus()
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"element", element.ElementViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)

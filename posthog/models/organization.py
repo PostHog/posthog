@@ -14,7 +14,8 @@ class OrganizationManager(models.Manager):
     def bootstrap(
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
     ) -> Tuple["Organization", "OrganizationMembership", Any]:
-        from .team import Team
+        """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
+        from .team import Team  # Avoiding circular import
 
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)

@@ -15,7 +15,7 @@ class APILicensedTest(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        if self.CONFIG_LICENSE_PLAN is not None:
+        if self.CONFIG_LICENSE_PLAN:
             self.license = License.objects._create(
                 key=self.CONFIG_LICENSE_PLAN,
                 plan=self.CONFIG_LICENSE_PLAN,

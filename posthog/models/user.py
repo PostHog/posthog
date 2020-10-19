@@ -87,6 +87,7 @@ class UserManager(BaseUserManager):
         team_fields: Optional[Dict[str, Any]] = None,
         **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
+        """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", company_name)

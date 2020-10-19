@@ -207,13 +207,13 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/people/individuals' && push('/people/individuals')
+                            location.pathname !== '/people/persons' && push('/people/persons')
                         }}
                     >
                         <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
                             <UserOutlined />
-                            <span className="sidebar-label">Individuals</span>
-                            <Link to={'/people/individuals'} onClick={collapseSidebar} />
+                            <span className="sidebar-label">Persons</span>
+                            <Link to={'/people/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                             <UsergroupAddOutlined />
@@ -297,7 +297,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         >
                             <Menu.Item key="instanceStatus" style={itemStyle} data-attr="menu-item-instance-status">
                                 <DatabaseOutlined />
-                                <span className="sidebar-label">Systems Status</span>
+                                <span className="sidebar-label">System Status</span>
                                 <Link to={'/instance/status'} onClick={collapseSidebar} />
                             </Menu.Item>
 

@@ -1,7 +1,6 @@
 from typing import Any, Dict
 
-from django.db import transaction
-from django.db.models import QuerySet, query
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import (
     exceptions,
@@ -13,10 +12,9 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.generics import DestroyAPIView
-from rest_framework.mixins import DestroyModelMixin
+from rest_framework.permissions import IsAuthenticated
 
-from posthog.models import Organization, OrganizationMembership, Team, team
+from posthog.models import Organization, OrganizationMembership
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -30,7 +28,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if (
             request.method in CREATE_METHODS
-            and not request.user.is_feature_available("multistructure")
+            and not request.user.is_feature_available("organizations_projects")
             and request.user.organization.teams.count() >= 1
         ):
             return False
@@ -61,23 +59,22 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
 class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
-    pagination_class = None
     permission_classes = [
+        IsAuthenticated,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
         PremiumMultiorganizationPermissions,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"
-    ordering_fields = ["created_by"]
-    ordering = ["-created_by"]
+    ordering = "-created_by"
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         for member in instance.members:
             if member.organizations.count() <= 1:
                 raise exceptions.ValidationError(
-                    f"Cannot remove organization since that would leave member {member.email} organization-less!"
+                    f"Cannot remove organization since that would leave member {member.email} organization-less, which is not supported yet."
                 )
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -93,6 +90,4 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         return obj
 
     def get_queryset(self) -> QuerySet:
-        return Organization.objects.filter(
-            id__in=OrganizationMembership.objects.filter(user=self.request.user).values("organization_id")
-        )
+        return self.request.user.organizations.all()

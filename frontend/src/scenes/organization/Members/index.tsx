@@ -7,10 +7,16 @@ import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { CreateOrgInviteModal } from '../Invites/CreateOrgInviteModal'
-import { organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { UserType } from '~/types'
+import { ColumnsType } from 'antd/lib/table'
+
+interface MembersProps {
+    user: UserType
+}
 
 export const Members = hot(_Members)
-function _Members({ user }) {
+function _Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
     const { removeMember } = useActions(membersLogic)
     const [isCreateInviteModalVisible, setIsCreateInviteModalVisible] = useState(false)
@@ -18,9 +24,7 @@ function _Members({ user }) {
 
     const ActionsComponent = useCallback(
         (_text, member) => {
-            if (member.user_id == user.id) return null
-
-            const handleClick = () => {
+            function handleClick(): void {
                 confirm({
                     title: `Remove ${member.user_first_name} from organization ${user.organization.name}?`,
                     icon: <ExclamationCircleOutlined />,
@@ -44,12 +48,13 @@ function _Members({ user }) {
         [user]
     )
 
-    const columns = [
+    const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Name',
             dataIndex: 'user_first_name',
             key: 'user_first_name',
-            render: (firstName, member) => (member.user_id == user.id ? `${firstName} (me)` : firstName),
+            render: (firstName: string, member: Record<string, any>) =>
+                member.user_id == user.id ? `${firstName} (me)` : firstName,
         },
         {
             title: 'Email',
@@ -60,13 +65,13 @@ function _Members({ user }) {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: (level) => organizationMembershipLevelToName.get(level) ?? 'unknown',
+            render: (level: OrganizationMembershipLevel) => organizationMembershipLevelToName.get(level) ?? 'unknown',
         },
         {
             title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
-            render: (joinedAt) => humanFriendlyDetailedTime(joinedAt),
+            render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
         },
         {
             title: '',

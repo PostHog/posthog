@@ -1,8 +1,9 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet
-from django.http.response import Http404
-from rest_framework import mixins, serializers, viewsets
+from django.db.models.base import Model
+from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationInvite
@@ -62,11 +63,9 @@ class OrganizationInviteViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationInviteSerializer
-    pagination_class = None
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationAdminWritePermissions]
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
-    ordering_fields = ["created_at"]
     ordering = "-created_at"
 
     def get_queryset(self):
@@ -80,6 +79,6 @@ class OrganizationInviteViewSet(
             try:
                 return queryset.filter(**parents_query_dict).select_related("created_by").select_related("last_used_by")
             except ValueError:
-                raise Http404
+                raise exceptions.NotFound()
         else:
             return queryset

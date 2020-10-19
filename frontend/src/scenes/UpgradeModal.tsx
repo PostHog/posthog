@@ -7,27 +7,21 @@ import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
     const { upgradeModalFeatureName } = useValues(sceneLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
+    const { hideUpgradeModal, takeToPricing } = useActions(sceneLogic)
 
     return (
         <Modal
             title="Unleash PostHog's Full Power"
             okText="Upgrade Now"
             cancelText="Maybe Later"
-            onOk={() => {
-                window.open('mailto:hey@posthog.com?subject=Upgrading PostHog')
-                hideUpgradeModal()
-            }}
+            onOk={takeToPricing}
             onCancel={hideUpgradeModal}
             visible={!!upgradeModalFeatureName}
         >
-            Oops! <b>{upgradeModalFeatureName && capitalizeFirstLetter(upgradeModalFeatureName)}</b>{' '}
-            {upgradeModalFeatureName && upgradeModalFeatureName[upgradeModalFeatureName.length - 1] === 's'
-                ? 'are'
-                : 'is'}{' '}
-            an advanced PostHog feature.
+            <b>{upgradeModalFeatureName && capitalizeFirstLetter(upgradeModalFeatureName)}</b> is an advanced PostHog
+            feature.
             <br />
-            Upgrade to a paid plan in order to gain access to it, as well as to other powerful enhancements.
+            Upgrade now and get access to this, as well as to other powerful enhancements.
         </Modal>
     )
 }

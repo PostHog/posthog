@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import { userLogic } from './userLogic'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -52,7 +53,7 @@ export const routes = {
     '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
-    '/people/individuals': 'people',
+    '/people/persons': 'people',
     '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
     '/feature_flags': 'featureFlags',
@@ -78,6 +79,7 @@ export const sceneLogic = kea({
         setLoadedScene: (scene, loadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName) => ({ featureName }),
         hideUpgradeModal: true,
+        takeToPricing: true,
     },
     reducers: ({ actions }) => ({
         scene: [
@@ -117,6 +119,7 @@ export const sceneLogic = kea({
             {
                 [actions.showUpgradeModal]: (_, { featureName }) => featureName,
                 [actions.hideUpgradeModal]: () => null,
+                [actions.takeToPricing]: () => null,
             },
         ],
     }),
@@ -140,6 +143,18 @@ export const sceneLogic = kea({
         return mapping
     },
     listeners: ({ values, actions }) => ({
+        showUpgradeModal: ({ featureName }) => {
+            window.posthog?.capture('upgrade modal shown', { featureName })
+        },
+        hideUpgradeModal: () => {
+            window.posthog?.capture('upgrade modal cancellation')
+        },
+        takeToPricing: () => {
+            window.open(
+                `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
+            )
+            window.posthog?.capture('upgrade modal pricing interaction')
+        },
         setScene: () => {
             window.posthog?.capture('$pageview')
         },

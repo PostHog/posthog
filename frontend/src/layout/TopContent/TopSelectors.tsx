@@ -16,6 +16,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Link } from 'lib/components/Link'
 
 export function User(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -25,10 +26,10 @@ export function User(): JSX.Element {
             overlay={
                 <Menu>
                     <Menu.Item key="user-email">
-                        <a href="/me/settings">
+                        <Link to="/me/settings">
                             <MailOutlined size={1} style={{ marginRight: '0.5rem' }} />
                             {user ? user.email : <i>loading</i>}
-                        </a>
+                        </Link>
                     </Menu.Item>
                     <Menu.Item key="user-logout">
                         <a href="/logout" data-attr="user-options-logout" style={{ color: red.primary }}>
@@ -131,7 +132,7 @@ export function Organization(): JSX.Element {
                                     guardPremiumFeature(
                                         user,
                                         showUpgradeModal,
-                                        'multistructure',
+                                        'organizations_projects',
                                         'multiple projects and organizations',
                                         () => {
                                             setIsModalVisible(true)
@@ -235,7 +236,7 @@ export function Projects(): JSX.Element {
                                     guardPremiumFeature(
                                         user,
                                         showUpgradeModal,
-                                        'multistructure',
+                                        'organizations_projects',
                                         'multiple projects and organizations',
                                         () => {
                                             setIsModalVisible(true)

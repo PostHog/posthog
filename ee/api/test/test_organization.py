@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.test.utils import tag
+from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 from posthog.models.team import Team
@@ -11,7 +12,7 @@ from .base import APILicensedTest
 class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_create_organization(self):
         response = self.client.post("/api/organizations/", {"name": "Test"})
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Organization.objects.count(), 2)
         response_data = response.json()
         self.assertEqual(response_data.get("name"), "Test")
@@ -21,7 +22,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.ADMIN,
         )
 
-    def test_delete_organization_own_second(self):
+    def test_delete_second_managed_organization(self):
         organization, _, team = Organization.objects.bootstrap(self.user)
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         self.assertTrue(Team.objects.filter(id=team.id).exists())
@@ -49,6 +50,16 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertTrue(Team.objects.filter(id=team.id).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
+        # as member only
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        organization = Organization.objects.create(name="Some Other Org")
+        response = self.client.delete(f"/api/organizations/{organization.id}")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Organization.objects.filter(id=organization.id).exists())
+        # as admin
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         organization = Organization.objects.create(name="Some Other Org")
         response = self.client.delete(f"/api/organizations/{organization.id}")
         self.assertEqual(response.status_code, 403)

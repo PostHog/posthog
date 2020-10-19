@@ -11,7 +11,7 @@ export const invitesLogic = kea({
         invites: {
             __default: [],
             loadInvites: async () => {
-                return await api.get('api/organizations/@current/invites/')
+                return (await api.get('api/organizations/@current/invites/')).results
             },
             createInvite: async ({
                 mode,

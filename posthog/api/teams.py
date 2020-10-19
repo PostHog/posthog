@@ -19,6 +19,7 @@ from rest_framework import (
     status,
     viewsets,
 )
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -34,7 +35,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if (
             request.method in CREATE_METHODS
-            and not request.user.is_feature_available("multistructure")
+            and not request.user.is_feature_available("organizations_projects")
             and request.user.organizations.count() >= 1
         ):
             return False
@@ -89,30 +90,24 @@ class TeamSerializer(serializers.ModelSerializer):
 class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer
     queryset = Team.objects.all()
-    pagination_class = None
     permission_classes = [
+        IsAuthenticated,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
         PremiumMultiprojectPermissions,
     ]
     lookup_field = "id"
-    ordering_fields = ["created_by"]
-    ordering = ["-created_by"]
+    ordering = "-created_by"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if isinstance(self.request.user, AnonymousUser):
-            return self.queryset.none()
-        queryset = queryset.filter(organization__in=self.request.user.organizations.all())
+        queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
         return queryset
 
     def get_object(self):
-        if isinstance(self.request.user, AnonymousUser):
-            return None
-        queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             return self.request.user.team
+        queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         obj = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)
@@ -122,7 +117,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.organization.teams.count() <= 1:
             raise exceptions.ValidationError(
-                f"Cannot remove project since that would leave organization {instance.name} project-less!"
+                f"Cannot remove project since that would leave organization {instance.name} project-less, which is not supported yet."
             )
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)

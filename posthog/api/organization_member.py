@@ -2,30 +2,32 @@ from django.db.models import Model, QuerySet, query
 from django.http.response import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions, extract_organization
+from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
-class OrganizationAdminWriteExcludingDeletePermissions(BasePermission):
+class OrganizationMemberObjectPermissions(BasePermission):
     """Require organization admin level to change object, allowing everyone read AND delete."""
 
-    message = "Your organization access level is insufficient."
+    message = "Your cannot edit other organization members or remove anyone but yourself."
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        if request.method in SAFE_METHODS or request.method == "DELETE":
+        if request.method in SAFE_METHODS:
+            return True
+        if request.method == "DELETE" and object.user_id == request.user.id:
             return True
         organization = extract_organization(object)
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            OrganizationMembership.objects.get(user_id=request.user.id, organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
 
 
-class OrganizationMembershipSerializer(serializers.ModelSerializer):
+class OrganizationMemberSerializer(serializers.ModelSerializer):
     user_first_name = serializers.CharField(source="user.first_name", read_only=True)
     user_email = serializers.CharField(source="user.email", read_only=True)
     membership_id = serializers.CharField(source="id", read_only=True)
@@ -42,12 +44,10 @@ class OrganizationMemberViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    serializer_class = OrganizationMembershipSerializer
-    pagination_class = None
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWriteExcludingDeletePermissions]
+    serializer_class = OrganizationMemberSerializer
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
     queryset = OrganizationMembership.objects.all()
     lookup_field = "user_id"
-    ordering_fields = ["level", "joined_at", "user_first_name"]
     ordering = ["level", "-joined_at"]
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
@@ -71,18 +71,3 @@ class OrganizationMemberViewSet(
         obj = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)
         return obj
-
-    def destroy(self, request, *args, **kwargs):
-        """Member removal with validation (admin permissions)."""
-        membership_to_delete = self.get_object()
-        try:
-            if (
-                membership_to_delete.user != request.user
-                and request.user.organization_memberships.get(organization=request.user.organization).level
-                < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.PermissionDenied("You are not permitted to delete other organization members.")
-        except OrganizationMembership.DoesNotExist:
-            raise exceptions.NotFound("User does not exist or does not belong to the organization.")
-        membership_to_delete.delete()
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
