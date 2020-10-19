@@ -2,6 +2,8 @@ import importlib
 import importlib.util
 import inspect
 import os
+import subprocess
+import sys
 import tempfile
 import zipimport
 from typing import Dict, List, Optional, Union
@@ -232,9 +234,10 @@ class _Plugins:
                 self.install_requirement(requirement)
 
     def install_requirement(self, requirement: str):
-        import pip  # type: ignore
-
-        resp = pip._internal.main(["install", "-q", requirement])
+        try:
+            resp = subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", requirement])
+        except subprocess.CalledProcessError as e:
+            resp = e.returncode
 
         if resp != 0:
             raise PluginError("Error installing requirement: {}".format(requirement))
