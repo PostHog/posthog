@@ -234,10 +234,7 @@ class _Plugins:
     def install_requirement(self, requirement: str):
         import pip  # type: ignore
 
-        if hasattr(pip, "main"):
-            resp = pip.main(["install", requirement])
-        else:
-            resp = pip._internal.main(["install", requirement])
+        resp = pip._internal.main(["install", "-q", requirement])
 
         if resp != 0:
             raise PluginError("Error installing requirement: {}".format(requirement))
