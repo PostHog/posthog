@@ -11,13 +11,25 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
-from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
 from ee.clickhouse.sql.events import (
     EVENT_JOIN_PERSON_SQL,
     EVENT_JOIN_PROPERTY_WITH_KEY_SQL,
     NULL_BREAKDOWN_SQL,
     NULL_SQL,
 )
+from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
+from ee.clickhouse.sql.trends.breakdown import (
+    BREAKDOWN_COHORT_FILTER_SQL,
+    BREAKDOWN_COHORT_JOIN_SQL,
+    BREAKDOWN_CONDITIONS_SQL,
+    BREAKDOWN_DEFAULT_SQL,
+    BREAKDOWN_PERSON_PROP_JOIN_SQL,
+    BREAKDOWN_PROP_JOIN_SQL,
+    BREAKDOWN_QUERY_SQL,
+)
+from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
+from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -27,164 +39,42 @@ from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.utils import relative_date_parse
 
-# TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
-VOLUME_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and event = %(event)s {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
-"""
-
-VOLUME_ACTIONS_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
-"""
-
-AGGREGATE_SQL = """
-SELECT groupArray(day_start), groupArray(count) FROM (
-    SELECT SUM(total) AS count, day_start from ({null_sql} UNION ALL {content_sql}) group by day_start order by day_start
-)
-"""
-
-TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
-SELECT groupArray(value) FROM (
-    SELECT value, count(*) as count 
-    FROM 
-    events e INNER JOIN
-        (
-            SELECT *
-            FROM events_properties_view AS ep
-            WHERE key = %(key)s AND team_id = %(team_id)s
-        ) ep ON e.uuid = ep.event_id WHERE team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
-    GROUP BY value
-    ORDER BY count DESC
-    LIMIT %(limit)s
-)
-"""
-
-TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL = """
-SELECT groupArray(value) FROM (
-    SELECT value, count(*) as count
-    FROM
-    events e 
-    INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
-    INNER JOIN
-        (
-            SELECT * FROM (
-                SELECT
-                id,
-                array_property_keys as key,
-                array_property_values as value
-                from (
-                    SELECT
-                        id,
-                        arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                        arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-                    FROM person WHERE team_id = %(team_id)s
-                )
-                ARRAY JOIN array_property_keys, array_property_values
-            ) ep
-            WHERE key = %(key)s
-        ) ep ON person_id = ep.id WHERE e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to}
-    GROUP BY value
-    ORDER BY count DESC
-    LIMIT %(limit)s
-)
-"""
-
-BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
-    SELECT SUM(total) as count, day_start, breakdown_value FROM (
-        SELECT * FROM (
-            {null_sql} as main
-            CROSS JOIN
-                (
-                    SELECT breakdown_value
-                    FROM (
-                        SELECT %(values)s as breakdown_value
-                    ) ARRAY JOIN breakdown_value 
-                ) as sec
-            ORDER BY breakdown_value, day_start
-            UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value as breakdown_value
-            FROM 
-            events e {event_join} {breakdown_filter}
-            GROUP BY day_start, breakdown_value
-        )
-    ) 
-    GROUP BY day_start, breakdown_value
-    ORDER BY breakdown_value, day_start
-) GROUP BY breakdown_value
-"""
-
-BREAKDOWN_DEFAULT_SQL = """
-SELECT groupArray(day_start), groupArray(count) FROM (
-    SELECT SUM(total) as count, day_start FROM (
-        SELECT * FROM (
-            {null_sql} as main
-            ORDER BY day_start
-            UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
-            FROM 
-            events e {event_join} {conditions}
-            GROUP BY day_start
-        )
-    ) 
-    GROUP BY day_start
-    ORDER BY day_start
-) 
-"""
-
-BREAKDOWN_CONDITIONS_SQL = """
-where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
-"""
-
-BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
-INNER JOIN (
-    SELECT * FROM (
-        SELECT
-        id,
-        array_property_keys as key,
-        array_property_values as value
-        from (
-            SELECT
-                id,
-                arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-            FROM person WHERE team_id = %(team_id)s
-        )
-        ARRAY JOIN array_property_keys, array_property_values
-    ) ep
-    WHERE key = %(key)s
-) ep 
-ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
-AND breakdown_value in (%(values)s) {actions_query}
-"""
-
-
-BREAKDOWN_PROP_JOIN_SQL = """
-INNER JOIN (
-    SELECT *
-    FROM events_properties_view AS ep
-    WHERE key = %(key)s and team_id = %(team_id)s
-) ep 
-ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
-AND breakdown_value in (%(values)s) {actions_query}
-"""
-
-BREAKDOWN_COHORT_JOIN_SQL = """
-INNER JOIN (
-    {cohort_queries}
-) ep
-ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
-"""
-
-BREAKDOWN_COHORT_FILTER_SQL = """
-SELECT distinct_id, {cohort_pk} as value
-FROM person_distinct_id
-WHERE distinct_id IN ({clause})
-"""
-
 
 class ClickhouseTrends(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        if filter.breakdown:
+            result = self._serialize_breakdown(entity, filter, team)
+        else:
+            result = self._format_normal_query(entity, filter, team)
+
+        serialized_data = self._format_serialized(entity, result)
+
+        if filter.display == TRENDS_CUMULATIVE:
+            serialized_data = self._handle_cumulative(serialized_data)
+
+        return serialized_data
+
+    def _serialize_breakdown(self, entity: Entity, filter: Filter, team: Team):
+        if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
+            result = []
+            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            filter.breakdown.remove("all")
+
+            # handle breakdown by all and by specific props separately
+            if filter.breakdown:
+                result.extend(self._format_breakdown_query(entity, filter, team))
+
+            filter.breakdown = ["all"]
+            all_result = self._format_breakdown_query(entity, filter, team)
+
+            result.extend(all_result)
+        else:
+            result = self._format_breakdown_query(entity, filter, team)
+        return result
+
+    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+        serialized_data = []
+
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -193,34 +83,11 @@ class ClickhouseTrends(BaseQuery):
             "labels": [],
             "days": [],
         }
-        if filter.breakdown:
-            if "all" in filter.breakdown and isinstance(filter.breakdown, list):
-                result = []
-                filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-                filter.breakdown.remove("all")
-
-                if filter.breakdown:
-                    result.extend(self._format_breakdown_query(entity, filter, team))
-
-                filter.breakdown = ["all"]
-                all_result = self._format_breakdown_query(entity, filter, team)
-
-                result.extend(all_result)
-            else:
-                result = self._format_breakdown_query(entity, filter, team)
-        else:
-            result = self._format_normal_query(entity, filter, team)
-
-        serialized_data = []
 
         for queried_metric in result:
             serialized_copy = copy.deepcopy(serialized)
             serialized_copy.update(queried_metric)
             serialized_data.append(serialized_copy)
-
-        if filter.display == TRENDS_CUMULATIVE:
-
-            serialized_data = self._handle_cumulative(serialized_data)
 
         return serialized_data
 
@@ -238,11 +105,10 @@ class ClickhouseTrends(BaseQuery):
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", props_to_filter, team)
 
+        aggregate_operation, join_condition, math_params = self._process_math(entity)
+
         action_query = ""
         action_params: Dict = {}
-
-        top_elements_array = []
-
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -254,8 +120,8 @@ class ClickhouseTrends(BaseQuery):
             date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
         )
 
-        aggregate_operation, join_condition, math_params = self._process_math(entity)
         params = {**params, **math_params, **prop_filter_params}
+        top_elements_array = []
 
         if filter.breakdown_type == "cohort":
             breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
@@ -270,7 +136,7 @@ class ClickhouseTrends(BaseQuery):
                 conditions = BREAKDOWN_CONDITIONS_SQL.format(
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="and uuid IN ({})".format(action_query) if action_query else "",
+                    actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                     filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
@@ -287,7 +153,7 @@ class ClickhouseTrends(BaseQuery):
                     cohort_queries=cohort_queries,
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="and uuid IN ({})".format(action_query) if action_query else "",
+                    actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                     filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
@@ -298,16 +164,9 @@ class ClickhouseTrends(BaseQuery):
                     aggregate_operation=aggregate_operation,
                 )
         elif filter.breakdown_type == "person":
-            element_params = {**params, "key": filter.breakdown, "limit": 20}
-            element_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
-                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+            top_elements_array = self._get_top_elements(
+                TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL, filter, parsed_date_from, parsed_date_to, team
             )
-            try:
-                top_elements_array_result = sync_execute(element_query, element_params)
-                top_elements_array = top_elements_array_result[0][0]
-            except:
-                top_elements_array = []
-
             params = {
                 **params,
                 "values": top_elements_array,
@@ -328,16 +187,10 @@ class ClickhouseTrends(BaseQuery):
                 aggregate_operation=aggregate_operation,
             )
         else:
-            element_params = {**params, "key": filter.breakdown, "limit": 20}
-            element_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
-            )
 
-            try:
-                top_elements_array_result = sync_execute(element_query, element_params)
-                top_elements_array = top_elements_array_result[0][0]
-            except:
-                top_elements_array = []
+            top_elements_array = self._get_top_elements(
+                TOP_ELEMENTS_ARRAY_OF_KEY_SQL, filter, parsed_date_from, parsed_date_to, team
+            )
 
             params = {
                 **params,
@@ -349,7 +202,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_filter = BREAKDOWN_PROP_JOIN_SQL.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
-                actions_query="and uuid IN ({})".format(action_query) if action_query else "",
+                actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
                 filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
             )
@@ -386,6 +239,20 @@ class ClickhouseTrends(BaseQuery):
             parsed_results.append(parsed_result)
 
         return parsed_results
+
+    def _get_top_elements(
+        self, query: str, filter: Filter, parsed_date_from: Optional[str], parsed_date_to: Optional[str], team: Team
+    ) -> List:
+        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team.pk}
+        element_query = query.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to)
+
+        try:
+            top_elements_array_result = sync_execute(element_query, element_params)
+            top_elements_array = top_elements_array_result[0][0]
+        except:
+            top_elements_array = []
+
+        return top_elements_array
 
     def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List, Dict]:
         cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
@@ -542,8 +409,8 @@ class ClickhouseTrends(BaseQuery):
         return parsed_results
 
     def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-        # format default dates
 
+        # format default dates
         if not filter._date_from:
             filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
