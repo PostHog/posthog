@@ -4,7 +4,7 @@ import time
 import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_prerun
+from celery.signals import task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
 
@@ -32,6 +32,13 @@ app.conf.broker_pool_limit = 0
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
 statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+
+
+@worker_process_init.connect
+def reload_plugins_if_needed(**kwargs):
+    from posthog.plugins import Plugins
+
+    Plugins()
 
 
 @task_prerun.connect

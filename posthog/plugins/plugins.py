@@ -20,6 +20,10 @@ from .sync import sync_global_plugin_config, sync_posthog_json_plugins
 REDIS_INSTANCE = get_redis_instance()
 
 
+def reload_plugins_on_workers():
+    get_redis_instance().incr("@posthog/plugin-reload", 1)
+
+
 class _Plugins:
     def __init__(self):
         self.plugins: List[Plugin] = []  # type not loaded yet
@@ -32,6 +36,7 @@ class _Plugins:
 
         self.plugin_counter = self.get_plugin_counter()
         self.last_plugins_check = datetime.now()
+
         self.load_plugins()
         self.load_plugin_configs()
 
@@ -291,9 +296,6 @@ class _Plugins:
 
     def get_plugin_counter(self):
         return get_redis_instance().get("@posthog/plugin-reload") or 0
-
-    def publish_reload_command(self):
-        get_redis_instance().incr("@posthog/plugin-reload", 1)
 
     @staticmethod
     def register_error(plugin: Union[Plugin, int], plugin_error: PluginError, error: Optional[Exception] = None):

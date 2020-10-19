@@ -9,7 +9,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from posthog.models import Plugin, PluginConfig
-from posthog.plugins import Plugins, download_plugin_github_zip
+from posthog.plugins import download_plugin_github_zip, reload_plugins_on_workers
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -26,7 +26,7 @@ class PluginSerializer(serializers.ModelSerializer):
         if "from_json" in validated_data:  # prevent hackery
             del validated_data["from_json"]
         plugin = Plugin.objects.create(from_web=True, **validated_data)
-        Plugins().publish_reload_command()
+        reload_plugins_on_workers()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
@@ -41,7 +41,7 @@ class PluginSerializer(serializers.ModelSerializer):
         plugin.tag = validated_data.get("tag", plugin.tag)
         plugin.archive = download_plugin_github_zip(plugin.url, plugin.tag)
         plugin.save()
-        Plugins().publish_reload_command()
+        reload_plugins_on_workers()
         return plugin
 
 
@@ -70,7 +70,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         if plugin.from_json:
             raise APIException('Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name))
         plugin.delete()
-        Plugins().publish_reload_command()
+        reload_plugins_on_workers()
         return Response(status=204)
 
 
@@ -84,7 +84,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise APIException("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
-        Plugins().publish_reload_command()
+        reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
@@ -94,7 +94,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         plugin_config.config = validated_data.get("config", plugin_config.config)
         plugin_config.order = validated_data.get("order", plugin_config.order)
         plugin_config.save()
-        Plugins().publish_reload_command()
+        reload_plugins_on_workers()
         return plugin_config
 
 
