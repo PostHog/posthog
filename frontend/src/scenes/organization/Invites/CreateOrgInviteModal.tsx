@@ -35,7 +35,7 @@ export function CreateOrgInviteModal({
             cancelText="Cancel"
             onOk={() => {
                 setErrorMessage(null)
-                createInvite(currentMode, maxUses, emailRef.current?.state.value)
+                createInvite({ mode: currentMode, maxUses, targetEmail: emailRef.current?.state.value })
                 closeModal()
                 if (location.pathname !== '/organization/invites') push('/organization/invites')
             }}

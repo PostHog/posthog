@@ -25,6 +25,9 @@ from posthog.models import (
 from posthog.models.utils import UUIDT
 from posthog.utils import render_template
 
+ORGANIZATION_NAME = "HogFlix"
+TEAM_NAME = "HogFlix Demo App"
+
 
 def _create_anonymous_users(team: Team, base_url: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
@@ -173,9 +176,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
         action=user_paid, event="$autocapture", url="%s/2" % base_url, url_matching="contains", selector="button",
     )
 
-    dashboard = Dashboard.objects.create(
-        name="HogFlix Demo", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
-    )
+    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
@@ -202,10 +203,10 @@ def demo(request):
     user = request.user
     organization = user.organization
     try:
-        team = organization.teams.get(name="HogFlix Demo")
+        team = organization.teams.get(name=TEAM_NAME)
     except Team.DoesNotExist:
         team = Team.objects.create(
-            organization=organization, name="HogFlix Demo", ingested_event=True, completed_snippet_onboarding=True
+            organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
         )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))

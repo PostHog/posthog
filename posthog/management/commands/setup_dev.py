@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo import _create_anonymous_users, _create_funnel, _recalculate
+from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, _create_anonymous_users, _create_funnel, _recalculate
 from posthog.models import User
 
 
@@ -14,15 +14,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         with transaction.atomic():
             organization, team, user = User.objects.bootstrap(
-                company_name="Hogflix",
+                company_name=ORGANIZATION_NAME,
                 email="test@posthog.com",
                 password="pass",
                 first_name="Jane Doe",
                 is_staff=True,
                 is_superuser=True,
                 team_fields={
-                    "name": "Hogflix App",
+                    "name": TEAM_NAME,
                     "completed_snippet_onboarding": True,
+                    "ingested_event": True,
                     "event_names": ["$pageview", "$autocapture"],
                     "event_properties": ["$current_url", "$browser", "$os"],
                 },

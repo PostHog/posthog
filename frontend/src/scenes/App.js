@@ -18,6 +18,7 @@ import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
+import { teamLogic } from './teamLogic'
 
 const darkerScenes = {
     dashboard: true,
@@ -41,6 +42,7 @@ const urlBackgroundMap = {
 
 function App() {
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
@@ -61,7 +63,7 @@ function App() {
         }
 
         // redirect to ingestion if not completed
-        if (user?.team && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
             replace('/ingestion')
             return
         }
@@ -101,7 +103,7 @@ function App() {
                     <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
-                        {!user.team.ingested_event && image ? (
+                        {!currentTeam.ingested_event && image ? (
                             <SendEventsOverlay image={image} user={user} />
                         ) : (
                             <Scene user={user} {...params} />

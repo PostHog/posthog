@@ -66,8 +66,11 @@ class OrganizationInviteViewSet(
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
-    ordering_fields = ["created_by"]
-    ordering = ["-created_by"]
+    ordering_fields = ["created_at"]
+    ordering = "-created_at"
+
+    def get_queryset(self):
+        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by(self.ordering)
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
         parents_query_dict = self.get_parents_query_dict()

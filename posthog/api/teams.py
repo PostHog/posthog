@@ -4,6 +4,7 @@ from typing import Any, Dict, Union
 import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import login, password_validation
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
@@ -100,10 +101,14 @@ class TeamViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if isinstance(self.request.user, AnonymousUser):
+            return self.queryset.none()
         queryset = queryset.filter(organization__in=self.request.user.organizations.all())
         return queryset
 
     def get_object(self):
+        if isinstance(self.request.user, AnonymousUser):
+            return None
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":

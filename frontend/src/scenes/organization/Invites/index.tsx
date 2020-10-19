@@ -54,6 +54,19 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             key: 'uses',
         },
         {
+            title: 'Uses Left',
+            dataIndex: 'max_uses',
+            key: 'uses_left',
+            render: (max_uses: number | null, invite: Record<string, any>) =>
+                max_uses ? max_uses - invite.uses : 'unlimited',
+        },
+        {
+            title: 'Target Email',
+            dataIndex: 'target_email',
+            key: 'target_email',
+            render: (target_email: string | null) => target_email ?? 'no target',
+        },
+        {
             title: 'Limit',
             dataIndex: 'limit',
             key: 'target_email',
