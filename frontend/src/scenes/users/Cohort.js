@@ -5,7 +5,6 @@ import { cohortLogic } from './cohortLogic'
 import { Button } from 'antd'
 
 import { useValues, useActions } from 'kea'
-import { router } from 'kea-router'
 
 const isSubmitDisabled = (cohorts) => {
     if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => Object.keys(group).length)
@@ -36,7 +35,6 @@ export function Cohort({ onChange }) {
                             onClick={() => {
                                 setCohort({ id: false, groups: [] })
                                 onChange()
-                                router.actions.push(`${this.props.location.pathname}`)
                             }}
                         />
                         {cohort.name || 'New Cohort'}
