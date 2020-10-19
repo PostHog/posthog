@@ -238,6 +238,13 @@ EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
 INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """
 
+GET_EVENTS_WITH_PROPERTIES = """
+SELECT * FROM events WHERE 
+team_id = %(team_id)s
+{filters}
+{order_by}
+"""
+
 EXTRACT_TAG_REGEX = "extract(elements_chain, '^(.*?)[.|:]')"
 EXTRACT_TEXT_REGEX = "extract(elements_chain, 'text=\"(.*?)\"')"
 
