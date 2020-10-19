@@ -234,7 +234,7 @@ class _Plugins:
 
     def install_requirement(self, requirement: str):
         try:
-            import pip
+            import pip  # type: ignore
 
             if hasattr(pip, "main"):
                 resp = pip.main(["install", "-q", "--no-input", requirement])
@@ -244,7 +244,7 @@ class _Plugins:
             if resp != 0:
                 raise PluginError("Error installing requirement: {}".format(requirement))
         except Exception as e:
-            raise PluginError("Exception when installing requirement: {}".format(requirement), e)
+            raise PluginError("Exception when installing requirement '{}': {}".format(requirement, str(e)))
 
     def exec_plugins(self, event: PosthogEvent, team_id: int):
         team_plugins = self.plugins_by_team.get(team_id, None)
