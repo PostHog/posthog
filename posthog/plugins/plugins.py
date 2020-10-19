@@ -2,10 +2,9 @@ import importlib
 import importlib.util
 import inspect
 import os
-import subprocess
-import sys
 import tempfile
 import zipimport
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 from zipfile import ZipFile
 
@@ -27,14 +26,14 @@ class _Plugins:
         self.plugin_configs: List[PluginConfig] = []  # type not loaded yet
         self.plugins_by_id: Dict[int, PluginModule] = {}
         self.plugins_by_team: Dict[Union[int, None], List[TeamPlugin]] = {}
-        self.pubsub = None
 
         sync_posthog_json_plugins()
         sync_global_plugin_config()
 
+        self.plugin_counter = self.get_plugin_counter()
+        self.last_plugins_check = datetime.now()
         self.load_plugins()
         self.load_plugin_configs()
-        self.start_reload_pubsub()
 
     def load_plugins(self):
         self.plugins = list(Plugin.objects.all())
@@ -272,19 +271,29 @@ class _Plugins:
             )
         return event
 
-    # using argument message just to be compatible with the pubsub interface
-    def reload_plugins(self, message=None):
+    def check_reload_plugins_periodically(self, seconds=10):
+        print(self.plugin_counter)
+        if self.last_plugins_check < datetime.now() - timedelta(seconds=seconds):
+            print("Checking reload!")
+            self.last_plugins_check = datetime.now()
+            self.check_reload_plugins()
+
+    def check_reload_plugins(self):
+        plugin_counter = self.get_plugin_counter()
+        if self.plugin_counter != plugin_counter:
+            print("Reloading!")
+            self.plugin_counter = plugin_counter
+            self.reload_plugins()
+
+    def reload_plugins(self):
         self.load_plugins()
         self.load_plugin_configs()
 
-    def start_reload_pubsub(self):
-        if not self.pubsub:
-            self.pubsub = get_redis_instance().pubsub()
-            self.pubsub.subscribe(**{"plugin-reload-channel": self.reload_plugins})
-            self.pubsub.run_in_thread(sleep_time=1, daemon=True)  # type: ignore
+    def get_plugin_counter(self):
+        return get_redis_instance().get("@posthog/plugin-reload") or 0
 
-    def publish_reload_command(self, team_id: Optional[int] = None):
-        get_redis_instance().publish("plugin-reload-channel", str(team_id) if team_id else "__ALL__")
+    def publish_reload_command(self):
+        get_redis_instance().incr("@posthog/plugin-reload", 1)
 
     @staticmethod
     def register_error(plugin: Union[Plugin, int], plugin_error: PluginError, error: Optional[Exception] = None):
@@ -305,8 +314,8 @@ class _Plugins:
         print('🔻🔻 Plugin name="{}", team="{}", tag="{}"'.format(team_plugin.name, team_plugin.team, team_plugin.tag))
         print("🔻🔻 Error: {}".format(plugin_error.message))
 
-        plugin_config = PluginConfig.objects.get(team=team_plugin.team, plugin=team_plugin.plugin)
-        if plugin_config:
+        plugin_configs = PluginConfig.objects.filter(team=team_plugin.team, plugin=team_plugin.plugin)
+        for plugin_config in plugin_configs:
             plugin_config.error = {"message": plugin_error.message}
             if error:
                 plugin_config.error["exception"] = str(error)

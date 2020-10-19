@@ -84,7 +84,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise APIException("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
-        Plugins().publish_reload_command(plugin_config.team.pk)
+        Plugins().publish_reload_command()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
@@ -94,7 +94,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         plugin_config.config = validated_data.get("config", plugin_config.config)
         plugin_config.order = validated_data.get("order", plugin_config.order)
         plugin_config.save()
-        Plugins().publish_reload_command(plugin_config.team.pk)
+        Plugins().publish_reload_command()
         return plugin_config
 
 
