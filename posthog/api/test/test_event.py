@@ -278,7 +278,8 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 page2 = self.client.get(response["next"]).json()
                 from ee.clickhouse.client import sync_execute
 
-            self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
+                self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
+
             self.assertEqual(len(page2["results"]), 50)
 
     return TestEvents
