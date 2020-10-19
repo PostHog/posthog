@@ -95,9 +95,7 @@ class UserManager(BaseUserManager):
             team_fields.setdefault("name", company_name)
             team = Team.objects.create_with_data(organization=organization, **team_fields)
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
-            user.join(
-                organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
-            )
+            membership = user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,)
             return organization, team, user
 
     def create_and_join(
@@ -112,7 +110,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            user.join(organization=organization, team=team or organization.teams.get(), level=level)
+            membership = user.join(organization=organization, team=team or organization.teams.get(), level=level)
             return user
 
 
@@ -200,13 +198,14 @@ class User(AbstractUser):
         organization: Organization,
         team: Team,
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
-    ) -> None:
+    ) -> OrganizationMembership:
         with transaction.atomic():
-            OrganizationMembership.objects.create(user=self, organization=organization, level=level)
+            membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             team.users.add(self)
             self.current_organization = organization
             self.current_team = team
             self.save()
+            return membership
 
     def leave(self, *, organization: Organization, team: Team) -> None:
         with transaction.atomic():

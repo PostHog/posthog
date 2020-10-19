@@ -18,7 +18,7 @@ class LicenseError(Exception):
 
 
 class LicenseManager(models.Manager):
-    def create(self, *args: Any, **kwargs: Any):
+    def create(self, *args: Any, **kwargs: Any) -> "License":
         validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
         resp = validate.json()
         if not validate.ok:
@@ -26,6 +26,9 @@ class LicenseManager(models.Manager):
 
         kwargs["valid_until"] = resp["valid_until"]
         kwargs["plan"] = resp["plan"]
+        return self._create(*args, **kwargs)
+
+    def _create(self, *args: Any, **kwargs: Any) -> "License":
         return super().create(*args, **kwargs)
 
 

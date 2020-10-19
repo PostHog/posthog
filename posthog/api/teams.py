@@ -8,8 +8,16 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions, request, response, serializers, viewsets
-from rest_framework.serializers import raise_errors_on_nested_writes
+from rest_framework import (
+    exceptions,
+    generics,
+    permissions,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -68,7 +76,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data: Dict[str, Any]) -> Team:
-        raise_errors_on_nested_writes("create", self, validated_data)
+        serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
             team = Team.objects.create(**validated_data, organization=request.user.organization)
@@ -102,6 +110,15 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = get_object_or_404(queryset, pk=pk)
         serializer = TeamSerializer(team)
         return response.Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.organization.teams.count() <= 1:
+            raise exceptions.ValidationError(
+                f"Cannot remove project since that would leave organization {instance.name} project-less!"
+            )
+        self.perform_destroy(instance)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TeamSignupSerializer(serializers.Serializer):

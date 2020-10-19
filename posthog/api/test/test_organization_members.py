@@ -25,11 +25,9 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertEqual(membership_queryset.count(), 0)
 
     def test_leave_organization(self):
-        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
         response = self.client.delete(f"/api/organizations/@current/members/{self.user.id}/")
-        self.assertIsNone(response.content)
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 

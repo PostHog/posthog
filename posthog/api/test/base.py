@@ -76,7 +76,6 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
         super().setUp()
         self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
-
         if self.CONFIG_USER_EMAIL:
             self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
             self.organization_membership = self.user.organization_memberships.get()

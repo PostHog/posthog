@@ -1,13 +1,31 @@
 import uuid as uuidlib
 from enum import IntEnum
 from multiprocessing import Value
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.dispatch import receiver
 
 from .utils import UUIDModel, sane_repr
+
+
+class OrganizationManager(models.Manager):
+    def bootstrap(
+        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+    ) -> Tuple["Organization", "OrganizationMembership", Any]:
+        from .team import Team
+
+        with transaction.atomic():
+            organization = Organization.objects.create(**kwargs)
+            organization_membership = OrganizationMembership.objects.create(
+                organization=organization, user=user, level=OrganizationMembership.Level.ADMIN
+            )
+            team = Team.objects.create(organization=organization, **(team_fields or {}))
+            user.current_organization = organization
+            user.current_team = team
+            user.save()
+        return organization, organization_membership, team
 
 
 class Organization(UUIDModel):
@@ -20,6 +38,8 @@ class Organization(UUIDModel):
     name: models.CharField = models.CharField(max_length=64)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
+    objects = OrganizationManager()
 
     def __str__(self):
         return self.name
