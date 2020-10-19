@@ -234,10 +234,12 @@ class _Plugins:
                 self.install_requirement(requirement)
 
     def install_requirement(self, requirement: str):
-        try:
-            resp = subprocess.check_call([sys.executable, "-m", "pip", "install", requirement])
-        except subprocess.CalledProcessError as e:
-            resp = e.returncode
+        import pip
+
+        if hasattr(pip, "main"):
+            resp = pip.main(["install", requirement])
+        else:
+            resp = pip._internal.main(["install", requirement])
 
         if resp != 0:
             raise PluginError("Error installing requirement: {}".format(requirement))
