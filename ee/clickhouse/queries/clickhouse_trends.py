@@ -41,6 +41,35 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(BaseQuery):
+    def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
+
+        result = []
+        for entity in filter.entities:
+            if filter.compare:
+                compare_filter = determine_compared_filter(filter=filter)
+                entity_result = self._serialize_entity(entity, filter, team)
+                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
+                result.extend(entity_result)
+                previous_entity_result = self._serialize_entity(entity, compare_filter, team)
+                previous_entity_result = convert_to_comparison(
+                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
+                )
+                result.extend(previous_entity_result)
+            else:
+                entity_result = self._serialize_entity(entity, filter, team)
+                result.extend(entity_result)
+
+        return result
+
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        return self._calculate_trends(filter, team)
+
     def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team)
@@ -54,23 +83,10 @@ class ClickhouseTrends(BaseQuery):
 
         return serialized_data
 
-    def _serialize_breakdown(self, entity: Entity, filter: Filter, team: Team):
-        if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
-            result = []
-            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-            filter.breakdown.remove("all")
-
-            # handle breakdown by all and by specific props separately
-            if filter.breakdown:
-                result.extend(self._format_breakdown_query(entity, filter, team))
-
-            filter.breakdown = ["all"]
-            all_result = self._format_breakdown_query(entity, filter, team)
-
-            result.extend(all_result)
-        else:
-            result = self._format_breakdown_query(entity, filter, team)
-        return result
+    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
+        for metrics in entity_metrics:
+            metrics.update(data=list(accumulate(metrics["data"])))
+        return entity_metrics
 
     def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
         serialized_data = []
@@ -91,10 +107,23 @@ class ClickhouseTrends(BaseQuery):
 
         return serialized_data
 
-    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
-        for metrics in entity_metrics:
-            metrics.update(data=list(accumulate(metrics["data"])))
-        return entity_metrics
+    def _serialize_breakdown(self, entity: Entity, filter: Filter, team: Team):
+        if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
+            result = []
+            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            filter.breakdown.remove("all")
+
+            # handle breakdown by all and by specific props separately
+            if filter.breakdown:
+                result.extend(self._format_breakdown_query(entity, filter, team))
+
+            filter.breakdown = ["all"]
+            all_result = self._format_breakdown_query(entity, filter, team)
+
+            result.extend(all_result)
+        else:
+            result = self._format_breakdown_query(entity, filter, team)
+        return result
 
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         params = {"team_id": team.pk}
@@ -407,32 +436,3 @@ class ClickhouseTrends(BaseQuery):
             parsed_results.append(parsed_result)
 
         return parsed_results
-
-    def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-
-        # format default dates
-        if not filter._date_from:
-            filter._date_from = relative_date_parse("-7d")
-        if not filter._date_to:
-            filter._date_to = timezone.now()
-
-        result = []
-        for entity in filter.entities:
-            if filter.compare:
-                compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team)
-                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
-                result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team)
-                previous_entity_result = convert_to_comparison(
-                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
-                )
-                result.extend(previous_entity_result)
-            else:
-                entity_result = self._serialize_entity(entity, filter, team)
-                result.extend(entity_result)
-
-        return result
-
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self._calculate_trends(filter, team)
