@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from dateutil.relativedelta import relativedelta
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
@@ -266,9 +267,12 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def test_pagination(self):
             person_factory(team=self.team, distinct_ids=["1"])
-            for _ in range(0, 150):
+            for idx in range(0, 150):
                 event_factory(
-                    team=self.team, event="some event", distinct_id="1", timestamp=datetime(2020, 1, 1, 12, 0, 0, _)
+                    team=self.team,
+                    event="some event",
+                    distinct_id="1",
+                    timestamp=datetime(2019, 1, 1, 12, 0, 0) + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
