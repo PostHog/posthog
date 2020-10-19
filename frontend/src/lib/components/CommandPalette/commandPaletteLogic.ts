@@ -38,7 +38,7 @@ import {
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { copyToClipboard, isURL, sample, uniqueBy } from 'lib/utils'
+import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
@@ -54,9 +54,12 @@ export interface CommandResultTemplate {
     guarantee?: boolean // show result always and first, regardless of fuzzy search
 }
 
-export type CommandResult = CommandResultTemplate & {
+export interface CommandResult extends CommandResultTemplate {
     source: Command | CommandFlow
-    index?: number
+}
+
+export interface CommandResultDisplayable extends CommandResult {
+    index: number
 }
 
 export type CommandResolver = (
@@ -78,7 +81,7 @@ export interface CommandFlow {
     scope: string
 }
 
-export type CommandRegistrations = {
+export interface CommandRegistrations {
     [commandKey: string]: Command
 }
 
@@ -181,16 +184,17 @@ export const commandPaletteLogic = kea<
 
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog?.capture('palette shown')
+            window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog?.capture('palette shown')
+            if (values.isPaletteShown) window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
                 actions.activateFlow(null)
+                actions.hidePalette()
             } else {
-                const possibleFlow = result.executor?.() ?? null
+                const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
                 if (!possibleFlow) actions.hidePalette()
             }
@@ -200,6 +204,7 @@ export const commandPaletteLogic = kea<
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
+            cleanedResult.isMobile = isMobile()
             window.posthog?.capture('palette command executed', cleanedResult)
         },
         deregisterScope: ({ scope }) => {
@@ -339,12 +344,15 @@ export const commandPaletteLogic = kea<
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
-                let rollingIndex = 0
-                const resultsGroupedInOrder = Object.entries(resultsGrouped)
-                for (const [, group] of resultsGroupedInOrder) {
-                    for (const result of group) {
-                        result.index = rollingIndex++
+                let rollingGroupIndex = 0
+                let rollingResultIndex = 0
+                const resultsGroupedInOrder: [string, CommandResultDisplayable[]][] = []
+                for (const [group, results] of Object.entries(resultsGrouped)) {
+                    resultsGroupedInOrder.push([group, []])
+                    for (const result of results) {
+                        resultsGroupedInOrder[rollingGroupIndex][1].push({ ...result, index: rollingResultIndex++ })
                     }
+                    rollingGroupIndex++
                 }
                 return resultsGroupedInOrder
             },

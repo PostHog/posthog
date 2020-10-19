@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import get_elements_by_elements_hashes
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -24,7 +23,7 @@ SELECT
     uuid,
     event,
     properties,
-    elements_hash,
+    elements_chain,
     session_uuid,
     session_duration_seconds,
     timestamp,
@@ -36,7 +35,7 @@ FROM
         uuid,
         event,
         properties,
-        elements_hash,
+        elements_chain,
         if(is_new_session, uuid, NULL) AS session_uuid,
         is_new_session,
         is_end_session,
@@ -50,7 +49,7 @@ FROM
             uuid,
             event,
             properties,
-            elements_hash,
+            elements_chain,
             timestamp,
             neighbor(distinct_id, -1) AS start_possible_neighbor,
             neighbor(timestamp, -1) AS start_possible_prev_ts,
@@ -66,7 +65,7 @@ FROM
                 properties,
                 timestamp,
                 distinct_id,
-                elements_hash
+                elements_chain
             FROM events
             WHERE 
                 team_id = %(team_id)s
@@ -79,7 +78,7 @@ FROM
                 properties,
                 timestamp,
                 distinct_id,
-                elements_hash
+                elements_chain
             ORDER BY
                 distinct_id ASC,
                 timestamp ASC
@@ -101,7 +100,7 @@ SESSION_SQL = """
         groupArray(event) events, 
         groupArray(properties) properties, 
         groupArray(timestamp) timestamps, 
-        groupArray(elements_hash) elements_hash
+        groupArray(elements_chain) elements_chain
     FROM (
         SELECT
             distinct_id, 
@@ -109,7 +108,7 @@ SESSION_SQL = """
             timestamp,
             uuid,
             properties,
-            elements_hash,
+            elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
         FROM (
             SELECT 
@@ -117,7 +116,7 @@ SESSION_SQL = """
                 groupArray(event) as events, 
                 groupArray(uuid) as uuids, 
                 groupArray(properties) as property_list, 
-                groupArray(elements_hash) as elements_hashes, 
+                groupArray(elements_chain) as elements_chains, 
                 groupArray(distinct_id) as distinct_ids, 
                 groupArray(new_session) AS gids
             FROM (
@@ -126,7 +125,7 @@ SESSION_SQL = """
                     uuid,
                     event,
                     properties,
-                    elements_hash,
+                    elements_chain,
                     timestamp, 
                     neighbor(distinct_id, -1) as possible_neighbor,
                     neighbor(timestamp, -1) as possible_prev, 
@@ -138,7 +137,7 @@ SESSION_SQL = """
                         properties,
                         timestamp, 
                         distinct_id,
-                        elements_hash
+                        elements_chain
                     FROM    
                         events 
                     WHERE 
@@ -152,7 +151,7 @@ SESSION_SQL = """
                         properties,
                         timestamp, 
                         distinct_id,
-                        elements_hash 
+                        elements_chain 
                     ORDER BY 
                         distinct_id, 
                         timestamp
@@ -165,7 +164,7 @@ SESSION_SQL = """
             timestamps as timestamp,
             uuids as uuid,
             property_list as properties,
-            elements_hashes as elements_hash,
+            elements_chains as elements_chain,
             arrayEnumerate(gids) AS idx 
     ) 
     GROUP BY 
@@ -235,7 +234,6 @@ class ClickhouseSessions(BaseQuery):
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
 
-        self._add_elements(team, result)
         self._add_person_properties(team, result)
 
         return result
@@ -252,7 +250,7 @@ class ClickhouseSessions(BaseQuery):
                     result[7][i],  # timestamp
                     None,  # team_id,
                     result[0],  # distinct_id
-                    result[8][i],  # elements_hash
+                    result[8][i],  # elements_chain
                     None,  # properties keys
                     None,  # properties values
                 ]
@@ -271,31 +269,6 @@ class ClickhouseSessions(BaseQuery):
             )
 
         return final
-
-    def _add_elements(self, team=Team, sessions=List[Tuple]):
-        element_hash_dict = {}
-        for session in sessions:
-            for event in session["events"]:
-                if event.get("elements_hash"):
-                    element_hash_dict[event["elements_hash"]] = True
-
-        element_hashes = list(element_hash_dict.keys())
-
-        if len(element_hashes) == 0:
-            return
-
-        elements = get_elements_by_elements_hashes(element_hashes, team.pk)
-
-        grouped_elements: Dict[str, List[Dict[str, Any]]] = {}
-        for element in elements:
-            if not grouped_elements.get(element["elements_hash"], None):
-                grouped_elements[element["elements_hash"]] = []
-            grouped_elements[element["elements_hash"]].append(element)
-
-        for session in sessions:
-            for event in session["events"]:
-                if event["elements_hash"] and grouped_elements.get(event["elements_hash"], None):
-                    event["elements"] = grouped_elements[event["elements_hash"]]
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}

@@ -1,18 +1,23 @@
-import React from 'react'
-import { CommandResult as CommandResultType } from './commandPaletteLogic'
+import React, { useEffect, useRef } from 'react'
+import { CommandResultDisplayable } from './commandPaletteLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
 
 interface CommandResultProps {
-    result: CommandResultType
+    result: CommandResultDisplayable
     focused?: boolean
 }
 
 function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
     const { onMouseEnterResult, onMouseLeaveResult, executeResult } = useActions(commandPaletteLogic)
 
+    const ref = useRef<HTMLDivElement | null>(null)
+
     const isExecutable = !!result.executor
+    useEffect(() => {
+        if (focused) ref.current?.scrollIntoView()
+    }, [focused])
 
     return (
         <div
@@ -28,6 +33,8 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
             onClick={() => {
                 if (isExecutable) executeResult(result)
             }}
+            title={result.display}
+            ref={ref}
         >
             <result.icon className="palette__icon" />
             <div className="palette__display">{result.display}</div>
@@ -37,7 +44,7 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
 
 interface ResultsGroupProps {
     scope: string
-    results: CommandResultType[]
+    results: CommandResultDisplayable[]
     activeResultIndex: number
 }
 

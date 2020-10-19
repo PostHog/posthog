@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
@@ -14,7 +13,6 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
-    populate_action_event_table(action)
     return action
 
 
