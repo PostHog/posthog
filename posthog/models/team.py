@@ -105,6 +105,7 @@ class Team(models.Model):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
+    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously
@@ -116,8 +117,6 @@ class Team(models.Model):
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-
-    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

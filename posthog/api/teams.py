@@ -100,16 +100,18 @@ class TeamViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = queryset.filter(organization__in=self.request.user.organizations)
-        return self._filter_request(self.request, queryset)  # type: ignore
+        queryset = queryset.filter(organization__in=self.request.user.organizations.all())
+        return queryset
 
-    def retrieve(self, request, pk=None):
-        queryset = self.get_queryset()
-        if pk == "@current":
-            pk = self.request.user.current_team_id
-        team = get_object_or_404(queryset, pk=pk)
-        serializer = TeamSerializer(team)
-        return response.Response(serializer.data)
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@current":
+            return self.request.user.team
+        filter_kwargs = {self.lookup_field: lookup_value}
+        obj = get_object_or_404(queryset, **filter_kwargs)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
