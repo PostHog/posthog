@@ -2,11 +2,6 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from 'types/scenes/system_status/systemStatusLogicType'
 
-interface Error {
-    detail: string
-    code: string
-}
-
 interface SystemStatus {
     metric: string
     value: string
@@ -14,7 +9,6 @@ interface SystemStatus {
 
 export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
     actions: {
-        setError: (error: Error) => ({ error }),
         addSystemStatus: (systemStatus: SystemStatus) => ({ systemStatus }),
     },
     loaders: {
@@ -29,9 +23,9 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
     },
     reducers: {
         error: [
-            false,
+            null as null | string,
             {
-                setError: (_, { error }) => error,
+                loadSystemStatusFailure: (_, { error }) => error,
             },
         ],
     },
