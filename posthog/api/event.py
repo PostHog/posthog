@@ -216,7 +216,7 @@ class EventViewSet(viewsets.ModelViewSet):
             {
                 "next": next_url,
                 "results": EventSerializer(
-                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
+                    prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
         )
