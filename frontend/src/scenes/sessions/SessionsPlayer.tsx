@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { Loading } from 'lib/utils'
 import React, { useEffect, useRef } from 'react'
 import rrwebPlayer from 'rrweb-player'
 import 'rrweb-player/dist/style.css'
@@ -25,5 +26,5 @@ export default function SessionsPlayer(): JSX.Element {
         }
     }, [sessionPlayerDataLoading])
 
-    return <div ref={target} id="sessions-player"></div>
+    return sessionPlayerDataLoading ? <Loading /> : <div ref={target} id="sessions-player"></div>
 }
