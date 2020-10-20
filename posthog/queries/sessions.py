@@ -12,6 +12,7 @@ from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -50,7 +51,7 @@ class Sessions(BaseQuery):
                 events = events.filter(filter.date_filter_Q)
             calculated = self.calculate_sessions(events, filter, team, limit, offset)
 
-        return calculated
+        return add_session_recording_ids(team, calculated)
 
     def calculate_sessions(
         self, events: QuerySet, filter: Filter, team: Team, limit: int, offset: int
