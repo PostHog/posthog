@@ -56,7 +56,7 @@ class ClickhouseEvents(EventViewSet):
             )
 
         result = ClickhouseEventSerializer(
-            query_result, many=True, context={"people": self._get_people(query_result, team),},
+            query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
         if len(query_result) > 100:

@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 
+from dateutil.relativedelta import relativedelta
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
@@ -264,14 +266,26 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
         def test_pagination(self):
-            events = []
             person_factory(team=self.team, distinct_ids=["1"])
-            for index in range(0, 150):
-                event_factory(team=self.team, event="some event", distinct_id="1")
+            for idx in range(0, 150):
+                event_factory(
+                    team=self.team,
+                    event="some event",
+                    distinct_id="1",
+                    timestamp=datetime(2019, 1, 1, 12, 0, 0) + relativedelta(days=idx, seconds=idx),
+                )
             response = self.client.get("/api/event/?distinct_id=1").json()
+            self.assertEqual(len(response["results"]), 100)
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
+            from posthog.ee import check_ee_enabled
+
+            if check_ee_enabled():
+                from ee.clickhouse.client import sync_execute
+
+                self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
+
             self.assertEqual(len(page2["results"]), 50)
 
     return TestEvents

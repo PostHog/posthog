@@ -26,18 +26,6 @@ const darkerScenes = {
     paths: true,
 }
 
-const urlBackgroundMap = {
-    '/dashboard': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
-    '/dashboard/1': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
-    '/events': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-    '/sessions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-    '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-    '/actions/live': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-    '/insights': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
-    '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
-    '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
-}
-
 function App() {
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
@@ -45,12 +33,7 @@ function App() {
     const { replace } = useActions(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
-    const [image, setImage] = useState(null)
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
-
-    useEffect(() => {
-        setImage(urlBackgroundMap[location.pathname])
-    }, [location.pathname])
 
     useEffect(() => {
         // If user is already logged in, redirect away from unauthenticated routes like signup
@@ -99,11 +82,7 @@ function App() {
                     <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
                         <BillingToolbar />
-                        {!user.has_events && image ? (
-                            <SendEventsOverlay image={image} user={user} />
-                        ) : (
-                            <Scene user={user} {...params} />
-                        )}
+                        {!user.has_events ? <SendEventsOverlay /> : <Scene user={user} {...params} />}
                         <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
                     </Layout.Content>
                 </Layout>

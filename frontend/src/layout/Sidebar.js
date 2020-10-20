@@ -14,7 +14,7 @@ import {
     ContainerOutlined,
     LineChartOutlined,
     FundOutlined,
-    ExperimentOutlined,
+    FlagOutlined,
     ClockCircleOutlined,
     MessageOutlined,
     TeamOutlined,
@@ -227,8 +227,8 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
-                        <ExperimentOutlined />
-                        <span className="sidebar-label">{'Experiments'}</span>
+                        <FlagOutlined />
+                        <span className="sidebar-label">{'Feature Flags'}</span>
                         <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
                     </Menu.Item>
 

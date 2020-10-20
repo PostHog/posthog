@@ -65,6 +65,7 @@ function _FeatureFlags() {
                 dataSource={featureFlags}
                 columns={columns}
                 loading={!featureFlags && featureFlagsLoading}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
                     onClick: () => setOpenFeatureFlag(featureFlag),
                 })}
