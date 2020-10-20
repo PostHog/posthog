@@ -13,40 +13,44 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
-from posthog.default_dashboards import DEFAULT_DASHBOARD_APP, DEFAULT_DASHBOARD_WEB
+from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Filter
 from posthog.utils import generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()  # type: ignore
+    use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     class Meta:
         model = Dashboard
-        fields = ["id", "name", "pinned", "items", "created_at", "created_by", "is_shared", "share_token", "deleted"]
+        fields = [
+            "id",
+            "name",
+            "pinned",
+            "items",
+            "created_at",
+            "created_by",
+            "is_shared",
+            "share_token",
+            "deleted",
+            "use_template",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = request.user.team
+        use_template: str = validated_data.pop("use_template", None)
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
-        from_template = request.data.get("copyFromTemplate", None)
+        if use_template:
+            try:
+                create_dashboard_from_template(use_template, dashboard)
+            except AttributeError:
+                raise serializers.ValidationError({"use_template": "Invalid value provided."})
 
-        if from_template:
-            if from_template == DEFAULT_DASHBOARD_APP:
-                from posthog.default_dashboards import create_default_app_dashboard_items
-
-                create_default_app_dashboard_items(dashboard)
-                return dashboard
-
-            if from_template == DEFAULT_DASHBOARD_WEB:
-                from posthog.default_dashboards import create_default_web_dashboard_items
-
-                create_default_web_dashboard_items(dashboard)
-                return dashboard
-
-        if request.data.get("items"):
+        elif request.data.get("items"):
             for item in request.data["items"]:
                 DashboardItem.objects.create(
                     **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
@@ -57,8 +61,9 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
     def update(  # type: ignore
-        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any
+        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,
     ) -> Dashboard:
+        validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
         return super().update(instance, validated_data)
