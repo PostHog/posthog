@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space } from 'antd'
+import { Table, Button, Spin, Space, Drawer } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -13,6 +13,7 @@ import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import SessionsPlayer from 'scenes/sessions/SessionsPlayer'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -21,8 +22,16 @@ interface SessionsTableProps {
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
-    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate, filters } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const {
+        sessions,
+        sessionsLoading,
+        nextOffset,
+        isLoadingNext,
+        selectedDate,
+        filters,
+        sessionPlayerOpen,
+    } = useValues(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters, closeSessionPlayer } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
@@ -125,6 +134,17 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
+            {sessionPlayerOpen && (
+                <Drawer
+                    title="Session recording"
+                    width={1000}
+                    onClose={closeSessionPlayer}
+                    destroyOnClose={true}
+                    visible={true}
+                >
+                    <SessionsPlayer />
+                </Drawer>
+            )}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

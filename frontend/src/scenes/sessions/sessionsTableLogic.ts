@@ -5,6 +5,7 @@ import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
 import { PropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
+import { eventWithTime } from 'rrweb/typings/types'
 
 type Moment = moment.Moment
 
@@ -48,6 +49,13 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 return response.result
             },
         },
+        sessionPlayerData: {
+            loadSessionPlayer: async ({ distinctId, sessionRecordingId }): Promise<eventWithTime[]> => {
+                const params = toParams({ distinct_id: distinctId, session_recording_id: sessionRecordingId })
+                const response = await api.get(`api/event/session_recording?${params}`)
+                return response.result
+            },
+        },
     }),
     actions: () => ({
         setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
@@ -56,6 +64,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         previousDay: true,
         nextDay: true,
         setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
+        closeSessionPlayer: true,
     }),
     reducers: {
         sessions: {
@@ -75,6 +84,19 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             [],
             {
                 setFilters: (_, { properties }) => properties,
+            },
+        ],
+        sessionPlayerOpen: [
+            false,
+            {
+                loadSessionPlayer: () => true,
+                closeSessionPlayer: () => false,
+            },
+        ],
+        sessionPlayerData: [
+            null as null | eventWithTime[],
+            {
+                closeSessionPlayer: () => null,
             },
         ],
     },
