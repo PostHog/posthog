@@ -157,6 +157,6 @@ class SignupSerializer(serializers.Serializer):
         return serializer.data
 
 
-class SignupViewset(generics.CreateAPIView):
+class TeamSignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     permission_classes = (permissions.AllowAny,)
