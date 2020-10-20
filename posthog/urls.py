@@ -223,7 +223,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/organizations/@current/signup", team.TeamSignupViewset.as_view()),
+    opt_slash_path("api/signup", team.SignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

@@ -118,7 +118,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class TeamSignupSerializer(serializers.Serializer):
+class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField()
@@ -132,12 +132,6 @@ class TeamSignupSerializer(serializers.Serializer):
     def create(self, validated_data):
         is_first_user: bool = not User.objects.exists()
         realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
-
-        if self.context["request"].user.is_authenticated:
-            raise serializers.ValidationError("Authenticated users may not create additional teams.")
-
-        if not is_first_user and not getattr(settings, "MULTI_TENANCY", False):
-            raise serializers.ValidationError("This instance does not support multiple teams.")
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
         self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
@@ -163,6 +157,6 @@ class TeamSignupSerializer(serializers.Serializer):
         return serializer.data
 
 
-class TeamSignupViewset(generics.CreateAPIView):
-    serializer_class = TeamSignupSerializer
+class SignupViewset(generics.CreateAPIView):
+    serializer_class = SignupSerializer
     permission_classes = (permissions.AllowAny,)

@@ -15,7 +15,7 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
-        self.assertEqual(response_data.get("name"), "Default Project")
+        self.assertEqual(response_data.get("name"), "Test")
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_delete_team_own_second(self):
@@ -41,10 +41,10 @@ class TestTeamEnterpriseAPI(APILicensedTest):
     def test_no_delete_team_not_belonging_to_organization(self):
         team_1 = Team.objects.create()
         response = self.client.delete(f"/api/projects/{team_1.id}")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 404)
         self.assertTrue(Team.objects.filter(id=team_1.id).exists())
         organization, _, _ = User.objects.bootstrap("X", "someone@x.com", "qwerty", "Someone")
         team_2 = Team.objects.create(organization=organization)
         response = self.client.delete(f"/api/projects/{team_2.id}")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(Team.objects.filter(id=organization.id).count(), 2)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Team.objects.filter(organization=organization).count(), 2)

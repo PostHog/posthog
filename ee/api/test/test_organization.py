@@ -76,5 +76,5 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response_2.data, {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}
         )
-        self.assertEqual(response_2.status_code, 403)
+        self.assertEqual(response_2.status_code, 404)
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
