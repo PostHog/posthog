@@ -12,6 +12,7 @@ import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -22,6 +23,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const logic = sessionsTableLogic({ personIds })
     const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate, filters } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -86,7 +88,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         },
     ]
 
-    if ((window as any).posthog && (window as any).posthog.isFeatureEnabled('session-recording-player')) {
+    if (featureFlags['session-recording-player']) {
         columns.push({
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
