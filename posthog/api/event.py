@@ -326,5 +326,6 @@ class EventViewSet(viewsets.ModelViewSet):
                 "properties__$session_id": request.GET.get("session_recording_id"),
             }
         )
+        snapshots = sorted((e.properties["$snapshot_data"] for e in events), key=lambda s: s["timestamp"])
 
-        return response.Response({"result": [e.properties["$snapshot_data"] for e in events]})
+        return response.Response({"result": list(snapshots)})
