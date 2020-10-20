@@ -44,4 +44,9 @@ class Migration(migrations.Migration):
             name="uuid",
             field=models.UUIDField(db_index=True, default=posthog.models.utils.UUIDT, editable=False),
         ),
+        migrations.AlterField(
+            model_name="team",
+            name="name",
+            field=models.CharField(default="Default Project", max_length=200, null=True),
+        ),
     ]
