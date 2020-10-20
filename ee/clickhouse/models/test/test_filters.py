@@ -75,12 +75,9 @@ class TestClickhouseFiltering(
         """.format(
             prop_clause=prop_clause
         )
-        print(query, {"team_id": self.team.pk, **prop_clause_params})
-        print(sync_execute("SELECT * FROM person"))
-        print(sync_execute("SELECT * FROM person_distinct_id"))
-        # get person_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
-        self.assertEqual(result, person1.pk)
+        # get distinct_id column of result
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
+        self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
@@ -90,7 +87,7 @@ class TestClickhouseFiltering(
         """.format(
             prop_clause=prop_clause
         )
-        # get person_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
+        # get distinct_id column of result
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
 
-        self.assertEqual(result, person2.pk)
+        self.assertEqual(result, person2_distinct_id)
