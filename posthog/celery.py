@@ -35,7 +35,7 @@ statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_P
 
 
 @worker_process_init.connect
-def reload_plugins_if_needed(**kwargs):
+def load_initial_plugins(**kwargs):
     from posthog.plugins import Plugins
 
     Plugins()
