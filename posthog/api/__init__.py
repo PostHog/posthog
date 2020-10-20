@@ -19,7 +19,7 @@ from . import (
     paths,
     person,
     personal_api_key,
-    teams,
+    team,
 )
 
 
@@ -48,7 +48,7 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 router.register(r"insight", insight.InsightViewSet)
-teams_router = router.register(r"projects", teams.TeamViewSet)
+teams_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
     r"members",

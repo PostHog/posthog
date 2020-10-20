@@ -1,4 +1,4 @@
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 
 from .base import APIBaseTest
 
@@ -20,8 +20,12 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.post("/api/organizations/", {"name": "Test"})
         self.assertEqual(Organization.objects.count(), 1)
 
-    def test_rename_organization_without_license(self):
-        response = self.client.patch("/api/organizations/@current", {"name": "QWERTY"})
+    def test_rename_organization_without_license_if_admin(self):
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         self.assertEqual(response.status_code, 200)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
+        self.assertEqual(response.status_code, 403)

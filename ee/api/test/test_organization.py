@@ -23,7 +23,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
     def test_delete_second_managed_organization(self):
-        organization, _, team = Organization.objects.bootstrap(self.user)
+        organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         self.assertTrue(Team.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
@@ -35,6 +35,15 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         org_id = self.organization.id
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
         response = self.client.delete(f"/api/organizations/{org_id}")
+        self.assertEqual(
+            response.data,
+            {
+                "attr": None,
+                "detail": f"Cannot remove organization since that would leave member {self.CONFIG_USER_EMAIL} organization-less, which is not supported yet.",
+                "code": "invalid_input",
+                "type": "validation_error",
+            },
+        )
         self.assertEqual(response.status_code, 400)
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
 
@@ -54,13 +63,18 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         organization = Organization.objects.create(name="Some Other Org")
-        response = self.client.delete(f"/api/organizations/{organization.id}")
-        self.assertEqual(response.status_code, 403)
+        response_1 = self.client.delete(f"/api/organizations/{organization.id}")
+        self.assertEqual(
+            response_1.data, {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}
+        )
+        self.assertEqual(response_1.status_code, 404)
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         # as admin
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        organization = Organization.objects.create(name="Some Other Org")
-        response = self.client.delete(f"/api/organizations/{organization.id}")
-        self.assertEqual(response.status_code, 403)
+        response_2 = self.client.delete(f"/api/organizations/{organization.id}")
+        self.assertEqual(
+            response_2.data, {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"}
+        )
+        self.assertEqual(response_2.status_code, 403)
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())

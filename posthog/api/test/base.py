@@ -5,6 +5,7 @@ from rest_framework.test import APITestCase
 
 from posthog.cache import clear_cache
 from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
 
 
 class TestMixin:
@@ -69,7 +70,12 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
 
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
         return User.objects.create_and_join(
-            organization=self.organization, team=self.team, email=email, password=password, **kwargs,
+            organization=self.organization,
+            team=self.team,
+            email=email,
+            password=password,
+            level=OrganizationMembership.Level.ADMIN,
+            **kwargs,
         )
 
     def setUp(self):

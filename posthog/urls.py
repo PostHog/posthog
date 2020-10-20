@@ -14,12 +14,11 @@ from django.template.loader import render_to_string
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
-from rest_framework import permissions
 
 from posthog.demo import demo
 from posthog.email import is_email_available
 
-from .api import api_not_found, capture, dashboard, decide, router, teams, user
+from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import OrganizationInvite, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
@@ -224,7 +223,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/organizations/@current/signup", teams.TeamSignupViewset.as_view()),
+    opt_slash_path("api/organizations/@current/signup", team.TeamSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

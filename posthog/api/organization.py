@@ -61,7 +61,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        for member in instance.members:
+        for member in instance.members.all():
             if member.organizations.count() <= 1:
                 raise exceptions.ValidationError(
                     f"Cannot remove organization since that would leave member {member.email} organization-less, which is not supported yet."
