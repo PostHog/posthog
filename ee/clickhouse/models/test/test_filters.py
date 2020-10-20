@@ -75,6 +75,9 @@ class TestClickhouseFiltering(
         """.format(
             prop_clause=prop_clause
         )
+        print(query, {"team_id": self.team.pk, **prop_clause_params})
+        print(sync_execute("SELECT * FROM person"))
+        print(sync_execute("SELECT * FROM person_distinct_id"))
         # get person_id column of result
         result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
         self.assertEqual(result, person1.pk)
