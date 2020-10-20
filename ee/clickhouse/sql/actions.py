@@ -1,5 +1,3 @@
-from .clickhouse import STORAGE_POLICY, table_engine
-
 ACTION_QUERY = """
 SELECT
     events.uuid,
