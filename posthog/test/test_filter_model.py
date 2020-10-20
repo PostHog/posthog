@@ -170,7 +170,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 event="$pageview",
                 properties={"$current_url": "https://something.com", "another_key": "value",},
             )
-            event_factory(
+            event_p2 = event_factory(
                 team=self.team,
                 distinct_id="person2",
                 event="$pageview",
@@ -179,6 +179,13 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             filter = Filter(data={"properties": [{"key": "group", "value": "some group", "type": "person"}]})
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(len(events), 1)
+
+            filter = Filter(
+                data={"properties": [{"key": "group", "operator": "is_not", "value": "some group", "type": "person"}]}
+            )
+            events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
+            self.assertEqual(events[0]["id"], event_p2.pk)
             self.assertEqual(len(events), 1)
 
         def test_user_properties_numerical(self):
