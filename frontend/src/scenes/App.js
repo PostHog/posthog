@@ -86,11 +86,7 @@ function App() {
                     <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
-                        {!currentTeam.ingested_event && image ? (
-                            <SendEventsOverlay />
-                        ) : (
-                            <Scene user={user} {...params} />
-                        )}
+                        {!currentTeam.ingested_event ? <SendEventsOverlay /> : <Scene user={user} {...params} />}
                         <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
                     </Layout.Content>
                 </Layout>

@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { signupLogicType } from 'types/scenes/team/signupLogicType'
 
@@ -8,16 +7,15 @@ export const signupLogic = kea<signupLogicType>({
         account: [
             [],
             {
-                createAccount: async (payload) => {
-                    return await api.create('api/organizations/@current/members/', payload)
-                },
+                createAccount: async (payload) => await api.create('api/signup/', payload),
             },
         ],
     }),
 
     listeners: {
         createAccountSuccess: ({ account }) => {
-            if (account && Object.keys(account).length > 0) router.actions.push('ingestion')
+            console.log(account)
+            if (account) location.href = '/ingestion'
         },
     },
 })

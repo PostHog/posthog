@@ -8,7 +8,13 @@ export const organizationLogic = kea<organizationLogicType>({
         currentOrganization: [
             null as OrganizationType | null,
             {
-                loadCurrentOrganization: async () => await api.get('api/organizations/@current'),
+                loadCurrentOrganization: async () => {
+                    try {
+                        return await api.get('api/organizations/@current')
+                    } catch {
+                        return null
+                    }
+                },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
             },
         ],

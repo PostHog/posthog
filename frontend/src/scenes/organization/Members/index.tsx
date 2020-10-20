@@ -3,7 +3,7 @@ import { Row, Spin, Button } from 'antd'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
-import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { CreateOrgInviteModal } from '../Invites/CreateOrgInviteModal'
@@ -40,7 +40,7 @@ function _Members({ user }: MembersProps): JSX.Element {
             return (
                 <div>
                     <a className="text-danger" onClick={handleClick}>
-                        <DeleteOutlined />
+                        {member.id !== user.id ? <DeleteOutlined /> : <LogoutOutlined />}
                     </a>
                 </div>
             )

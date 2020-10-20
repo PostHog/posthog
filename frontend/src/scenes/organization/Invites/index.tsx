@@ -47,6 +47,9 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             title: 'ID',
             dataIndex: 'id',
             key: 'id',
+            render: function InviteLink(id: string): JSX.Element {
+                return <a href={`/signup/${id}`}>{id}</a>
+            },
         },
         {
             title: 'Uses So Far',
