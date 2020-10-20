@@ -20,7 +20,6 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
                     style={{ color: green.primary }}
                     onClick={(event: React.MouseEvent) => {
                         event.stopPropagation()
-                        // showSessionPlayer(snapshotEventsData)
                         loadSessionPlayer({ distinctId: session.distinct_id, sessionRecordingId })
                     }}
                 ></PlayCircleOutlined>
