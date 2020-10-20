@@ -1,12 +1,28 @@
 from typing import Any, Dict
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, response, serializers, status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import exceptions, permissions, request, response, serializers, status, viewsets
 
 from posthog.models import Organization
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+
+
+class PremiumMultiorganizationPermissions(permissions.BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = "You must upgrade your PostHog plan to be able to create and administrate multiple organizations."
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if (
+            not getattr(settings, "MULTI_TENANCY", False)
+            and request.method in CREATE_METHODS
+            and not request.user.organization.is_feature_available("organizations_projects")
+            and request.user.organizations.count() >= 1
+        ):
+            return False
+        return True
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -34,7 +50,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
-        IsAuthenticated,
+        permissions.IsAuthenticated,
+        PremiumMultiorganizationPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
     ]

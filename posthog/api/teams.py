@@ -1,13 +1,9 @@
-import json
 from typing import Any, Dict, Union
 
 import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import login, password_validation
-from django.contrib.auth.models import AnonymousUser
-from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import (
     exceptions,
@@ -19,7 +15,6 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -29,11 +24,12 @@ from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermission
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and administrate multiple organizations."
+    message = "You must upgrade your PostHog plan to be able to create and administrate multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if (
-            request.method in CREATE_METHODS
+            not getattr(settings, "MULTI_TENANCY", False)
+            and request.method in CREATE_METHODS
             and not request.user.organization.is_feature_available("organizations_projects")
             and request.user.organizations.count() >= 1
         ):
@@ -90,10 +86,10 @@ class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer
     queryset = Team.objects.all()
     permission_classes = [
-        IsAuthenticated,
+        permissions.IsAuthenticated,
+        PremiumMultiprojectPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
-        PremiumMultiprojectPermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
