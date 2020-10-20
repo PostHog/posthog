@@ -29,7 +29,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         isLoadingNext,
         selectedDate,
         filters,
-        sessionPlayerOpen,
+        sessionPlayerParams,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters, closeSessionPlayer } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -134,7 +134,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {sessionPlayerOpen && (
+            {!!sessionPlayerParams && (
                 <Drawer
                     title="Session recording"
                     width={1000}

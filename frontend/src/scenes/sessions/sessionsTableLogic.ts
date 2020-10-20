@@ -9,9 +9,20 @@ import { eventWithTime } from 'rrweb/typings/types'
 
 type Moment = moment.Moment
 
-const buildURL = (selectedDateURLparam: string): [string, Record<string, any>] => {
+type RecordingParams = {
+    distinctId: string
+    sessionRecordingId: string
+}
+
+type Params = {
+    date?: string
+    properties?: any
+    sessionPlayer?: RecordingParams
+}
+
+const buildURL = (selectedDateURLparam: string, sessionPlayerParams: RecordingParams | null): [string, Params] => {
     const today = moment().startOf('day').format('YYYY-MM-DD')
-    const params: Record<string, any> = {}
+    const params: Params = {}
 
     const { properties } = router.values.searchParams // eslint-disable-line
     if (selectedDateURLparam !== today) {
@@ -19,6 +30,9 @@ const buildURL = (selectedDateURLparam: string): [string, Record<string, any>] =
     }
     if (properties) {
         params.properties = properties
+    }
+    if (sessionPlayerParams) {
+        params.sessionPlayer = sessionPlayerParams
     }
 
     return [router.values.location.pathname, params]
@@ -50,7 +64,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             },
         },
         sessionPlayerData: {
-            loadSessionPlayer: async ({ distinctId, sessionRecordingId }): Promise<eventWithTime[]> => {
+            loadSessionPlayer: async ({
+                distinctId,
+                sessionRecordingId,
+            }: RecordingParams): Promise<eventWithTime[]> => {
                 const params = toParams({ distinct_id: distinctId, session_recording_id: sessionRecordingId })
                 const response = await api.get(`api/event/session_recording?${params}`)
                 return response.result
@@ -86,11 +103,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 setFilters: (_, { properties }) => properties,
             },
         ],
-        sessionPlayerOpen: [
-            false,
+        sessionPlayerParams: [
+            null as RecordingParams | null,
             {
-                loadSessionPlayer: () => true,
-                closeSessionPlayer: () => false,
+                loadSessionPlayer: (_, params: RecordingParams) => params,
+                closeSessionPlayer: () => null,
             },
         ],
         sessionPlayerData: [
@@ -131,19 +148,27 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
         },
     }),
     actionToUrl: ({ values }) => ({
-        setFilters: () => {
-            return buildURL(values.selectedDateURLparam)
-        },
+        setFilters: () => buildURL(values.selectedDateURLparam, values.sessionPlayerParams),
+        loadSessionPlayer: () => buildURL(values.selectedDateURLparam, values.sessionPlayerParams),
+        closeSessionPlayer: () => buildURL(values.selectedDateURLparam, values.sessionPlayerParams),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, { date, properties }: { date: string; properties: Array<PropertyFilter> }) => {
-            const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            actions.setFilters(properties || [], newDate)
+        '/sessions': (_: any, params: Params) => {
+            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
+            actions.setFilters(params.properties || [], newDate)
+
+            if (params.sessionPlayer) {
+                actions.loadSessionPlayer(params.sessionPlayer)
+            }
         },
-        '/person/*': (_: any, { date, properties }: { date: string; properties: Array<PropertyFilter> }) => {
-            const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
+        '/person/*': (_: any, params: Params) => {
+            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
             if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
-                actions.setFilters(properties || [], newDate)
+                actions.setFilters(params.properties || [], newDate)
+            }
+
+            if (params.sessionPlayer) {
+                actions.loadSessionPlayer(params.sessionPlayer)
             }
         },
     }),
