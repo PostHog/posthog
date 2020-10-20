@@ -178,7 +178,7 @@ SELECT
 FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
+{conditions}
 ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
 
@@ -194,7 +194,8 @@ SELECT
     ewap.created_at
 FROM events_with_array_props_view AS ewap
 WHERE 
-ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+team_id = %(team_id)s
+{conditions}
 {filters}
 ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
