@@ -5,17 +5,20 @@ import os
 import tempfile
 import zipimport
 from datetime import datetime, timedelta
+from types import ModuleType
 from typing import Dict, List, Optional, Union
 from zipfile import ZipFile
 
 from django.db.models import F
+from py_mini_racer import py_mini_racer
 
 from posthog.cache import get_redis_instance
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.utils import SingletonDecorator
 
-from .models import PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
+from .models import JSPlugin, PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
 from .sync import sync_global_plugin_config, sync_posthog_json_plugins
+from .utils import load_json_file
 
 REDIS_INSTANCE = get_redis_instance()
 
@@ -56,7 +59,6 @@ class _Plugins:
         for plugin in self.plugins:
             local_plugin = plugin.url.startswith("file:") and not plugin.archive
             old_plugin = self.plugins_by_id.get(plugin.id, None)
-            requirements = []
 
             if old_plugin:
                 # skip reloading if same tag already loaded
@@ -68,95 +70,22 @@ class _Plugins:
                 self.register_error(plugin, PluginError('Archive not downloaded and it\'s not a local "file:" plugin'))
                 continue
 
+            plugin_path = None
             if local_plugin:
                 module_name = "posthog.plugins.plugin_{id}_{name}".format(id=plugin.id, name=plugin.name)
                 plugin_path = os.path.realpath(plugin.url.replace("file:", "", 1))
+                plugin_json = load_json_file(os.path.join(plugin_path, "plugin.json"))
 
-                try:
-                    requirements_path = os.path.join(plugin_path, "requirements.txt")
-                    requirements_file = open(requirements_path, "r")
-                    requirements = requirements_file.read().split("\n")
-                    requirements = [x for x in requirements if x]
-                    requirements_file.close()
-                    self.install_requirements(plugin.name, requirements)
-                except FileNotFoundError:
-                    pass
-
-                spec = importlib.util.spec_from_file_location(module_name, os.path.join(plugin_path, "__init__.py"))
-                if spec:
-                    try:
-                        module = importlib.util.module_from_spec(spec)
-                        if module:
-                            spec.loader.exec_module(module)  # type: ignore
-                        else:
-                            self.register_error(plugin, PluginError("Could not find module in __init__.py"))
-                            continue
-                    except Exception as e:
-                        self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
-                        continue
+                if plugin_json and plugin_json.get("jsmain", None):
+                    jsmain = os.path.join(plugin_path, plugin_json["jsmain"])
+                    found_plugin = self.load_local_js_plugin(plugin, jsmain, module_name, plugin_path)
                 else:
-                    self.register_error(plugin, PluginError("Could not find module in __init__.py"))
-                    continue
+                    found_plugin = self.load_local_python_plugin(plugin, plugin_path, module_name)
 
             else:
+                # TODO: js plugin support from .zip
                 module_name = "{}-{}".format(plugin.name, plugin.tag)
-                fd, plugin_path = tempfile.mkstemp(prefix=plugin.name + "-", suffix=".zip")
-                os.write(fd, plugin.archive)
-                os.close(fd)
-
-                zip_file = ZipFile(plugin_path)
-                zip_root_folder = zip_file.namelist()[0]
-
-                try:
-                    requirements_path = os.path.join(zip_root_folder, "requirements.txt")
-                    with zip_file.open(requirements_path) as requirements_zip_file:
-                        requirements = requirements_zip_file.read().decode("utf-8").split("\n")
-                        requirements = [x for x in requirements if x]
-                    self.install_requirements(plugin.name, requirements)
-                except KeyError:
-                    pass  # no requirements.txt found
-                except PluginError as e:
-                    self.register_error(plugin, e)
-                    continue
-
-                try:
-                    importer = zipimport.zipimporter(plugin_path)
-                    module = importer.load_module(module_name)
-                except zipimport.ZipImportError as e:
-                    self.register_error(
-                        plugin, PluginError("Could not find __init__.py from the plugin zip archive"), e
-                    )
-                    os.unlink(plugin_path)  # temporary file no longer needed
-                    continue
-                except Exception as e:
-                    self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
-                    continue
-
-                os.unlink(plugin_path)  # temporary file no longer needed
-
-            found_plugin = False
-            for item in module.__dict__.items():
-                if inspect.isclass(item[1]) and item[0] != "PluginBaseClass" and issubclass(item[1], PluginBaseClass):
-                    found_plugin = True
-                    try:
-                        item[1].instance_init()
-                    except Exception as e:
-                        self.register_error(
-                            plugin, PluginError('Error running instance_init() on plugin "{}"'.format(plugin.name)), e
-                        )
-                        continue
-
-                    self.plugins_by_id[plugin.id] = PluginModule(
-                        id=plugin.id,
-                        name=plugin.name,
-                        tag=plugin.tag,
-                        url=plugin.url,
-                        module_name=module_name,
-                        plugin_path=plugin_path,
-                        requirements=requirements,
-                        plugin=item[1],
-                        module=module,
-                    )
+                found_plugin = self.load_zip_python_plugin(plugin, module_name)
 
             if found_plugin:
                 if local_plugin:
@@ -169,6 +98,124 @@ class _Plugins:
                 self.register_error(plugin, PluginError("Could not find any exported class of type PluginBaseClass"))
                 continue
 
+    def load_local_js_plugin(self, plugin: Plugin, jsmain: str, module_name: str, plugin_path: str):
+        try:
+            index_file = open(jsmain, "r")
+            index_js = index_file.read()
+            index_file.close()
+
+            return self.create_js_plugin_module(plugin, index_js, module_name, plugin_path)
+        except FileNotFoundError:
+            return None
+
+    def load_local_python_plugin(self, plugin: Plugin, plugin_path: str, module_name: str):
+        try:
+            requirements_path = os.path.join(plugin_path, "requirements.txt")
+            requirements_file = open(requirements_path, "r")
+            requirements = requirements_file.read().split("\n")
+            requirements = [x for x in requirements if x]
+            requirements_file.close()
+            self.install_requirements(plugin.name, requirements)
+        except FileNotFoundError:
+            return None
+
+        spec = importlib.util.spec_from_file_location(module_name, os.path.join(plugin_path, "__init__.py"))
+        if spec:
+            try:
+                module = importlib.util.module_from_spec(spec)
+                if module:
+                    spec.loader.exec_module(module)  # type: ignore
+                    return self.create_python_plugin_module(plugin, module, module_name, plugin_path, requirements)
+                else:
+                    self.register_error(plugin, PluginError("Could not find module in __init__.py"))
+            except Exception as e:
+                self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
+        else:
+            self.register_error(plugin, PluginError("Could not find module in __init__.py"))
+
+    def load_zip_python_plugin(self, plugin: Plugin, module_name: str):
+        fd, plugin_path = tempfile.mkstemp(prefix=plugin.name + "-", suffix=".zip")
+        os.write(fd, plugin.archive)
+        os.close(fd)
+
+        zip_file = ZipFile(plugin_path)
+        zip_root_folder = zip_file.namelist()[0]
+
+        try:
+            requirements_path = os.path.join(zip_root_folder, "requirements.txt")
+            with zip_file.open(requirements_path) as requirements_zip_file:
+                requirements = requirements_zip_file.read().decode("utf-8").split("\n")
+                requirements = [x for x in requirements if x]
+            self.install_requirements(plugin.name, requirements)
+        except KeyError:
+            pass  # no requirements.txt found
+        except PluginError as e:
+            self.register_error(plugin, e)
+            return None
+
+        try:
+            importer = zipimport.zipimporter(plugin_path)
+            module = importer.load_module(module_name)
+            return self.create_python_plugin_module(plugin, module, module_name, plugin_path, requirements)
+        except zipimport.ZipImportError as e:
+            self.register_error(plugin, PluginError("Could not find __init__.py from the plugin zip archive"), e)
+        except Exception as e:
+            self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
+        finally:
+            os.unlink(plugin_path)  # temporary file no longer needed
+
+    def create_python_plugin_module(
+        self, plugin: Plugin, module: ModuleType, module_name: str, plugin_path: str, requirements: List[str]
+    ):
+        for item in module.__dict__.items():
+            if inspect.isclass(item[1]) and item[0] != "PluginBaseClass" and issubclass(item[1], PluginBaseClass):
+                try:
+                    item[1].instance_init()
+                except Exception as e:
+                    self.register_error(
+                        plugin, PluginError('Error running instance_init() on plugin "{}"'.format(plugin.name)), e
+                    )
+                    return
+
+                self.plugins_by_id[plugin.id] = PluginModule(
+                    type="python",
+                    id=plugin.id,
+                    name=plugin.name,
+                    tag=plugin.tag,
+                    url=plugin.url,
+                    module_name=module_name,
+                    plugin_path=plugin_path,
+                    plugin=item[1],
+                    requirements=requirements,
+                    module=module,
+                    index_js=None,
+                )
+                return self.plugins_by_id[plugin.id]
+        return None
+
+    def create_js_plugin_module(self, plugin: Plugin, index_js: str, module_name: str, plugin_path: str):
+        try:
+            ctx = py_mini_racer.MiniRacer()
+            ctx.eval(index_js)
+        except py_mini_racer.JSEvalException:
+            return None
+
+        if isinstance(ctx.eval("Plugin"), py_mini_racer.JSFunction):
+            self.plugins_by_id[plugin.id] = PluginModule(
+                type="js",
+                id=plugin.id,
+                name=plugin.name,
+                tag=plugin.tag,
+                url=plugin.url,
+                module_name=module_name,
+                plugin_path=plugin_path,
+                plugin=JSPlugin,
+                requirements=None,
+                module=None,
+                index_js=index_js,
+            )
+        return self.plugins_by_id[plugin.id]
+
     def unregister_plugin(self, id):
         if not self.plugins_by_id.get(id, None):
             return
@@ -180,6 +227,7 @@ class _Plugins:
         del self.plugins_by_id[id]
 
     def load_plugin_configs(self):
+        # TODO: no need to recreate TeamPlugin and reload the class if nothing changed
         self.plugin_configs = list(
             PluginConfig.objects.filter(enabled=True).order_by(F("team_id").desc(nulls_first=True), "order").all()
         )
