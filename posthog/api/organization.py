@@ -2,37 +2,11 @@ from typing import Any, Dict
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    mixins,
-    permissions,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, response, serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.models import Organization, OrganizationMembership
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
-
-
-class PremiumMultiorganizationPermissions(permissions.BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = (
-        "You must upgrade your PostHog plan to be able to create and administrate multiple projects in an organization."
-    )
-
-    def has_permission(self, request: request.Request, view) -> bool:
-        if (
-            request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
-            and request.user.organization.teams.count() >= 1
-        ):
-            return False
-        return True
+from posthog.models import Organization
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -63,7 +37,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         IsAuthenticated,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
-        PremiumMultiorganizationPermissions,
     ]
     queryset = Organization.objects.none()
     lookup_field = "id"

@@ -13,27 +13,8 @@ export const invitesLogic = kea({
             loadInvites: async () => {
                 return (await api.get('api/organizations/@current/invites/')).results
             },
-            createInvite: async ({
-                mode,
-                maxUses,
-                targetEmail,
-            }: {
-                mode: InviteCreationMode
-                maxUses?: number
-                targetEmail?: string
-            }) => {
-                let payload
-                switch (mode) {
-                    case 'limited':
-                        payload = { max_uses: maxUses }
-                        break
-                    case 'email':
-                        payload = { target_email: targetEmail }
-                        break
-                    default:
-                        break
-                }
-                const newInvite = await api.create('api/organizations/@current/invites/', payload)
+            createInvite: async ({ targetEmail }: { targetEmail?: string }) => {
+                const newInvite = await api.create('api/organizations/@current/invites/', { target_email: targetEmail })
                 return [newInvite, ...values.invites]
             },
             deleteInvite: async (invite) => {

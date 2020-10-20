@@ -24,7 +24,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "id",
             "target_email",
             "uses",
-            "max_uses",
             "last_used_by_id",
             "last_used_by_email",
             "last_used_by_first_name",

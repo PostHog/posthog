@@ -54,27 +54,12 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             key: 'uses',
         },
         {
-            title: 'Uses Left',
-            dataIndex: 'max_uses',
-            key: 'uses_left',
-            render: (max_uses: number | null, invite: Record<string, any>) =>
-                max_uses ? max_uses - invite.uses : 'unlimited',
-        },
-        {
-            title: 'Target Email',
+            title: 'Email',
             dataIndex: 'target_email',
             key: 'target_email',
-            render: (target_email: string | null) => target_email ?? 'no target',
-        },
-        {
-            title: 'Limit',
-            dataIndex: 'limit',
-            key: 'target_email',
-            render: (target_email: number | null | undefined, invite: Record<string, any>) =>
-                target_email ??
-                (invite.max_uses ?? null === null
-                    ? 'wildcard'
-                    : `${invite.max_uses - invite.uses} ${invite.max_uses - invite.uses === 1 ? 'use' : 'uses'} left`),
+            render: function TargetEmail(target_email: string | null): JSX.Element | string {
+                return target_email ?? <i>none</i>
+            },
         },
         {
             title: 'Created At',
@@ -86,14 +71,20 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             title: 'Last Used By',
             dataIndex: 'last_used_by_first_name',
             key: 'last_used_by',
-            render: (lastUsedByFirstName: string, invite) =>
-                invite.last_used_by_id ? `${lastUsedByFirstName} (${invite.last_used_by_email})` : 'no one yet',
+            render: function LastUsedBy(lastUsedByFirstName: string, invite: Record<string, any>) {
+                return invite.last_used_by_id ? (
+                    `${lastUsedByFirstName} (${invite.last_used_by_email})`
+                ) : (
+                    <i>no one yet</i>
+                )
+            },
         },
         {
             title: 'Created By',
             dataIndex: 'created_by_first_name',
             key: 'created_by',
-            render: (createdByFirstName: string, invite) => `${createdByFirstName} (${invite.created_by_email})`,
+            render: (createdByFirstName: string, invite: Record<string, any>) =>
+                `${createdByFirstName} (${invite.created_by_email})`,
         },
         {
             title: '',
