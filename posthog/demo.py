@@ -173,7 +173,9 @@ def _create_funnel(team: Team, base_url: str) -> None:
         action=user_paid, event="$autocapture", url="%s/2" % base_url, url_matching="contains", selector="button",
     )
 
-    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
+    dashboard = Dashboard.objects.create(
+        name="HogFlix Demo", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
+    )
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
@@ -226,5 +228,6 @@ def delete_demo_data(request):
     Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
     Action.objects.filter(team=team, name__contains="HogFlix").delete()
     DashboardItem.objects.filter(team=team, name__contains="HogFlix").delete()
+    Dashboard.objects.filter(team=team, name__contains="HogFlix Demo").delete()
 
     return JsonResponse({"status": "ok"})

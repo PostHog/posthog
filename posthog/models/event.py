@@ -22,7 +22,8 @@ from django.db.models import (
     Value,
     signals,
 )
-from django.db.models.functions import TruncDay
+from django.db.models.functions import Trunc, TruncDay
+from django.db.models.functions.datetime import TruncHour, TruncMonth, TruncWeek
 from django.forms.models import model_to_dict
 from django.utils import timezone
 from psycopg2 import sql  # type: ignore
@@ -57,25 +58,29 @@ class SelectorPart(object):
         # separate all double slashes "\\" (replace them with "\") and remove all single slashes between them
         return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
 
-    def __init__(self, tag: str, direct_descendant: bool):
+    def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool):
         self.direct_descendant = direct_descendant
         self.data: Dict[str, Union[str, List]] = {}
+        self.ch_attributes: Dict[str, Union[str, List]] = {}  # attributes for CH
 
         result = re.search(attribute_regex, tag)
         if result and "[id=" in tag:
             self.data["attr_id"] = result[3]
+            self.ch_attributes["attr_id"] = result[3]
             tag = result[1]
         if result and "[" in tag:
             self.data["attributes__attr__{}".format(result[2])] = result[3]
+            self.ch_attributes[result[2]] = result[3]
             tag = result[1]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
+            self.ch_attributes["nth-child"] = self.data["nth_child"]
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
             # strip all slashes that are not followed by another slash
-            self.data["attr_class__contains"] = [self._unescape_class(p) for p in parts[1:]]
+            self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
@@ -95,24 +100,11 @@ class SelectorPart(object):
             params.append(value)
         return {"where": where, "params": params}
 
-    def clickhouse_query(self, query) -> str:
-        where = []
-        for key, value in self.data.items():
-            if "attr__" in key:
-                where.append(query.format("attr__{}".format(key.split("attr__")[1]), value))
-            else:
-                if "__contains" in key:
-                    where.append(" {} IN {}".format(key.replace("__contains", ""), value))
-                else:
-                    where.append(" {} = '{}'".format(key, value))
-        separator = "AND "
-        return separator.join(where)
-
 
 class Selector(object):
     parts: List[SelectorPart] = []
 
-    def __init__(self, selector: str):
+    def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
         tags = re.split(" ", selector.strip())
         tags.reverse()
@@ -122,7 +114,7 @@ class Selector(object):
             direct_descendant = False
             if index > 0 and tags[index - 1] == ">":
                 direct_descendant = True
-            part = SelectorPart(tag, direct_descendant)
+            part = SelectorPart(tag, direct_descendant, escape_slashes)
             part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
 
@@ -244,32 +236,44 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters: Filter, team) -> dict:
+    def query_retention(self, filter: Filter, team) -> dict:
 
+        period = filter.period
         events: QuerySet = QuerySet()
         entity = (
             Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-            if not filters.target_entity
-            else filters.target_entity
+            if not filter.target_entity
+            else filter.target_entity
         )
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
             events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
 
-        filtered_events = events.filter(filters.date_filter_Q).filter(filters.properties_to_Q(team_id=team.pk))
+        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
-        first_date = (
-            filtered_events.annotate(first_date=TruncDay("timestamp")).values("first_date", "person_id").distinct()
-        )
+        def _determineTrunc(subject: str, period: str) -> Union[TruncHour, TruncDay, TruncWeek, TruncMonth]:
+            if period == "Hour":
+                return TruncHour(subject)
+            elif period == "Day":
+                return TruncDay(subject)
+            elif period == "Week":
+                return TruncWeek(subject)
+            elif period == "Month":
+                return TruncMonth(subject)
+            else:
+                raise ValueError(f"Period {period} is unsupported.")
+
+        trunc = _determineTrunc("timestamp", period)
+        first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
 
         events_query, events_query_params = filtered_events.query.sql_with_params()
         first_date_query, first_date_params = first_date.query.sql_with_params()
 
         full_query = """
             SELECT
-                DATE_PART('days', first_date - %s) AS first_date,
-                DATE_PART('days', timestamp - first_date) AS date,
+                FLOOR(DATE_PART('{period}s', first_date - %s) {calculation}) AS first_date,
+                FLOOR(DATE_PART('{period}s', timestamp - first_date) {calculation}) AS date,
                 COUNT(DISTINCT "events"."person_id"),
                 array_agg(DISTINCT "events"."person_id") as people
             FROM ({events_query}) events
@@ -280,12 +284,16 @@ class EventManager(models.QuerySet):
         """
 
         full_query = full_query.format(
-            events_query=events_query, first_date_query=first_date_query, event_date_query=TruncDay("timestamp"),
+            events_query=events_query,
+            first_date_query=first_date_query,
+            event_date_query=trunc,
+            period="Day" if period == "Week" else period,
+            calculation="/ 7" if period == "Week" else "",
         )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query, (filters.date_from,) + events_query_params + first_date_params,
+                full_query, (filter.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 

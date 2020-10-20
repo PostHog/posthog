@@ -4,7 +4,6 @@ import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/com
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
-import _ from 'lodash'
 import {
     CommentOutlined,
     FundOutlined,
@@ -26,7 +25,7 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
-    MailOutlined,
+    ExclamationCircleOutlined,
     KeyOutlined,
     VideoCameraOutlined,
     SendOutlined,
@@ -37,7 +36,8 @@ import {
 import { DashboardType } from '~/types'
 import api from 'lib/api'
 import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { copyToClipboard, isURL } from 'lib/utils'
+import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
@@ -52,9 +52,12 @@ export interface CommandResultTemplate {
     guarantee?: boolean // show result always and first, regardless of fuzzy search
 }
 
-export type CommandResult = CommandResultTemplate & {
+export interface CommandResult extends CommandResultTemplate {
     source: Command | CommandFlow
-    index?: number
+}
+
+export interface CommandResultDisplayable extends CommandResult {
+    index: number
 }
 
 export type CommandResolver = (
@@ -73,10 +76,11 @@ export interface CommandFlow {
     icon?: any
     instruction?: string
     resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
-    scope: string
+    scope?: string
+    previousFlow?: CommandFlow | null
 }
 
-export type CommandRegistrations = {
+export interface CommandRegistrations {
     [commandKey: string]: Command
 }
 
@@ -115,6 +119,7 @@ export const commandPaletteLogic = kea<
         onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
+        backFlow: true,
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -135,6 +140,7 @@ export const commandPaletteLogic = kea<
                 setInput: () => 0,
                 executeResult: () => 0,
                 activateFlow: () => 0,
+                backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
             },
@@ -142,11 +148,12 @@ export const commandPaletteLogic = kea<
         hoverResultIndex: [
             null as number | null,
             {
+                activateFlow: () => null,
+                backFlow: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
                 onArrowDown: () => null,
-                activateFlow: () => null,
             },
         ],
         input: [
@@ -154,13 +161,16 @@ export const commandPaletteLogic = kea<
             {
                 setInput: (_, { input }) => input,
                 activateFlow: () => '',
+                backFlow: () => '',
                 executeResult: () => '',
             },
         ],
         activeFlow: [
             null as CommandFlow | null,
             {
-                activateFlow: (_, { flow }) => flow,
+                activateFlow: (currentFlow, { flow }) =>
+                    flow ? { ...flow, scope: flow.scope ?? currentFlow?.scope, previousFlow: currentFlow } : null,
+                backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
         rawCommandRegistrations: [
@@ -179,16 +189,17 @@ export const commandPaletteLogic = kea<
 
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog?.capture('palette shown')
+            window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog?.capture('palette shown')
+            if (values.isPaletteShown) window.posthog?.capture('palette shown', { isMobile: isMobile() })
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
                 actions.activateFlow(null)
+                actions.hidePalette()
             } else {
-                const possibleFlow = result.executor?.() ?? null
+                const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
                 if (!possibleFlow) actions.hidePalette()
             }
@@ -198,6 +209,7 @@ export const commandPaletteLogic = kea<
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
+            cleanedResult.isMobile = isMobile()
             window.posthog?.capture('palette command executed', cleanedResult)
         },
         deregisterScope: ({ scope }) => {
@@ -306,8 +318,8 @@ export const commandPaletteLogic = kea<
                     if (result.guarantee) guaranteedResults.push(result)
                     else fusableResults.push(result)
                 }
-                fusableResults = _.uniqBy(fusableResults, 'display')
-                guaranteedResults = _.uniqBy(guaranteedResults, 'display')
+                fusableResults = uniqueBy(fusableResults, (result) => result.display)
+                guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
                           keys: ['display', 'synonyms'],
@@ -315,7 +327,7 @@ export const commandPaletteLogic = kea<
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
                 const finalResults = guaranteedResults.concat(fusedResults)
                 // put global scope last
                 return finalResults.sort((resultA, resultB) =>
@@ -337,12 +349,15 @@ export const commandPaletteLogic = kea<
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
-                let rollingIndex = 0
-                const resultsGroupedInOrder = Object.entries(resultsGrouped)
-                for (const [, group] of resultsGroupedInOrder) {
-                    for (const result of group) {
-                        result.index = rollingIndex++
+                let rollingGroupIndex = 0
+                let rollingResultIndex = 0
+                const resultsGroupedInOrder: [string, CommandResultDisplayable[]][] = []
+                for (const [group, results] of Object.entries(resultsGrouped)) {
+                    resultsGroupedInOrder.push([group, []])
+                    for (const result of results) {
+                        resultsGroupedInOrder[rollingGroupIndex][1].push({ ...result, index: rollingResultIndex++ })
                     }
+                    rollingGroupIndex++
                 }
                 return resultsGroupedInOrder
             },
@@ -496,7 +511,7 @@ export const commandPaletteLogic = kea<
                         icon: LogoutOutlined,
                         display: 'Log Out',
                         executor: () => {
-                            window.location.href = '/logout'
+                            userLogic.actions.logout()
                         },
                     },
                 ],
@@ -619,28 +634,33 @@ export const commandPaletteLogic = kea<
                 resolver: {
                     icon: CommentOutlined,
                     display: 'Share Feedback',
-                    synonyms: ['send opinion', 'ask question', 'message posthog'],
+                    synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
                         scope: 'Sharing Feedback',
-                        instruction: "What's on your mind?",
-                        icon: CommentOutlined,
-                        resolver: (argument) => [
+                        resolver: [
                             {
-                                icon: SendOutlined,
                                 display: 'Send Message Directly to PostHog',
-                                executor: !argument?.length
-                                    ? undefined
-                                    : () => {
-                                          window.posthog?.capture('palette feedback', { message: argument })
-                                          return {
-                                              scope: 'Sharing Feedback',
-                                              resolver: {
-                                                  icon: CheckOutlined,
-                                                  display: 'Message Sent!',
-                                                  executor: true,
+                                icon: CommentOutlined,
+                                executor: () => ({
+                                    instruction: "What's on your mind?",
+                                    icon: CommentOutlined,
+                                    resolver: (argument) => ({
+                                        icon: SendOutlined,
+                                        display: 'Send',
+                                        executor: !argument?.length
+                                            ? undefined
+                                            : () => {
+                                                  window.posthog?.capture('palette feedback', { message: argument })
+                                                  return {
+                                                      resolver: {
+                                                          icon: CheckOutlined,
+                                                          display: 'Message Sent!',
+                                                          executor: true,
+                                                      },
+                                                  }
                                               },
-                                          }
-                                      },
+                                    }),
+                                }),
                             },
                             {
                                 icon: VideoCameraOutlined,
@@ -650,10 +670,10 @@ export const commandPaletteLogic = kea<
                                 },
                             },
                             {
-                                icon: MailOutlined,
-                                display: 'Email Core Team',
+                                icon: ExclamationCircleOutlined,
+                                display: 'Create GitHub Issue',
                                 executor: () => {
-                                    open('mailto:hey@posthog.com')
+                                    open('https://github.com/PostHog/posthog/issues/new/choose')
                                 },
                             },
                         ],

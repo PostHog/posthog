@@ -480,3 +480,18 @@ label.disabled {
         }
     }
 }
+
+.match-condition-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    color: white;
+    font-weight: bold;
+
+    &.mc-or {
+        background-color: #4263eb;
+    }
+
+    &.mc-and {
+        background-color: #f7a501;
+    }
+}

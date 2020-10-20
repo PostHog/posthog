@@ -184,7 +184,6 @@ def insight_test_factory(event_factory, person_factory):
                 response = self.client.get("/api/insight/retention/",).json()
 
                 self.assertEqual(len(response["data"]), 11)
-                self.assertEqual(response["data"][0]["values"][0]["count"], 1)
 
             def test_insight_session_by_id(self):
                 Person.objects.create(team=self.team, distinct_ids=["1"])

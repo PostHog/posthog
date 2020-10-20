@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import './ActionComponents.scss'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import PropTypes from 'prop-types'
 import { ActionSelectTab } from './ActionSelectTab'
@@ -8,14 +9,16 @@ const determineActiveTab = (props) => {
     if (props.selected) {
         return props.selected
     } else {
-        return Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
+        return Array.isArray(props.children) ? props.children[0].props.entityType : props.children.props.entityType
     }
 }
 
 function ActionSelectTabs(props) {
     let [activeTab, setActiveTab] = useState(determineActiveTab(props))
     let [labels] = useState(
-        Array.isArray(props.children) ? props.children.map((child) => child.props.title) : [props.children.props.title]
+        Array.isArray(props.children)
+            ? props.children.map((child) => child.props.entityType)
+            : [props.children.props.entityType]
     )
     return (
         <div className="select-box" style={{ padding: 0 }}>
@@ -28,7 +31,7 @@ function ActionSelectTabs(props) {
             )}
             {Array.isArray(props.children)
                 ? props.children.map((child) => {
-                      if (child.props.title !== activeTab) return undefined
+                      if (child.props.entityType !== activeTab) return undefined
                       return child
                   })
                 : props.children}
@@ -36,7 +39,7 @@ function ActionSelectTabs(props) {
     )
 }
 
-function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options, message }) {
+function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options, message, caption }) {
     const [infoOpen, setInfoOpen] = useState(false)
     const [infoBoundingRect, setInfoBoundingRect] = useState(null)
     const [infoActionId, setInfoActionId] = useState(null)
@@ -47,11 +50,12 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
     }
 
     return (
-        <div style={{ padding: '1rem', height: '90%', width: '100%' }} id="action-select-popup">
+        <div id="action-select-popup" className="as-popup">
             {redirect}
             {infoOpen && (
                 <ActionSelectInfo isOpen={infoOpen} boundingRect={infoBoundingRect} entity={onHover(infoActionId)} />
             )}
+            {caption && <div className="caption">{caption}</div>}
             <Select
                 labelInValue
                 getPopupContainer={() => document.getElementById('action-select-popup')}
@@ -62,7 +66,7 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
                 }}
                 style={{ width: '100%' }}
                 filterOption={(input, option) =>
-                    option.children && option.children.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                    option.children && option.children.props.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0
                 }
                 value={{ value: determineValue(active) }}
                 listHeight={300}

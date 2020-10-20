@@ -12,7 +12,7 @@ import './index.scss'
 export function CommandPalette(): JSX.Element | null {
     useMountedLogic(commandPaletteLogic)
 
-    const { setInput, hidePalette, togglePalette, executeResult, activateFlow } = useActions(commandPaletteLogic)
+    const { setInput, hidePalette, togglePalette, executeResult, backFlow } = useActions(commandPaletteLogic)
     const { input, isPaletteShown, isSqueak, activeFlow, commandSearchResults } = useValues(commandPaletteLogic)
     const { user } = useValues(userLogic)
 
@@ -28,13 +28,14 @@ export function CommandPalette(): JSX.Element | null {
             squeakAudio?.play()
         } else if (event.key === 'Escape') {
             event.preventDefault()
-            // First of all, exit flow
-            if (activeFlow) activateFlow(null)
-            // Else just erase input
+            // Return to previous flow
+            if (activeFlow) backFlow()
+            // If no flw, erase input
             else if (input) setInput('')
             // Lastly hide palette
             else hidePalette()
         } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
             togglePalette()
         }
     })

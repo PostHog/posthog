@@ -4,7 +4,6 @@ from uuid import UUID
 
 from celery import shared_task
 
-from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import emit_omni_person
 from posthog.ee import check_ee_enabled
@@ -52,9 +51,6 @@ def _capture_ee(
 
     store_names_and_properties(team=team, event=event, properties=properties)
 
-    # determine/create elements
-    elements_hash = create_elements(event_uuid=event_uuid, elements=elements_list, team=team)
-
     # # determine create events
     create_event(
         event_uuid=event_uuid,
@@ -62,8 +58,8 @@ def _capture_ee(
         properties=properties,
         timestamp=timestamp,
         team=team,
-        elements_hash=elements_hash,
         distinct_id=distinct_id,
+        elements=elements_list,
     )
     emit_omni_person(
         event_uuid=event_uuid,

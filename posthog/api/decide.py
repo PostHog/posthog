@@ -42,7 +42,7 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         response: Dict[str, Any] = {"isAuthenticated": True}
         editor_params = {}
 
-        if request.user.toolbar_mode == "toolbar":
+        if request.user.toolbar_mode != "disabled":
             editor_params["toolbarVersion"] = "toolbar"
 
         if settings.JS_URL:

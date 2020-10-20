@@ -1,7 +1,6 @@
 import os
 import time
 
-import posthoganalytics
 import redis
 import statsd  # type: ignore
 from celery import Celery
@@ -38,15 +37,24 @@ statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_P
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
-    sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
+    if not settings.DEBUG:
+        sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
+
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
+
+    # update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
+
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
+
+    # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
+    sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
+
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
 
@@ -117,6 +125,11 @@ def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
+
+
+@app.task
+def send_weekly_email_report():
+    pass
 
 
 @app.task(bind=True)

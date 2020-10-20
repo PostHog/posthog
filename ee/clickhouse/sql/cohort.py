@@ -1,16 +1,19 @@
 from .clickhouse import STORAGE_POLICY, table_engine
 
 FILTER_EVENT_BY_COHORT_SQL = """
-SELECT * FROM events WHERE distinct_id IN (
+SELECT
+    events.uuid,
+    events.event,
+    events.properties,
+    events.timestamp,
+    events.team_id,
+    events.distinct_id,
+    events.elements_chain,
+    events.created_at
+FROM events WHERE distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
         SELECT person_id FROM {table_name}
     )
-)
-"""
-
-COHORT_DISTINCT_ID_FILTER_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id IN (
-    SELECT person_id FROM {table_name}
 )
 """
 
@@ -33,15 +36,11 @@ INSERT INTO {table_name} SELECT person_id FROM ({query})
 """
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT person_id FROM person_distinct_id where person_id IN {query}
+SELECT distinct_id FROM person_distinct_id where distinct_id IN {query}
 """
 
 FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL = """
 SELECT distinct_id FROM events where uuid IN (
     SELECT uuid FROM {table_name}
 )
-"""
-
-PERSON_PROPERTY_FILTER_SQL = """
-SELECT id FROM person WHERE {filters}
 """

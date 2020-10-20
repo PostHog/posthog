@@ -9,8 +9,7 @@ beforeEach(() => {
     cy.url().then((url) => {
         if (url.includes('preflight')) {
             cy.get('.text-center > .ant-btn-default').click()
-            cy.get('[style="margin-bottom: 64px;"] > .ant-btn').click()
-            cy.wait(200)
+            cy.get('[data-attr=preflight-complete]').click()
             signUp()
         } else if (url.includes('signup')) {
             signUp()

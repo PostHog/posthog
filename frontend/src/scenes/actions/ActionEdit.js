@@ -7,6 +7,7 @@ import { actionEditLogic } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
 import { Input } from 'antd'
 
+// TODO: isEditor === false always
 export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, showNewActionButton, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,

@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:alpine
+        image: postgres:11-alpine
         container_name: posthog_db
         environment:
             POSTGRES_USER: posthog
@@ -11,7 +11,7 @@ services:
         ports:
             - '5439:5432'
     redis:
-        image: 'redis:alpine'
+        image: 'redis:5-alpine'
         container_name: posthog_redis
         ports:
             - '6379:6379'

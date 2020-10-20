@@ -15,7 +15,7 @@ def _create_event(**kwargs):
 
 class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create)):  # type: ignore
 
-    # period filtering for clickhouse only
+    # period filtering for clickhouse only because start of week is different
     def test_retention_period(self):
         Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
@@ -27,12 +27,17 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         self._create_pageviews(
             [
                 ("person1", self._date(0)),
+                ("person2", self._date(0)),
                 ("person1", self._date(1)),
-                ("person1", self._date(2, month=1)),
-                ("person1", self._date(10, month=1)),
-                ("person1", self._date(15)),
-                ("person1", self._date(18)),
-                ("person2", self._date(13)),
+                ("person2", self._date(1)),
+                ("person1", self._date(7)),
+                ("person2", self._date(7)),
+                ("person1", self._date(14)),
+                ("person1", self._date(month=1, day=-6)),
+                ("person2", self._date(month=1, day=-6)),
+                ("person2", self._date(month=1, day=1)),
+                ("person1", self._date(month=1, day=1)),
+                ("person2", self._date(month=1, day=15)),
             ]
         )
 
@@ -42,5 +47,18 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [[1, 0, 1, 1, 0, 1, 1], [0, 0, 0, 0, 0, 0], [2, 1, 0, 1, 1], [1, 0, 1, 1], [0, 0, 0], [1, 1], [1],],
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
+        )
+
+        self.assertEqual(
+            self.pluck(result, "date"),
+            [
+                "Sun. 7 June",
+                "Sun. 14 June",
+                "Sun. 21 June",
+                "Sun. 28 June",
+                "Sun. 5 July",
+                "Sun. 12 July",
+                "Sun. 19 July",
+            ],
         )
