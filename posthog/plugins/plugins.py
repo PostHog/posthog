@@ -18,7 +18,7 @@ from posthog.utils import SingletonDecorator
 
 from .models import JSPlugin, PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
 from .sync import sync_global_plugin_config, sync_posthog_json_plugins
-from .utils import load_json_file
+from .utils import load_json_file, load_json_zip_file
 
 REDIS_INSTANCE = get_redis_instance()
 
@@ -85,7 +85,21 @@ class _Plugins:
             else:
                 # TODO: js plugin support from .zip
                 module_name = "{}-{}".format(plugin.name, plugin.tag)
-                found_plugin = self.load_zip_python_plugin(plugin, module_name)
+                fd, plugin_path = tempfile.mkstemp(prefix=plugin.name + "-", suffix=".zip")
+                os.write(fd, plugin.archive)
+                os.close(fd)
+
+                try:
+                    zip_file = ZipFile(plugin_path)
+                    plugin_json = load_json_zip_file(zip_file, "plugin.json")
+                    if plugin_json and plugin_json.get("jsmain", None):
+                        found_plugin = self.load_zip_js_plugin(
+                            plugin, zip_file, plugin_json["jsmain"], module_name, plugin_path
+                        )
+                    else:
+                        found_plugin = self.load_zip_python_plugin(plugin, plugin_path, zip_file, module_name)
+                finally:
+                    os.unlink(plugin_path)  # temporary file no longer needed
 
             if found_plugin:
                 if local_plugin:
@@ -107,6 +121,17 @@ class _Plugins:
             return self.create_js_plugin_module(plugin, index_js, module_name, plugin_path)
         except FileNotFoundError:
             return None
+
+    def load_zip_js_plugin(self, plugin: Plugin, zip_file: ZipFile, jsmain: str, module_name: str, plugin_path: str):
+        zip_root_folder = zip_file.namelist()[0]
+
+        try:
+            index_path = os.path.join(zip_root_folder, jsmain)
+            with zip_file.open(index_path) as index_zip_file:
+                index_js = index_zip_file.read().decode("utf-8")
+                return self.create_js_plugin_module(plugin, index_js, module_name, plugin_path)
+        except KeyError:
+            return None  # no requirements.txt found
 
     def load_local_python_plugin(self, plugin: Plugin, plugin_path: str, module_name: str):
         try:
@@ -133,12 +158,7 @@ class _Plugins:
         else:
             self.register_error(plugin, PluginError("Could not find module in __init__.py"))
 
-    def load_zip_python_plugin(self, plugin: Plugin, module_name: str):
-        fd, plugin_path = tempfile.mkstemp(prefix=plugin.name + "-", suffix=".zip")
-        os.write(fd, plugin.archive)
-        os.close(fd)
-
-        zip_file = ZipFile(plugin_path)
+    def load_zip_python_plugin(self, plugin: Plugin, plugin_path: str, zip_file: ZipFile, module_name: str):
         zip_root_folder = zip_file.namelist()[0]
 
         try:
@@ -161,8 +181,6 @@ class _Plugins:
             self.register_error(plugin, PluginError("Could not find __init__.py from the plugin zip archive"), e)
         except Exception as e:
             self.register_error(plugin, PluginError("Error initializing __init__.py"), e)
-        finally:
-            os.unlink(plugin_path)  # temporary file no longer needed
 
     def create_python_plugin_module(
         self, plugin: Plugin, module: ModuleType, module_name: str, plugin_path: str, requirements: List[str]
