@@ -4,16 +4,16 @@ import { useActions } from 'kea'
 import { slugify } from 'lib/utils'
 import { SaveOutlined } from '@ant-design/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
-export function NewDashboard({ dashboard, model }) {
+export function NewDashboard(): JSX.Element {
     const [form] = Form.useForm()
-    const { addDashboard } = useActions(model)
+    const { addDashboard } = useActions(dashboardsModel)
 
     return (
         <Form
             layout="vertical"
             form={form}
-            initialValues={dashboard}
             onFinish={(values) => {
                 addDashboard(values)
             }}

@@ -11,7 +11,7 @@ import { hot } from 'react-hot-loader/root'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 
 export const Dashboards = hot(_Dashboards)
-function _Dashboards() {
+function _Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)
@@ -39,7 +39,7 @@ function _Dashboards() {
                     destroyOnClose={true}
                     visible={true}
                 >
-                    <NewDashboard model={dashboardsModel} />
+                    <NewDashboard />
                 </Drawer>
             )}
 
@@ -57,12 +57,12 @@ function _Dashboards() {
                         width={24}
                         align="center"
                         render={({ id, pinned }) => (
-                            <Link
+                            <span
                                 onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
-                                style={{ color: 'rgba(0, 0, 0, 0.85)' }}
+                                style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
                             >
                                 {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                            </Link>
+                            </span>
                         )}
                     />
                     <Table.Column
@@ -80,9 +80,13 @@ function _Dashboards() {
                         align="center"
                         width={120}
                         render={({ id }) => (
-                            <Link onClick={() => deleteDashboard({ id, redirect: false })} className="text-danger">
+                            <span
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => deleteDashboard({ id, redirect: false })}
+                                className="text-danger"
+                            >
                                 <DeleteOutlined /> Delete
-                            </Link>
+                            </span>
                         )}
                     />
                 </Table>
@@ -91,7 +95,7 @@ function _Dashboards() {
                     <p>Create your first dashboard:</p>
 
                     <Row gutter={24}>
-                        <Col xs={24} xl={6} gutter={24}>
+                        <Col xs={24} xl={6}>
                             <Card
                                 title="Empty"
                                 size="small"
@@ -109,7 +113,7 @@ function _Dashboards() {
                                 </div>
                             </Card>
                         </Col>
-                        <Col xs={24} xl={6} gutter={24}>
+                        <Col xs={24} xl={6}>
                             <Card
                                 title="App Default"
                                 size="small"
@@ -127,7 +131,7 @@ function _Dashboards() {
                                 </div>
                             </Card>
                         </Col>
-                        <Col s={24} xl={6} gutter={24}>
+                        <Col xs={24} xl={6}>
                             <Card
                                 title="Web Default"
                                 size="small"
