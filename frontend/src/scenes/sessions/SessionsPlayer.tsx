@@ -16,7 +16,7 @@ export default function SessionsPlayer(): JSX.Element {
                 // eslint-disable-next-line
                 // @ts-ignore
                 props: {
-                    width: 900,
+                    width: 952,
                     events: sessionPlayerData,
                     autoPlay: true,
                 },
