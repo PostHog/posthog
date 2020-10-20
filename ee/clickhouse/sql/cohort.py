@@ -17,10 +17,6 @@ FROM events WHERE distinct_id IN (
 )
 """
 
-COHORT_DISTINCT_ID_FILTER_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id IN ({query})
-"""
-
 
 def create_cohort_mapping_table_sql(table_name: str) -> str:
     return """
@@ -47,8 +43,4 @@ FILTER_EVENT_DISTINCT_ID_BY_ACTION_SQL = """
 SELECT distinct_id FROM events where uuid IN (
     SELECT uuid FROM {table_name}
 )
-"""
-
-PERSON_PROPERTY_FILTER_SQL = """
-SELECT id FROM person WHERE {filters}
 """

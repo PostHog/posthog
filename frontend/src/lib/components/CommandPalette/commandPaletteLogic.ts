@@ -27,7 +27,7 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
-    MailOutlined,
+    ExclamationCircleOutlined,
     KeyOutlined,
     VideoCameraOutlined,
     SendOutlined,
@@ -78,7 +78,8 @@ export interface CommandFlow {
     icon?: any
     instruction?: string
     resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
-    scope: string
+    scope?: string
+    previousFlow?: CommandFlow | null
 }
 
 export interface CommandRegistrations {
@@ -120,6 +121,7 @@ export const commandPaletteLogic = kea<
         onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
+        backFlow: true,
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -140,6 +142,7 @@ export const commandPaletteLogic = kea<
                 setInput: () => 0,
                 executeResult: () => 0,
                 activateFlow: () => 0,
+                backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
             },
@@ -147,11 +150,12 @@ export const commandPaletteLogic = kea<
         hoverResultIndex: [
             null as number | null,
             {
+                activateFlow: () => null,
+                backFlow: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
                 onArrowDown: () => null,
-                activateFlow: () => null,
             },
         ],
         input: [
@@ -159,13 +163,16 @@ export const commandPaletteLogic = kea<
             {
                 setInput: (_, { input }) => input,
                 activateFlow: () => '',
+                backFlow: () => '',
                 executeResult: () => '',
             },
         ],
         activeFlow: [
             null as CommandFlow | null,
             {
-                activateFlow: (_, { flow }) => flow,
+                activateFlow: (currentFlow, { flow }) =>
+                    flow ? { ...flow, scope: flow.scope ?? currentFlow?.scope, previousFlow: currentFlow } : null,
+                backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
         rawCommandRegistrations: [
@@ -651,28 +658,33 @@ export const commandPaletteLogic = kea<
                 resolver: {
                     icon: CommentOutlined,
                     display: 'Share Feedback',
-                    synonyms: ['send opinion', 'ask question', 'message posthog'],
+                    synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
                         scope: 'Sharing Feedback',
-                        instruction: "What's on your mind?",
-                        icon: CommentOutlined,
-                        resolver: (argument) => [
+                        resolver: [
                             {
-                                icon: SendOutlined,
                                 display: 'Send Message Directly to PostHog',
-                                executor: !argument?.length
-                                    ? undefined
-                                    : () => {
-                                          window.posthog?.capture('palette feedback', { message: argument })
-                                          return {
-                                              scope: 'Sharing Feedback',
-                                              resolver: {
-                                                  icon: CheckOutlined,
-                                                  display: 'Message Sent!',
-                                                  executor: true,
+                                icon: CommentOutlined,
+                                executor: () => ({
+                                    instruction: "What's on your mind?",
+                                    icon: CommentOutlined,
+                                    resolver: (argument) => ({
+                                        icon: SendOutlined,
+                                        display: 'Send',
+                                        executor: !argument?.length
+                                            ? undefined
+                                            : () => {
+                                                  window.posthog?.capture('palette feedback', { message: argument })
+                                                  return {
+                                                      resolver: {
+                                                          icon: CheckOutlined,
+                                                          display: 'Message Sent!',
+                                                          executor: true,
+                                                      },
+                                                  }
                                               },
-                                          }
-                                      },
+                                    }),
+                                }),
                             },
                             {
                                 icon: VideoCameraOutlined,
@@ -682,10 +694,10 @@ export const commandPaletteLogic = kea<
                                 },
                             },
                             {
-                                icon: MailOutlined,
-                                display: 'Email Core Team',
+                                icon: ExclamationCircleOutlined,
+                                display: 'Create GitHub Issue',
                                 executor: () => {
-                                    open('mailto:hey@posthog.com')
+                                    open('https://github.com/PostHog/posthog/issues/new/choose')
                                 },
                             },
                         ],
