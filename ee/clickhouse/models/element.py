@@ -1,21 +1,7 @@
-import datetime
-import json
 import re
-from datetime import timezone
-from typing import List, Optional
-from uuid import UUID
+from typing import List
 
-from django.utils.timezone import now
-from rest_framework import serializers
-
-from ee.clickhouse.client import sync_execute
-from ee.kafka.client import ClickhouseProducer
-from ee.kafka.topics import KAFKA_ELEMENTS
-from posthog.cache import get_cached_value, set_cached_value
 from posthog.models.element import Element
-from posthog.models.element_group import hash_elements
-from posthog.models.team import Team
-from posthog.models.utils import UUIDT
 
 parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE,)
 
