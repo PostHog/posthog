@@ -118,7 +118,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SignupSerializer(serializers.Serializer):
+class TeamSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField()
@@ -158,5 +158,5 @@ class SignupSerializer(serializers.Serializer):
 
 
 class TeamSignupViewset(generics.CreateAPIView):
-    serializer_class = SignupSerializer
+    serializer_class = TeamSignupSerializer
     permission_classes = (permissions.AllowAny,)
