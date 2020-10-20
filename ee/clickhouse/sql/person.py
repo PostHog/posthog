@@ -37,7 +37,7 @@ PERSONS_TABLE_SQL = (
 )
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON), extra_fields=""
+    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
 )
 
 PERSONS_TABLE_MV_SQL = """
@@ -56,6 +56,39 @@ FROM kafka_{table_name}
     table_name=PERSONS_TABLE
 )
 
+PERSONS_UP_TO_DATE_MATERIALIZED_VIEW = """
+CREATE MATERIALIZED VIEW persons_up_to_date
+ENGINE = AggregatingMergeTree() ORDER BY (
+    id_,
+    team_id
+)
+POPULATE
+AS SELECT  
+argMaxState(id, created_at) id_,
+argMaxState(team_id, created_at) team_id,
+argMaxState(is_identified, created_at) is_identified,
+argMaxState(properties, created_at) properties,
+minState(created_at) created_at_,
+maxState(created_at) updated_at
+FROM {table_name}
+GROUP BY id
+""".format(
+    table_name=PERSONS_TABLE
+)
+
+PERSONS_UP_TO_DATE_VIEW = """
+CREATE VIEW persons_up_to_date_view
+AS
+SELECT 
+argMaxMerge(id_) as id,
+argMaxMerge(team_id) as team_id,
+argMaxMerge(properties) as properties,
+argMaxMerge(is_identified) as is_identified,
+minMerge(created_at_) as created_at,
+maxMerge(updated_at) as updated_at
+FROM persons_up_to_date 
+GROUP BY id_
+"""
 
 OMNI_PERSONS_TABLE = "omni_person"
 
@@ -86,7 +119,7 @@ OMNI_PERSONS_TABLE_SQL = (
 )
 
 KAFKA_OMNI_PERSONS_TABLE_SQL = OMNI_PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON), extra_fields=""
+    table_name="kafka_" + OMNI_PERSONS_TABLE, engine=kafka_engine(KAFKA_OMNI_PERSON), extra_fields="",
 )
 
 OMNI_PERSONS_TABLE_MV_SQL = """
@@ -109,7 +142,7 @@ FROM kafka_{table_name}
 
 
 GET_PERSON_SQL = """
-SELECT * FROM person WHERE team_id = %(team_id)s
+SELECT * FROM persons_up_to_date_view WHERE team_id = %(team_id)s
 """
 
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
@@ -138,7 +171,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields=""
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields="",
 )
 
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
@@ -165,7 +198,7 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM person as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+SELECT p.* FROM persons_up_to_date_view as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
 """
 
 GET_PERSONS_BY_DISTINCT_IDS = """
@@ -200,7 +233,7 @@ where person_distinct_id.team_id = %(team_id)s
 """
 
 PERSON_EXISTS_SQL = """
-SELECT count(*) FROM person where id = %(id)s
+SELECT count(*) FROM persons_up_to_date_view where id = %(id)s
 """
 
 INSERT_PERSON_SQL = """
@@ -236,23 +269,23 @@ SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filt
 """
 
 PEOPLE_THROUGH_DISTINCT_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+) as pdi ON persons_up_to_date_view.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 200 OFFSET %(offset)s
 """
 
 PEOPLE_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE person_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
+) as pdi ON persons_up_to_date_view.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 200 OFFSET %(offset)s 
 """
 
 PEOPLE_BY_TEAM_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM person INNER JOIN (
+SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
-) as pdi ON person.id = pdi.person_id 
+) as pdi ON persons_up_to_date_view.id = pdi.person_id 
 WHERE team_id = %(team_id)s {filters} 
 GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s 
@@ -267,7 +300,7 @@ SELECT key, count(1) as count FROM (
         SELECT
             arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
             arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-        FROM person WHERE team_id = %(team_id)s
+        FROM persons_up_to_date_view WHERE team_id = %(team_id)s
     )
     ARRAY JOIN array_property_keys, array_property_values
 ) GROUP BY key ORDER BY count DESC LIMIT %(limit)s
@@ -287,7 +320,7 @@ SELECT distinct_id FROM person_distinct_id where person_id IN
                 id,
                 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
                 arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-            FROM person WHERE team_id = %(team_id)s
+            FROM persons_up_to_date_view WHERE team_id = %(team_id)s
         )
         ARRAY JOIN array_property_keys, array_property_values
     ) ep
