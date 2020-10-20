@@ -75,7 +75,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {
                 "attr": None,
                 "code": "permission_denied",
-                "detail": "Your organization access level is insufficient.",
+                "detail": "Your cannot edit other organization members or remove anyone but yourself.",
                 "type": "authentication_error",
             },
         )

@@ -12,7 +12,7 @@ class TestOrganizationAPI(APIBaseTest):
             {
                 "attr": None,
                 "code": "permission_denied",
-                "detail": "Your organization access level is insufficient.",
+                "detail": "You must upgrade your PostHog plan to be able to create and administrate multiple organizations.",
                 "type": "authentication_error",
             },
         )

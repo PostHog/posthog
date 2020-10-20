@@ -5,6 +5,8 @@ from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
+from ee.models.license import License
+
 from .utils import UUIDModel, sane_repr
 
 try:

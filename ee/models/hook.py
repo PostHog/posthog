@@ -5,7 +5,7 @@ from django.db import models
 from rest_hooks.models import AbstractHook
 
 from ee.tasks.hooks import DeliverHook
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token
 
 
