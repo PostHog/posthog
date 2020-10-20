@@ -25,8 +25,7 @@ class TeamManager(models.Manager):
         if not users or not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
             # Don't create default `Pageviews` action on actions-ux-201012 feature flag (use first user as proxy for org)
             action = Action.objects.create(team=team, name="Pageviews")
-
-        ActionStep.objects.create(action=action, event="$pageview")
+            ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(
             name="Default", pinned=True, team=team, share_token=generate_random_token()
@@ -94,7 +93,7 @@ class Team(models.Model):
         max_length=200, null=True, unique=True, default=generate_random_token
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default")
+    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)

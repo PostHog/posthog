@@ -18,7 +18,7 @@ class TestUser(BaseTest):
 
     @tag("ee")
     @patch("posthog.models.user.MULTI_TENANCY", True)
-    @patch("posthog.models.user.License.PLANS", {"price_1234567890": ["whatever"]})
+    @patch("posthog.models.organization.License.PLANS", {"price_1234567890": ["whatever"]})
     @patch("posthog.models.user.OrganizationBilling")
     def test_feature_available_multi_tenancy(self, patch_team_billing):
         patch_team_billing.objects.get().get_plan_key = lambda: "price_1234567890"
@@ -28,12 +28,12 @@ class TestUser(BaseTest):
     @patch("posthog.models.user.OrganizationBilling")
     def test_custom_pricing_no_extra_features(self, patch_team_billing):
         patch_team_billing.objects.get().get_plan_key = lambda: (
-            "price_test_1"  # price_test_1 is not on posthog.models.user.License.PLANS
+            "price_test_1"  # price_test_1 is not on posthog.models.organization.License.PLANS
         )
         self.assertFalse(self.organization.is_feature_available("whatever"))
 
     @tag("ee")
-    @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
+    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     @patch("posthog.models.user.MULTI_TENANCY", False)
     def test_feature_available_self_hosted_has_license(self, patch_post):
@@ -47,13 +47,13 @@ class TestUser(BaseTest):
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
     @tag("ee")
-    @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
+    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
     @tag("ee")
-    @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
+    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
         from ee.models.license import License

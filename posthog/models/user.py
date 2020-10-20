@@ -82,9 +82,7 @@ class UserManager(BaseUserManager):
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", company_name)
             organization = Organization.objects.create(**organization_fields)
-            team_fields = team_fields or {}
-            team_fields.setdefault("name", company_name)
-            team = Team.objects.create_with_data(organization=organization, **team_fields)
+            team = Team.objects.create_with_data(organization=organization, **(team_fields or {}))
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             membership = user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,)
             return organization, team, user

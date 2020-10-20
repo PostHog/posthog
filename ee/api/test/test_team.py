@@ -15,7 +15,7 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
-        self.assertEqual(response_data.get("name"), "Default")
+        self.assertEqual(response_data.get("name"), "Default Project")
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_delete_team_own_second(self):
