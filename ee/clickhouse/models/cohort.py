@@ -30,7 +30,9 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
                 prop_filters = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
                     idx=idx, operator_clause=operator_clause, prepend=prepend
                 )
-                clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=prop_filters)
+                clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                    filters=prop_filters, negation="NOT " if prop.operator and "not" in prop.operator else ""
+                )
 
                 filters.append("(" + clause + ")")
                 params.update({"k{}_{}".format(prepend, idx): prop.key, arg: value})

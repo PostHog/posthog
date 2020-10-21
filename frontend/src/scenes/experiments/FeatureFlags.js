@@ -6,6 +6,7 @@ import { Table, Switch, Drawer, Button } from 'antd'
 import moment from 'moment'
 import { EditFeatureFlag } from './EditFeatureFlag'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { LinkButton } from 'lib/components/LinkButton'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -48,6 +49,25 @@ function _FeatureFlags() {
                 )
             },
         },
+        {
+            title: 'Usage',
+            render: function RenderActive(featureFlag) {
+                return (
+                    <LinkButton
+                        to={
+                            '/insights?events=[{"id":"$feature_flag_called","name":"$feature_flag_called","type":"events"}]&properties=[{"key":"$feature_flag","value":"' +
+                            featureFlag.key +
+                            '"}]#backTo=Feature Flags&backToURL=' +
+                            window.location.pathname
+                        }
+                        type="primary"
+                        data-attr="usage"
+                    >
+                        Usage
+                    </LinkButton>
+                )
+            },
+        },
     ]
 
     return (
@@ -75,7 +95,7 @@ function _FeatureFlags() {
             />
             {openFeatureFlag && (
                 <Drawer
-                    title={openFeatureFlag === 'new' ? 'New feature flag' : 'Edit ' + openFeatureFlag.name}
+                    title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
                     width={400}
                     onClose={() => setOpenFeatureFlag(false)}
                     destroyOnClose={true}
