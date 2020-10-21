@@ -17,7 +17,7 @@
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly --https",
-        "build": "kea-typegen write && echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
+        "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "eslint": "eslint frontend/src",
