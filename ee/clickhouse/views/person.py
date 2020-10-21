@@ -58,7 +58,7 @@ class ClickhousePerson(PersonViewSet):
                     SELECT person_id FROM person_distinct_id WHERE distinct_id LIKE %({arg})s AND team_id = %(team_id)s
                 )
                 """.format(
-                    idx=idx, arg="search_{idx}".format(idx=idx)
+                    arg="search_{idx}".format(idx=idx)
                 )
                 all_filters += search_query_filter
                 params = {**params, "search_{idx}".format(idx=idx): "%{}%".format(search)}
