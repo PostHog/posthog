@@ -164,7 +164,7 @@ export const trendsLogic = kea({
 
     reducers: ({ actions, props }) => ({
         filters: [
-            props.dashboardItemId ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
+            props.filters ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
                 [actions.setFilters]: (state, { filters, mergeFilters }) => {
                     return cleanFilters({
