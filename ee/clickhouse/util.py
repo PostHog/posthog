@@ -18,9 +18,13 @@ from ee.clickhouse.sql.events import (
 )
 from ee.clickhouse.sql.person import (
     DROP_PERSON_DISTINCT_ID_TABLE_SQL,
+    DROP_PERSON_MATERIALIZED_SQL,
     DROP_PERSON_TABLE_SQL,
+    DROP_PERSON_VIEW_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_TABLE_SQL,
+    PERSONS_UP_TO_DATE_MATERIALIZED_VIEW,
+    PERSONS_UP_TO_DATE_VIEW,
 )
 
 
@@ -28,14 +32,24 @@ class ClickhouseTestMixin:
     def tearDown(self):
         try:
             self._destroy_event_tables()
-            sync_execute(DROP_PERSON_TABLE_SQL)
-            sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+            self._destroy_person_tables()
 
             self._create_event_tables()
-            sync_execute(PERSONS_TABLE_SQL)
-            sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+            self._create_person_tables()
         except ServerException:
             pass
+
+    def _destroy_person_tables(self):
+        sync_execute(DROP_PERSON_VIEW_SQL)
+        sync_execute(DROP_PERSON_MATERIALIZED_SQL)
+        sync_execute(DROP_PERSON_TABLE_SQL)
+        sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+
+    def _create_person_tables(self):
+        sync_execute(PERSONS_TABLE_SQL)
+        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        sync_execute(PERSONS_UP_TO_DATE_MATERIALIZED_VIEW)
+        sync_execute(PERSONS_UP_TO_DATE_VIEW)
 
     def _destroy_event_tables(self):
         sync_execute(DROP_EVENTS_TABLE_SQL)

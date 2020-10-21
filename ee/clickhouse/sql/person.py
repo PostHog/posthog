@@ -10,6 +10,14 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
+DROP_PERSON_MATERIALIZED_SQL = """
+DROP TABLE persons_up_to_date
+"""
+
+DROP_PERSON_VIEW_SQL = """
+DROP TABLE persons_up_to_date_view
+"""
+
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -81,10 +89,10 @@ CREATE VIEW persons_up_to_date_view
 AS
 SELECT 
 argMaxMerge(id_) as id,
+minMerge(created_at_) as created_at,
 argMaxMerge(team_id) as team_id,
 argMaxMerge(properties) as properties,
 argMaxMerge(is_identified) as is_identified,
-minMerge(created_at_) as created_at,
 maxMerge(updated_at) as updated_at
 FROM persons_up_to_date 
 GROUP BY id_
