@@ -15,7 +15,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertDictEqual(
             response_data,
             {
-                "uses": 0,
                 "target_email": None,
                 "created_by_email": self.user.email,
                 "created_by_id": self.user.id,
@@ -35,7 +34,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertDictEqual(
             response_data,
             {
-                "uses": 0,
                 "target_email": email,
                 "created_by_email": self.user.email,
                 "created_by_id": self.user.id,
