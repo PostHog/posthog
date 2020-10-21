@@ -1,7 +1,9 @@
+import csv
 import re
 from typing import List
 
 from posthog.models.element import Element
+from posthog.models.element_group import ElementGroup
 
 parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE,)
 
@@ -11,6 +13,16 @@ split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
 
 def _escape(input: str) -> str:
     return input.replace('"', r"\"")
+
+
+def all_elements_to_string():
+    element_groups = ElementGroup.objects.all()
+    with open("elements_chain.csv", "w") as csvfile:
+        elements_chain_writer = csv.writer(csvfile)
+        for eg in element_groups:
+            elements = Element.objects.filter(group=eg)
+            elements = sorted([e for e in elements], key=lambda i: i.order)
+            elements_chain_writer.writerow([elements[0].group.hash, elements_to_string(elements)])
 
 
 def elements_to_string(elements: List[Element],) -> str:
