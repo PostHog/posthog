@@ -120,7 +120,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     def get_person(self, event):
         if not self.context.get("people") or event[5] not in self.context["people"]:
             return event[5]
-        return self.context["people"][event[5]]["properties"].get("email", event[5])
+        return self.context["people"][event[5]].properties.get("email", event[5])
 
     def get_elements(self, event):
         if not event[6]:
