@@ -196,3 +196,30 @@ def get_event(request):
             )
 
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+import kafka_helper  # type: ignore
+from dateutil import parser
+
+from ee.kafka_client.topics import KAFKA_EVENTS_WAL
+
+
+def replay():
+    begin = "2020-10-21 19:03:24.000000"
+    end = "2020-10-21 19:53:50.000000"
+    consumer = kafka_helper.get_kafka_consumer(KAFKA_EVENTS_WAL)
+    for msg in consumer:
+        if not msg.get("now", None):
+            continue
+        ts = parser.isoparse(msg["now"])
+        if begin <= ts and ts <= end:
+            print("Processing event recieved at %s" % (msg["now"],))
+            process_event(
+                distinct_id=msg["distinct_id"],
+                ip=msg["ip"],
+                site_url=msg["site_url"],
+                data=msg["data"],
+                team_id=msg["team_id"],
+                now=msg["now"],
+                sent_at=msg["sent_at"],
+            )
