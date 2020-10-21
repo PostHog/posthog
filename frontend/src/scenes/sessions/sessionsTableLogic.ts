@@ -129,7 +129,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 }
                 const index = recordings.indexOf(recordingId)
                 const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
-                if (index < recordings.length - 1) {
+                if (index !== -1 && index < recordings.length - 1) {
                     result.next = recordings[index + 1]
                 }
                 if (index > 0) {
