@@ -322,7 +322,7 @@ class EventViewSet(viewsets.ModelViewSet):
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         team = self.request.user.team
         snapshots = SessionRecording().run(
-            team=team, filter=None, session_recording_id=request.GET.get("session_recording_id")
+            team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )
 
         return response.Response({"result": snapshots})

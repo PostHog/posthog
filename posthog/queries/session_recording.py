@@ -7,9 +7,9 @@ from posthog.queries.base import BaseQuery
 
 
 class SessionRecording(BaseQuery):
-    def run(self, filter: Filter, team: Team, session_recording_id: str, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = Event.objects.filter(team=team, event="$snapshot").filter(
-            **{"properties__$session_id": session_recording_id}
+            **{"properties__$session_id": kwargs["session_recording_id"]}
         )
         return list(sorted((e.properties["$snapshot_data"] for e in events), key=lambda s: s["timestamp"]))
 
