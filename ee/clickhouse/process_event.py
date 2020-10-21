@@ -154,7 +154,13 @@ else:
 
 
 def log_event(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
+    distinct_id: str,
+    ip: str,
+    site_url: str,
+    data: dict,
+    team_id: int,
+    now: datetime.datetime,
+    sent_at: Optional[datetime.datetime],
 ) -> None:
     data = {
         "distinct_id": distinct_id,
@@ -162,8 +168,8 @@ def log_event(
         "site_url": site_url,
         "data": json.dumps(data),
         "team_id": team_id,
-        "now": now,
-        "sent_at": sent_at,
+        "now": now.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M:%S.%f") if sent_at else "",
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_EVENTS_WAL, data=data)
