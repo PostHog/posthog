@@ -198,6 +198,8 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
+import json
+
 import kafka_helper  # type: ignore
 from dateutil import parser
 
@@ -219,7 +221,7 @@ def replay():
                 distinct_id=val["distinct_id"],
                 ip=val["ip"],
                 site_url=val["site_url"],
-                data=val["data"],
+                data=json.loads(val["data"]),
                 team_id=val["team_id"],
                 now=val["now"],
                 sent_at=val["sent_at"],
