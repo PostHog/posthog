@@ -76,9 +76,8 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
-            team = Team.objects.create(
-                **validated_data, organization=request.user.organization, completed_snippet_onboarding=True
-            )
+            validated_data.setdefault("completed_snippet_onboarding", True)
+            team = Team.objects.create(**validated_data, organization=request.user.organization)
             request.user.current_team = team
             request.user.save()
         return team
