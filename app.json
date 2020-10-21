@@ -8,6 +8,9 @@
             "scripts": {
                 "postdeploy": "python manage.py setup_dev"
             },
+            "env": {
+                "SELF_CAPTURE": true
+            },
             "buildpacks": [
                 { "url": "heroku/nodejs" },
                 { "url": "https://github.com/timgl/heroku-buildpack-python.git" }
