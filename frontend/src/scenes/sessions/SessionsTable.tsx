@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Drawer } from 'antd'
+import { Table, Button, Spin, Space } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -13,7 +13,7 @@ import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import SessionsPlayer from 'scenes/sessions/SessionsPlayer'
+import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -29,9 +29,9 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         isLoadingNext,
         selectedDate,
         filters,
-        sessionPlayerParams,
+        sessionRecordingId,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters, closeSessionPlayer } = useActions(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
@@ -101,7 +101,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         columns.push({
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
-                return <SessionsPlayerButton session={session}></SessionsPlayerButton>
+                return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
         })
@@ -134,17 +134,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {!!sessionPlayerParams && (
-                <Drawer
-                    title="Session recording"
-                    width={1000}
-                    onClose={closeSessionPlayer}
-                    destroyOnClose={true}
-                    visible={true}
-                >
-                    <SessionsPlayer />
-                </Drawer>
-            )}
+            {!!sessionRecordingId && <SessionsPlayerDrawer />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

@@ -133,7 +133,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     result.next = recordings[index + 1]
                 }
                 if (index > 0) {
-                    result.next = recordings[index - 1]
+                    result.prev = recordings[index - 1]
                 }
                 return result
             },

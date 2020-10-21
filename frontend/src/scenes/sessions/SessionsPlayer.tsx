@@ -1,30 +1,27 @@
-import { useValues } from 'kea'
-import { Loading } from 'lib/utils'
 import React, { useEffect, useRef } from 'react'
 import rrwebPlayer from 'rrweb-player'
 import 'rrweb-player/dist/style.css'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { eventWithTime } from 'rrweb/typings/types'
 
-export default function SessionsPlayer(): JSX.Element {
+export default function SessionsPlayer({ events }: { events: eventWithTime[] }): JSX.Element {
     const target = useRef<HTMLDivElement | null>(null)
-    const { sessionPlayerData, sessionPlayerDataLoading } = useValues(sessionsTableLogic)
 
     useEffect(() => {
-        if (target.current && !sessionPlayerDataLoading) {
+        if (target.current) {
             const player = new rrwebPlayer({
                 target: target.current,
                 // eslint-disable-next-line
                 // @ts-ignore
                 props: {
                     width: 952,
-                    events: sessionPlayerData,
+                    events,
                     autoPlay: true,
                 },
             })
 
             return () => player.pause()
         }
-    }, [sessionPlayerDataLoading])
+    }, [])
 
-    return sessionPlayerDataLoading ? <Loading /> : <div ref={target} id="sessions-player"></div>
+    return <div ref={target} id="sessions-player"></div>
 }
