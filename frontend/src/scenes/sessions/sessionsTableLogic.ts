@@ -14,7 +14,7 @@ type SessionRecordingId = string
 type Params = {
     date?: string
     properties?: any
-    sessionRecordingId?: SessionRecordingId,
+    sessionRecordingId?: SessionRecordingId
 }
 
 const buildURL = (selectedDateURLparam: string, sessionRecordingId: SessionRecordingId | null): [string, Params] => {
@@ -113,20 +113,30 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
-        sessionRecordingIds: [
+        orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
-            (sessions: Array<SessionType>): string[] =>
-                sessions.flatMap((session) => session.session_recording_ids)
+            (sessions: SessionType[]): SessionRecordingId[] =>
+                sessions.flatMap((session) => session.session_recording_ids),
         ],
-        playerSessionIndex: [
-            (selectors) => [selectors.sessions, selectors.sessionPlayerParams],
-            (sessions: SessionType[], params: RecordingParams | null) => {
-                if (!params) {
-                    return null
+        sessionRecordingNavigation: [
+            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
+            (
+                recordings: SessionRecordingId[],
+                recordingId: SessionRecordingId | null
+            ): { next?: SessionRecordingId; prev?: SessionRecordingId } => {
+                if (recordingId === null) {
+                    return {}
                 }
-                const index
-                params && sessions.findIndex((session) => session.session_recording_ids.includes(params.sessionRecordingId))
-            }
+                const index = recordings.indexOf(recordingId)
+                const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
+                if (index < recordings.length - 1) {
+                    result.next = recordings[index + 1]
+                }
+                if (index > 0) {
+                    result.next = recordings[index - 1]
+                }
+                return result
+            },
         ],
     },
     listeners: ({ values, actions }) => ({
