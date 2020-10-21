@@ -178,8 +178,8 @@ SELECT
 FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
-ORDER BY ewap.timestamp DESC {limit}
+{conditions}
+ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
@@ -194,9 +194,10 @@ SELECT
     ewap.created_at
 FROM events_with_array_props_view AS ewap
 WHERE 
-ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+team_id = %(team_id)s
+{conditions}
 {filters}
-ORDER BY ewap.timestamp DESC {limit}
+ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
@@ -219,7 +220,7 @@ WHERE {filters} AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events order by timestamp limit 1
+SELECT timestamp from events order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

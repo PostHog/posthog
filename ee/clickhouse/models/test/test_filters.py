@@ -54,10 +54,18 @@ class TestClickhouseFiltering(
         person1 = Person.objects.create(
             team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": "something"}
         )
+
         cohort1 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
         )
-        cohort1.people.add(person1)
+
+        person2_distinct_id = "person2"
+        person2 = Person.objects.create(
+            team=self.team, distinct_ids=[person2_distinct_id], properties={"$some_prop": "different"}
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop__is_not": "something"}}], name="cohort2"
+        )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
 
@@ -67,8 +75,19 @@ class TestClickhouseFiltering(
         """.format(
             prop_clause=prop_clause
         )
+        # get distinct_id column of result
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
+        self.assertEqual(result, person1_distinct_id)
 
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][
-            2
-        ]  # get person_id column of result
-        self.assertTrue(result)
+        # test cohort2 with negation
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
+        prop_clause, prop_clause_params = parse_prop_clauses("uuid", filter.properties, self.team)
+        query = """
+        SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
+        """.format(
+            prop_clause=prop_clause
+        )
+        # get distinct_id column of result
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
+
+        self.assertEqual(result, person2_distinct_id)

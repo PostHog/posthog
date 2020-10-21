@@ -386,7 +386,7 @@ GROUP BY key ORDER BY count DESC LIMIT %(limit)s
 
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM person_distinct_id where person_id IN 
+SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN 
 (
     SELECT id
     FROM persons_properties_up_to_date_view AS ep

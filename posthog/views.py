@@ -2,6 +2,7 @@ from typing import Dict, Union
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
@@ -43,10 +44,19 @@ def system_status(request):
 
     metrics = list()
 
-    metrics.append({"metric": "Redis alive", "value": str(redis_alive)})
-    metrics.append({"metric": "Postgres DB alive", "value": str(postgres_alive)})
+    metrics.append({"metric": "Redis alive", "value": redis_alive})
+    metrics.append({"metric": "Postgres DB alive", "value": postgres_alive})
 
     if postgres_alive:
+        postgres_version = connection.cursor().connection.server_version
+        metrics.append(
+            {
+                "metric": "Postgres server version",
+                "value": "{}.{}.{}".format(
+                    int(postgres_version / 100 / 100), int(postgres_version / 100) % 100, postgres_version % 100
+                ),
+            }
+        )
         event_table_count = get_table_approx_count(Event._meta.db_table)[0]["approx_count"]
         event_table_size = get_table_size(Event._meta.db_table)[0]["size"]
 
@@ -64,7 +74,9 @@ def system_status(request):
         try:
             redis_info = get_redis_info()
             redis_queue_depth = get_redis_queue_depth()
+            metrics.append({"metric": "Redis version", "value": f"{redis_info['redis_version']}"})
             metrics.append({"metric": "Redis current queue depth", "value": f"{redis_queue_depth}"})
+            metrics.append({"metric": "Redis connected client count", "value": f"{redis_info['connected_clients']}"})
             metrics.append({"metric": "Redis memory used", "value": f"{redis_info['used_memory_human']}"})
             metrics.append({"metric": "Redis memory peak", "value": f"{redis_info['used_memory_peak_human']}"})
             metrics.append(
