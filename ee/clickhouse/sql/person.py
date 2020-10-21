@@ -275,7 +275,7 @@ SELECT key, count(1) as count FROM (
 
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM person_distinct_id where person_id IN 
+SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN 
 (
     SELECT id FROM (
         SELECT
@@ -292,5 +292,5 @@ SELECT distinct_id FROM person_distinct_id where person_id IN
         ARRAY JOIN array_property_keys, array_property_values
     ) ep
     WHERE {filters}
-)
+) AND team_id = %(team_id)s
 """

@@ -59,6 +59,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv  # type: bool
+SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
 
 # Canonical base URL (used for email links)
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
