@@ -15,7 +15,7 @@ from posthog.tasks.process_event import process_event
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import process_event_ee
+    from ee.clickhouse.process_event import log_event, process_event_ee
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -162,8 +162,8 @@ def get_event(request):
                 ),
             )
 
-        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [444, 661, 171]:
-            process_event.delay(
+        if check_ee_enabled():
+            process_event_ee.delay(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],
@@ -172,8 +172,19 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
             )
-        if check_ee_enabled():
-            process_event_ee.delay(
+            # log the event to kafka write ahead log for processing
+            log_event(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
+
+        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [444, 661, 171]:
+            process_event.delay(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],

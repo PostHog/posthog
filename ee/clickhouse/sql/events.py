@@ -1,4 +1,4 @@
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 

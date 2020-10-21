@@ -1,4 +1,5 @@
 import datetime
+import json
 from typing import Dict, Optional
 from uuid import UUID
 
@@ -6,6 +7,8 @@ from celery import shared_task
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import emit_omni_person
+from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.team import Team
@@ -148,3 +151,25 @@ else:
     def process_event_ee(*args, **kwargs) -> None:
         # Noop if ee is not enabled
         return
+
+
+def log_event(
+    distinct_id: str,
+    ip: str,
+    site_url: str,
+    data: dict,
+    team_id: int,
+    now: datetime.datetime,
+    sent_at: Optional[datetime.datetime],
+) -> None:
+    data = {
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M:%S.%f") if sent_at else "",
+    }
+    p = KafkaProducer()
+    p.produce(topic=KAFKA_EVENTS_WAL, data=data)
