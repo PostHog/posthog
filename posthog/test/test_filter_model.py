@@ -170,15 +170,35 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 event="$pageview",
                 properties={"$current_url": "https://something.com", "another_key": "value",},
             )
-            event_factory(
+            event_p2 = event_factory(
                 team=self.team,
                 distinct_id="person2",
                 event="$pageview",
                 properties={"$current_url": "https://something.com"},
             )
+
+            # test for leakage
+            team2 = Team.objects.create()
+            person_team2 = person_factory(
+                team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
+            )
+            event_team2 = event_factory(
+                team=team2,
+                distinct_id="person_team_2",
+                event="$pageview",
+                properties={"$current_url": "https://something.com", "another_key": "value",},
+            )
+
             filter = Filter(data={"properties": [{"key": "group", "value": "some group", "type": "person"}]})
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(len(events), 1)
+
+            filter = Filter(
+                data={"properties": [{"key": "group", "operator": "is_not", "value": "some group", "type": "person"}]}
+            )
+            events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
+            self.assertEqual(events[0]["id"], event_p2.pk)
             self.assertEqual(len(events), 1)
 
         def test_user_properties_numerical(self):
