@@ -6,7 +6,6 @@ from uuid import UUID
 from celery import shared_task
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import emit_omni_person
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
@@ -64,14 +63,6 @@ def _capture_ee(
         distinct_id=distinct_id,
         elements=elements_list,
     )
-    emit_omni_person(
-        event_uuid=event_uuid,
-        uuid=person_uuid,
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        properties=properties,
-    )
 
 
 if check_ee_enabled():
@@ -80,58 +71,11 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
-        properties = data.get("properties", None)
+        properties = data.get("properties", data.get("$set", {}))
         person_uuid = UUIDT()
         event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
 
-        if data["event"] == "$create_alias":
-            emit_omni_person(
-                event_uuid=event_uuid,
-                uuid=person_uuid,
-                team_id=team_id,
-                distinct_id=distinct_id,
-                timestamp=ts,
-                properties=properties,
-            )
-            emit_omni_person(
-                event_uuid=event_uuid,
-                uuid=person_uuid,
-                team_id=team_id,
-                distinct_id=properties["alias"],
-                timestamp=ts,
-                properties=properties,
-            )
-        elif data["event"] == "$identify":
-            if properties and properties.get("$anon_distinct_id"):
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=distinct_id,
-                    timestamp=ts,
-                    properties=properties,
-                )
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=properties["$anon_distinct_id"],
-                    timestamp=ts,
-                    properties=properties,
-                )
-            if data.get("$set"):
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=distinct_id,
-                    timestamp=ts,
-                    properties=data["$set"],
-                    is_identified=True,
-                )
-
-        properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
             event_uuid=event_uuid,
             person_uuid=person_uuid,

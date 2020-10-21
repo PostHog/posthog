@@ -26,7 +26,7 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_PROPERTIES,
 )
 from ee.kafka_client.client import ClickhouseProducer, KafkaProducer
-from ee.kafka_client.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
@@ -50,36 +50,6 @@ if settings.EE_AVAILABLE and check_ee_enabled():
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         delete_person(instance.uuid)
-
-
-def emit_omni_person(
-    event_uuid: UUID,
-    team_id: int,
-    distinct_id: str,
-    uuid: Optional[UUID] = None,
-    properties: Optional[Dict] = {},
-    sync: bool = False,
-    is_identified: bool = False,
-    timestamp: Optional[datetime.datetime] = None,
-) -> UUID:
-    if not uuid:
-        uuid = UUIDT()
-
-    if not timestamp:
-        timestamp = now()
-
-    data = {
-        "event_uuid": str(event_uuid),
-        "uuid": str(uuid),
-        "distinct_id": distinct_id,
-        "team_id": team_id,
-        "properties": json.dumps(properties),
-        "is_identified": int(is_identified),
-        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-    }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_OMNI_PERSON, data=data)
-    return uuid
 
 
 def create_person(
