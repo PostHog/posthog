@@ -47,7 +47,7 @@
         "kea-router": "^0.4.0",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.5.0",
+        "posthog-js": "1.5.1-beta.0",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-string": "^6.13.1",
