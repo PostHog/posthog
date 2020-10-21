@@ -113,6 +113,21 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
+        sessionRecordingIds: [
+            (selectors) => [selectors.sessions],
+            (sessions: Array<SessionType>): string[] =>
+                sessions.flatMap((session) => session.session_recording_ids)
+        ],
+        playerSessionIndex: [
+            (selectors) => [selectors.sessions, selectors.sessionPlayerParams],
+            (sessions: SessionType[], params: RecordingParams | null) => {
+                if (!params) {
+                    return null
+                }
+                const index
+                params && sessions.findIndex((session) => session.session_recording_ids.includes(params.sessionRecordingId))
+            }
+        ],
     },
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async (_, breakpoint) => {
