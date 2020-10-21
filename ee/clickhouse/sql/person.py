@@ -84,7 +84,8 @@ PERSONS_UP_TO_DATE_MATERIALIZED_VIEW = """
 CREATE MATERIALIZED VIEW persons_up_to_date
 ENGINE = AggregatingMergeTree() ORDER BY (
     id,
-    team_id
+    team_id,
+    updated_at
 )
 POPULATE
 AS SELECT  
