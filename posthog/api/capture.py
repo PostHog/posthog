@@ -211,8 +211,10 @@ def replay(b=True):
     for msg in consumer:
         val = msg.value
         if not val.get("now", None):
+            print("value 'now' not found")
             continue
         ts = parser.isoparse(val["now"])
+        print("Found event with timestamp %s - skipping" % (ts,))
         if begin <= ts and ts <= end:
             print("Processing event received at %s" % (val["now"],))
             process_event(
