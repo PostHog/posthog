@@ -11,9 +11,6 @@ from posthog.permissions import OrganizationAdminWritePermissions, OrganizationM
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
-    last_used_by_id = serializers.IntegerField(source="last_used_by.id", read_only=True)
-    last_used_by_email = serializers.CharField(source="last_used_by.email", read_only=True)
-    last_used_by_first_name = serializers.CharField(source="last_used_by.first_name", read_only=True)
     created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
     created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
@@ -23,10 +20,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "target_email",
-            "uses",
-            "last_used_by_id",
-            "last_used_by_email",
-            "last_used_by_first_name",
             "created_by_id",
             "created_by_email",
             "created_by_first_name",
@@ -35,10 +28,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "uses",
-            "last_used_by_id",
-            "last_used_by_email",
-            "last_used_by_first_name",
             "created_by_id",
             "created_by_email",
             "created_by_first_name",
@@ -76,7 +65,7 @@ class OrganizationInviteViewSet(
             if parents_query_dict["organization_id"] == "@current":
                 parents_query_dict["organization_id"] = self.request.user.organization.id
             try:
-                return queryset.filter(**parents_query_dict).select_related("created_by").select_related("last_used_by")
+                return queryset.filter(**parents_query_dict).select_related("created_by")
             except ValueError:
                 raise exceptions.NotFound()
         else:

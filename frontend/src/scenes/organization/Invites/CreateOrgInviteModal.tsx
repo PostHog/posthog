@@ -28,7 +28,7 @@ export function CreateOrgInviteModal({
 
     return (
         <Modal
-            title="Creating an Organization Invite"
+            title="Inviting Teammate"
             okText="Create Invite"
             cancelText="Cancel"
             onOk={() => {
@@ -47,9 +47,7 @@ export function CreateOrgInviteModal({
             onCancel={closeModal}
             visible={isVisible}
         >
-            <p>
-                Only the user with the specified email address will be able to use the invite. Double check for typos!
-            </p>
+            <p>Create an invite for a teammate with a specific email address.</p>
             <Input addonBefore="Email address" ref={emailRef} maxLength={254} type="email" />
             {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
         </Modal>

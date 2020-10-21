@@ -8,6 +8,7 @@ import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { UserType } from '~/types'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export const Invites = hot(_Invites)
 function _Invites({ user }: { user: UserType }): JSX.Element {
@@ -44,20 +45,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
 
     const columns = [
         {
-            title: 'ID',
-            dataIndex: 'id',
-            key: 'id',
-            render: function InviteLink(id: string): JSX.Element {
-                return <a href={`/signup/${id}`}>{id}</a>
-            },
-        },
-        {
-            title: 'Uses So Far',
-            dataIndex: 'uses',
-            key: 'uses',
-        },
-        {
-            title: 'Email',
+            title: 'Target Email',
             dataIndex: 'target_email',
             key: 'target_email',
             render: function TargetEmail(target_email: string | null): JSX.Element | string {
@@ -71,23 +59,20 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             render: (createdAt: string) => humanFriendlyDetailedTime(createdAt),
         },
         {
-            title: 'Last Used By',
-            dataIndex: 'last_used_by_first_name',
-            key: 'last_used_by',
-            render: function LastUsedBy(lastUsedByFirstName: string, invite: Record<string, any>) {
-                return invite.last_used_by_id ? (
-                    `${lastUsedByFirstName} (${invite.last_used_by_email})`
-                ) : (
-                    <i>no one yet</i>
-                )
-            },
-        },
-        {
             title: 'Created By',
             dataIndex: 'created_by_first_name',
             key: 'created_by',
             render: (createdByFirstName: string, invite: Record<string, any>) =>
                 `${createdByFirstName} (${invite.created_by_email})`,
+        },
+        {
+            title: 'Link',
+            dataIndex: 'id',
+            key: 'link',
+            render: function InviteLink(id: string): JSX.Element {
+                const url = new URL(`/signup/${id}`, document.baseURI).href
+                return <CopyToClipboardInline description="invite URL">{url}</CopyToClipboardInline>
+            },
         },
         {
             title: '',
@@ -112,7 +97,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
                     setIsCreateInviteModalVisible(true)
                 }}
             >
-                + Create an Invite
+                + Invite Teammate
             </Button>
             <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
             <div style={{ marginTop: '1rem' }}>

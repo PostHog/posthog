@@ -121,12 +121,7 @@ class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
     )
-    uses: models.PositiveIntegerField = models.PositiveIntegerField(default=0)
-    max_uses: models.PositiveIntegerField = models.PositiveIntegerField(null=True, blank=True, default=None)
-    target_email: models.EmailField = models.EmailField(null=True, blank=True, default=None, db_index=True)
-    last_used_by: models.ForeignKey = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, related_name="+", null=True,
-    )
+    target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -137,45 +132,26 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        constraints = [
-            models.CheckConstraint(check=models.Q(uses__lte=models.F("max_uses")), name="max_uses_respected")
-        ]
-
-    def validate(self, user: Optional[Any] = None) -> None:
-        if user is not None and self.target_email is not None and user.email != self.target_email:
-            raise ValueError("Invite intended for another user email.")
-        if self.max_uses is not None and self.uses >= self.max_uses:
-            raise ValueError("Uses limit used up.")
-        if (
-            user is not None
-            and OrganizationMembership.objects.filter(organization=self.organization, user=user).exists()
-        ):
+    def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
+        email = email or user.email
+        if email != self.target_email:
+            raise ValueError("Invite is not intended for this email.")
+        if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
-        if self.target_email:
-            if user is not None and self.target_email != user.email:
-                raise ValueError("User's email differs from the one the invite is for.")
-            if OrganizationMembership.objects.filter(
-                organization=self.organization, user__email=self.target_email
-            ).exists():
-                raise ValueError("Target email already is a member of the organization.")
+        if OrganizationMembership.objects.filter(
+            organization=self.organization, user__email=self.target_email
+        ).exists():
+            raise ValueError("Target email already is a member of the organization.")
 
-    def use(self, user: Any, *, validate: bool = False):
-        if validate:
-            self.validate(user)
+    def use(self, user: Any, *, prevalidated: bool = False) -> None:
+        if not prevalidated:
+            self.validate(user=user)
         self.organization.members.add(user)
-        save_user = False
         if user.current_organization is None:
             user.current_organization = self.organization
-            save_user = True
-        if user.current_team is None:
             user.current_team = user.current_organization.teams.first()
-            save_user = True
-        if save_user:
             user.save()
-        self.last_used_by = user
-        self.uses += 1
-        self.save()
+        self.delete()
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}/"

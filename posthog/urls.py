@@ -75,10 +75,10 @@ def signup_to_organization_view(request, invite_id):
         already_exists = User.objects.filter(email=email).exists()
         custom_error = None
         try:
-            invite.validate()
+            invite.validate(user=None, email=email)
         except ValueError as e:
             custom_error = str(e)
-        if already_exists or not valid_inputs:
+        if already_exists or not valid_inputs or custom_error:
             return render_template(
                 "signup_to_organization.html",
                 request=request,
@@ -95,7 +95,7 @@ def signup_to_organization_view(request, invite_id):
         user = User.objects.create_and_join(
             organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in,
         )
-        invite.use(user)
+        invite.use(user, prevalidated=True)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
@@ -129,7 +129,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         )
         return HttpResponse(processed, status=401)
 
-    fields = dict((name, kwargs.get(name, details.get(name))) for name in backend.setting("USER_FIELDS", ["email"]))
+    fields = {name: kwargs.get(name, details.get(name)) for name in backend.setting("USER_FIELDS", ["email"])}
 
     if not fields:
         return
@@ -141,7 +141,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         return HttpResponse(processed, status=401)
 
     try:
-        invite.validate()
+        invite.validate(user=None, email=fields["email"])
     except ValueError as e:
         processed = render_to_string("auth_error.html", {"message": str(e)},)
         return HttpResponse(processed, status=401)
@@ -156,7 +156,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             },
         )
         return HttpResponse(processed, status=401)
-    invite.use(user)
+    invite.use(user, prevalidated=True)
     posthoganalytics.capture(
         user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False},
     )

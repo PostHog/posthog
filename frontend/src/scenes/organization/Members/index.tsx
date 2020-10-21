@@ -96,7 +96,7 @@ function _Members({ user }: MembersProps): JSX.Element {
                     setIsCreateInviteModalVisible(true)
                 }}
             >
-                + Create an Invite
+                + Invite Teammate
             </Button>
             <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
             <div style={{ marginTop: '1rem' }}>
