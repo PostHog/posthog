@@ -204,9 +204,9 @@ from dateutil import parser
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 
 
-def replay():
-    begin = "2020-10-21 19:03:24.000000"
-    end = "2020-10-21 19:53:50.000000"
+def replay(b=True):
+    begin = parser.isoparse("2020-10-21 19:03:24.000000")
+    end = parser.isoparse("2020-10-21 19:53:50.000000")
     consumer = kafka_helper.get_kafka_consumer(KAFKA_EVENTS_WAL)
     for msg in consumer:
         val = msg.value
@@ -224,3 +224,5 @@ def replay():
                 now=val["now"],
                 sent_at=val["sent_at"],
             )
+        if b:
+            break
