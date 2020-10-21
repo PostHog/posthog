@@ -77,7 +77,7 @@ argMaxState(is_identified, created_at) is_identified,
 argMaxState(properties, created_at) properties,
 minState(created_at) created_at_,
 maxState(created_at) updated_at
-FROM person
+FROM {table_name}
 GROUP BY id
 """.format(
     table_name=PERSONS_TABLE
