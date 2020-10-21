@@ -198,6 +198,7 @@ def get_event(request):
 
 import json
 
+import kafka
 import kafka_helper  # type: ignore
 from dateutil import parser
 
@@ -207,7 +208,14 @@ from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 def replay(b=True):
     begin = parser.isoparse("2020-10-21 19:03:24.000000")
     end = parser.isoparse("2020-10-21 19:53:50.000000")
-    consumer = kafka_helper.get_kafka_consumer(KAFKA_EVENTS_WAL)
+    consumer = kafka.KafkaConsumer(
+        KAFKA_EVENTS_WAL,
+        auto_offset_reset="earliest",
+        bootstrap_servers=kafka_helper.get_kafka_brokers(),
+        security_protocol="SSL",
+        ssl_context=kafka_helper.get_kafka_ssl_context(),
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+    )
     for msg in consumer:
         val = msg.value
         if not val.get("now", None):
