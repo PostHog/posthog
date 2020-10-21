@@ -315,14 +315,12 @@ class EventViewSet(viewsets.ModelViewSet):
     # ******************************************
     # /event/session_recording
     # params:
-    # - distinct_id: (string) specifies whose recording to fetch
     # - session_recording_id: (string) id of the session recording
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         events = Event.objects.filter(team=request.user.team, event="$snapshot").filter(
             **{
-                "distinct_id": request.GET.get("distinct_id"),
                 "properties__$session_id": request.GET.get("session_recording_id"),
             }
         )
