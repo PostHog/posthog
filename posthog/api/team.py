@@ -24,7 +24,7 @@ from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermission
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and administrate multiple projects."
+    message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if (
@@ -76,7 +76,9 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
-            team = Team.objects.create(**validated_data, organization=request.user.organization)
+            team = Team.objects.create(
+                **validated_data, organization=request.user.organization, completed_snippet_onboarding=True
+            )
             request.user.current_team = team
             request.user.save()
         return team

@@ -529,3 +529,8 @@ export function sample<T>(items: T[], size: number): T[] {
     }
     return results
 }
+
+export function sampleSingle<T>(items: T[]): T[] {
+    if (!items.length) throw Error('Items array is empty!')
+    return [items[Math.floor(Math.random() * items.length)]]
+}

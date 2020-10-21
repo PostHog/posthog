@@ -5,7 +5,7 @@ import {
     ProjectOutlined,
     SmileOutlined,
     DeploymentUnitOutlined,
-    MailOutlined,
+    SettingOutlined,
     LogoutOutlined,
     PlusOutlined,
     EnterOutlined,
@@ -17,9 +17,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Link } from 'lib/components/Link'
+import api from 'lib/api'
 
 export function User(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { logout } = useActions(userLogic)
 
     return (
         <Dropdown
@@ -27,12 +29,12 @@ export function User(): JSX.Element {
                 <Menu>
                     <Menu.Item key="user-email">
                         <Link to="/me/settings">
-                            <MailOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                            <SettingOutlined size={1} style={{ marginRight: '0.5rem' }} />
                             {user ? user.email : <i>loading</i>}
                         </Link>
                     </Menu.Item>
                     <Menu.Item key="user-logout">
-                        <a href="/logout" data-attr="user-options-logout" style={{ color: red.primary }}>
+                        <a href="#" onClick={logout} data-attr="user-options-logout" style={{ color: red.primary }}>
                             <LogoutOutlined color={red.primary} size={1} style={{ marginRight: '0.5rem' }} />
                             Logout
                         </a>
@@ -40,9 +42,9 @@ export function User(): JSX.Element {
                 </Menu>
             }
         >
-            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" title="Me">
+            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light btn-top" title="Me">
                 <SmileOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                <b>{user ? user.name || user.email : <i>loading</i>}</b>
+                {user ? user.name || user.email : <i>loading</i>}
             </div>
         </Dropdown>
     )
@@ -83,6 +85,7 @@ function CreateOrganizationModal({
             onCancel={closeModal}
             visible={isVisible}
         >
+            <p>Organizations gather people building products together.</p>
             <Input
                 addonBefore="Name"
                 ref={inputRef}
@@ -98,7 +101,6 @@ function CreateOrganizationModal({
 export function Organization(): JSX.Element {
     const { user } = useValues(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
-    const { userUpdateRequest } = useActions(userLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     return (
@@ -112,12 +114,14 @@ export function Organization(): JSX.Element {
                                 organization.id !== user.organization.id && (
                                     <Menu.Item key={organization.id}>
                                         <a
-                                            href=""
-                                            onClick={() =>
-                                                userUpdateRequest({
+                                            href="#"
+                                            onClick={() => {
+                                                api.update('api/user', {
                                                     user: { current_organization_id: organization.id },
+                                                }).then(() => {
+                                                    location.reload()
                                                 })
-                                            }
+                                            }}
                                         >
                                             <EnterOutlined size={1} style={{ marginRight: '0.5rem' }} />
                                             {organization.name}
@@ -149,12 +153,12 @@ export function Organization(): JSX.Element {
             >
                 <div
                     data-attr="user-options-dropdown"
-                    className="btn btn-sm btn-light"
+                    className="btn btn-sm btn-light btn-top"
                     style={{ marginRight: '0.75rem' }}
                     title="Organizations"
                 >
                     <DeploymentUnitOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                    <b>{user ? user.organization.name : <i>loading</i>}</b>
+                    {user ? user.organization.name : <i>loading</i>}
                 </div>
             </Dropdown>
         </>
@@ -196,7 +200,18 @@ function CreateProjectModal({
             onCancel={closeModal}
             visible={isVisible}
         >
-            <Input addonBefore="Name" ref={inputRef} placeholder='for example "Anvil Shop"' maxLength={64} autoFocus />
+            <p>
+                Projects are a way of tracking multiple products under the umbrella of a single organization.
+                <br />
+                All organization members will be able to access the new project.
+            </p>
+            <Input
+                addonBefore="Name"
+                ref={inputRef}
+                placeholder='for example "Global Website"'
+                maxLength={64}
+                autoFocus
+            />
             {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
         </Modal>
     )
@@ -204,7 +219,6 @@ function CreateProjectModal({
 
 export function Projects(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { userUpdateRequest } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -220,8 +234,14 @@ export function Projects(): JSX.Element {
                                 (team.id !== user?.team.id && (
                                     <Menu.Item key={team.id}>
                                         <a
-                                            href=""
-                                            onClick={() => userUpdateRequest({ user: { current_team_id: team.id } })}
+                                            href="#"
+                                            onClick={() => {
+                                                api.update('api/user', { user: { current_team_id: team.id } }).then(
+                                                    () => {
+                                                        location.reload()
+                                                    }
+                                                )
+                                            }}
                                         >
                                             <EnterOutlined size={1} style={{ marginRight: '0.5rem' }} />
                                             {team.name}
@@ -253,12 +273,12 @@ export function Projects(): JSX.Element {
             >
                 <div
                     data-attr="user-options-dropdown"
-                    className="btn btn-sm btn-light"
+                    className="btn btn-sm btn-light btn-top"
                     style={{ marginRight: '0.75rem' }}
                     title="Organization Projects"
                 >
                     <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                    {user ? user.team ? <b>{user.team.name}</b> : <i>none yet</i> : <i>loading</i>}
+                    {!user ? <i>loading</i> : user.team ? user.team.name : <i>none yet</i>}
                 </div>
             </Dropdown>
         </>

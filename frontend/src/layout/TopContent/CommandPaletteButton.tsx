@@ -11,12 +11,12 @@ export function CommandPaletteButton(): JSX.Element {
     return (
         <span
             data-attr="command-palette-toggle"
-            className="btn btn-sm btn-light hide-when-small"
+            className="btn btn-sm btn-light btn-top hide-when-small"
             onClick={showPalette}
             title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
         >
             <SearchOutlined size={1} style={{ marginRight: '0.5rem' }} />
-            <b>{platformCommandControlKey('K')}</b>
+            {platformCommandControlKey('K')}
         </span>
     )
 }

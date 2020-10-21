@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { Row, Spin, Button } from 'antd'
+import { Button } from 'antd'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './logic'
@@ -93,6 +93,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             </div>
             <Button
                 type="primary"
+                data-attr="invite-teammate-button"
                 onClick={() => {
                     setIsCreateInviteModalVisible(true)
                 }}
@@ -100,15 +101,14 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
                 + Invite Teammate
             </Button>
             <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
-            <div style={{ marginTop: '1rem' }}>
-                {invitesLoading ? (
-                    <Row justify="center">
-                        <Spin />
-                    </Row>
-                ) : (
-                    <Table dataSource={invites} columns={columns} rowKey="id" pagination={false} />
-                )}
-            </div>
+            <Table
+                dataSource={invites}
+                columns={columns}
+                rowKey="id"
+                pagination={false}
+                loading={invitesLoading}
+                style={{ marginTop: '1rem' }}
+            />
         </>
     )
 }

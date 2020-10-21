@@ -4,7 +4,7 @@ import { teamLogicType } from 'types/scenes/teamLogicType'
 import { TeamType } from '~/types'
 
 export const teamLogic = kea<teamLogicType>({
-    loaders: () => ({
+    loaders: ({ values }) => ({
         currentTeam: [
             null as TeamType | null,
             {
@@ -15,6 +15,7 @@ export const teamLogic = kea<teamLogicType>({
                         return null
                     }
                 },
+                patchCurrentTeam: (patch: Partial<TeamType>) => ({ ...values.currentTeam, ...patch }),
                 createTeam: async (name: string) => await api.create('api/projects/', { name }),
             },
         ],

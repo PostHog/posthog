@@ -22,7 +22,7 @@ export const invitesLogic = kea({
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Invite <b>{invite.id}</b> successfully removed!
+                            <CheckCircleOutlined /> Invite for {invite.target_email} successfully removed!
                         </h1>
                     </div>
                 )

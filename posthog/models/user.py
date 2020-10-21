@@ -99,7 +99,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            membership = user.join(organization=organization, team=team or organization.teams.get(), level=level)
+            membership = user.join(organization=organization, team=team or organization.teams.first(), level=level)
             return user
 
 
@@ -141,14 +141,14 @@ class User(AbstractUser):
     @property
     def organization(self) -> Organization:
         if self.current_organization is None:
-            self.current_organization = self.organizations.get()
+            self.current_organization = self.organizations.first()
             self.save()
         return self.current_organization
 
     @property
     def team(self) -> Team:
         if self.current_team is None:
-            self.current_team = self.organization.teams.get()
+            self.current_team = self.organization.teams.first()
             self.save()
         return self.current_team
 
@@ -156,24 +156,30 @@ class User(AbstractUser):
         self,
         *,
         organization: Organization,
-        team: Team,
+        team: Optional[Team] = None,
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
-            team.users.add(self)
+            if team is not None:
+                team.users.add(self)
             self.current_organization = organization
-            self.current_team = team
+            self.current_team = team or organization.teams.first()
             self.save()
             return membership
 
-    def leave(self, *, organization: Organization, team: Team) -> None:
+    def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
         with transaction.atomic():
             OrganizationMembership.objects.get(user=self, organization=organization).delete()
-            team.users.remove(self)
-            self.current_organization = self.organizations.first()
-            if self.current_organization is not None:
-                self.current_team = self.current_organization.teams.first()
-            self.save()
+            if team is not None:
+                team.users.remove(self)
+            if self.organizations.exists():
+                self.delete()
+            else:
+                if self.current_organization == organization:
+                    self.current_organization = self.organizations.first()
+                if self.current_organization is not None:
+                    self.current_team = self.current_organization.teams.first()
+                self.save()
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

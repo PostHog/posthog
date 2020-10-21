@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { Row, Spin, Button } from 'antd'
+import { Button } from 'antd'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
@@ -26,7 +26,9 @@ function _Members({ user }: MembersProps): JSX.Element {
         (_text, member) => {
             function handleClick(): void {
                 confirm({
-                    title: `Remove ${member.user_first_name} from organization ${user.organization.name}?`,
+                    title: `${
+                        member.user_id == user.id ? 'Leave' : `Remove ${member.user_first_name} from`
+                    } organization ${user.organization.name}?`,
                     icon: <ExclamationCircleOutlined />,
                     okText: 'Delete',
                     okType: 'danger',
@@ -40,7 +42,11 @@ function _Members({ user }: MembersProps): JSX.Element {
             return (
                 <div>
                     <a className="text-danger" onClick={handleClick}>
-                        {member.id !== user.id ? <DeleteOutlined /> : <LogoutOutlined />}
+                        {member.user_id !== user.id ? (
+                            <DeleteOutlined title="Remove Member" />
+                        ) : (
+                            <LogoutOutlined title="Leave Organization" />
+                        )}
                     </a>
                 </div>
             )
@@ -84,7 +90,7 @@ function _Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">Organization Members - {user?.organization.name}</h1>
+            <h1 className="page-header">Organization Members – {user?.organization.name}</h1>
             <div style={{ maxWidth: 672 }}>
                 <i>
                     <p>View and manage all organization members here. Build an even better product together.</p>
@@ -92,6 +98,7 @@ function _Members({ user }: MembersProps): JSX.Element {
             </div>
             <Button
                 type="primary"
+                data-attr="invite-teammate-button"
                 onClick={() => {
                     setIsCreateInviteModalVisible(true)
                 }}
@@ -99,15 +106,14 @@ function _Members({ user }: MembersProps): JSX.Element {
                 + Invite Teammate
             </Button>
             <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
-            <div style={{ marginTop: '1rem' }}>
-                {membersLoading ? (
-                    <Row justify="center">
-                        <Spin />
-                    </Row>
-                ) : (
-                    <Table dataSource={members} columns={columns} rowKey="membership_id" pagination={false} />
-                )}
-            </div>
+            <Table
+                dataSource={members}
+                columns={columns}
+                rowKey="membership_id"
+                pagination={false}
+                style={{ marginTop: '1rem' }}
+                loading={membersLoading}
+            />
         </>
     )
 }

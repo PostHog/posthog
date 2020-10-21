@@ -39,7 +39,7 @@ function _Setup() {
             the library for the specific language or platform you're using. We support Python, Ruby, Node, Go, PHP, iOS,
             Android, and more.
             <Divider />
-            <h2 id="team-api-key">Project API Key</h2>
+            <h2 id="project-api-key">Project API Key</h2>
             You can use this write-only key in any one of{' '}
             <a href="https://posthog.com/docs/integrations">our libraries</a>.
             <CodeSnippet>{user.team.api_token}</CodeSnippet>

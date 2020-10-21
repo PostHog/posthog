@@ -13,7 +13,7 @@ class TestOrganizationAPI(APIBaseTest):
                 {
                     "attr": None,
                     "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and administrate multiple organizations.",
+                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
                     "type": "authentication_error",
                 },
             )

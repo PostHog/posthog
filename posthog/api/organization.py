@@ -12,7 +12,7 @@ from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermission
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and administrate multiple organizations."
+    message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if (

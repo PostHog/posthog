@@ -101,7 +101,7 @@ function _Annotations(): JSX.Element {
             <h1 className="page-header">Annotations</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>
-                    Here you can add organization- and team-wide annotations.
+                    Here you can add organization- and project-wide annotations.
                     <br />
                     Dashboard-specific ones can be added directly in the dashboard.
                     <br />

@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
@@ -70,3 +71,6 @@ class OrganizationMemberViewSet(
         obj = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)
         return obj
+
+    def perform_destroy(self, instance: OrganizationMembership):
+        instance.user.leave(organization=instance.organization)
