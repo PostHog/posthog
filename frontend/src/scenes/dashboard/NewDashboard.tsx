@@ -31,7 +31,7 @@ export function NewDashboard(): JSX.Element {
                 />
             </Form.Item>
 
-            <Form.Item name="copyFromTemplate" label="Start from" className={rrwebBlockClass}>
+            <Form.Item name="useTemplate" label="Start from" className={rrwebBlockClass}>
                 <Select data-attr="copy-from-template" style={{ width: '100%' }} defaultValue={''}>
                     <Select.Option data-attr="dashboard-select-1" value="">
                         Empty Dashboard

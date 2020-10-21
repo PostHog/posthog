@@ -104,7 +104,7 @@ function _Dashboards(): JSX.Element {
                                     addDashboard({
                                         name: 'New Dashboard',
                                         show: true,
-                                        copyFromTemplate: '',
+                                        useTemplate: '',
                                     })
                                 }
                             >
@@ -122,29 +122,11 @@ function _Dashboards(): JSX.Element {
                                     addDashboard({
                                         name: 'Default App Dashboard',
                                         show: true,
-                                        copyFromTemplate: 'DEFAULT_APP',
+                                        useTemplate: 'DEFAULT_APP',
                                     })
                                 }
                             >
                                 <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <AppstoreAddOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                        <Col xs={24} xl={6}>
-                            <Card
-                                title="Web Default"
-                                size="small"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    addDashboard({
-                                        name: 'Default Web Dashboard',
-                                        show: true,
-                                        copyFromTemplate: 'DEFAULT_WEB',
-                                    })
-                                }
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
                                     <AppstoreAddOutlined />
                                 </div>
                             </Card>
