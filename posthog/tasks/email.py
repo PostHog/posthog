@@ -20,32 +20,20 @@ def send_weekly_email_reports() -> None:
         logger.info("Skipping send_weekly_email_report because email is not properly configured")
         return
 
+    for team in Team.objects.all():
+        _send_weekly_email_report_for_team.delay(team_id=team.pk,)
+
+
+@app.task(max_retries=1)
+def _send_weekly_email_report_for_team(team_id: int) -> None:
+    """
+    Sends the weekly email report to all users in a team.
+    """
+
     period_start, period_end = get_previous_week()
 
     last_week_start: datetime.datetime = period_start - datetime.timedelta(7)
     last_week_end: datetime.datetime = period_end - datetime.timedelta(7)
-
-    for team in Team.objects.all():
-        _send_weekly_email_report_for_team.delay(
-            team_id=team.pk,
-            period_start=period_start,
-            period_end=period_end,
-            last_week_start=last_week_start,
-            last_week_end=last_week_end,
-        )
-
-
-@app.task(max_retries=1)
-def _send_weekly_email_report_for_team(
-    team_id: int,
-    period_start: datetime.datetime,
-    period_end: datetime.datetime,
-    last_week_start: datetime.datetime,
-    last_week_end: datetime.datetime,
-) -> None:
-    """
-    Sends the weekly email report to all users in a team.
-    """
 
     team = Team.objects.get(pk=team_id)
 
@@ -117,5 +105,4 @@ def _send_weekly_email_report_for_team(
         # TODO: Skip "unsubscribed" users
         message.add_recipient(user.email, user.first_name)
 
-    # TODO: Schedule retry on failed attempt
     message.send()

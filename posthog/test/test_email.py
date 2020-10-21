@@ -11,7 +11,7 @@ from freezegun import freeze_time
 
 from posthog.email import EmailMessage
 from posthog.models import Event, Organization, Person, Team, User
-from posthog.tasks.email import send_weekly_email_report
+from posthog.tasks.email import send_weekly_email_reports
 
 
 class TestEmail(TestCase):
@@ -70,9 +70,9 @@ class TestEmail(TestCase):
     def test_weekly_email_report(self) -> None:
 
         with self.settings(
-            EMAIL_HOST="localhost", SITE_URL="http://localhost:9999",
+            EMAIL_HOST="localhost", SITE_URL="http://localhost:9999", CELERY_TASK_ALWAYS_EAGER=True,
         ):
-            send_weekly_email_report()
+            send_weekly_email_reports()
 
         self.assertEqual(len(mail.outbox), 2)
         self.assertEqual(mail.outbox[0].to, ["test@posthog.com"])
@@ -100,8 +100,10 @@ class TestEmail(TestCase):
     @freeze_time("2020-09-21")
     def test_weekly_email_report_content(self, mock_email_message):
 
-        with self.settings(EMAIL_HOST="localhost"):
-            send_weekly_email_report()
+        with self.settings(
+            EMAIL_HOST="localhost", CELERY_TASK_ALWAYS_EAGER=True,
+        ):
+            send_weekly_email_reports()
 
         self.assertEqual(
             mock_email_message.call_args[0][0], "PostHog weekly report for Sep 14, 2020 to Sep 20",
