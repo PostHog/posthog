@@ -70,6 +70,7 @@ ENGINE = AggregatingMergeTree() ORDER BY (
     id,
     team_id
 )
+POPULATE
 AS SELECT  
 id,
 argMaxState(team_id, created_at) team_id,
