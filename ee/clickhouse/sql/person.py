@@ -15,7 +15,7 @@ DROP TABLE persons_up_to_date
 """
 
 DROP_PERSON_VIEW_SQL = """
-DROP TABLE persons_up_to_date_view
+DROP VIEW persons_up_to_date_view
 """
 
 PERSONS_TABLE = "person"
@@ -67,18 +67,17 @@ FROM kafka_{table_name}
 PERSONS_UP_TO_DATE_MATERIALIZED_VIEW = """
 CREATE MATERIALIZED VIEW persons_up_to_date
 ENGINE = AggregatingMergeTree() ORDER BY (
-    id_,
+    id,
     team_id
 )
-POPULATE
 AS SELECT  
-argMaxState(id, created_at) id_,
+id,
 argMaxState(team_id, created_at) team_id,
 argMaxState(is_identified, created_at) is_identified,
 argMaxState(properties, created_at) properties,
 minState(created_at) created_at_,
 maxState(created_at) updated_at
-FROM {table_name}
+FROM person
 GROUP BY id
 """.format(
     table_name=PERSONS_TABLE
@@ -88,14 +87,14 @@ PERSONS_UP_TO_DATE_VIEW = """
 CREATE VIEW persons_up_to_date_view
 AS
 SELECT 
-argMaxMerge(id_) as id,
+id,
 minMerge(created_at_) as created_at,
 argMaxMerge(team_id) as team_id,
 argMaxMerge(properties) as properties,
 argMaxMerge(is_identified) as is_identified,
 maxMerge(updated_at) as updated_at
 FROM persons_up_to_date 
-GROUP BY id_
+GROUP BY id
 """
 
 OMNI_PERSONS_TABLE = "omni_person"
@@ -262,6 +261,10 @@ ALTER TABLE person_distinct_id UPDATE person_id = %(person_id)s where distinct_i
 
 DELETE_PERSON_BY_ID = """
 ALTER TABLE person DELETE where id = %(id)s
+"""
+
+DELETE_PERSON_MATERIALIZED_BY_ID = """
+ALTER TABLE persons_up_to_date DELETE where id = %(id)s
 """
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
