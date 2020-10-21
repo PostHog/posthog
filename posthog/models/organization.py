@@ -133,7 +133,9 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
-        email = email or user.email
+        if not email:
+            assert user is not None, "Either user or email must be provided!"
+            email = user.email
         if email != self.target_email:
             raise ValueError("Invite is not intended for this email.")
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():

@@ -142,6 +142,7 @@ class User(AbstractUser):
     def organization(self) -> Organization:
         if self.current_organization is None:
             self.current_organization = self.organizations.first()
+            assert self.current_organization is not None, "Null current organization is not supported yet!"
             self.save()
         return self.current_organization
 
@@ -149,6 +150,7 @@ class User(AbstractUser):
     def team(self) -> Team:
         if self.current_team is None:
             self.current_team = self.organization.teams.first()
+            assert self.current_team is not None, "Null current team is not supported yet!"
             self.save()
         return self.current_team
 

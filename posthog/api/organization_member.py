@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Model, QuerySet, query
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
@@ -72,5 +74,6 @@ class OrganizationMemberViewSet(
         self.check_object_permissions(self.request, obj)
         return obj
 
-    def perform_destroy(self, instance: OrganizationMembership):
+    def perform_destroy(self, instance: Model):
+        instance = cast(OrganizationMembership, instance)
         instance.user.leave(organization=instance.organization)
