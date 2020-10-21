@@ -207,17 +207,18 @@ def replay():
     end = "2020-10-21 19:53:50.000000"
     consumer = kafka_helper.get_kafka_consumer(KAFKA_EVENTS_WAL)
     for msg in consumer:
-        if not msg.get("now", None):
+        val = msg.value
+        if not val.get("now", None):
             continue
-        ts = parser.isoparse(msg["now"])
+        ts = parser.isoparse(val["now"])
         if begin <= ts and ts <= end:
-            print("Processing event recieved at %s" % (msg["now"],))
+            print("Processing event received at %s" % (val["now"],))
             process_event(
-                distinct_id=msg["distinct_id"],
-                ip=msg["ip"],
-                site_url=msg["site_url"],
-                data=msg["data"],
-                team_id=msg["team_id"],
-                now=msg["now"],
-                sent_at=msg["sent_at"],
+                distinct_id=val["distinct_id"],
+                ip=val["ip"],
+                site_url=val["site_url"],
+                data=val["data"],
+                team_id=val["team_id"],
+                now=val["now"],
+                sent_at=val["sent_at"],
             )
