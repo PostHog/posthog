@@ -9,4 +9,4 @@ DATABASE_URL=postgres://localhost:5432/posthog_e2e_test celery -A posthog worker
 yarn add cypress@5.3.0
 CYPRESS_BASE_URL=http://localhost:8080 yarn run cypress open &
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080
-yarn remove cypress@5.3.0
+yarn remove cypress
