@@ -18,6 +18,22 @@ DROP_PERSON_VIEW_SQL = """
 DROP VIEW persons_up_to_date_view
 """
 
+DROP_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL = """
+DROP TABLE persons_with_array_props_view
+"""
+
+DROP_MAT_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL = """
+DROP TABLE persons_with_array_props_mv
+"""
+
+DROP_MAT_PERSONS_PROP_TABLE_SQL = """
+DROP TABLE persons_properties_view
+"""
+
+DROP_PERSONS_PROP_UP_TO_DATE_VIEW_SQL = """
+DROP VIEW persons_properties_up_to_date_view
+"""
+
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -97,6 +113,64 @@ maxMerge(updated_at) as updated_at
 FROM persons_up_to_date 
 GROUP BY id
 """
+
+PERSONS_WITH_PROPS_TABLE_SQL = """
+CREATE TABLE persons_with_array_props_view
+(
+    id UUID,
+    created_at DateTime64,
+    team_id Int64,
+    properties VARCHAR,
+    is_identified Boolean,
+    array_property_keys Array(VARCHAR),
+    array_property_values Array(VARCHAR),
+    _timestamp UInt64,
+    _offset UInt64
+) ENGINE = {engine} 
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (team_id, toDate(created_at), id)
+SAMPLE BY id 
+{storage_policy}
+""".format(
+    engine=table_engine("persons_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
+)
+
+MAT_PERSONS_WITH_PROPS_TABLE_SQL = """
+CREATE MATERIALIZED VIEW persons_with_array_props_mv
+TO persons_with_array_props_view
+AS SELECT
+id,
+created_at,
+team_id,
+properties,
+is_identified,
+arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
+arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
+_timestamp,
+_offset
+FROM person
+"""
+
+MAT_PERSONS_PROP_TABLE_SQL = """
+CREATE MATERIALIZED VIEW persons_properties_view
+ENGINE = MergeTree()
+ORDER BY (team_id, key, value, id)
+AS SELECT 
+id,
+team_id,
+array_property_keys as key,
+array_property_values as value,
+created_at
+from persons_with_array_props_view
+ARRAY JOIN array_property_keys, array_property_values
+"""
+
+PERSONS_PROP_UP_TO_DATE_VIEW = """
+CREATE VIEW persons_properties_up_to_date_view
+AS
+SELECT * FROM persons_properties_view WHERE (id, created_at) IN (SELECT id, maxMerge(updated_at) as latest FROM persons_up_to_date GROUP BY id)
+"""
+
 
 OMNI_PERSONS_TABLE = "omni_person"
 
