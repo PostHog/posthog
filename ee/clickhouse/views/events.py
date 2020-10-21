@@ -13,7 +13,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
 from posthog.api.event import EventViewSet
-from posthog.models import Filter, Person, Team
+from posthog.models import Filter, Team
 from posthog.utils import convert_property_value
 
 
@@ -22,9 +22,9 @@ class ClickhouseEvents(EventViewSet):
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
-        distinct_to_person: Dict[str, Person] = {}
+        distinct_to_person: Dict[str, Dict[str, Any]] = {}
         for person in persons:
-            for distinct_id in person.distinct_ids:
+            for distinct_id in person["distinct_ids"]:
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
