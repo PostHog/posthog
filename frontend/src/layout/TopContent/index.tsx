@@ -1,18 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { LatestVersion } from './LatestVersion'
 import { User } from './User'
 import { CommandPaletteButton } from './CommandPaletteButton'
 import { isMobile } from 'lib/utils'
-import { router } from 'kea-router'
 import './index.scss'
 import { Link } from 'lib/components/Link'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { topContentLogic } from './topContentLogic'
+import { useValues } from 'kea'
 
 export function TopContent(): JSX.Element {
-    const [{ backTo, backToURL }, setHashParams] = useState(router.values.hashParams)
-    useEffect(() => {
-        setHashParams(router.values.hashParams)
-    }, [router.values.hashParams])
+    const { backTo } = useValues(topContentLogic)
 
     return (
         <div className="content py-3 layout-top-content">
@@ -27,8 +25,8 @@ export function TopContent(): JSX.Element {
                 }}
             >
                 {backTo ? (
-                    <Link to={backToURL}>
-                        <ArrowLeftOutlined /> Back to {backTo}
+                    <Link to={backTo?.url}>
+                        <ArrowLeftOutlined /> Back to {backTo?.display}
                     </Link>
                 ) : (
                     !isMobile() && <CommandPaletteButton />
