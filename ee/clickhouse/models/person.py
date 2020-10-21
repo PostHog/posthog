@@ -151,7 +151,7 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet[Person]:
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team_id, persondistinctid__distinct_id__in=distinct_ids)
 
 
