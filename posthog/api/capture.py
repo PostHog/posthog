@@ -162,15 +162,16 @@ def get_event(request):
                 ),
             )
 
-        process_event.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
-        )
+        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [444, 661, 171]:
+            process_event.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
         if check_ee_enabled():
             process_event_ee.delay(
                 distinct_id=distinct_id,
