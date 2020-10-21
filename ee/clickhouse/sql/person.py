@@ -378,38 +378,18 @@ LIMIT 100 OFFSET %(offset)s
 """
 
 GET_PERSON_TOP_PROPERTIES = """
-SELECT key, count(1) as count FROM (
-    SELECT 
-    array_property_keys as key,
-    array_property_values as value
-    from (
-        SELECT
-            arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-            arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-        FROM persons_up_to_date_view WHERE team_id = %(team_id)s
-    )
-    ARRAY JOIN array_property_keys, array_property_values
-) GROUP BY key ORDER BY count DESC LIMIT %(limit)s
+SELECT key, count(1) as count FROM 
+persons_properties_up_to_date_view 
+WHERE team_id = %(team_id)s
+GROUP BY key ORDER BY count DESC LIMIT %(limit)s
 """
 
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id where person_id IN 
 (
-    SELECT id FROM (
-        SELECT
-        id, 
-        array_property_keys as key,
-        array_property_values as value
-        from (
-            SELECT
-                id,
-                arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-            FROM persons_up_to_date_view WHERE team_id = %(team_id)s
-        )
-        ARRAY JOIN array_property_keys, array_property_values
-    ) ep
-    WHERE {filters}
+    SELECT id
+    FROM persons_properties_up_to_date_view AS ep
+    WHERE {filters} AND team_id = %(team_id)s
 )
 """
