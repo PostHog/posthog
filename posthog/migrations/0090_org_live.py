@@ -57,4 +57,5 @@ class Migration(migrations.Migration):
             name="target_email",
             field=models.EmailField(db_index=True, max_length=254, null=True),
         ),
+        migrations.RemoveConstraint(model_name="organizationinvite", name="max_uses_respected",),
     ]
