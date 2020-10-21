@@ -10,7 +10,8 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models import Filter, Person, Team
+from posthog.models.filter import Filter
+from posthog.models.team import Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, friendly_time
 
@@ -280,14 +281,14 @@ class ClickhouseSessions(BaseQuery):
 
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
-        distinct_to_person: Dict[str, Person] = {}
+        distinct_to_person: Dict[str, Dict[str, Any]] = {}
         for person in persons:
-            for distinct_id in person.distinct_ids:
+            for distinct_id in person["distinct_ids"]:
                 distinct_to_person[distinct_id] = person
 
         for session in sessions:
             if distinct_to_person.get(session["distinct_id"], None):
-                session["properties"] = distinct_to_person[session["distinct_id"]].properties
+                session["properties"] = distinct_to_person[session["distinct_id"]]["properties"]
 
     def calculate_avg(self, filter: Filter, team: Team):
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
