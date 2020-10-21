@@ -10,6 +10,7 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.dynamodb.events import put_event
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
@@ -53,6 +54,8 @@ def create_event(
     }
     p = ClickhouseProducer()
     p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+
+    put_event(data)
     return str(event_uuid)
 
 
