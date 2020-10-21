@@ -163,7 +163,7 @@ def get_event(request):
             )
 
         if check_ee_enabled():
-            process_event_ee.delay(
+            process_event_ee(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],
@@ -183,15 +183,14 @@ def get_event(request):
                 sent_at=sent_at,
             )
         else:
-            if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [444, 661, 171]:
-                process_event.delay(
-                    distinct_id=distinct_id,
-                    ip=get_ip_address(request),
-                    site_url=request.build_absolute_uri("/")[:-1],
-                    data=event,
-                    team_id=team.id,
-                    now=now,
-                    sent_at=sent_at,
-                )
+            process_event.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
 
     return cors_response(request, JsonResponse({"status": 1}))
