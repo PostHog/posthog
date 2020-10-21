@@ -11,8 +11,8 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import ClickhouseProducer
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.team import Team
 
