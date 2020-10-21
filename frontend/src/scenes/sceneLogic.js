@@ -35,7 +35,7 @@ export const scenes = {
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
-export const unauthenticatedRoutes = ['preflight', 'signup']
+export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
