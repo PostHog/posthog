@@ -25,6 +25,7 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
+from posthog.queries.session_recording import SessionRecording
 from posthog.queries.sessions import Sessions
 from posthog.utils import (
     append_data,
@@ -319,9 +320,9 @@ class EventViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        events = Event.objects.filter(team=request.user.team, event="$snapshot").filter(
-            **{"properties__$session_id": request.GET.get("session_recording_id"),}
+        team = self.request.user.team
+        snapshots = SessionRecording().run(
+            team=team, filter=None, session_recording_id=request.GET.get("session_recording_id")
         )
-        snapshots = sorted((e.properties["$snapshot_data"] for e in events), key=lambda s: s["timestamp"])
 
-        return response.Response({"result": list(snapshots)})
+        return response.Response({"result": snapshots})
