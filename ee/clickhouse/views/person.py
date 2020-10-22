@@ -85,7 +85,6 @@ class ClickhousePerson(PersonViewSet):
             people = request.GET["id"].split(",")
             result = sync_execute(PEOPLE_SQL.format(content_sql=people), {"offset": 0})
         else:
-            print(PEOPLE_BY_TEAM_SQL.format(filters=all_filters))
             result = sync_execute(PEOPLE_BY_TEAM_SQL.format(filters=all_filters), params,)
 
         return result
