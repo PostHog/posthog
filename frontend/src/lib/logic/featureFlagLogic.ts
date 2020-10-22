@@ -4,19 +4,22 @@
     Use this instead of `window.posthog.isFeatureEnabled('feature')`
 */
 import { kea } from 'kea'
+import { PostHog } from 'posthog-js'
+
+type FeatureFlagsSet = { [flag: string]: boolean }
 
 export const featureFlagLogic = kea({
     actions: {
-        posthogFound: (posthog) => ({ posthog }),
-        setFeatureFlags: (featureFlags) => ({ featureFlags }),
+        posthogFound: (posthog: PostHog) => ({ posthog }),
+        setFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
     },
 
     reducers: {
         featureFlags: [
-            {},
+            {} as FeatureFlagsSet,
             {
-                setFeatureFlags: (state, { featureFlags }) => {
-                    const flags = {}
+                setFeatureFlags: (_: FeatureFlagsSet, { featureFlags }: { featureFlags: string[] }) => {
+                    const flags: FeatureFlagsSet = {}
                     for (const flag of featureFlags) {
                         flags[flag] = true
                     }
@@ -27,7 +30,7 @@ export const featureFlagLogic = kea({
     },
 
     listeners: ({ actions }) => ({
-        posthogFound: ({ posthog }) => {
+        posthogFound: ({ posthog }: { posthog: PostHog }) => {
             posthog.onFeatureFlags(actions.setFeatureFlags)
         },
     }),
