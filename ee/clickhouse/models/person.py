@@ -3,6 +3,7 @@ import json
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -120,14 +121,10 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
-    result = sync_execute(
-        GET_PERSONS_BY_DISTINCT_IDS,
-        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
+    return Person.objects.filter(
+        team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
     )
-    if len(result) > 0:
-        return list(ClickhousePersonSerializer(result, many=True).data)
-    return []
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
