@@ -101,7 +101,7 @@ class EmailMessage:
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
         self.headers: Dict = {}
-        self.to: List[str] = []
+        self.to: List[Dict[str, str]] = []
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})

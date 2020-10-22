@@ -481,4 +481,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 
 # TODO: Temporary
-EMAIL_REPORTS_ENABLED = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
+EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
