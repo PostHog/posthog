@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test.utils import tag
 from rest_framework import status
 
-from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
 from .base import APILicensedTest
