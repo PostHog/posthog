@@ -167,7 +167,9 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         title={
                             <span style={itemStyle} data-attr="menu-item-events">
                                 <ContainerOutlined />
-                                <span className="sidebar-label">{'Events'}</span>
+                                <span className="sidebar-label">
+                                    {!featureFlags['actions-ux-201012'] ? 'Events' : 'Events & Actions'}
+                                </span>
                             </span>
                         }
                         onTitleClick={() => {
@@ -177,7 +179,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     >
                         <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                             <ContainerOutlined />
-                            <span className="sidebar-label">{'All Events'}</span>
+                            {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
                             <Link to={'/events'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
@@ -185,11 +187,13 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Actions'}</span>
                             <Link to={'/actions'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                            <SyncOutlined />
-                            <span className="sidebar-label">{'Live Actions'}</span>
-                            <Link to={'/actions/live'} onClick={collapseSidebar} />
-                        </Menu.Item>
+                        {!featureFlags['actions-ux-201012'] && (
+                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
+                                <SyncOutlined />
+                                <span className="sidebar-label">{'Live Actions'}</span>
+                                <Link to={'/actions/live'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>
@@ -284,7 +288,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
                         <Menu.SubMenu
                             key="instance"
-                            data-attr="menu-item-instance"
                             title={
                                 <span style={itemStyle} data-attr="menu-item-instance">
                                     <CloudServerOutlined />
