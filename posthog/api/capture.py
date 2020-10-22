@@ -183,14 +183,16 @@ def get_event(request):
                 sent_at=sent_at,
             )
 
-        process_event.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
-        )
+        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
+        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572]:
+            process_event.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
 
     return cors_response(request, JsonResponse({"status": 1}))
