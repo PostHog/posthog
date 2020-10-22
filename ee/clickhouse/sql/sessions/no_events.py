@@ -2,9 +2,6 @@ SESSIONS_NO_EVENTS_SQL = """
 SELECT
     distinct_id,
     uuid,
-    event,
-    properties,
-    elements_chain,
     session_uuid,
     session_duration_seconds,
     timestamp,
@@ -14,9 +11,6 @@ FROM
     SELECT
         distinct_id,
         uuid,
-        event,
-        properties,
-        elements_chain,
         if(is_new_session, uuid, NULL) AS session_uuid,
         is_new_session,
         is_end_session,
@@ -28,9 +22,6 @@ FROM
         SELECT
             distinct_id,
             uuid,
-            event,
-            properties,
-            elements_chain,
             timestamp,
             neighbor(distinct_id, -1) AS start_possible_neighbor,
             neighbor(timestamp, -1) AS start_possible_prev_ts,
@@ -42,11 +33,8 @@ FROM
         (
             SELECT
                 uuid,
-                event,
-                properties,
                 timestamp,
-                distinct_id,
-                elements_chain
+                distinct_id
             FROM events
             WHERE 
                 team_id = %(team_id)s
@@ -55,11 +43,8 @@ FROM
                 {filters}
             GROUP BY
                 uuid,
-                event,
-                properties,
                 timestamp,
-                distinct_id,
-                elements_chain
+                distinct_id
             ORDER BY
                 distinct_id ASC,
                 timestamp ASC
