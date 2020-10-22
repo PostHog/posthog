@@ -57,7 +57,7 @@ function _FeatureFlags() {
                         to={
                             '/insights?events=[{"id":"$feature_flag_called","name":"$feature_flag_called","type":"events"}]&properties=[{"key":"$feature_flag","value":"' +
                             featureFlag.key +
-                            '"}]#backTo=Feature Flags&backToURL=' +
+                            '"}]&breakdown=$feature_flag_response&breakdown_type=event#backTo=Feature Flags&backToURL=' +
                             window.location.pathname
                         }
                         type="primary"

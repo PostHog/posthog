@@ -114,6 +114,16 @@ export const keyMapping = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
+        $feature_flag_response: {
+            label: 'Feature Flag Response',
+            description: 'What the call to feature flag responded with.',
+            examples: ['true', 'false'],
+        },
+        $feature_flag: {
+            label: 'Feature Flag',
+            description: 'The feature flag that was called.',
+            examples: ['beta-feature'],
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
