@@ -478,3 +478,7 @@ DEBUG_TOOLBAR_CONFIG = {
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *
+
+
+# TODO: Temporary
+EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
