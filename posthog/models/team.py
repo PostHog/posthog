@@ -19,7 +19,6 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":
-        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
         team = Team.objects.create(**kwargs)
 
         if not users or not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
