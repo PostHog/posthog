@@ -5,14 +5,14 @@ from django.db import models
 from rest_hooks.models import AbstractHook
 
 from ee.tasks.hooks import DeliverHook
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token
 
 
 class Hook(AbstractHook):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", related_name="rest_hooks", on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, related_name="rest_hooks", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", related_name="rest_hooks", on_delete=models.CASCADE)
     resource_id = models.IntegerField(null=True, blank=True)
 
 
@@ -27,7 +27,7 @@ def find_and_fire_hook(
         # action_performed is a resource_id-filterable hook
         hooks = hooks.filter(models.Q(resource_id=instance.pk) | models.Q(resource_id__isnull=True))
     for hook in hooks:
-        if hook.user.is_feature_available("zapier"):
+        if hook.team.organization.is_feature_available("zapier"):
             hook.deliver_hook(instance, payload_override)
 
 

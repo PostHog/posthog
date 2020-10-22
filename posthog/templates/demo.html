@@ -6,7 +6,7 @@
     <script>
         posthog.init('{{api_token}}', {
             api_host: window.location.origin,
-        });
+        loaded: function(posthog){posthog.isFeatureEnabled('beta-feature')}});
     </script>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
         crossorigin="anonymous" />

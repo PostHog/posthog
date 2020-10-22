@@ -3,8 +3,8 @@ import { router } from 'kea-router'
 
 interface LinkProps extends HTMLProps<HTMLAnchorElement> {
     to: string | [string, string?, string?]
-    preventClick: boolean
-    tag: string | React.Component
+    preventClick?: boolean
+    tag?: string | React.Component
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {

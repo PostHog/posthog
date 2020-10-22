@@ -23,8 +23,8 @@ describe('People', () => {
     })
 
     it('All people route works', () => {
-        cy.get('[data-attr=menu-item-cohorts]').click()
-        cy.get('[data-attr=menu-item-all-people]').click()
+        cy.get('[data-attr=menu-item-people-cohorts]').click()
+        cy.get('[data-attr=menu-item-people-persons]').click()
 
         cy.get('h1').should('contain', 'Users')
     })

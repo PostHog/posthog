@@ -358,6 +358,7 @@ export function humanFriendlyDetailedTime(date: moment.MomentInput, withSeconds:
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
+    if (moment(date).isSame(moment(), 'm')) return 'Just now'
     if (moment(date).isSame(today, 'd')) {
         formatString = '[Today] h:mm'
     } else if (moment(date).isSame(yesterday, 'd')) {
@@ -378,6 +379,13 @@ export function isURL(string: string): boolean {
     if (!string) return false
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    return !!string.match?.(regexp)
+}
+
+export function isEmail(string: string): boolean {
+    if (!string) return false
+    // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
+    const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -520,4 +528,9 @@ export function sample<T>(items: T[], size: number): T[] {
         internalItems.splice(index, 1)
     }
     return results
+}
+
+export function sampleSingle<T>(items: T[]): T[] {
+    if (!items.length) throw Error('Items array is empty!')
+    return [items[Math.floor(Math.random() * items.length)]]
 }

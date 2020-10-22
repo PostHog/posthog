@@ -13,7 +13,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def _create_events(self, use_time=False):
 
             person = person_factory(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            secondTeam = Team.objects.create(api_token="token123")
+            secondTeam = Team.objects.create(api_token="token456")
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [

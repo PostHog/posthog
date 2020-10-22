@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { HogIcon } from 'lib/icons/HogIcon'
 import { userLogic } from 'scenes/userLogic'
-import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
+import { ToolbarSettings } from 'scenes/project/Settings/ToolbarSettings'
 
 export function ToolbarModal(): React.ReactNode {
     const { user } = useValues(userLogic)

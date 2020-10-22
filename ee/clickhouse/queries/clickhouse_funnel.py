@@ -1,10 +1,12 @@
-from collections import namedtuple
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
+from ee.clickhouse.sql.funnels.step_action import STEP_ACTION_SQL
+from ee.clickhouse.sql.funnels.step_event import STEP_EVENT_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -12,42 +14,6 @@ from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
-
-FUNNEL_SQL = """
-SELECT id, {select_steps} FROM (
-    SELECT 
-        person_distinct_id.person_id as id,
-        groupArray(events.timestamp) as timestamps,
-        groupArray(events.event) as eventsArr,
-        groupArray(events.uuid) as event_ids,
-        {steps}
-    FROM events 
-    JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-    WHERE team_id = {team_id} {filters} {parsed_date_from} {parsed_date_to}
-    GROUP BY person_distinct_id.person_id, team_id
-    ORDER BY timestamps
- ) WHERE step_0 <> toDateTime(0)
-"""
-
-STEP_ACTION_SQL = """
-    arrayFilter(
-        (timestamp, event, random_event_id) ->
-            {is_first_step} AND
-            (team_id = {team_id}) AND
-            random_event_id IN ({actions_query}) {filters}
-        , timestamps, eventsArr, event_ids
-    )[1] AS step_{step}
-"""
-
-STEP_EVENT_SQL = """
-    arrayFilter(
-        (timestamp, event, random_event_id) ->
-            {is_first_step} AND
-            (team_id = {team_id}) AND
-            event = '{event}' {filters} 
-        , timestamps, eventsArr, event_ids
-    )[1] AS step_{step}
-"""
 
 
 class ClickhouseFunnel(Funnel):

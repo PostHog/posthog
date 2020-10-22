@@ -7,7 +7,7 @@ from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models import Action, Cohort, Filter
 
 
-def format_filter_query(cohort: Cohort) -> Tuple[str, Dict]:
+def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
     for group_idx, group in enumerate(cohort.groups):

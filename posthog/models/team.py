@@ -20,16 +20,12 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":
         kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
-        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
-        if users:
-            team.users.set(users)
 
         if not users or not posthoganalytics.feature_enabled("actions-ux-201012", users[0].distinct_id):
             # Don't create default `Pageviews` action on actions-ux-201012 feature flag (use first user as proxy for org)
             action = Action.objects.create(team=team, name="Pageviews")
-
-        ActionStep.objects.create(action=action, event="$pageview")
+            ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(
             name="Default", pinned=True, team=team, share_token=generate_random_token()
@@ -93,9 +89,11 @@ class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
     )
-    api_token: models.CharField = models.CharField(max_length=200, null=True, default=generate_random_token)
+    api_token: models.CharField = models.CharField(
+        max_length=200, null=True, unique=True, default=generate_random_token
+    )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default")
+    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
@@ -106,6 +104,7 @@ class Team(models.Model):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
+    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously
@@ -113,10 +112,10 @@ class Team(models.Model):
 
     # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
     # This may be brought back into use with a more robust approach (and some constraint checks)
-    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
+    users: models.ManyToManyField = models.ManyToManyField(
+        "User", blank=True, related_name="teams_deprecated_relationship"
+    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-
-    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 
