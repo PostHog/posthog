@@ -13,12 +13,12 @@ export function VerificationPanel(): JSX.Element {
     const { index, totalSteps } = useValues(ingestionLogic)
 
     useInterval(() => {
-        !user?.has_events && loadUser()
+        !user?.team?.ingested_event && loadUser()
     }, 3000)
 
     return (
         <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
-            {!user?.has_events ? (
+            {!user?.team?.ingested_event ? (
                 <>
                     <Row align="middle">
                         <Spin />

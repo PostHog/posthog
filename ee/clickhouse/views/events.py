@@ -80,7 +80,7 @@ class ClickhouseEvents(EventViewSet):
             return super().retrieve(request, pk)
 
         # TODO: implement getting elements
-        team = request.user.team_set.get()
+        team = request.user.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 

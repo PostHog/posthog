@@ -3,20 +3,23 @@ export interface UserType {
     distinct_id: string
     email: string
     email_opt_in: boolean
-    has_events: boolean
     id: number
     name: string
     opt_out_capture: null
     posthog_version: string
+    organization: OrganizationType
     team: TeamType
     toolbar_mode: 'disabled' | 'toolbar'
-    billing: OrganizationBilling
+    organizations: OrganizationType[]
+    teams: TeamType[]
+    current_organization_id: string
+    current_team_id: number
 }
 
-export interface UserUpdateType extends Omit<Partial<UserType>, 'team'> {
-    team: Partial<TeamType>
+export interface UserUpdateType {
+    user?: Omit<Partial<UserType>, 'team'>
+    team?: Partial<TeamType>
 }
-
 export interface PersonalAPIKeyType {
     id: string
     label: string
@@ -27,7 +30,20 @@ export interface PersonalAPIKeyType {
     user_id: string
 }
 
+export interface OrganizationType {
+    id: string
+    name: string
+    created_at: string
+    updated_at: boolean
+    available_features: string[]
+    billing_plan: string
+    billing: OrganizationBilling
+    teams: TeamType[]
+}
+
 export interface TeamType {
+    id: number
+    name: string
     anonymize_ips: boolean
     api_token: string
     app_urls: string[]
@@ -36,9 +52,9 @@ export interface TeamType {
     event_properties: string[]
     event_properties_numerical: string[]
     opt_out_capture: boolean
-    signup_token: string
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    ingested_event: boolean
 }
 
 export interface ActionType {

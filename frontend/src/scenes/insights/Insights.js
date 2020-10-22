@@ -44,6 +44,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
 const { TabPane } = Tabs
@@ -115,170 +116,185 @@ function _Insights() {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-
+    const { user } = useValues(userLogic)
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const [openHistory, setOpenHistory] = useState(false)
 
     return (
-        <div className="actions-graph">
-            <h1 className="page-header">Insights</h1>
-            <Row justify="space-between" align="middle">
-                <Tabs
-                    size="large"
-                    activeKey={activeView}
-                    style={{
-                        overflow: 'visible',
-                    }}
-                    onChange={(key) => setActiveView(key)}
-                    animated={false}
-                >
-                    <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS}></TabPane>
-                    <TabPane
-                        tab={<span data-attr="insight-sessions-tab">Sessions</span>}
-                        key={ViewType.SESSIONS}
-                    ></TabPane>
-                    <TabPane
-                        tab={<span data-attr="insight-funnels-tab">Funnels</span>}
-                        key={ViewType.FUNNELS}
-                    ></TabPane>
-                    <TabPane
-                        tab={<span data-attr="insight-retention-tab">Retention</span>}
-                        key={ViewType.RETENTION}
-                    ></TabPane>
-                    <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
-                </Tabs>
-                <Tabs
-                    size="large"
-                    activeKey={null}
-                    style={{
-                        overflow: 'visible',
-                    }}
-                    animated={false}
-                >
-                    <TabPane
-                        tab={
-                            <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
-                                {'History'}
-                            </Button>
-                        }
-                        key={'HISTORY'}
-                        data-attr="insight-trend-tab"
-                    ></TabPane>
-                </Tabs>
-            </Row>
-            <Row gutter={16}>
-                <Col xs={24} xl={7}>
-                    <Card className="mb-3" style={{ overflow: 'visible' }}>
-                        <div className="card-body px-4 mb-0">
-                            {/* 
+        user?.team && (
+            <div className="actions-graph">
+                <h1 className="page-header">Insights</h1>
+                <Row justify="space-between" align="middle">
+                    <Tabs
+                        size="large"
+                        activeKey={activeView}
+                        style={{
+                            overflow: 'visible',
+                        }}
+                        onChange={(key) => setActiveView(key)}
+                        animated={false}
+                    >
+                        <TabPane
+                            tab={<span data-attr="insight-trends-tab">Trends</span>}
+                            key={ViewType.TRENDS}
+                        ></TabPane>
+                        <TabPane
+                            tab={<span data-attr="insight-sessions-tab">Sessions</span>}
+                            key={ViewType.SESSIONS}
+                        ></TabPane>
+                        <TabPane
+                            tab={<span data-attr="insight-funnels-tab">Funnels</span>}
+                            key={ViewType.FUNNELS}
+                        ></TabPane>
+                        <TabPane
+                            tab={<span data-attr="insight-retention-tab">Retention</span>}
+                            key={ViewType.RETENTION}
+                        ></TabPane>
+                        <TabPane
+                            tab={<span data-attr="insight-path-tab">User Paths</span>}
+                            key={ViewType.PATHS}
+                        ></TabPane>
+                    </Tabs>
+                    <Tabs
+                        size="large"
+                        activeKey={null}
+                        style={{
+                            overflow: 'visible',
+                        }}
+                        animated={false}
+                    >
+                        <TabPane
+                            tab={
+                                <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
+                                    {'History'}
+                                </Button>
+                            }
+                            key={'HISTORY'}
+                            data-attr="insight-trend-tab"
+                        ></TabPane>
+                    </Tabs>
+                </Row>
+                <Row gutter={16}>
+                    <Col xs={24} xl={7}>
+                        <Card className="mb-3" style={{ overflow: 'visible' }}>
+                            <div className="card-body px-4 mb-0">
+                                {/* 
                             These are insight specific filters. 
                             They each have insight specific logics
                             */}
-                            {
                                 {
-                                    [`${ViewType.TRENDS}`]: <TrendTab></TrendTab>,
-                                    [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                    [`${ViewType.FUNNELS}`]: <FunnelTab></FunnelTab>,
-                                    [`${ViewType.RETENTION}`]: <RetentionTab></RetentionTab>,
-                                    [`${ViewType.PATHS}`]: <PathTab></PathTab>,
-                                }[activeView]
-                            }
-                        </div>
-                    </Card>
-                    {activeView === ViewType.FUNNELS && (
-                        <Card
-                            title={
-                                <Row align="middle">
-                                    <span>Saved Funnels</span>
-                                    <Tooltip
-                                        key="1"
-                                        getPopupContainer={(trigger) => trigger.parentElement}
-                                        placement="right"
-                                        title="These consist of funnels by you and the rest of the team"
-                                    >
-                                        <InfoCircleOutlined
-                                            className="info"
-                                            style={{ color: '#007bff' }}
-                                        ></InfoCircleOutlined>
-                                    </Tooltip>
-                                </Row>
-                            }
-                        >
-                            <div className="card-body px-4 mb-0">
-                                <SavedFunnels></SavedFunnels>
+                                    {
+                                        [`${ViewType.TRENDS}`]: <TrendTab></TrendTab>,
+                                        [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                        [`${ViewType.FUNNELS}`]: <FunnelTab></FunnelTab>,
+                                        [`${ViewType.RETENTION}`]: <RetentionTab></RetentionTab>,
+                                        [`${ViewType.PATHS}`]: <PathTab></PathTab>,
+                                    }[activeView]
+                                }
                             </div>
                         </Card>
-                    )}
-                </Col>
-                <Col xs={24} xl={17}>
-                    {/* 
+                        {activeView === ViewType.FUNNELS && (
+                            <Card
+                                title={
+                                    <Row align="middle">
+                                        <span>Saved Funnels</span>
+                                        <Tooltip
+                                            key="1"
+                                            getPopupContainer={(trigger) => trigger.parentElement}
+                                            placement="right"
+                                            title="These consist of funnels by you and the rest of the team"
+                                        >
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
+                                        </Tooltip>
+                                    </Row>
+                                }
+                            >
+                                <div className="card-body px-4 mb-0">
+                                    <SavedFunnels></SavedFunnels>
+                                </div>
+                            </Card>
+                        )}
+                    </Col>
+                    <Col xs={24} xl={17}>
+                        {/* 
                     These are filters that are reused between insight features. 
                     They each have generic logic that updates the url
                     */}
-                    <Card
-                        title={
-                            <div className="float-right pt-1 pb-1">
-                                {showIntervalFilter[activeView] && (
-                                    <IntervalFilter filters={allFilters} view={activeView} />
-                                )}
-                                {showChartFilter[activeView] && (
-                                    <ChartFilter
-                                        onChange={(display) => {
-                                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
-                                                clearAnnotationsToCreate()
+                        <Card
+                            title={
+                                <div className="float-right pt-1 pb-1">
+                                    {showIntervalFilter[activeView] && (
+                                        <IntervalFilter filters={allFilters} view={activeView} />
+                                    )}
+                                    {showChartFilter[activeView] && (
+                                        <ChartFilter
+                                            onChange={(display) => {
+                                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
+                                                    clearAnnotationsToCreate()
+                                            }}
+                                            displayMap={displayMap}
+                                            filters={allFilters}
+                                        />
+                                    )}
+
+                                    {showDateFilter[activeView] && (
+                                        <DateFilter
+                                            disabled={activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)}
+                                        />
+                                    )}
+
+                                    {showComparePrevious[activeView] && <CompareFilter />}
+                                    <SaveToDashboard
+                                        disabled={
+                                            disableSaveToDashboard[activeView] ||
+                                            (activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters))
+                                        }
+                                        item={{
+                                            type: determineInsightType(activeView, allFilters.display),
+                                            entity: {
+                                                filters: allFilters,
+                                                annotations: annotationsToCreate,
+                                            },
                                         }}
-                                        displayMap={displayMap}
-                                        filters={allFilters}
                                     />
-                                )}
-
-                                {showDateFilter[activeView] && (
-                                    <DateFilter
-                                        disabled={activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)}
-                                    />
-                                )}
-
-                                {showComparePrevious[activeView] && <CompareFilter />}
-                                <SaveToDashboard
-                                    disabled={
-                                        disableSaveToDashboard[activeView] ||
-                                        (activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters))
-                                    }
-                                    item={{
-                                        type: determineInsightType(activeView, allFilters.display),
-                                        entity: {
-                                            filters: allFilters,
-                                            annotations: annotationsToCreate,
-                                        },
-                                    }}
-                                />
-                            </div>
-                        }
-                    >
-                        <div className="card-body card-body-graph">
-                            {
-                                {
-                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
-                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS}></TrendInsight>,
-                                    [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
-                                    [`${ViewType.RETENTION}`]: <RetentionTable />,
-                                    [`${ViewType.PATHS}`]: <Paths />,
-                                }[activeView]
+                                </div>
                             }
-                        </div>
-                    </Card>
-                    {activeView === ViewType.FUNNELS && (
-                        <Card>
-                            <FunnelPeople></FunnelPeople>
+                        >
+                            <div className="card-body card-body-graph">
+                                {
+                                    {
+                                        [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
+                                        [`${ViewType.SESSIONS}`]: (
+                                            <TrendInsight view={ViewType.SESSIONS}></TrendInsight>
+                                        ),
+                                        [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
+                                        [`${ViewType.RETENTION}`]: <RetentionTable />,
+                                        [`${ViewType.PATHS}`]: <Paths />,
+                                    }[activeView]
+                                }
+                            </div>
                         </Card>
-                    )}
-                </Col>
-            </Row>
-            <Drawer title={'Insights History'} width={350} onClose={() => setOpenHistory(false)} visible={openHistory}>
-                <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
-            </Drawer>
-        </div>
+                        {activeView === ViewType.FUNNELS && (
+                            <Card>
+                                <FunnelPeople></FunnelPeople>
+                            </Card>
+                        )}
+                    </Col>
+                </Row>
+                <Drawer
+                    title={'Insights History'}
+                    width={350}
+                    onClose={() => setOpenHistory(false)}
+                    visible={openHistory}
+                >
+                    <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
+                </Drawer>
+            </div>
+        )
     )
 }
 

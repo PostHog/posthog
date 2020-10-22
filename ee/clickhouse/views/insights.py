@@ -30,7 +30,7 @@ class ClickhouseInsights(InsightViewSet):
             result = super().calculate_trends(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
 
         if filter.shown_as == TRENDS_STICKINESS:
@@ -48,7 +48,7 @@ class ClickhouseInsights(InsightViewSet):
             result = super().calculate_session(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
 
         limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
@@ -69,7 +69,7 @@ class ClickhouseInsights(InsightViewSet):
             result = super().calculate_path(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
@@ -81,7 +81,7 @@ class ClickhouseInsights(InsightViewSet):
             result = super().calculate_funnel(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         response = ClickhouseFunnel(team=team, filter=filter).run()
         return Response(response)
@@ -93,7 +93,7 @@ class ClickhouseInsights(InsightViewSet):
             result = super().calculate_retention(request)
             return Response({"data": result})
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         result = ClickhouseRetention().run(filter, team)
         return Response({"data": result})

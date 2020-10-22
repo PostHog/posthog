@@ -1,13 +1,15 @@
 import './Sidebar.scss'
 import React, { useState } from 'react'
 import { router } from 'kea-router'
-import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
+    SmileOutlined,
+    TeamOutlined,
+    SendOutlined,
+    DeploymentUnitOutlined,
+    CloudServerOutlined,
     UserOutlined,
-    SettingOutlined,
     RiseOutlined,
-    PlusOutlined,
     SyncOutlined,
     AimOutlined,
     UsergroupAddOutlined,
@@ -17,7 +19,7 @@ import {
     FlagOutlined,
     ClockCircleOutlined,
     MessageOutlined,
-    TeamOutlined,
+    ProjectOutlined,
     LockOutlined,
     WalletOutlined,
     DatabaseOutlined,
@@ -31,6 +33,7 @@ import { HogIcon } from 'lib/icons/HogIcon'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from './../../public/posthog-logo-white.svg'
+import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
@@ -60,15 +63,16 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
-    setup: 'settings',
-    annotations: 'settings',
-    billing: 'settings',
-    licenses: 'settings',
-    systemStatus: 'settings',
+    organizationSettings: 'organization',
+    organizationMembers: 'organization',
+    organizationInvites: 'organization',
+    billing: 'organization',
+    instanceStatus: 'instance',
+    instanceLicenses: 'instance',
 }
 
-export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
-    const [inviteModalOpen, setInviteModalOpen] = useState(false)
+export const Sidebar = hot(_Sidebar)
+function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const [toolbarModalOpen, setToolbarModalOpen] = useState(false)
     const collapseSidebar = () => {
         if (!sidebarCollapsed && window.innerWidth <= 991) {
@@ -119,8 +123,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     mode="inline"
                 >
                     <Logo />
-
-                    {toolbarEnabled ? (
+                    {toolbarEnabled && (
                         <Menu.Item
                             key="toolbar"
                             style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
@@ -132,8 +135,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             </div>
                             <span className="sidebar-label">Launch Toolbar!</span>
                         </Menu.Item>
-                    ) : null}
-
+                    )}
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
                             key={`dashboard-${dashboard.id}`}
@@ -142,7 +144,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             title=""
                         >
                             <LineChartOutlined />
-                            <span className="sidebar-label">{dashboard.name ?? 'Untitled'}</span>
+                            <span className="sidebar-label">{dashboard.name || 'Untitled'}</span>
                             <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
                         </Menu.Item>
                     ))}
@@ -154,7 +156,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.Item>
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
-
                     <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
                         <RiseOutlined />
                         <span className="sidebar-label">{'Insights'}</span>
@@ -173,14 +174,12 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/events' && push('/actions')
+                            location.pathname !== '/events' && push('/events')
                         }}
                     >
                         <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                             <ContainerOutlined />
-                            <span className="sidebar-label">
-                                {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
-                            </span>
+                            {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
                             <Link to={'/events'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
@@ -212,89 +211,117 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/people' && push('/people')
+                            location.pathname !== '/people/persons' && push('/people/persons')
                         }}
                     >
-                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
+                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-people-persons">
                             <UserOutlined />
-                            <span className="sidebar-label">{'All Users'}</span>
-                            <Link to={'/people'} onClick={collapseSidebar} />
+                            <span className="sidebar-label">Persons</span>
+                            <Link to={'/people/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
+                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
                             <UsergroupAddOutlined />
-                            <span className="sidebar-label">{'Cohorts'}</span>
+                            <span className="sidebar-label">Cohorts</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
-                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
+
+                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-flags">
                         <FlagOutlined />
-                        <span className="sidebar-label">{'Feature Flags'}</span>
-                        <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
+                        <span className="sidebar-label">Feature Flags</span>
+                        <Link to={'/feature_flags'} onClick={collapseSidebar} />
+                    </Menu.Item>
+
+                    <Menu.Item key="annotations" style={itemStyle} data-attr="menu-item-annotations">
+                        <MessageOutlined />
+                        <span className="sidebar-label">Annotations</span>
+                        <Link to={'/annotations'} onClick={collapseSidebar} />
+                    </Menu.Item>
+
+                    <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
+                        <ProjectOutlined />
+                        <span className="sidebar-label">Project</span>
+                        <Link to={'/project/settings'} onClick={collapseSidebar} />
                     </Menu.Item>
 
                     <Menu.SubMenu
-                        key="settings"
+                        key="organization"
                         title={
-                            <span style={itemStyle} data-attr="menu-item-settings">
-                                <SettingOutlined />
-                                <span className="sidebar-label">{'Settings'}</span>
+                            <span style={itemStyle} data-attr="menu-item-organization">
+                                <DeploymentUnitOutlined />
+                                <span className="sidebar-label">Organization</span>
                             </span>
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/setup' && push('/setup')
+                            if (location.pathname !== '/organization/members') push('/organization/members')
                         }}
                     >
-                        <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
-                            <SettingOutlined />
-                            <span className="sidebar-label">{'Setup'}</span>
-                            <Link to={'/setup'} onClick={collapseSidebar} />
+                        <Menu.Item
+                            key="organizationMembers"
+                            style={itemStyle}
+                            data-attr="menu-item-organization-members"
+                        >
+                            <TeamOutlined />
+                            <span className="sidebar-label">Members</span>
+                            <Link to={'/organization/members'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="annotations" style={itemStyle} data-attr="menu-item-annotations">
-                            <MessageOutlined />
-                            <span className="sidebar-label">{'Annotations'}</span>
-                            <Link to={'/annotations'} onClick={collapseSidebar} />
+                        <Menu.Item
+                            key="organizationInvites"
+                            style={itemStyle}
+                            data-attr="menu-item-organization-invites"
+                        >
+                            <SendOutlined />
+                            <span className="sidebar-label">Invites</span>
+                            <Link to={'/organization/invites'} onClick={collapseSidebar} />
                         </Menu.Item>
 
                         {featureFlags['billing-management-page'] && (
-                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
+                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-organization-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
                                 <Link to="/billing" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
-
-                        {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
-                            <Menu.Item key="systemStatus" style={itemStyle} data-attr="menu-item-system-status">
-                                <DatabaseOutlined />
-                                <span className="sidebar-label">System Status</span>
-                                <Link to={'/system_status'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
-
-                        {!user.is_multi_tenancy && user.ee_available && (
-                            <Menu.Item key="licenses" style={itemStyle} data-attr="menu-item-licenses">
-                                <LockOutlined />
-                                <span className="sidebar-label">Licenses</span>
-                                <Link to={'/setup/licenses'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
                     </Menu.SubMenu>
 
-                    <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">
-                        <TeamOutlined />
-                        <span className="sidebar-label">{'Team'}</span>
-                        <Link to={'/team'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                    {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
+                        <Menu.SubMenu
+                            key="instance"
+                            title={
+                                <span style={itemStyle} data-attr="menu-item-instance">
+                                    <CloudServerOutlined />
+                                    <span className="sidebar-label">Instance</span>
+                                </span>
+                            }
+                            onTitleClick={() => {
+                                collapseSidebar()
+                                if (location.pathname !== '/instance/status') push('/instance/status')
+                            }}
+                        >
+                            <Menu.Item key="instanceStatus" style={itemStyle} data-attr="menu-item-instance-status">
+                                <DatabaseOutlined />
+                                <span className="sidebar-label">System Status</span>
+                                <Link to={'/instance/status'} onClick={collapseSidebar} />
+                            </Menu.Item>
 
-                    <Menu.Item
-                        key="invite"
-                        style={itemStyle}
-                        onClick={() => setInviteModalOpen(true)}
-                        data-attr="menu-item-invite-team"
-                    >
-                        <PlusOutlined />
-                        <span className="sidebar-label">Invite Teammate</span>
+                            {user.ee_available && (
+                                <Menu.Item
+                                    key="instanceLicenses"
+                                    style={itemStyle}
+                                    data-attr="menu-item-instance-licenses"
+                                >
+                                    <LockOutlined />
+                                    <span className="sidebar-label">Licenses</span>
+                                    <Link to={'/instance/licenses'} onClick={collapseSidebar} />
+                                </Menu.Item>
+                            )}
+                        </Menu.SubMenu>
+                    )}
+                    <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
+                        <SmileOutlined />
+                        <span className="sidebar-label">Me</span>
+                        <Link to={'/me/settings'} onClick={collapseSidebar} />
                     </Menu.Item>
                 </Menu>
 
@@ -306,8 +333,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 >
                     <ToolbarModal />
                 </Modal>
-
-                <TeamInvitationModal user={user} visible={inviteModalOpen} onCancel={() => setInviteModalOpen(false)} />
             </Layout.Sider>
         </>
     )

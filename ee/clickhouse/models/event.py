@@ -1,11 +1,10 @@
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
-from django.utils.timezone import now
+from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
@@ -22,13 +21,14 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]] = None,
+    timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
 ) -> str:
 
     if not timestamp:
-        timestamp = now()
+        timestamp = timezone.now()
+    assert timestamp is not None
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):

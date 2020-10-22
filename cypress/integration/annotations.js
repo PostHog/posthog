@@ -1,6 +1,5 @@
 describe('Annotations', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-settings]').click()
         cy.get('[data-attr=menu-item-annotations]').click()
     })
 
