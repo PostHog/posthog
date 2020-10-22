@@ -76,10 +76,10 @@ class ClickhouseFunnel(Funnel):
         )
 
         # format default dates
-        if not filter._date_from:
-            filter._date_from = relative_date_parse("-7d")
-        if not filter._date_to:
-            filter._date_to = timezone.now()
+        if not self._filter._date_from:
+            self._filter._date_from = relative_date_parse("-7d")
+        if not self._filter._date_to:
+            self._filter._date_to = timezone.now()
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
         self.params: Dict = {"team_id": self._team.pk, **prop_filter_params}
