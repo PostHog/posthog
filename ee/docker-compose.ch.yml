@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:alpine
+        image: postgres:11-alpine
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -17,7 +17,7 @@ services:
         build:
             context: ../
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-dev-web
+        command: ./bin/docker-ch-dev-web
         volumes:
             - ..:/code
         ports:
