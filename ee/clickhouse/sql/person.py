@@ -148,10 +148,6 @@ inner join (
 where person_distinct_id.team_id = %(team_id)s
 """
 
-PERSON_EXISTS_SQL = """
-SELECT count(*) FROM person where id = %(id)s
-"""
-
 INSERT_PERSON_SQL = """
 INSERT INTO person SELECT %(id)s, now(), %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """

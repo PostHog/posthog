@@ -1,8 +1,10 @@
-from typing import List
+from typing import Dict, List, Optional
 from uuid import uuid4
 
-from ee.clickhouse.models.action import query_action
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.event import Event
@@ -15,6 +17,17 @@ def _create_event(**kwargs) -> Event:
     kwargs.update({"event_uuid": pk})
     create_event(**kwargs)
     return Event(pk=str(pk))
+
+
+def query_action(action: Action) -> Optional[List]:
+    formatted_query, params = format_action_filter(action, "", 0)
+
+    query = ACTION_QUERY.format(action_filter=formatted_query)
+
+    if query:
+        return sync_execute(query, params)
+
+    return None
 
 
 def _get_events_for_action(action: Action) -> List[Event]:
