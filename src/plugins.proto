@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+import "google/protobuf/struct.proto";
+
+service PluginService {
+    rpc OnCapture (CaptureRequest) returns (CaptureReply) {}
+}
+message Empty {}
+
+message PosthogEvent {
+    string ip = 1;
+    string site_url = 2;
+    string event = 3;
+    string distinct_id = 4;
+    uint64 team_id = 5;
+    google.protobuf.Struct properties = 6;
+    uint64 timestamp = 7;
+}
+
+message CaptureRequest {
+    PosthogEvent event = 1;
+}
+
+message CaptureReply {
+    PosthogEvent event = 1;
+}

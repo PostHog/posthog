@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "module": "commonjs",
+        "declaration": true,
+        "removeComments": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true,
+        "target": "ES2015",
+        "esModuleInterop": true,
+        "sourceMap": true,
+        "outDir": "./dist",
+        "baseUrl": "./src",
+        "incremental": true,
+        "types": ["jest", "node"],
+        "resolveJsonModule": true
+    },
+    "exclude": ["node_modules", "dist", "samples"]
+}
