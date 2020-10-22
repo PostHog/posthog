@@ -93,25 +93,23 @@ function _FeatureFlags() {
                 rowClassName={'cursor-pointer ' + rrwebBlockClass}
                 data-attr="feature-flag-table"
             />
-            {openFeatureFlag && (
-                <Drawer
-                    title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
-                    width={400}
-                    onClose={() => setOpenFeatureFlag(false)}
-                    destroyOnClose={true}
-                    visible={true}
-                >
-                    {openFeatureFlag === 'new' ? (
-                        <EditFeatureFlag
-                            isNew={true}
-                            featureFlag={{ rollout_percentage: null, active: true }}
-                            logic={logic}
-                        />
-                    ) : (
-                        <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
-                    )}
-                </Drawer>
-            )}
+            <Drawer
+                title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
+                width={400}
+                onClose={() => setOpenFeatureFlag(false)}
+                destroyOnClose={true}
+                visible={openFeatureFlag}
+            >
+                {openFeatureFlag === 'new' ? (
+                    <EditFeatureFlag
+                        isNew={true}
+                        featureFlag={{ rollout_percentage: null, active: true }}
+                        logic={logic}
+                    />
+                ) : (
+                    <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
+                )}
+            </Drawer>
         </div>
     )
 }
