@@ -77,9 +77,11 @@ export const featureFlagLogic = kea({
         },
     }),
     listeners: ({ props }) => ({
-        updateFeatureFlag: ({ featureFlag }) => featureFlag && props.closeDrawer(),
-        updateFeatureFlagSuccess: ({ featureFlag }) => {
-            featureFlag && toast('Feature flag saved.')
+        updateFeatureFlagSuccess: ({ featureFlags }) => {
+            if (featureFlags) {
+                toast('Feature flag saved.')
+                props.closeDrawer()
+            }
         },
         createFeatureFlagSuccess: ({ featureFlags }) => {
             if (!featureFlags) return null

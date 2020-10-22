@@ -391,7 +391,9 @@ class Event(models.Model):
 
     @property
     def person(self):
-        return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
+        return Person.objects.get(
+            team_id=self.team_id, persondistinctid__team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id
+        )
 
     # This (ab)uses query_db_by_action to find which actions match this event
     # We can't use filter_by_action here, as we use this function when we create an event so

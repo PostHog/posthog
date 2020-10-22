@@ -3,7 +3,6 @@ import json
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -26,8 +25,8 @@ from ee.clickhouse.sql.person import (
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
-from ee.kafka.client import ClickhouseProducer, KafkaProducer
-from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.client import ClickhouseProducer, KafkaProducer
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
@@ -51,36 +50,6 @@ if settings.EE_AVAILABLE and check_ee_enabled():
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         delete_person(instance.uuid)
-
-
-def emit_omni_person(
-    event_uuid: UUID,
-    team_id: int,
-    distinct_id: str,
-    uuid: Optional[UUID] = None,
-    properties: Optional[Dict] = {},
-    sync: bool = False,
-    is_identified: bool = False,
-    timestamp: Optional[datetime.datetime] = None,
-) -> UUID:
-    if not uuid:
-        uuid = UUIDT()
-
-    if not timestamp:
-        timestamp = now()
-
-    data = {
-        "event_uuid": str(event_uuid),
-        "uuid": str(uuid),
-        "distinct_id": distinct_id,
-        "team_id": team_id,
-        "properties": json.dumps(properties),
-        "is_identified": int(is_identified),
-        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-    }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_OMNI_PERSON, data=data)
-    return uuid
 
 
 def create_person(
@@ -151,8 +120,14 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
-    return Person.objects.filter(team_id=team_id, persondistinctid__distinct_id__in=distinct_ids)
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
+    result = sync_execute(
+        GET_PERSONS_BY_DISTINCT_IDS,
+        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+    )
+    if len(result) > 0:
+        return list(ClickhousePersonSerializer(result, many=True).data)
+    return []
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:

@@ -11,8 +11,8 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import ClickhouseProducer
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.team import Team
 
@@ -120,7 +120,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     def get_person(self, event):
         if not self.context.get("people") or event[5] not in self.context["people"]:
             return event[5]
-        return self.context["people"][event[5]].properties.get("email", event[5])
+        return self.context["people"][event[5]]["properties"].get("email", event[5])
 
     def get_elements(self, event):
         if not event[6]:

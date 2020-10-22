@@ -17,12 +17,16 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     new_person: Optional[Person] = None
 
     try:
-        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
+        old_person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=previous_distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
     try:
-        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+        new_person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
@@ -147,10 +151,14 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
             created = True
         except IntegrityError:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
             created = False
     else:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
         created = False
 
     return person, created
@@ -158,26 +166,34 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
         except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
     person.properties.update(properties)
     person.save()
 
 
 def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
         except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
     if not person.is_identified:
         person.is_identified = is_identified
         person.save()
