@@ -31,9 +31,10 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
     """
 
     period_start, period_end = get_previous_week()
-
     last_week_start: datetime.datetime = period_start - datetime.timedelta(7)
     last_week_end: datetime.datetime = period_end - datetime.timedelta(7)
+
+    campaign_key: str = f"weekly_report_for_team_{team_id}_on_{period_start.strftime('%Y-%m-%d')}"
 
     team = Team.objects.get(pk=team_id)
 
@@ -82,9 +83,10 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
     )
 
     message = EmailMessage(
-        f"PostHog weekly report for {period_start.strftime('%b %d, %Y')} to {period_end.strftime('%b %d')}",
-        "weekly_report",
-        {
+        campaign_key=campaign_key,
+        subject=f"PostHog weekly report for {period_start.strftime('%b %d, %Y')} to {period_end.strftime('%b %d')}",
+        template_name="weekly_report",
+        template_context={
             "preheader": f"Your PostHog weekly report is ready! Your team had {compact_number(active_users_count)} active users last week! 🎉",
             "team": team.name,
             "period_start": period_start,
@@ -103,6 +105,6 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
 
     for user in team.organization.members.all():
         # TODO: Skip "unsubscribed" users
-        message.add_recipient(user.email, user.first_name)
+        message.add_recipient(email=user.email, name=user.first_name)
 
     message.send()
