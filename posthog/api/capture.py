@@ -95,6 +95,8 @@ def get_event(request):
     sent_at = _get_sent_at(data, request)
 
     token = _get_token(data, request)
+    if token == "1LdP2jk7mntBNogtwT9qcmGLvuYPE86zs0iBlDeMrmw":
+        return cors_response(request, JsonResponse({"status": 1}))
     is_personal_api_key = False
     if not token:
         token = PersonalAPIKeyAuthentication.find_key(
