@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional
 
+from django.utils import timezone
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
@@ -9,6 +11,7 @@ from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery
+from posthog.utils import relative_date_parse
 
 
 class ClickhousePaths(BaseQuery):
@@ -35,6 +38,13 @@ class ClickhousePaths(BaseQuery):
         return event, path_type, start_comparator
 
     def calculate_paths(self, filter: Filter, team: Team):
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
+
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
