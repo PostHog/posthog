@@ -318,7 +318,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(sum(response[0]["data"]), 2)
             self.assertEqual(response[0]["data"][4 + 7], 2)
-            self.assertEqual(response[0]["breakdown_value"], "None")
+            self.assertEqual(response[0]["breakdown_value"], "nan")
 
             self.assertEqual(sum(response[1]["data"]), 1)
             self.assertEqual(response[1]["data"][5 + 7], 1)
