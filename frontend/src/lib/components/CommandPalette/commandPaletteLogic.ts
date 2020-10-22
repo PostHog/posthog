@@ -10,6 +10,9 @@ import {
     RiseOutlined,
     ContainerOutlined,
     AimOutlined,
+    SmileOutlined,
+    ProjectOutlined,
+    LockOutlined,
     CheckOutlined,
     SyncOutlined,
     TagOutlined,
@@ -17,7 +20,6 @@ import {
     UserOutlined,
     UsergroupAddOutlined,
     ExperimentOutlined,
-    SettingOutlined,
     MessageOutlined,
     TeamOutlined,
     LinkOutlined,
@@ -479,14 +481,6 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: SettingOutlined,
-                        display: 'Go to Setup',
-                        synonyms: ['settings', 'configuration'],
-                        executor: () => {
-                            push('/setup')
-                        },
-                    },
-                    {
                         icon: MessageOutlined,
                         display: 'Go to Annotations',
                         executor: () => {
@@ -495,9 +489,39 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team',
+                        display: 'Go to Organization Members',
+                        synonyms: ['teammates'],
                         executor: () => {
-                            push('/team')
+                            push('/organization/members')
+                        },
+                    },
+                    {
+                        icon: SendOutlined,
+                        display: 'Go to Organization Invites',
+                        executor: () => {
+                            push('/organization/invites')
+                        },
+                    },
+                    {
+                        icon: LockOutlined,
+                        display: 'Go to Organization Licenses',
+                        executor: () => {
+                            push('/organization/licenses')
+                        },
+                    },
+                    {
+                        icon: ProjectOutlined,
+                        display: 'Go to Project Settings',
+                        executor: () => {
+                            push('/project/settings')
+                        },
+                    },
+                    {
+                        icon: SmileOutlined,
+                        display: 'Go to My Settings',
+                        synonyms: ['account'],
+                        executor: () => {
+                            push('/me/settings')
                         },
                     },
                     {

@@ -25,6 +25,9 @@ from posthog.models import (
 from posthog.models.utils import UUIDT
 from posthog.utils import render_template
 
+ORGANIZATION_NAME = "HogFlix"
+TEAM_NAME = "HogFlix Demo App"
+
 
 def _create_anonymous_users(team: Team, base_url: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
@@ -173,9 +176,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
         action=user_paid, event="$autocapture", url="%s/2" % base_url, url_matching="contains", selector="button",
     )
 
-    dashboard = Dashboard.objects.create(
-        name="HogFlix Demo", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
-    )
+    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
@@ -199,11 +200,19 @@ def _recalculate(team: Team) -> None:
 
 
 def demo(request):
-    team = request.user.team
-    if not Event.objects.filter(team=team).exists():
+    user = request.user
+    organization = user.organization
+    try:
+        team = organization.teams.get(name=TEAM_NAME)
+    except Team.DoesNotExist:
+        team = Team.objects.create(
+            organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
+        )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         _recalculate(team=team)
+    user.current_team = team
+    user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
         team.save()
@@ -217,17 +226,3 @@ def demo(request):
             create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
-
-
-def delete_demo_data(request):
-    team = request.user.team
-
-    people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
-    Event.objects.filter(team=team, distinct_id__in=people.values("distinct_id")).delete()
-    Person.objects.filter(team=team, properties__is_demo=True).delete()
-    Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
-    Action.objects.filter(team=team, name__contains="HogFlix").delete()
-    DashboardItem.objects.filter(team=team, name__contains="HogFlix").delete()
-    Dashboard.objects.filter(team=team, name__contains="HogFlix Demo").delete()
-
-    return JsonResponse({"status": "ok"})
