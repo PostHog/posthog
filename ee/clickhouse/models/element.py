@@ -17,12 +17,13 @@ def _escape(input: str) -> str:
 
 def all_elements_to_string():
     element_groups = ElementGroup.objects.all()
-    with open("elements_chain.csv", "w") as csvfile:
-        elements_chain_writer = csv.writer(csvfile)
-        for eg in element_groups:
+    for eg in element_groups:
+        with open("elements_chain.csv", "a+") as csvfile:
+            elements_chain_writer = csv.writer(csvfile)
             elements = Element.objects.filter(group=eg)
             elements = sorted([e for e in elements], key=lambda i: i.order)
-            elements_chain_writer.writerow([elements[0].group.hash, elements_to_string(elements)])
+            if len(elements) > 0:
+                elements_chain_writer.writerow([elements[0].group.hash, elements_to_string(elements)])
 
 
 def elements_to_string(elements: List[Element],) -> str:
