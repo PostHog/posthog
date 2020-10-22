@@ -28,8 +28,11 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             arg = "v{}_{}".format(prepend, idx)
             operator_clause, value = get_operator(prop, arg)
 
-            filter = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
-                idx=idx, operator_clause=operator_clause, prepend=prepend
+            filter = "(ep.key = %(k{prepend}_{idx})s) {and_statement} {operator_clause}".format(
+                idx=idx,
+                and_statement="AND" if operator_clause else "",
+                operator_clause=operator_clause,
+                prepend=prepend,
             )
             clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
                 filters=filter, negation="NOT " if prop.operator and "not" in prop.operator else ""
