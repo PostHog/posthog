@@ -77,7 +77,7 @@ class TeamSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         with transaction.atomic():
             validated_data.setdefault("completed_snippet_onboarding", True)
-            team = Team.objects.create(**validated_data, organization=request.user.organization)
+            team = Team.objects.create_with_data(**validated_data, organization=request.user.organization)
             request.user.current_team = team
             request.user.save()
         return team
