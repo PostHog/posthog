@@ -3,35 +3,39 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import { userLogic } from './userLogic'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
 
-    dashboards: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboards'),
+    dashboards: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
+    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
+    cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
-    sessions: () => import(/* webpackChunkName: 'events' */ './sessions/Sessions'),
+    sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
-    setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
-    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
-    featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
-    annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
-    team: () => import(/* webpackChunkName: 'team' */ './team/Team'),
-    licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
-    systemStatus: () => import(/* webpackChunkName: 'setup' */ './system_status/SystemStatus'),
-    preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
-    signup: () => import(/* webpackChunkName: 'signup' */ './team/Signup'),
+    featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
+    organizationSettings: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
+    organizationMembers: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
+    organizationInvites: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    projectSettings: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
+    instanceStatus: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
+    instanceLicenses: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
+    mySettings: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
+    annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
+    preflightCheck: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
+    signup: () => import(/* webpackChunkName: 'signup' */ './Signup'),
     ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
-export const unauthenticatedRoutes = ['preflight', 'signup']
+export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
@@ -45,20 +49,23 @@ export const routes = {
     '/actions/live': 'liveActions',
     '/actions': 'actions',
     '/insights': 'insights',
-    '/setup': 'setup',
     '/events': 'events',
+    '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
-    '/people': 'people',
+    '/people/persons': 'people',
     '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
-    '/experiments/feature_flags': 'featureFlags',
-    '/sessions': 'sessions',
+    '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
-    '/team': 'team',
-    '/setup/licenses': 'licenses',
-    '/system_status': 'systemStatus',
-    '/preflight': 'preflight',
+    '/project/settings': 'projectSettings',
+    '/organization/settings': 'organizationSettings',
+    '/organization/members': 'organizationMembers',
+    '/organization/invites': 'organizationInvites',
+    '/instance/licenses': 'instanceLicenses',
+    '/instance/status': 'instanceStatus',
+    '/me/settings': 'mySettings',
+    '/preflight': 'preflightCheck',
     '/signup': 'signup',
     '/ingestion': 'ingestion',
     '/ingestion/*': 'ingestion',
@@ -66,11 +73,14 @@ export const routes = {
 }
 
 export const sceneLogic = kea({
-    actions: () => ({
+    actions: {
         loadScene: (scene, params) => ({ scene, params }),
         setScene: (scene, params) => ({ scene, params }),
         setLoadedScene: (scene, loadedScene) => ({ scene, loadedScene }),
-    }),
+        showUpgradeModal: (featureName) => ({ featureName }),
+        hideUpgradeModal: true,
+        takeToPricing: true,
+    },
     reducers: ({ actions }) => ({
         scene: [
             null,
@@ -104,6 +114,14 @@ export const sceneLogic = kea({
                 [actions.setScene]: () => null,
             },
         ],
+        upgradeModalFeatureName: [
+            null,
+            {
+                [actions.showUpgradeModal]: (_, { featureName }) => featureName,
+                [actions.hideUpgradeModal]: () => null,
+                [actions.takeToPricing]: () => null,
+            },
+        ],
     }),
     urlToAction: ({ actions }) => {
         const mapping = {}
@@ -125,6 +143,18 @@ export const sceneLogic = kea({
         return mapping
     },
     listeners: ({ values, actions }) => ({
+        showUpgradeModal: ({ featureName }) => {
+            window.posthog?.capture('upgrade modal shown', { featureName })
+        },
+        hideUpgradeModal: () => {
+            window.posthog?.capture('upgrade modal cancellation')
+        },
+        takeToPricing: () => {
+            window.open(
+                `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
+            )
+            window.posthog?.capture('upgrade modal pricing interaction')
+        },
         setScene: () => {
             window.posthog?.capture('$pageview')
         },

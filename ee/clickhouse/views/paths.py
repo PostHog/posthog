@@ -19,7 +19,7 @@ class ClickhousePathsViewSet(PathsViewSet):
             result = super().get_elements(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
 
         resp = []
@@ -36,7 +36,7 @@ class ClickhousePathsViewSet(PathsViewSet):
             result = super().get_list(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

@@ -17,6 +17,8 @@ import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
+import { UpgradeModal } from './UpgradeModal'
+import { teamLogic } from './teamLogic'
 
 const darkerScenes = {
     dashboard: true,
@@ -28,6 +30,7 @@ const darkerScenes = {
 
 function App() {
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
@@ -43,7 +46,7 @@ function App() {
         }
 
         // redirect to ingestion if not completed
-        if (user && !user.team.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
             replace('/ingestion')
             return
         }
@@ -71,6 +74,7 @@ function App() {
 
     return (
         <>
+            <UpgradeModal />
             <Layout className="bg-white">
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout
@@ -80,9 +84,15 @@ function App() {
                     style={{ minHeight: '100vh' }}
                 >
                     <TopContent user={user} />
-                    <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
+                    <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
-                        {!user.has_events ? <SendEventsOverlay /> : <Scene user={user} {...params} />}
+                        {currentTeam &&
+                        !currentTeam.ingested_event &&
+                        !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
+                            <SendEventsOverlay />
+                        ) : (
+                            <Scene user={user} {...params} />
+                        )}
                         <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
                     </Layout.Content>
                 </Layout>

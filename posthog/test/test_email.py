@@ -74,9 +74,9 @@ class TestEmail(TestCase):
         ):
             send_weekly_email_report()
 
-        self.assertEqual(len(mail.outbox), 2)
-        self.assertEqual(mail.outbox[0].to, ["test@posthog.com"])
-        self.assertEqual(mail.outbox[1].to, ["test2@posthog.com"])
+        self.assertSetEqual(
+            {",".join(outmail.to) for outmail in mail.outbox}, {"test@posthog.com", "test2@posthog.com"}
+        )
 
         self.assertEqual(
             mail.outbox[0].subject, "PostHog weekly report for Sep 14, 2020 to Sep 20",

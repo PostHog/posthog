@@ -32,7 +32,7 @@ function _Dashboard({ id, shareToken }) {
                 <DashboardItems logic={logic} inSharedMode={!!shareToken} />
             ) : itemsLoading ? (
                 <SceneLoading />
-            ) : user.has_events ? (
+            ) : user?.team?.ingested_event ? (
                 <p>
                     There are no panels on this dashboard.{' '}
                     <Link to="/insights?insight=TRENDS">Click here to add some!</Link>
