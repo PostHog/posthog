@@ -152,7 +152,9 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
-    return Person.objects.filter(team_id=team_id, persondistinctid__distinct_id__in=distinct_ids)
+    return Person.objects.filter(
+        team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
+    )
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
