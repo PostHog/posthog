@@ -19,7 +19,7 @@ class TestMixin:
         return User.objects.create_and_join(self.organization, self.team, email, password, first_name, **kwargs)
 
     def setUp(self):
-        super().setUp()  # type: ignore
+        super().setUp()
         clear_cache()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
