@@ -116,8 +116,6 @@ jobs:
                   # Recommended: pass the GitHub token lets this action correctly
                   # determine the unique run id necessary to re-run the checks
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  # Tolerate flaky tests
-                  CYPRESS_RETRIES: 3
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:

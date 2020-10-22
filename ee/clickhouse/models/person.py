@@ -1,8 +1,8 @@
 import datetime
 import json
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
+from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -16,16 +16,14 @@ from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
     GET_PERSON_SQL,
-    GET_PERSONS_BY_DISTINCT_IDS,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
     PERSON_DISTINCT_ID_EXISTS_SQL,
-    PERSON_EXISTS_SQL,
     UPDATE_PERSON_ATTACHED_DISTINCT_ID,
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
-from ee.kafka_client.client import ClickhouseProducer, KafkaProducer
+from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
@@ -99,10 +97,6 @@ def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
     return bool(sync_execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][0])
 
 
-def person_exists(id: int) -> bool:
-    return bool(sync_execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
-
-
 def get_persons(team_id: int):
     result = sync_execute(GET_PERSON_SQL, {"team_id": team_id})
     return ClickhousePersonSerializer(result, many=True).data
@@ -120,14 +114,10 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
-    result = sync_execute(
-        GET_PERSONS_BY_DISTINCT_IDS,
-        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
+    return Person.objects.filter(
+        team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
     )
-    if len(result) > 0:
-        return list(ClickhousePersonSerializer(result, many=True).data)
-    return []
 
 
 def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:

@@ -75,7 +75,7 @@ class ClickhousePerson(PersonViewSet):
         if not endpoint_enabled(CH_PERSON_ENDPOINT, request.user.distinct_id):
             return super().list(request)
 
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         filtered = self._ch_filter_request(self.request, team)
         results = ClickhousePersonSerializer(filtered, many=True).data
         return Response({"results": results})
@@ -99,7 +99,7 @@ class ClickhousePerson(PersonViewSet):
             result = super().get_properties(request)
             return Response(result)
 
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         qres = sync_execute(GET_PERSON_TOP_PROPERTIES, {"limit": 10, "team_id": team.pk})
 
         return Response([{"name": element[0], "count": element[1]} for element in qres])

@@ -4,6 +4,7 @@ import { ingestionLogicType } from 'types/scenes/ingestion/ingestionLogicType'
 import { API, MOBILE, WEB } from 'scenes/ingestion/constants'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     actions: {
@@ -126,6 +127,9 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                         ...user.team,
                         completed_snippet_onboarding: true,
                     },
+                })
+                teamLogic.actions.patchCurrentTeam({
+                    completed_snippet_onboarding: true,
                 })
             }
             userLogic.actions.userUpdateRequest({ team: { completed_snippet_onboarding: true } })

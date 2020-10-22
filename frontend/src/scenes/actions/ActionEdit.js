@@ -137,7 +137,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                 <>
                                     <Input
                                         addonBefore="Message format (optional)"
-                                        placeholder="try: [action.name] triggered by [user.name]"
+                                        placeholder="[action.name] triggered by [user.name]"
                                         value={action.slack_message_format}
                                         onChange={(e) => {
                                             setAction({ ...action, slack_message_format: e.target.value })
