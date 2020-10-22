@@ -137,7 +137,7 @@ export function Organization(): JSX.Element {
                                         user,
                                         showUpgradeModal,
                                         'organizations_projects',
-                                        'multiple projects and organizations',
+                                        'multiple organizations',
                                         () => {
                                             setIsModalVisible(true)
                                         }
@@ -152,7 +152,7 @@ export function Organization(): JSX.Element {
                 }
             >
                 <div
-                    data-attr="user-options-dropdown"
+                    data-attr="user-organization-dropdown"
                     className="btn btn-sm btn-light btn-top"
                     style={{ marginRight: '0.75rem' }}
                     title="Organizations"
@@ -257,7 +257,7 @@ export function Projects(): JSX.Element {
                                         user,
                                         showUpgradeModal,
                                         'organizations_projects',
-                                        'multiple projects and organizations',
+                                        'multiple projects',
                                         () => {
                                             setIsModalVisible(true)
                                         }
@@ -272,7 +272,7 @@ export function Projects(): JSX.Element {
                 }
             >
                 <div
-                    data-attr="user-options-dropdown"
+                    data-attr="user-project-dropdown"
                     className="btn btn-sm btn-light btn-top"
                     style={{ marginRight: '0.75rem' }}
                     title="Organization Projects"

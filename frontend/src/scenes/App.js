@@ -86,7 +86,8 @@ function App() {
                     <TopContent user={user} />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
-                        {!currentTeam.ingested_event &&
+                        {currentTeam &&
+                        !currentTeam.ingested_event &&
                         !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
                             <SendEventsOverlay />
                         ) : (

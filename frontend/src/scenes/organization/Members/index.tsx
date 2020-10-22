@@ -1,12 +1,11 @@
-import React, { useCallback, useState } from 'react'
-import { Button } from 'antd'
+import React, { useCallback } from 'react'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
 import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
-import { CreateOrgInviteModal } from '../Invites/CreateOrgInviteModal'
+import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
@@ -19,7 +18,6 @@ export const Members = hot(_Members)
 function _Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
     const { removeMember } = useActions(membersLogic)
-    const [isCreateInviteModalVisible, setIsCreateInviteModalVisible] = useState(false)
     const { confirm } = Modal
 
     const ActionsComponent = useCallback(
@@ -96,16 +94,7 @@ function _Members({ user }: MembersProps): JSX.Element {
                     <p>View and manage all organization members here. Build an even better product together.</p>
                 </i>
             </div>
-            <Button
-                type="primary"
-                data-attr="invite-teammate-button"
-                onClick={() => {
-                    setIsCreateInviteModalVisible(true)
-                }}
-            >
-                + Invite Teammate
-            </Button>
-            <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
+            <CreateOrgInviteModalWithButton />
             <Table
                 dataSource={members}
                 columns={columns}

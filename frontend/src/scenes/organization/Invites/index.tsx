@@ -1,9 +1,8 @@
-import React, { useCallback, useState } from 'react'
-import { Button } from 'antd'
+import React, { useCallback } from 'react'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './logic'
-import { CreateOrgInviteModal } from './CreateOrgInviteModal'
+import { CreateOrgInviteModalWithButton } from './CreateOrgInviteModal'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
@@ -14,7 +13,6 @@ export const Invites = hot(_Invites)
 function _Invites({ user }: { user: UserType }): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
-    const [isCreateInviteModalVisible, setIsCreateInviteModalVisible] = useState(false)
     const { confirm } = Modal
 
     const ActionsComponent = useCallback(
@@ -71,7 +69,11 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             key: 'link',
             render: function InviteLink(id: string): JSX.Element {
                 const url = new URL(`/signup/${id}`, document.baseURI).href
-                return <CopyToClipboardInline description="invite URL">{url}</CopyToClipboardInline>
+                return (
+                    <CopyToClipboardInline data-attr="invite-link" description="invite URL">
+                        {url}
+                    </CopyToClipboardInline>
+                )
             },
         },
         {
@@ -91,16 +93,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
                     <p>Create, send out, and delete organization invites.</p>
                 </i>
             </div>
-            <Button
-                type="primary"
-                data-attr="invite-teammate-button"
-                onClick={() => {
-                    setIsCreateInviteModalVisible(true)
-                }}
-            >
-                + Invite Teammate
-            </Button>
-            <CreateOrgInviteModal isVisible={isCreateInviteModalVisible} setIsVisible={setIsCreateInviteModalVisible} />
+            <CreateOrgInviteModalWithButton />
             <Table
                 dataSource={invites}
                 columns={columns}

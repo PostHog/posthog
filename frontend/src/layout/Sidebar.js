@@ -210,19 +210,19 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             location.pathname !== '/people/persons' && push('/people/persons')
                         }}
                     >
-                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
+                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-people-persons">
                             <UserOutlined />
                             <span className="sidebar-label">Persons</span>
                             <Link to={'/people/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
+                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">Cohorts</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
 
-                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
+                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-flags">
                         <FlagOutlined />
                         <span className="sidebar-label">Feature Flags</span>
                         <Link to={'/feature_flags'} onClick={collapseSidebar} />
@@ -273,7 +273,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         </Menu.Item>
 
                         {featureFlags['billing-management-page'] && (
-                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-billing">
+                            <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-organization-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
                                 <Link to="/billing" onClick={collapseSidebar} />
@@ -284,6 +284,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
                         <Menu.SubMenu
                             key="instance"
+                            data-attr="menu-item-instance"
                             title={
                                 <span style={itemStyle} data-attr="menu-item-instance">
                                     <CloudServerOutlined />
