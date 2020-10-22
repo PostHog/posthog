@@ -155,12 +155,11 @@ jobs:
         steps:
             - name: Fetch posthog-production
               run: |
-                  curl -L https://github.com/posthog/posthog-production/tarball/teams-live | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - uses: actions/checkout@v2
               with:
-                  ref: 'teams'
                   path: 'deploy/'
 
             - name: Link posthog-production
