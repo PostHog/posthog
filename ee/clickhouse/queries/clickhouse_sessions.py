@@ -17,7 +17,7 @@ from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import Filter, Person, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
-from posthog.utils import append_data, friendly_time
+from posthog.utils import append_data, friendly_time, relative_date_parse
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
 
@@ -99,6 +99,13 @@ class ClickhouseSessions(BaseQuery):
                 session["properties"] = distinct_to_person[session["distinct_id"]].properties
 
     def calculate_avg(self, filter: Filter, team: Team):
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
+
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
@@ -159,6 +166,12 @@ class ClickhouseSessions(BaseQuery):
         return time_series_data
 
     def calculate_dist(self, filter: Filter, team: Team):
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 

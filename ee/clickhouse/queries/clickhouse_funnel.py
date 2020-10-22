@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
+from django.utils import timezone
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -14,6 +16,7 @@ from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
+from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnel(Funnel):
@@ -71,6 +74,13 @@ class ClickhouseFunnel(Funnel):
         prop_filters, prop_filter_params = parse_prop_clauses(
             "uuid", self._filter.properties, self._team, prepend="global"
         )
+
+        # format default dates
+        if not self._filter._date_from:
+            self._filter._date_from = relative_date_parse("-7d")
+        if not self._filter._date_to:
+            self._filter._date_to = timezone.now()
+
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
         self.params: Dict = {"team_id": self._team.pk, **prop_filter_params}
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
