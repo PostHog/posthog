@@ -4,7 +4,7 @@ describe('People', () => {
     })
 
     it('People loaded', () => {
-        cy.get('h1').should('contain', 'Users')
+        cy.get('h1').should('contain', 'Persons')
     })
 
     it('Go to new cohort from people screen', () => {
@@ -26,6 +26,6 @@ describe('People', () => {
         cy.get('[data-attr=menu-item-people-cohorts]').click()
         cy.get('[data-attr=menu-item-people-persons]').click()
 
-        cy.get('h1').should('contain', 'Users')
+        cy.get('h1').should('contain', 'Persons')
     })
 })

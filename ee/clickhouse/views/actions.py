@@ -11,9 +11,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_stickiness import STICKINESS_PEOPLE_SQL
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from ee.clickhouse.util import CH_ACTION_ENDPOINT, endpoint_enabled
 from posthog.api.action import ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS

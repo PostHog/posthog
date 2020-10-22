@@ -134,7 +134,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params = {}
-    for idx, (k, v) in enumerate(conditions.items()):
+    for _, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
         if k == "after":
