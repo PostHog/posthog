@@ -474,10 +474,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: ExperimentOutlined,
-                        display: 'Go to Experiments',
+                        display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
-                            push('/experiments/feature_flags')
+                            push('/feature_flags')
                         },
                     },
                     {
