@@ -310,7 +310,7 @@ SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filt
 
 PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN (%(distinct_ids)s) AND team_id = %(team_id)s
+    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON persons_up_to_date_view.id = pdi.person_id
 WHERE team_id = %(team_id)s
 GROUP BY id, created_at, team_id, properties, is_identified
