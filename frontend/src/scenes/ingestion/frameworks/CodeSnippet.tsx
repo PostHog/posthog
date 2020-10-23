@@ -25,6 +25,7 @@ import { PopconfirmProps } from 'antd/lib/popconfirm'
 export interface Action {
     Icon: any
     callback: () => void
+    popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
 }
 
 export enum Language {
@@ -73,7 +74,6 @@ export interface CodeSnippetProps {
     language?: Language
     wrap?: boolean
     actions?: Action[]
-    popconfirmProps?: PopconfirmProps
 }
 
 export function CodeSnippet({
@@ -81,16 +81,20 @@ export function CodeSnippet({
     language = Language.Text,
     wrap = false,
     actions,
-    popconfirmProps,
 }: CodeSnippetProps): JSX.Element {
     return (
         <div className="code-container">
             <div className="action-icon-container">
                 {actions &&
-                    actions.map(({ Icon, callback }, index) => {
-                        const icon = <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
-                        return !popconfirmProps ? icon : <Popconfirm {...popconfirmProps}>{icon}</Popconfirm>
-                    })}
+                    actions.map(({ Icon, callback, popconfirmProps }, index) =>
+                        !popconfirmProps ? (
+                            <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
+                        ) : (
+                            <Popconfirm {...popconfirmProps} onConfirm={callback}>
+                                <Icon key={`snippet-action-${index}`} className="action-icon" />
+                            </Popconfirm>
+                        )
+                    )}
                 <CopyOutlined
                     className="action-icon"
                     onClick={() => {

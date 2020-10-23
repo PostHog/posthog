@@ -57,7 +57,6 @@ function _Setup() {
                             okType: 'danger',
                             icon: <ReloadOutlined style={{ color: red.primary }} />,
                             placement: 'left',
-                            onConfirm: resetToken,
                         },
                         callback: resetToken,
                     },
