@@ -87,6 +87,7 @@ export function Cohort({ onChange }) {
                         type="primary"
                         htmlType="submit"
                         disabled={isSubmitDisabled(cohort)}
+                        data-attr="save-cohort"
                         style={{ marginTop: '1rem' }}
                     >
                         Save cohort
