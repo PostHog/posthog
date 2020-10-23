@@ -12,6 +12,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
+from posthog.utils import relative_date_parse
 
 
 class Funnel(BaseQuery):

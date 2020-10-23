@@ -85,7 +85,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # with self.assertNumQueries(1):
             result = funnel.run()
-            self.assertEqual(len(result), 0)
+            self.assertEqual(result[0]["count"], 0)
 
         def test_funnel_with_single_step(self):
             funnel = self._single_step_funnel()

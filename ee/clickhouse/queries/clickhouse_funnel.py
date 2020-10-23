@@ -97,7 +97,7 @@ class ClickhouseFunnel(Funnel):
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         results = self._exec_query()
         if len(results) == 0:
-            return []
+            return self.data_to_return([])
         width = len(results[0])  # the three
         res = []
         for result_tuple in results:
