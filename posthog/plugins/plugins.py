@@ -16,7 +16,8 @@ from posthog.cache import get_redis_instance
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.utils import SingletonDecorator
 
-from .models import JSPlugin, PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
+from .jsplugin import JSPlugin
+from .models import PluginBaseClass, PluginError, PluginModule, PosthogEvent, TeamPlugin
 from .sync import sync_global_plugin_config, sync_posthog_json_plugins
 from .utils import load_json_file, load_json_zip_file
 
@@ -218,20 +219,19 @@ class _Plugins:
         except py_mini_racer.JSEvalException:
             return None
 
-        if isinstance(ctx.eval("Plugin"), py_mini_racer.JSFunction):
-            self.plugins_by_id[plugin.id] = PluginModule(
-                type="js",
-                id=plugin.id,
-                name=plugin.name,
-                tag=plugin.tag,
-                url=plugin.url,
-                module_name=module_name,
-                plugin_path=plugin_path,
-                plugin=JSPlugin,
-                requirements=None,
-                module=None,
-                index_js=index_js,
-            )
+        self.plugins_by_id[plugin.id] = PluginModule(
+            type="js",
+            id=plugin.id,
+            name=plugin.name,
+            tag=plugin.tag,
+            url=plugin.url,
+            module_name=module_name,
+            plugin_path=plugin_path,
+            plugin=JSPlugin,
+            requirements=None,
+            module=None,
+            index_js=index_js,
+        )
         return self.plugins_by_id[plugin.id]
 
     def unregister_plugin(self, id):
