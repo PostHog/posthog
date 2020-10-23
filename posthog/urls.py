@@ -1,6 +1,4 @@
-import json
-import os
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Literal, Optional, Union, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -20,7 +18,7 @@ from posthog.demo import demo
 from posthog.email import is_email_available
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
-from .models import OrganizationInvite, Team, User
+from .models import Organization, OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
@@ -51,14 +49,14 @@ def login_view(request):
     return render_template("login.html", request)
 
 
-class InviteSurrogate:
+class TeamInviteSurrogate:
     """This reimplements parts of OrganizationInvite that enable compatibility with the old Team.signup_token."""
 
     def __init__(self, signup_token: str):
         team = Team.objects.select_related("organization").get(signup_token=signup_token)
         self.organization = team.organization
 
-    def validate(*args, **kwargs) -> True:
+    def validate(*args, **kwargs) -> Literal[True]:
         return True
 
     def use(self, user: Any, *args, **kwargs) -> None:
@@ -67,7 +65,6 @@ class InviteSurrogate:
             user.current_organization = self.organization
             user.current_team = user.current_organization.teams.first()
             user.save()
-        self.delete()
 
 
 def signup_to_organization_view(request, invite_id):
@@ -76,10 +73,12 @@ def signup_to_organization_view(request, invite_id):
     if not User.objects.exists():
         return redirect("/preflight")
     try:
-        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
+            "organization"
+        ).get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
-            invite = InviteSurrogate(invite_id)
+            invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
             return redirect("/")
 
@@ -116,7 +115,7 @@ def signup_to_organization_view(request, invite_id):
                 },
             )
         user = User.objects.create_and_join(
-            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in,
+            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in,  # type: ignore
         )
         invite.use(user, prevalidated=True)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -128,7 +127,7 @@ def signup_to_organization_view(request, invite_id):
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
                 "company_name": organization.name,
-                "organization_id": organization.id,  # TODO: handle multiple teams
+                "organization_id": organization.id,  # type: ignore
                 "is_organization_first_user": False,
             },
         )
@@ -158,10 +157,12 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         return
 
     try:
-        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
+            "organization"
+        ).get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
-            invite = InviteSurrogate(invite_id)
+            invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
             processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
             return HttpResponse(processed, status=401)
