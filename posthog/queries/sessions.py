@@ -51,7 +51,7 @@ class Sessions(BaseQuery):
                 events = events.filter(filter.date_filter_Q)
             calculated = self.calculate_sessions(events, filter, team, limit, offset)
 
-        return add_session_recording_ids(team, calculated)
+        return calculated
 
     def calculate_sessions(
         self, events: QuerySet, filter: Filter, team: Team, limit: int, offset: int
@@ -188,7 +188,7 @@ class Sessions(BaseQuery):
                         )
                     except IndexError:
                         event.update({"elements": []})
-        return sessions
+        return add_session_recording_ids(team, sessions)
 
     def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
