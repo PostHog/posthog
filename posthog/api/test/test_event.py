@@ -243,6 +243,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event1 = event_factory(team=self.team, event="sign up", distinct_id="2")
             with freeze_time("2020-01-8"):
                 event2 = event_factory(team=self.team, event="sign up", distinct_id="2")
+            with freeze_time("2020-01-7"):
                 event3 = event_factory(team=self.team, event="random other event", distinct_id="2")
 
             action = Action.objects.create(team=self.team)
