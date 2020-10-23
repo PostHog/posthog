@@ -90,8 +90,8 @@ export function CodeSnippet({
                         !popconfirmProps ? (
                             <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
                         ) : (
-                            <Popconfirm {...popconfirmProps} onConfirm={callback}>
-                                <Icon key={`snippet-action-${index}`} className="action-icon" />
+                            <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
+                                <Icon className="action-icon" />
                             </Popconfirm>
                         )
                     )}
