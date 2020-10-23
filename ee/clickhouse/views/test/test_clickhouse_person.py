@@ -21,12 +21,10 @@ def _get_people():
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    person.pk = str(person.uuid)
-    return person
+    return Person.objects.create(**kwargs)
 
 
 class ClickhouseTestPersonApi(
-    ClickhouseTestMixin, test_person_factory(_create_event, _create_person, _get_events, _get_people)  # type: ignore
+    ClickhouseTestMixin, test_person_factory(_create_event, _create_person, _get_events, Person.objects.all)  # type: ignore
 ):
     pass

@@ -223,6 +223,14 @@ DELETE_PERSON_BY_ID = """
 ALTER TABLE person DELETE where id = %(id)s
 """
 
+DELETE_PERSON_EVENTS_BY_ID = """
+ALTER TABLE events DELETE
+where distinct_id IN (
+    SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
+)
+AND team_id = %(team_id)s
+"""
+
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
 ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 """

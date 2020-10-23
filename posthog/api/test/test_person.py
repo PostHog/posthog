@@ -260,6 +260,6 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
 
 class TestPerson(
-    test_person_factory(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)
+    test_person_factory(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
 ):
     pass
