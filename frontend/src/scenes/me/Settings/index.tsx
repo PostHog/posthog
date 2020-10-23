@@ -7,7 +7,7 @@ import { hot } from 'react-hot-loader/root'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { ChangePassword } from './ChangePassword'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
-import { OptOutCapture } from 'scenes/organization/OptOutCapture'
+import { OptOutCapture } from './OptOutCapture'
 import { userLogic } from 'scenes/userLogic'
 
 export const MySettings = hot(_MySettings)
