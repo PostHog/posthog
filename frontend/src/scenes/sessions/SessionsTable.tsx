@@ -28,7 +28,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         nextOffset,
         isLoadingNext,
         selectedDate,
-        filters,
+        properties,
         sessionRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
@@ -112,7 +112,11 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
             <Space className="mb-2">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker value={selectedDate} onChange={(date) => setFilters(filters, date)} allowClear={false} />
+                <DatePicker
+                    value={selectedDate}
+                    onChange={(date) => setFilters(properties, date, sessionRecordingId)}
+                    allowClear={false}
+                />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />

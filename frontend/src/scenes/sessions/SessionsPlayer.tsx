@@ -7,7 +7,7 @@ export default function SessionsPlayer({ events }: { events: eventWithTime[] }):
     const target = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
-        if (target.current) {
+        if (target.current && events) {
             const player = new rrwebPlayer({
                 target: target.current,
                 // eslint-disable-next-line
