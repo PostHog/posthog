@@ -265,8 +265,8 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z").json()
             self.assertEqual(len(response["results"]), 2)
-            self.assertEqual(response["results"][0]["id"], event3.pk)
-            self.assertEqual(response["results"][1]["id"], event2.pk)
+            self.assertEqual(response["results"][0]["id"], event2.pk)
+            self.assertEqual(response["results"][1]["id"], event3.pk)
 
         def test_pagination(self):
             person_factory(team=self.team, distinct_ids=["1"])
