@@ -51,10 +51,10 @@ def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[s
     property_filter = ""
     if step.url and step.event:
         if step.url_matching == ActionStep.EXACT:
-            operation = "trim(BOTH '\"' FROM value) = '{}'".format(step.url)
+            operation = "trim(BOTH '\"' FROM value) = %(prop_val_{})s".format(index)
             params.update({"prop_val_{}".format(index): step.url})
         elif step.url_matching == ActionStep.REGEX:
-            operation = "match(trim(BOTH '\"' FROM value), '{}')".format(step.url)
+            operation = "match(trim(BOTH '\"' FROM value), %({}_prop_val_{})s)".format(prepend, index)
             params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
             operation = "trim(BOTH '\"' FROM value) LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
