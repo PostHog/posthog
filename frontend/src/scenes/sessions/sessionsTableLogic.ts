@@ -178,6 +178,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
 
             if (params.sessionRecordingId) {
                 actions.loadSessionPlayer(params.sessionRecordingId)
+            } else {
+                actions.closeSessionPlayer()
             }
         },
         '/person/*': (_: any, params: Params) => {
@@ -188,6 +190,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
 
             if (params.sessionRecordingId) {
                 actions.loadSessionPlayer(params.sessionRecordingId)
+            } else {
+                actions.closeSessionPlayer()
             }
         },
     }),
