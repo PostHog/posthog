@@ -76,7 +76,7 @@ def signup_to_organization_view(request, invite_id):
     if not User.objects.exists():
         return redirect("/preflight")
     try:
-        invite = OrganizationInvite.objects.select_related("organization").get(invite_id)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
             invite = InviteSurrogate(invite_id)
@@ -158,7 +158,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         return
 
     try:
-        invite = OrganizationInvite.objects.select_related("organization").get(invite_id)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
             invite = InviteSurrogate(invite_id)
