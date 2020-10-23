@@ -21,7 +21,7 @@ function _Cohorts() {
             key: 'name',
             render: function RenderName(_, cohort) {
                 return (
-                    <Link className={rrwebBlockClass} to={'/people?cohort=' + cohort.id}>
+                    <Link className={rrwebBlockClass} to={'/people/persons?cohort=' + cohort.id}>
                         {cohort.name}
                     </Link>
                 )
