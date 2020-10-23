@@ -38,7 +38,6 @@ def user(request):
         data = json.loads(request.body)
 
         if "team" in data:
-            team.api_token = data["team"].get("api_token", team.api_token)
             team.app_urls = data["team"].get("app_urls", team.app_urls)
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
