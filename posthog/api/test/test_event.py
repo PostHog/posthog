@@ -1,7 +1,7 @@
 import json
 
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import datetime
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
@@ -272,7 +272,8 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     team=self.team,
                     event="some event",
                     distinct_id="1",
-                    timestamp=datetime(2019, 1, 1, 12, 0, 0) + relativedelta(days=idx, seconds=idx),
+                    timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+                    + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)

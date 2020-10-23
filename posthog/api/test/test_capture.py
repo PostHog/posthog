@@ -290,7 +290,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
+            "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
         )
 
     def test_batch_token_not_set(self):
@@ -303,7 +303,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
+            "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
         )
 
     def test_batch_distinct_id_not_set(self):

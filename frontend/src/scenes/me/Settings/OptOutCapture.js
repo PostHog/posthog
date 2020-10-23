@@ -39,7 +39,7 @@ export function OptOutCapture() {
             </label>
             {saved && (
                 <p className="text-success">
-                    Preference saved. <a href="/setup">Refresh the page for the change to take effect.</a>
+                    Preference saved. <a href="/my/settings">Refresh the page for the change to take effect.</a>
                 </p>
             )}
         </div>

@@ -62,6 +62,7 @@ export const routes = {
     '/organization/settings': 'organizationSettings',
     '/organization/members': 'organizationMembers',
     '/organization/invites': 'organizationInvites',
+    '/organization/billing': 'billing',
     '/instance/licenses': 'instanceLicenses',
     '/instance/status': 'instanceStatus',
     '/me/settings': 'mySettings',
@@ -69,7 +70,6 @@ export const routes = {
     '/signup': 'signup',
     '/ingestion': 'ingestion',
     '/ingestion/*': 'ingestion',
-    '/billing': 'billing',
 }
 
 export const sceneLogic = kea({
