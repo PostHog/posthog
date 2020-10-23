@@ -13,7 +13,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def _create_events(self, use_time=False):
 
             person = person_factory(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            secondTeam = Team.objects.create(api_token="token123")
+            secondTeam = Team.objects.create(api_token="token456")
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [
@@ -554,6 +554,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
 
             return (person1, person2, person3, person4)
+
+        def test_person_property_filtering(self):
+            self._create_multiple_people()
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                            "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[0]["data"][5], 0)
 
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()

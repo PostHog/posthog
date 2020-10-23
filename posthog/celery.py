@@ -129,7 +129,10 @@ def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
 
 @app.task
 def send_weekly_email_report():
-    pass
+    if settings.EMAIL_REPORTS_ENABLED:
+        from posthog.tasks.email import send_weekly_email_reports
+
+        send_weekly_email_reports()
 
 
 @app.task(bind=True)

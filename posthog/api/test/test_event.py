@@ -1,7 +1,7 @@
 import json
-from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import datetime
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team

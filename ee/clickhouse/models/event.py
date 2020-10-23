@@ -1,18 +1,17 @@
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
-from django.utils.timezone import now
+from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import ClickhouseProducer
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -23,13 +22,14 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]] = None,
+    timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
 ) -> str:
 
     if not timestamp:
-        timestamp = now()
+        timestamp = timezone.now()
+    assert timestamp is not None
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):

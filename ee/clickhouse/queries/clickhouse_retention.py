@@ -7,7 +7,7 @@ from django.utils import timezone
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.sql.retention import RETENTION_SQL
+from ee.clickhouse.sql.retention.retention import RETENTION_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.entity import Entity

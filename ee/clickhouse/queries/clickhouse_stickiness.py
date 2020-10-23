@@ -7,43 +7,15 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.stickiness.stickiness import STICKINESS_SQL
+from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.team import Team
-from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.base import BaseQuery
 from posthog.utils import relative_date_parse
-
-STICKINESS_SQL = """
-    SELECT countDistinct(person_id), day_count FROM (
-         SELECT person_distinct_id.person_id, countDistinct(toDate(timestamp)) as day_count
-         FROM events
-         LEFT JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-         WHERE team_id = {team_id} AND event = '{event}' {filters} {parsed_date_from} {parsed_date_to}
-         GROUP BY person_distinct_id.person_id
-    ) GROUP BY day_count ORDER BY day_count
-"""
-
-STICKINESS_ACTIONS_SQL = """
-    SELECT countDistinct(person_id), day_count FROM (
-         SELECT person_distinct_id.person_id, countDistinct(toDate(timestamp)) as day_count
-         FROM events
-         LEFT JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-         WHERE team_id = {team_id} AND uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
-         GROUP BY person_distinct_id.person_id
-    ) GROUP BY day_count ORDER BY day_count
-"""
-
-STICKINESS_PEOPLE_SQL = """
-SELECT DISTINCT pid FROM (
-    SELECT DISTINCT person_distinct_id.person_id as pid, countDistinct(toDate(timestamp)) as day_count
-    FROM events
-    LEFT JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-    WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to}
-    GROUP BY person_distinct_id.person_id
-) WHERE day_count = %(stickiness_day)s
-"""
 
 
 class ClickhouseStickiness(BaseQuery):

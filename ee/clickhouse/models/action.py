@@ -1,23 +1,13 @@
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.actions import ACTION_QUERY, ELEMENT_ACTION_FILTER, EVENT_ACTION_FILTER, EVENT_NO_PROP_FILTER
+from ee.clickhouse.sql.actions import ELEMENT_ACTION_FILTER, EVENT_ACTION_FILTER, EVENT_NO_PROP_FILTER
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Action, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
-
-
-def query_action(action: Action) -> Optional[List]:
-    query, params = format_action_query(action)
-
-    if query:
-        return sync_execute(query, params)
-
-    return None
 
 
 def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[str, Dict]:
@@ -44,7 +34,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
             prop_query, prop_params = parse_prop_clauses(
                 "uuid", Filter(data={"properties": step.properties}).properties, action.team
             )
-            query += "{}".format(prop_query)
+            query += prop_query
             params = {**params, **prop_params}
 
         or_queries.append(query)
@@ -54,14 +44,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
     return formatted_query, params
 
 
-def format_action_query(action: Action, prepend: str = "", index=0) -> Tuple[str, Dict]:
-    formatted_query, params = format_action_filter(action, prepend, index)
-
-    final_query = ACTION_QUERY.format(action_filter=formatted_query)
-    return final_query, params
-
-
-def filter_event(step, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
+def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[str, Dict, int]:
     params = {}
     event_filter = ""
     efilter = ""

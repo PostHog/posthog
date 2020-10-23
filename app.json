@@ -9,7 +9,10 @@
                 "postdeploy": "python manage.py setup_dev"
             },
             "env": {
-                "SELF_CAPTURE": true
+                "SELF_CAPTURE": true,
+                "SECRET_KEY": {
+                    "generator": "secret"
+                }
             },
             "buildpacks": [
                 { "url": "heroku/nodejs" },

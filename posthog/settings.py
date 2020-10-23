@@ -61,8 +61,7 @@ DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
 
-# Canonical base URL (used for email links)
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
@@ -290,7 +289,7 @@ SOCIAL_AUTH_PIPELINE = (
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
 SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "signup_token",
+    "invite_id",
 ]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
@@ -479,3 +478,7 @@ DEBUG_TOOLBAR_CONFIG = {
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *
+
+
+# TODO: Temporary
+EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
