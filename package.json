@@ -22,7 +22,8 @@
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen:watch": "kea-typegen watch"
+        "typegen:watch": "kea-typegen watch",
+        "manage:generate_python_grpc": "source env/bin/activate && mkdir -p ./posthog/grpc && DEBUG=1 python -m grpc_tools.protoc -I../posthog-plugins/protos --python_out=. --grpc_python_out=. ../posthog-plugins/protos/posthog/grpc/plugins.proto"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",

@@ -9,10 +9,15 @@ from types import ModuleType
 from typing import Dict, List, Optional, Union
 from zipfile import ZipFile
 
+import grpc
+from dateutil import parser
 from django.db.models import F
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Struct
 from py_mini_racer import py_mini_racer
 
 from posthog.cache import get_redis_instance
+from posthog.grpc import plugins_pb2, plugins_pb2_grpc
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.utils import SingletonDecorator
 
@@ -43,6 +48,9 @@ class _Plugins:
 
         self.load_plugins()
         self.load_plugin_configs()
+
+        self.channel = grpc.insecure_channel("localhost:50051")
+        self.stub = plugins_pb2_grpc.PluginServiceStub(self.channel)
 
     def load_plugins(self):
         self.plugins = list(Plugin.objects.all())
@@ -318,19 +326,43 @@ class _Plugins:
             raise PluginError("Error installing requirement: {}".format(requirement))
 
     def exec_plugins(self, event: PosthogEvent, team_id: int):
-        team_plugins = self.plugins_by_team.get(team_id, None)
-        global_plugins = self.plugins_by_team.get(None, [])
-        plugins_to_run = team_plugins if team_plugins else global_plugins
+        s = Struct()
+        s.update(event.properties)
+        pb2_event = plugins_pb2.PosthogEvent(
+            ip=event.ip,
+            site_url=event.site_url,
+            event=event.event,
+            distinct_id=event.distinct_id,
+            team_id=event.team_id,
+            properties=s,
+            timestamp=event.timestamp.isoformat(),
+        )
+        response = self.stub.OnCapture(plugins_pb2.CaptureRequest(event=pb2_event))
+        processed_event = response.event
 
-        for team_plugin in plugins_to_run:
-            if event:
-                event = self.exec_plugin(team_plugin, event, "process_event")
-            if event and event.event == "$identify":
-                event = self.exec_plugin(team_plugin, event, "process_identify")
-            if event and event.event == "$create_alias":
-                event = self.exec_plugin(team_plugin, event, "process_alias")
+        response_event = PosthogEvent(
+            ip=processed_event.ip,
+            site_url=processed_event.site_url,
+            event=processed_event.event,
+            distinct_id=processed_event.distinct_id,
+            team_id=processed_event.team_id,
+            properties=json_format.MessageToDict(processed_event.properties),
+            timestamp=parser.parse(processed_event.timestamp),
+        )
 
-        return event
+        # team_plugins = self.plugins_by_team.get(team_id, None)
+        # global_plugins = self.plugins_by_team.get(None, [])
+        # plugins_to_run = team_plugins if team_plugins else global_plugins
+        #
+        # for team_plugin in plugins_to_run:
+        #     if event:
+        #         event = self.exec_plugin(team_plugin, event, "process_event")
+        #     if event and event.event == "$identify":
+        #         event = self.exec_plugin(team_plugin, event, "process_identify")
+        #     if event and event.event == "$create_alias":
+        #         event = self.exec_plugin(team_plugin, event, "process_alias")
+
+        return response_event
 
     def exec_plugin(self, team_plugin: TeamPlugin, event: PosthogEvent, method="process_event"):
         try:
