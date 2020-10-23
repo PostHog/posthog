@@ -1,18 +1,27 @@
 from django.db import migrations
 
 
-class Migration(migrations.Migration):
+def forwards_func(apps, schema_editor):
+    Team = apps.get_model("posthog", "Team")
+    Team.objects.filter(organization__isnull=False).exclude(name="HogFlix Demo App").update(
+        name=Team._meta.get_field("name").get_default()
+    )
 
+
+def reverse_func(apps, schema_editor):
+    Team = apps.get_model("posthog", "Team")
+    for team in (
+        Team.objects.filter(organization__isnull=False).exclude(name="HogFlix Demo App").select_related("organization")
+    ):
+        team.name = team.organization.name
+        team.save()
+
+
+class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0091_messagingrecord"),
     ]
 
     operations = [
-        migrations.RunSQL(
-            """
-            UPDATE "posthog_team"
-            SET "name" = 'Default Project';
-            """,
-            "",
-        )
+        migrations.RunPython(forwards_func, reverse_func),
     ]
