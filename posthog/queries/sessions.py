@@ -12,6 +12,7 @@ from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -78,6 +79,7 @@ class Sessions(BaseQuery):
 
         sessions = (
             events.filter(_date_gte)
+            .exclude(event="$snapshot")
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),
@@ -120,17 +122,18 @@ class Sessions(BaseQuery):
     ) -> List[Dict[str, Any]]:
 
         session_list = """
-            SELECT 
-                * 
+            SELECT
+                *
             FROM (
-                SELECT 
+                SELECT
                     global_session_id,
                     properties,
                     start_time,
+                    end_time,
                     length,
                     sessions.distinct_id,
                     event_count,
-                    events 
+                    events
                 FROM (
                     SELECT
                         global_session_id,
@@ -138,19 +141,20 @@ class Sessions(BaseQuery):
                         MAX(distinct_id) as distinct_id,
                         EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,
                         MIN(timestamp) as start_time,
+                        MAX(timestamp) as end_time,
                         array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events
-                    FROM 
-                        ({base_query}) as count 
+                    FROM
+                        ({base_query}) as count
                     GROUP BY 1
                 ) as sessions
-                LEFT OUTER JOIN 
+                LEFT OUTER JOIN
                     posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s
-                LEFT OUTER JOIN 
+                LEFT OUTER JOIN
                     posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
-                ORDER BY 
+                ORDER BY
                     start_time DESC
-            ) as ordered_sessions 
-            OFFSET %s 
+            ) as ordered_sessions
+            OFFSET %s
             LIMIT %s
         """.format(
             base_query=base_query
@@ -184,7 +188,7 @@ class Sessions(BaseQuery):
                         )
                     except IndexError:
                         event.update({"elements": []})
-        return sessions
+        return add_session_recording_ids(team, sessions)
 
     def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
