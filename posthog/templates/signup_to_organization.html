@@ -44,13 +44,13 @@
         {% if github_auth or gitlab_auth or google_auth %}
         <div class="btn-toolbar mt-3 d-flex justify-content-between">
             {% if github_auth %}
-            <a href="{% url 'social:begin' 'github' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign In with GitHub</a>
+            <a href="{% url 'social:begin' 'github' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign in with GitHub</a>
             {% endif %}
             {% if gitlab_auth %}
-            <a href="{% url 'social:begin' 'gitlab' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign In with GitLab</a>
+            <a href="{% url 'social:begin' 'gitlab' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign in with GitLab</a>
             {% endif %}
             {% if google_auth %}
-            <a href="{% url 'social:begin' 'google-oauth2' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign In with GitLab</a>
+            <a href="{% url 'social:begin' 'google-oauth2' %}?invite_id={{ invite_id }}" class="btn btn-outline-dark">Sign in with Google</a>
             {% endif %}
         </div>
         {% endif %}
