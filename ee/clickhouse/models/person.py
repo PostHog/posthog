@@ -13,6 +13,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
+    DELETE_PERSON_EVENTS_BY_ID,
     DELETE_PERSON_MATERIALIZED_BY_ID,
     GET_DISTINCT_IDS_SQL,
     GET_DISTINCT_IDS_SQL_BY_ID,
