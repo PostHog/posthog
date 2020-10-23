@@ -14,7 +14,7 @@ message PosthogEvent {
     string distinct_id = 4;
     uint64 team_id = 5;
     google.protobuf.Struct properties = 6;
-    uint64 timestamp = 7;
+    string timestamp = 7;
 }
 
 message CaptureRequest {

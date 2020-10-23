@@ -3,7 +3,7 @@ import { struct } from 'pb-util'
 import { setupPlugins, runPlugins } from './plugins'
 const protoLoader = require('@grpc/proto-loader')
 require('google-protobuf/google/protobuf/struct_pb')
-const packageDefinition = protoLoader.loadSync('./plugins.proto', {
+const packageDefinition = protoLoader.loadSync('../protos/posthog/grpc/plugins.proto', {
     keepCase: true,
     longs: Number,
     enums: String,
