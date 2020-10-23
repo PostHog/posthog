@@ -15,9 +15,11 @@ from rest_framework import (
     status,
     viewsets,
 )
+from rest_framework.decorators import action
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
+from posthog.models.utils import generate_random_token
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -117,6 +119,13 @@ class TeamViewSet(viewsets.ModelViewSet):
             )
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["PATCH"], detail=True)
+    def reset_token(self, request: request.Request, id: str = None) -> response.Response:
+        team = request.user.team if id == "@current" else Team.objects.get(id=id)
+        team.api_token = generate_random_token()
+        team.save()
+        return response.Response(TeamSerializer(team).data)
 
 
 class TeamSignupSerializer(serializers.Serializer):

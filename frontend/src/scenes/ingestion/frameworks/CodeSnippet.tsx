@@ -19,6 +19,13 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import { copyToClipboard } from 'lib/utils'
+import { Popconfirm } from 'antd'
+import { PopconfirmProps } from 'antd/lib/popconfirm'
+
+export interface Action {
+    Icon: any
+    callback: () => void
+}
 
 export enum Language {
     Text = 'text',
@@ -61,23 +68,36 @@ SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
+export interface CodeSnippetProps {
+    children: string
+    language?: Language
+    wrap?: boolean
+    actions?: Action[]
+    popconfirmProps?: PopconfirmProps
+}
+
 export function CodeSnippet({
     children,
     language = Language.Text,
     wrap = false,
-}: {
-    children: string
-    language?: Language
-    wrap?: boolean
-}): JSX.Element {
+    actions,
+    popconfirmProps,
+}: CodeSnippetProps): JSX.Element {
     return (
         <div className="code-container">
-            <CopyOutlined
-                className="copy-icon"
-                onClick={() => {
-                    copyToClipboard(children, 'code snippet')
-                }}
-            />
+            <div className="action-icon-container">
+                {actions &&
+                    actions.map(({ Icon, callback }, index) => {
+                        const icon = <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
+                        return !popconfirmProps ? icon : <Popconfirm {...popconfirmProps}>{icon}</Popconfirm>
+                    })}
+                <CopyOutlined
+                    className="action-icon"
+                    onClick={() => {
+                        copyToClipboard(children, 'code snippet')
+                    }}
+                />
+            </div>
             <SyntaxHighlighter
                 style={okaidia}
                 language={language}
