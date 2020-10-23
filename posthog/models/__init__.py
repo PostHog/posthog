@@ -11,10 +11,39 @@ from .event import Event
 from .feature_flag import FeatureFlag
 from .filter import Filter
 from .funnel import Funnel
-from .messaging import MessagingRecord
+from .messaging import MessagingPreference, MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .property import Property
 from .team import Team
 from .user import User, UserManager
+
+__all__ = [
+    "Action",
+    "ActionStep",
+    "Annotation",
+    "Cohort",
+    "CohortPeople",
+    "Dashboard",
+    "DashboardItem",
+    "Element",
+    "ElementGroup",
+    "Entity",
+    "Event",
+    "FeatureFlag",
+    "Filter",
+    "Funnel",
+    "MessagingPreference",
+    "MessagingRecord",
+    "Organization",
+    "OrganizationInvite",
+    "OrganizationMembership",
+    "Person",
+    "PersonDistinctId",
+    "PersonalAPIKey",
+    "Property",
+    "Team",
+    "User",
+    "UserManager",
+]
