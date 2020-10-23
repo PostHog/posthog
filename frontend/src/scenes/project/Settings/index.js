@@ -53,7 +53,7 @@ function _Setup() {
                         Icon: ReloadOutlined,
                         popconfirmProps: {
                             title: 'Reset project API key, invalidating the current one?',
-                            okText: 'Reset Project API Key',
+                            okText: 'Reset Key',
                             okType: 'danger',
                             icon: <ReloadOutlined style={{ color: red.primary }} />,
                             placement: 'left',
@@ -65,8 +65,7 @@ function _Setup() {
                 {currentTeam?.api_token}
             </CodeSnippet>
             Write-only means it can only create new events. It can't read events or any of your other data stored with
-            PostHog, so it's safe to use in public apps. Still, if possible, include it in the build as an environment
-            variable instead of hard-coding.
+            PostHog, so it's safe to use in public apps.
             <Divider />
             <h2 id="urls">Permitted Domains/URLs</h2>
             <p>
