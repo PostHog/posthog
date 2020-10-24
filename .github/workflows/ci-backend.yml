@@ -135,6 +135,8 @@ jobs:
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  AWS_ACCESS_KEY_ID: 'nope'
+                  AWS_SECRET_ACCESS_KEY: 'nope'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html

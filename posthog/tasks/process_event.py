@@ -16,7 +16,7 @@ if settings.EE_AVAILABLE:
     from ee.dynamodb.events import update_event_person
 else:
 
-    def update_event_person(distinct_id, person_uuid):
+    def update_event_person(distinct_id: str, person_uuid: str) -> None:
         pass
 
 
@@ -63,7 +63,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
             new_person = Person.objects.create(
                 team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],
             )
-            update_event_person(distinct_id, str(new_person.uuid))
+            update_event_person(distinct_id, str(new_person.uuid if new_person else ""))
         # Catch race condition where in between getting and creating, another request already created this user.
         except IntegrityError:
             if retry_if_failed:

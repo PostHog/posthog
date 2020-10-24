@@ -26,7 +26,7 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
-    person_uuid: str = None,
+    person_uuid: Optional[str] = None,
 ) -> str:
 
     if not timestamp:
