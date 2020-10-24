@@ -13,7 +13,16 @@ from sentry_sdk import capture_exception
 from posthog.models import Element, Event, Person, Team, User
 
 if settings.EE_AVAILABLE:
-    from ee.dynamodb.events import update_event_person
+    from posthog.ee import check_ee_enabled
+
+    if check_ee_enabled():
+        from ee.dynamodb.events import update_event_person
+    else:
+
+        def update_event_person(distinct_id: str, person_uuid: str) -> None:
+            pass
+
+
 else:
 
     def update_event_person(distinct_id: str, person_uuid: str) -> None:
