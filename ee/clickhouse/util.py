@@ -34,6 +34,7 @@ from ee.clickhouse.sql.person import (
     PERSONS_UP_TO_DATE_VIEW,
     PERSONS_WITH_PROPS_TABLE_SQL,
 )
+from ee.dynamodb.events import ensure_events_table
 
 
 class ClickhouseTestMixin:
@@ -44,6 +45,8 @@ class ClickhouseTestMixin:
 
             self._create_event_tables()
             self._create_person_tables()
+
+            ensure_events_table()
         except ServerException:
             pass
 

@@ -32,6 +32,7 @@ CREATE TABLE {table_name}
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
     {extra_fields}
+    , sign Int8
 ) ENGINE = {engine} 
 """
 
@@ -44,7 +45,7 @@ SAMPLE BY uuid
 """
 ).format(
     table_name=EVENTS_TABLE,
-    engine=table_engine(EVENTS_TABLE, "_timestamp"),
+    engine=table_engine(EVENTS_TABLE, collapsing=True),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -73,7 +74,19 @@ FROM kafka_{table_name}
 )
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
+INSERT INTO events 
+SELECT 
+    %(uuid)s,
+    %(event)s,
+    %(properties)s,
+    %(timestamp)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    %(elements_chain)s,
+    %(created_at)s,
+    now(),
+    0,
+    %(sign)s
 """
 
 GET_EVENTS_SQL = """
@@ -143,6 +156,20 @@ arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_prop
 _timestamp,
 _offset
 FROM events
+GROUP BY
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+array_property_keys,
+array_property_values,
+_timestamp,
+_offset
+HAVING sum(sign) > 0
 """
 
 MAT_EVENT_PROP_TABLE_SQL = """

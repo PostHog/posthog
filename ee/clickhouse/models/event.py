@@ -10,7 +10,7 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.dynamodb.events import put_event
+from ee.dynamodb.models.events import Event as DynamoEvent
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
@@ -26,6 +26,7 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
+    person_uuid: str = None,
 ) -> str:
 
     if not timestamp:
@@ -42,6 +43,13 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
+    if not person_uuid:
+        try:
+            person = Person.objects.get(persondistinctid__distinct_id=distinct_id)
+            person_uuid = str(person.uuid)
+        except Person.DoesNotExist:
+            person_uuid = None
+
     data = {
         "uuid": str(event_uuid),
         "event": event,
@@ -51,12 +59,62 @@ def create_event(
         "distinct_id": distinct_id,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "elements_chain": elements_chain,
+        "person_uuid": person_uuid,
+        "sign": 1,
     }
     p = ClickhouseProducer()
     p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
 
-    put_event(data)
+    de = DynamoEvent(
+        distinct_id=distinct_id,
+        uuid=str(event_uuid),
+        event=event,
+        properties=properties,
+        timestamp=timestamp,
+        team_id=team.pk,
+        created_at=timestamp,
+        elements_chain=elements_chain,
+        person_uuid=person_uuid,
+    )
+    de.save()
     return str(event_uuid)
+
+
+def delete_event(event: DynamoEvent) -> None:
+    data = {
+        "uuid": event.uuid,
+        "event": event.event,
+        "properties": json.dumps(event.properties),
+        "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": event.team_id,
+        "distinct_id": event.distinct_id,
+        "created_at": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "elements_chain": event.elements_chain,
+        "person_uuid": event.person_uuid,
+        "sign": -1,
+    }
+
+    p = ClickhouseProducer()
+    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+    return
+
+
+def update_event(event: DynamoEvent):
+    data = {
+        "uuid": event.uuid,
+        "event": event.event,
+        "properties": json.dumps(event.properties),
+        "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": event.team_id,
+        "distinct_id": event.distinct_id,
+        "created_at": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "elements_chain": event.elements_chain,
+        "person_uuid": event.person_uuid,
+        "sign": 1,
+    }
+    p = ClickhouseProducer()
+    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+    return
 
 
 def get_events():

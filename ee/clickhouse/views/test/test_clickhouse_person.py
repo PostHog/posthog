@@ -13,7 +13,9 @@ def _create_event(**kwargs):
 
 
 def _get_events():
-    return sync_execute("select * from events")
+    # Using final here but _do not use in production_
+    # https://clickhouse.tech/docs/en/engines/table-engines/mergetree-family/collapsingmergetree/
+    return sync_execute("select * from events final")
 
 
 def _get_people():

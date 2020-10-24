@@ -10,16 +10,18 @@ TABLE_ENGINE = (
 )
 
 TABLE_MERGE_ENGINE = (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
+    "ReplicatedMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
     if CLICKHOUSE_REPLICATION
     else "MergeTree()"
 )
 
-KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
+COLLAPSING_MERGE_ENGINE = (
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', sign)"
+    if CLICKHOUSE_REPLICATION
+    else "CollapsingMergeTree(sign)"
+)
 
-GENERATE_UUID_SQL = """
-SELECT generateUUIDv4()
-"""
+KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
 KAFKA_COLUMNS = """
 , _timestamp DateTime
@@ -27,11 +29,12 @@ KAFKA_COLUMNS = """
 """
 
 
-def table_engine(table: str, ver: Optional[str] = None) -> str:
+def table_engine(table: str, ver: Optional[str] = None, collapsing: bool = False) -> str:
     if ver:
         return TABLE_ENGINE.format(table=table, ver=ver)
-    else:
-        return TABLE_MERGE_ENGINE.format(table=table)
+    if collapsing:
+        return COLLAPSING_MERGE_ENGINE.format(table=table)
+    return TABLE_MERGE_ENGINE.format(table=table)
 
 
 def kafka_engine(topic: str, kafka_host=KAFKA_HOSTS, group="group1", serialization="JSONEachRow"):

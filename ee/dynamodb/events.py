@@ -1,11 +1,22 @@
 import boto3
 
+from ee.clickhouse.models.event import delete_event, update_event
+from ee.dynamodb.models.events import Event
+from posthog.settings import DEBUG
+
+DYNAMODB_EVENTS_TABLE = "Events"
+
+ENDPOINT_URL = "http://dynamodb:8000"
+
+if DEBUG:
+    ENDPOINT_URL = "http://localhost:8001"
+
 
 def create_events_table(dynamodb=None):
     if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url="http://dynamodb:8000", region_name="us-east-1")
+        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
     table = dynamodb.create_table(
-        TableName="Events",
+        TableName=DYNAMODB_EVENTS_TABLE,
         KeySchema=[{"AttributeName": "distinct_id", "KeyType": "HASH"}, {"AttributeName": "uuid", "KeyType": "RANGE"}],
         AttributeDefinitions=[
             {"AttributeName": "distinct_id", "AttributeType": "S"},
@@ -16,10 +27,33 @@ def create_events_table(dynamodb=None):
     return table
 
 
-def put_event(event, dynamodb=None):
+def destroy_events_table(dynamodb=None):
     if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url="http://dynamodb:8000", region_name="us-east-1")
+        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
+    table = dynamodb.Table(DYNAMODB_EVENTS_TABLE)
+    table.delete()
 
-    table = dynamodb.Table("Events")
-    response = table.put_item(Item=event)
-    return response
+
+def ensure_events_table(dynamodb=None):
+    """
+    Drops and then recreates the events table ensuring it is empty
+    """
+    if not dynamodb:
+        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
+
+    try:
+        destroy_events_table(dynamodb)
+    except:
+        pass
+
+    create_events_table(dynamodb)
+
+
+def update_event_person(distinct_id, person_uuid):
+    events = Event.query(distinct_id)
+    for event in events:
+        delete_event(event)
+        event.person_uuid = person_uuid
+        event.save()
+        update_event(event)
+    return events

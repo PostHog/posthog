@@ -23,7 +23,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         # TODO: with self.assertNumQueries(7):
 
         process_event(
-            2,
+            "distinct_uuid",
             "",
             "",
             {
@@ -43,7 +43,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         process_event_ee(
-            2,
+            "distinct_uuid",
             "",
             "",
             {
@@ -64,7 +64,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
 
-        self.assertEqual(distinct_ids, ["2"])
+        self.assertEqual(distinct_ids, ["distinct_uuid"])
         events = get_events()
 
         self.assertEqual(events[0]["event"], "$autocapture")
@@ -73,7 +73,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         self.assertEqual(elements[0]["attr_class"], ["btn", "btn-sm"])
         self.assertEqual(elements[1]["order"], 1)
         self.assertEqual(elements[1]["text"], "💻")
-        self.assertEqual(events[0]["person"], "2")
+        self.assertEqual(events[0]["person"], "distinct_uuid")
 
     def test_capture_no_element(self) -> None:
         user = self._create_user("tim")
