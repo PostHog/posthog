@@ -1,6 +1,7 @@
 import datetime
 import json
 from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
 
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -12,6 +13,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
+    DELETE_PERSON_EVENTS_BY_ID,
     DELETE_PERSON_MATERIALIZED_BY_ID,
     GET_DISTINCT_IDS_SQL,
     GET_DISTINCT_IDS_SQL_BY_ID,
@@ -121,7 +123,7 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
     )
 
 
-def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
+def merge_people(team_id: int, target: Dict, old_id: UUID, old_props: Dict) -> None:
     # merge the properties
     properties = {**old_props, **target["properties"]}
 
@@ -141,7 +143,10 @@ def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> No
     delete_person(old_id)
 
 
-def delete_person(person_id):
+def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
+    if delete_events:
+        sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
+
     sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
     sync_execute(DELETE_PERSON_MATERIALIZED_BY_ID, {"id": person_id})
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})

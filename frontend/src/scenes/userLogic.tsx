@@ -100,7 +100,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         id: user.id,
                     })
 
-                    const posthog = (window as any).posthog
+                    const posthog = window.posthog
                     if (posthog) {
                         if (posthog.get_distinct_id() !== user.distinct_id) {
                             posthog.reset()

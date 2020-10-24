@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
@@ -9,6 +10,7 @@ import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const { TabPane } = Tabs
 
@@ -22,6 +24,7 @@ function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (distinctId) {
@@ -138,7 +141,7 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {window.posthog?.isFeatureEnabled('session-recording-player') && (
+                {featureFlags['session-recording-player'] && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"

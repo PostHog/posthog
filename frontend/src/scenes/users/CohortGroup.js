@@ -40,6 +40,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                 onChange({})
                             }}
                             type="button"
+                            data-attr="cohort-group-action"
                             className={'btn btn-sm ' + (selected == 'action' ? 'btn-secondary' : 'btn-light')}
                         >
                             action
@@ -50,6 +51,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                 onChange({})
                             }}
                             type="button"
+                            data-attr="cohort-group-property"
                             className={'btn btn-sm ' + (selected == 'property' ? 'btn-secondary' : 'btn-light')}
                         >
                             property

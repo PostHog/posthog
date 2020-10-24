@@ -165,6 +165,8 @@ export interface SessionType {
     length: number
     properties: Record<string, any>
     start_time: string
+    end_time: string
+    session_recording_ids: string[]
 }
 
 export interface OrganizationBilling {

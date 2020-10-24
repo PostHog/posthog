@@ -15,6 +15,7 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -22,7 +23,7 @@ function _Setup() {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const showSessionRecord = window.posthog?.isFeatureEnabled('session-recording-player')
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -77,7 +78,7 @@ function _Setup() {
             <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
             <WebhookIntegration />
             <Divider />
-            {showSessionRecord && (
+            {featureFlags['session-recording-player'] && (
                 <>
                     <h2 id="sessionrecording">Collect session recordings</h2>
                     <OptInSessionRecording />

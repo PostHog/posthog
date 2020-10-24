@@ -25,6 +25,7 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
+from posthog.queries.session_recording import SessionRecording
 from posthog.queries.sessions import Sessions
 from posthog.utils import (
     append_data,
@@ -107,7 +108,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
 class EventViewSet(viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
-    queryset = Event.objects.all()
+    queryset = Event.objects.all().exclude(event="$snapshot")
     serializer_class = EventSerializer
 
     def get_queryset(self) -> QuerySet:
@@ -275,7 +276,7 @@ class EventViewSet(viewsets.ModelViewSet):
             """
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_event"."properties" -> %s) as "value"
                 FROM
@@ -311,3 +312,17 @@ class EventViewSet(viewsets.ModelViewSet):
                 result.update({OFFSET: offset})
                 result.update({DATE_FROM: date_from})
         return response.Response(result)
+
+    # ******************************************
+    # /event/session_recording
+    # params:
+    # - session_recording_id: (string) id of the session recording
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = self.request.user.team
+        snapshots = SessionRecording().run(
+            team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+        )
+
+        return response.Response({"result": snapshots})

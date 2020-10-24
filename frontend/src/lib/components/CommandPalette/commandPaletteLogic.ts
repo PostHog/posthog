@@ -12,14 +12,13 @@ import {
     AimOutlined,
     SmileOutlined,
     ProjectOutlined,
-    LockOutlined,
     CheckOutlined,
     SyncOutlined,
     TagOutlined,
     ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
-    ExperimentOutlined,
+    FlagOutlined,
     MessageOutlined,
     TeamOutlined,
     LinkOutlined,
@@ -462,7 +461,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to People',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/people')
+                            push('/people/persons')
                         },
                     },
                     {
@@ -473,7 +472,7 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: ExperimentOutlined,
+                        icon: FlagOutlined,
                         display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
@@ -500,13 +499,6 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Organization Invites',
                         executor: () => {
                             push('/organization/invites')
-                        },
-                    },
-                    {
-                        icon: LockOutlined,
-                        display: 'Go to Organization Licenses',
-                        executor: () => {
-                            push('/organization/licenses')
                         },
                     },
                     {
@@ -618,7 +610,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/setup', {}, 'personal-api-keys')
+                                        push('/my/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             return null
