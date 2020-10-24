@@ -59,7 +59,7 @@ def create_event(
         "distinct_id": distinct_id,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "elements_chain": elements_chain,
-        "person_uuid": person_uuid,
+        "person_uuid": person_uuid if person_uuid else "",
         "sign": 1,
     }
     p = ClickhouseProducer()
@@ -89,8 +89,8 @@ def delete_event(event: DynamoEvent) -> None:
         "team_id": event.team_id,
         "distinct_id": event.distinct_id,
         "created_at": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "elements_chain": event.elements_chain,
-        "person_uuid": event.person_uuid,
+        "elements_chain": event.elements_chain if event.elements_chain else "",
+        "person_uuid": event.person_uuid if event.person_uuid else "",
         "sign": -1,
     }
 
@@ -108,7 +108,7 @@ def update_event(event: DynamoEvent):
         "team_id": event.team_id,
         "distinct_id": event.distinct_id,
         "created_at": event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "elements_chain": event.elements_chain,
+        "elements_chain": event.elements_chain if event.elements_chain else "",
         "person_uuid": event.person_uuid,
         "sign": 1,
     }
@@ -156,6 +156,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
     elements_chain = serializers.SerializerMethodField()
+    person_uuid = serializers.SerializerMethodField()
 
     def get_id(self, event):
         return str(event[0])
@@ -164,9 +165,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[5]
 
     def get_properties(self, event):
-        if len(event) >= 10 and event[8] and event[9]:
-            prop_vals = [res.strip('"') for res in event[9]]
-            return dict(zip(event[8], prop_vals))
+        if len(event) >= 10 and event[9] and event[10]:
+            prop_vals = [res.strip('"') for res in event[10]]
+            return dict(zip(event[9], prop_vals))
         else:
             props = json.loads(event[2])
             unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
@@ -191,6 +192,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_chain(self, event):
         return event[6]
+
+    def get_person_uuid(self, event):
+        return event[8]
 
 
 def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:

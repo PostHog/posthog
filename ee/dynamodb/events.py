@@ -1,3 +1,5 @@
+from typing import List
+
 import boto3
 
 from ee.clickhouse.models.event import delete_event, update_event
@@ -49,7 +51,7 @@ def ensure_events_table(dynamodb=None):
     create_events_table(dynamodb)
 
 
-def update_event_person(distinct_id, person_uuid):
+def update_event_person(distinct_id: str, person_uuid: str):
     events = Event.query(distinct_id)
     for event in events:
         delete_event(event)

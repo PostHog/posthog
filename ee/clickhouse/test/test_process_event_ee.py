@@ -1025,3 +1025,78 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
 
         person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
         self.assertTrue(person_after_event["is_identified"])
+
+    def test_update_person_uuid_on_event(self) -> None:
+        distinct_id = "777"
+        Person.objects.create(team_id=self.team.pk, distinct_ids=[distinct_id])
+
+        # first event w/ a new distinct_id
+        process_event_ee(
+            distinct_id,
+            "",
+            "",
+            {"event": "$pageview", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        process_event(
+            distinct_id,
+            "",
+            "",
+            {"event": "$pageview", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        # second event w/ a new distinct_id
+        distinct_id_2 = "888"
+        process_event_ee(
+            distinct_id_2,
+            "",
+            "",
+            {"event": "$pageview", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        process_event(
+            distinct_id_2,
+            "",
+            "",
+            {"event": "$pageview", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        # sanity check to make sure the events have different person
+        events = get_events()
+        persons = {e["person_uuid"] for e in events}
+        self.assertEqual(len(persons), 2)
+
+        # alias the two distinct_ids
+        process_event_ee(
+            distinct_id_2,
+            "",
+            "",
+            {"event": "$create_alias", "properties": {"alias": distinct_id},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        process_event(
+            distinct_id_2,
+            "",
+            "",
+            {"event": "$create_alias", "properties": {"alias": distinct_id},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        # check to make sure the events have the same person
+        events = get_events()
+        persons = {e["person_uuid"] for e in events}
+        self.assertEqual(len(persons), 1)

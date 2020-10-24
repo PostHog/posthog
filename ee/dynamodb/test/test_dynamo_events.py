@@ -68,7 +68,7 @@ class DynamodbStoreEvent(DynamodbTestMixin, BaseTest):
         for i in range(0, 4):
             events.append(self._generate_event(distinct_id=distinct_id, person_uuid=original_person_uuid))
 
-        event_person_uuids = set([e[2].person_uuid for e in events])
+        event_person_uuids = {e[2].person_uuid for e in events}
 
         self.assertEqual(event_person_uuids, {original_person_uuid})
 
@@ -76,7 +76,7 @@ class DynamodbStoreEvent(DynamodbTestMixin, BaseTest):
         update_event_person(distinct_id, updated_person_uuid)
 
         queried_events = Event.query(distinct_id)
-        updated_event_person_uuids = set([e.person_uuid for e in queried_events])
+        updated_event_person_uuids = {e.person_uuid for e in queried_events}
 
         self.assertNotEqual(event_person_uuids, updated_event_person_uuids)
         self.assertEqual(updated_event_person_uuids, {updated_person_uuid})

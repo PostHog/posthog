@@ -6,10 +6,14 @@ import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, Team, User
+
+if settings.EE_AVAILABLE:
+    from ee.dynamodb.events import update_event_person
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -33,6 +37,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     if old_person and not new_person:
         try:
             old_person.add_distinct_id(distinct_id)
+            update_event_person(distinct_id, str(old_person.uuid))
         # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
         except IntegrityError:
             if retry_if_failed:  # run everything again to merge the users if needed
@@ -42,6 +47,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     if not old_person and new_person:
         try:
             new_person.add_distinct_id(previous_distinct_id)
+            update_event_person(distinct_id, str(new_person.uuid))
         # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
         except IntegrityError:
             if retry_if_failed:  # run everything again to merge the users if needed
@@ -50,9 +56,10 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if not old_person and not new_person:
         try:
-            Person.objects.create(
+            new_person = Person.objects.create(
                 team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)],
             )
+            update_event_person(distinct_id, str(new_person.uuid))
         # Catch race condition where in between getting and creating, another request already created this user.
         except IntegrityError:
             if retry_if_failed:
@@ -62,6 +69,8 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if old_person and new_person and old_person != new_person:
         new_person.merge_people([old_person])
+        update_event_person(distinct_id, str(new_person.uuid))
+        update_event_person(previous_distinct_id, str(new_person.uuid))
 
 
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
@@ -237,12 +246,14 @@ def process_event(
 
     properties = data.get("properties", data.get("$set", {}))
 
-    _capture(
-        ip=ip,
-        site_url=site_url,
-        team_id=team_id,
-        event=data["event"],
-        distinct_id=distinct_id,
-        properties=properties,
-        timestamp=handle_timestamp(data, now, sent_at),
-    )
+    # Selectively block certain teams from having events published to Postgres on Posthog Cloud
+    if not getattr(settings, "MULTI_TENANCY", False) or team_id not in [536, 572]:
+        _capture(
+            ip=ip,
+            site_url=site_url,
+            team_id=team_id,
+            event=data["event"],
+            distinct_id=distinct_id,
+            properties=properties,
+            timestamp=handle_timestamp(data, now, sent_at),
+        )

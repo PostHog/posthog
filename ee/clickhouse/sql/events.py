@@ -30,7 +30,8 @@ CREATE TABLE {table_name}
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    created_at DateTime64(6, 'UTC'),
+    person_uuid VARCHAR
     {extra_fields}
     , sign Int8
 ) ENGINE = {engine} 
@@ -66,6 +67,7 @@ team_id,
 distinct_id,
 elements_chain,
 created_at,
+person_uuid,
 _timestamp,
 _offset
 FROM kafka_{table_name} 
@@ -84,6 +86,7 @@ SELECT
     %(distinct_id)s,
     %(elements_chain)s,
     %(created_at)s,
+    %(person_uuid)s,
     now(),
     0,
     %(sign)s
@@ -98,7 +101,8 @@ SELECT
     ewap.team_id,
     ewap.distinct_id,
     ewap.elements_chain,
-    ewap.created_at
+    ewap.created_at,
+    ewap.person_uuid
 FROM events_with_array_props_view as ewap
 """
 
@@ -111,7 +115,8 @@ SELECT
     ewap.team_id,
     ewap.distinct_id,
     ewap.elements_chain,
-    ewap.created_at
+    ewap.created_at,
+    ewap.person.uuid
 FROM events_with_array_props_view as ewap WHERE team_id = %(team_id)s
 """
 
@@ -128,6 +133,7 @@ CREATE TABLE events_with_array_props_view
     created_at DateTime64,
     array_property_keys Array(VARCHAR),
     array_property_values Array(VARCHAR),
+    person_uuid VARCHAR, 
     _timestamp UInt64,
     _offset UInt64
 ) ENGINE = {engine} 
@@ -153,6 +159,7 @@ elements_chain,
 created_at,
 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
 arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
+person_uuid,
 _timestamp,
 _offset
 FROM events
@@ -167,6 +174,7 @@ elements_chain,
 created_at,
 array_property_keys,
 array_property_values,
+person_uuid,
 _timestamp,
 _offset
 HAVING sum(sign) > 0
@@ -201,7 +209,8 @@ SELECT
     ewap.team_id,
     ewap.distinct_id,
     ewap.elements_chain,
-    ewap.created_at
+    ewap.created_at,
+    ewap.person_uuid
 FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
@@ -218,7 +227,8 @@ SELECT
     ewap.team_id,
     ewap.distinct_id,
     ewap.elements_chain,
-    ewap.created_at
+    ewap.created_at,
+    ewap.person_uuid
 FROM events_with_array_props_view AS ewap
 WHERE 
 team_id = %(team_id)s
@@ -236,7 +246,8 @@ SELECT
     ewap.team_id,
     ewap.distinct_id,
     ewap.elements_chain,
-    ewap.created_at
+    ewap.created_at,
+    ewap.person_uuid
 FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
