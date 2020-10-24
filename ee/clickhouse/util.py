@@ -34,19 +34,19 @@ from ee.clickhouse.sql.person import (
     PERSONS_UP_TO_DATE_VIEW,
     PERSONS_WITH_PROPS_TABLE_SQL,
 )
-from ee.dynamodb.events import ensure_events_table
+from ee.dynamodb.events import destroy_events_table, ensure_events_table
 
 
 class ClickhouseTestMixin:
     def tearDown(self):
         try:
+            ensure_events_table()
+
             self._destroy_event_tables()
             self._destroy_person_tables()
 
             self._create_event_tables()
             self._create_person_tables()
-
-            ensure_events_table()
         except ServerException:
             pass
 

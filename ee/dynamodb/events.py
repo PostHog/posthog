@@ -7,41 +7,25 @@ from posthog.settings import DYNAMODB_URL
 DYNAMODB_EVENTS_TABLE = "Events"
 
 
-def create_events_table(dynamodb=None):
-    if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
-    table = dynamodb.create_table(
-        TableName=DYNAMODB_EVENTS_TABLE,
-        KeySchema=[{"AttributeName": "distinct_id", "KeyType": "HASH"}, {"AttributeName": "uuid", "KeyType": "RANGE"}],
-        AttributeDefinitions=[
-            {"AttributeName": "distinct_id", "AttributeType": "S"},
-            {"AttributeName": "uuid", "AttributeType": "S"},
-        ],
-        ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
-    )
-    return table
+def create_events_table():
+    Event.create_table(read_capacity_units=1, write_capacity_units=1)
+    return
 
 
-def destroy_events_table(dynamodb=None):
-    if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
-    table = dynamodb.Table(DYNAMODB_EVENTS_TABLE)
-    table.delete()
+def destroy_events_table():
+    Event.delete_table()
 
 
-def ensure_events_table(dynamodb=None):
+def ensure_events_table():
     """
     Drops and then recreates the events table ensuring it is empty
     """
-    if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
-
     try:
-        destroy_events_table(dynamodb)
+        destroy_events_table()
     except:
         pass
 
-    create_events_table(dynamodb)
+    create_events_table()
 
 
 def update_event_person(distinct_id: str, person_uuid: str) -> None:
