@@ -136,8 +136,6 @@ jobs:
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
                   DYNAMODB_URL: 'http://localhost:8001'
-                  AWS_ACCESS_KEY_ID: 'nope'
-                  AWS_SECRET_ACCESS_KEY: 'nope'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
