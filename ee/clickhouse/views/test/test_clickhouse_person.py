@@ -13,8 +13,6 @@ def _create_event(**kwargs):
 
 
 def _get_events():
-    # Using final here but _do not use in production_
-    # https://clickhouse.tech/docs/en/engines/table-engines/mergetree-family/collapsingmergetree/
     return sync_execute("select * from events_collapsed")
 
 
