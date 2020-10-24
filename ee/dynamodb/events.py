@@ -4,19 +4,14 @@ import boto3
 
 from ee.clickhouse.models.event import delete_event, update_event
 from ee.dynamodb.models.events import Event
-from posthog.settings import DEBUG
+from posthog.settings import DYNAMODB_URL
 
 DYNAMODB_EVENTS_TABLE = "Events"
-
-ENDPOINT_URL = "http://dynamodb:8000"
-
-if DEBUG:
-    ENDPOINT_URL = "http://localhost:8001"
 
 
 def create_events_table(dynamodb=None):
     if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
+        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
     table = dynamodb.create_table(
         TableName=DYNAMODB_EVENTS_TABLE,
         KeySchema=[{"AttributeName": "distinct_id", "KeyType": "HASH"}, {"AttributeName": "uuid", "KeyType": "RANGE"}],
@@ -31,7 +26,7 @@ def create_events_table(dynamodb=None):
 
 def destroy_events_table(dynamodb=None):
     if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
+        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
     table = dynamodb.Table(DYNAMODB_EVENTS_TABLE)
     table.delete()
 
@@ -41,7 +36,7 @@ def ensure_events_table(dynamodb=None):
     Drops and then recreates the events table ensuring it is empty
     """
     if not dynamodb:
-        dynamodb = boto3.resource("dynamodb", endpoint_url=ENDPOINT_URL, region_name="us-east-1")
+        dynamodb = boto3.resource("dynamodb", endpoint_url=DYNAMODB_URL, region_name="us-east-1")
 
     try:
         destroy_events_table(dynamodb)

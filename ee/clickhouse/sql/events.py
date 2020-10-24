@@ -92,32 +92,60 @@ SELECT
     %(sign)s
 """
 
+EVENTS_COLLAPSING_VIEW = """
+CREATE VIEW events_collapsed AS
+SELECT
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at,
+    person_uuid
+FROM events
+GROUP BY  
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at,
+    person_uuid
+HAVING
+    sum(sign) > 0
+"""
+
 GET_EVENTS_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at,
-    ewap.person_uuid
-FROM events_with_array_props_view as ewap
+    e.uuid,
+    e.event,
+    e.properties,
+    e.timestamp,
+    e.team_id,
+    e.distinct_id,
+    e.elements_chain,
+    e.created_at,
+    e.person_uuid
+FROM events_collapsed as e
 """
 
 GET_EVENTS_BY_TEAM_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at,
-    ewap.person.uuid
-FROM events_with_array_props_view as ewap WHERE team_id = %(team_id)s
+    e.uuid,
+    e.event,
+    e.properties,
+    e.timestamp,
+    e.team_id,
+    e.distinct_id,
+    e.elements_chain,
+    e.created_at,
+    e.person_uuid
+FROM events_collapsed as e
+WHERE e.team_id = %(team_id)s
 """
 
 EVENTS_WITH_PROPS_TABLE_SQL = """
@@ -248,7 +276,8 @@ SELECT
     ewap.elements_chain,
     ewap.created_at,
     ewap.person_uuid
-FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+FROM events_collapsed
+WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 EVENT_PROP_CLAUSE = """
@@ -278,7 +307,7 @@ INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_propertie
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
-SELECT * FROM events WHERE 
+SELECT * FROM events_collapsed WHERE 
 team_id = %(team_id)s
 {filters}
 {order_by}
@@ -291,8 +320,8 @@ ELEMENT_TAG_COUNT = """
 SELECT concat('<', {tag_regex}, '> ', {text_regex}) AS tag_name,
        events.elements_chain,
        count(*) as tag_count
-FROM events
-WHERE events.team_id = %(team_id)s AND event = '$autocapture'
+FROM events_collapsed events
+WHERE events.team_id = %(team_id)s AND events.event = '$autocapture'
 GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s

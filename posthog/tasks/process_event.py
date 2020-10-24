@@ -14,6 +14,10 @@ from posthog.models import Element, Event, Person, Team, User
 
 if settings.EE_AVAILABLE:
     from ee.dynamodb.events import update_event_person
+else:
+
+    def update_event_person(distinct_id, person_uuid):
+        pass
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:

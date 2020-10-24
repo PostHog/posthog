@@ -12,7 +12,7 @@ class Event(Model):
     class Meta:
         table_name = "Events"
         if settings.DEBUG:
-            host = "http://localhost:8001"
+            host = settings.DYNAMODB_URL
 
     uuid = UnicodeAttribute(range_key=True)
     event = UnicodeAttribute(null=False)

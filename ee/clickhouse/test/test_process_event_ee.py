@@ -473,6 +473,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         events = get_events()
 
         self.assertEqual(len(events), 2)
+        self.assertEqual(len({e["person_uuid"] for e in events}), 1)
         self.assertEqual(
             sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id", "old_distinct_id_2"]),
         )
