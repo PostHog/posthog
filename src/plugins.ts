@@ -1,7 +1,7 @@
 import * as path from 'path'
-import { Isolate } from 'isolated-vm'
 import * as fs from 'fs'
 import { Pool } from 'pg'
+import { createVm } from './vm'
 
 const db = new Pool({
     connectionString: 'postgres://localhost:5432/posthog',
@@ -82,40 +82,6 @@ async function loadPlugin(plugin) {
     }
 }
 
-async function createVm(plugin, indexJs: string, libJs?: string) {
-    const isolate = new Isolate({ memoryLimit: 128 })
-    const context = isolate.createContextSync()
-    const jail = context.global
-    jail.setSync('global', jail.derefInto())
-
-    // We will create a basic `log` function for the new isolate to use.
-    const logCallback = function (...args) {
-        console.log(...args)
-    }
-    context.evalClosureSync(
-        `global.log = function(...args) {
-        $0.applyIgnored(undefined, args, { arguments: { copy: true } });
-    }`,
-        [logCallback],
-        { arguments: { reference: true } }
-    )
-
-    if (libJs) {
-        await context.eval(libJs)
-    }
-
-    await context.eval(indexJs)
-    const processEvent = await context.global.get('process_event')
-
-    return {
-        isolate,
-        context,
-        processEvent: await context.global.get('process_event'),
-        processCapture: await context.global.get('process_capture'),
-        processIdentify: await context.global.get('process_identify'),
-    }
-}
-
 export async function runPlugins(event) {
     const teamId = event.team_id
     const pluginsToRun = pluginsPerTeam[teamId] || defaultConfigs
@@ -133,15 +99,12 @@ export async function runPlugins(event) {
                 config: teamPlugin.config,
             }
             const { processEvent } = pluginVms[teamPlugin.plugin_id].vm
-            try {
-                const response = await processEvent.apply(
-                    undefined,
-                    [returnedEvent, meta],
-                    { result: { promise: true, copy: true }, arguments: { copy: true } }
-                )
-                returnedEvent = response
-            } catch (error) {
-                console.error(error)
+            if (processEvent) {
+                try {
+                    returnedEvent = await processEvent(returnedEvent, meta)
+                } catch (error) {
+                    console.error(error)
+                }
             }
 
             if (!returnedEvent) {
