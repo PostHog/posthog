@@ -256,6 +256,17 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
             )
 
+        def test_filter_id_or_uuid(self) -> None:
+            person1 = person_factory(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
+            person2 = person_factory(team=self.team, properties={"random_prop": "asdf"})
+            person_factory(team=self.team, properties={"random_prop": "asdf"})
+
+            response = self.client.get("/api/person/?id={},{}".format(person1.id, person2.id))
+            response_uuid = self.client.get("/api/person/?uuid={},{}".format(person1.uuid, person2.uuid))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), response_uuid.json())
+            self.assertEqual(len(response.json()["results"]), 2)
+
     return TestPerson
 
 

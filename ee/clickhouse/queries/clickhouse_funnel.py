@@ -102,7 +102,7 @@ class ClickhouseFunnel(Funnel):
         res = []
         for result_tuple in results:
             result = list(result_tuple)
-            person = Person(pk=result[0])
+            person = Person(pk=result[0], uuid=result[0])
             for step in range(0, width - 1):
                 setattr(person, "step_{}".format(step), result[step + 1] if result[step + 1].year != 1970 else None)
             res.append(person)

@@ -100,7 +100,7 @@ class Funnel(BaseQuery):
             """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         )
         PERSON_FIELDS = [
-            [sql.Identifier("posthog_person"), sql.Identifier("id")],
+            [sql.Identifier("posthog_person"), sql.Identifier("uuid")],
             [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
             [sql.Identifier("posthog_person"), sql.Identifier("team_id")],
             [sql.Identifier("posthog_person"), sql.Identifier("properties")],
@@ -181,8 +181,8 @@ class Funnel(BaseQuery):
                     average_time[index]["total_people"] += 1
 
                 if getattr(person, "step_{}".format(index)):
-                    person_score[person.id] += 1
-                    relevant_people.append(person.id)
+                    person_score[person.uuid] += 1
+                    relevant_people.append(person.uuid)
             steps.append(self._serialize_step(funnel_step, relevant_people))
 
         if len(steps) > 0:
