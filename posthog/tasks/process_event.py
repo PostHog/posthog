@@ -201,7 +201,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
 
 def _store_session_recording_event(
     team_id: int, distinct_id: str, session_id: str, timestamp: Union[datetime.datetime, str], snapshot_data: dict
-):
+) -> None:
     SessionRecordingEvent.objects.create(
         team_id=team_id,
         distinct_id=distinct_id,
