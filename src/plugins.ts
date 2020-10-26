@@ -58,18 +58,22 @@ async function loadPlugin(plugin) {
             }
         }
 
-        if (!config['jsmain']) {
-            console.error(`No "jsmain" key found in plugin.json for plugin "${plugin.name}"`)
+        if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
+            console.error(`No "main" config key or "index.js" file found for plugin "${plugin.name}"`)
             return
         }
 
-        const jsPath = path.resolve(pluginPath, config['jsmain'])
+        const jsPath = path.resolve(pluginPath, config['main'] || 'index.js')
         const indexJs = fs.readFileSync(jsPath).toString()
+
+        const libPath = path.resolve(pluginPath, config['lib'] || 'lib.js')
+        const libJs = fs.existsSync(libPath) ? fs.readFileSync(libPath).toString() : null
 
         pluginVms[plugin.id] = {
             plugin,
             indexJs,
-            vm: await createVm(plugin, indexJs),
+            libJs,
+            vm: await createVm(plugin, indexJs, libJs),
         }
 
         console.log(`Loaded plugin "${plugin.name}"!`)
@@ -78,7 +82,7 @@ async function loadPlugin(plugin) {
     }
 }
 
-async function createVm(plugin, indexJs: string) {
+async function createVm(plugin, indexJs: string, libJs?: string) {
     const isolate = new Isolate({ memoryLimit: 128 })
     const context = isolate.createContextSync()
     const jail = context.global
@@ -95,6 +99,10 @@ async function createVm(plugin, indexJs: string) {
         [logCallback],
         { arguments: { reference: true } }
     )
+
+    if (libJs) {
+        await context.eval(libJs)
+    }
 
     await context.eval(indexJs)
     const processEvent = await context.global.get('process_event')
