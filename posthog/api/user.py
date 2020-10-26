@@ -124,6 +124,7 @@ def user(request):
                 "ingested_event": team.ingested_event,
             },
             "teams": teams,
+            "has_password": bool(request.user.password),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
@@ -180,11 +181,12 @@ def change_password(request):
     old_password = body.get("oldPassword")
     new_password = body.get("newPassword")
 
-    if not old_password or not new_password:
-        return JsonResponse({"error": "Missing payload"}, status=400)
+    if request.user.password:
+        if not old_password or not new_password:
+            return JsonResponse({"error": "Missing payload"}, status=400)
 
-    if not request.user.check_password(old_password):
-        return JsonResponse({"error": "Incorrect old password"}, status=400)
+        if not request.user.check_password(old_password):
+            return JsonResponse({"error": "Incorrect old password"}, status=400)
 
     try:
         validate_password(new_password, request.user)
@@ -201,7 +203,7 @@ def change_password(request):
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
-    """Change the password of a regular User."""
+    """Test webhook."""
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
