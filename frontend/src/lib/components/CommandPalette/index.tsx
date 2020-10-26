@@ -6,7 +6,7 @@ import { CommandInput } from './CommandInput'
 import { CommandResults } from './CommandResults'
 import { userLogic } from 'scenes/userLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import squeakFile from './../../../../public/squeak.mp3'
+import squeakFile from 'public/squeak.mp3'
 import './index.scss'
 
 export function CommandPalette(): JSX.Element | null {
@@ -40,7 +40,15 @@ export function CommandPalette(): JSX.Element | null {
         }
     })
 
-    useOutsideClickHandler(boxRef, hidePalette)
+    useOutsideClickHandler(
+        boxRef,
+        () => {
+            if (isPaletteShown) {
+                hidePalette()
+            }
+        },
+        [boxRef, isPaletteShown]
+    )
 
     return !user || !isPaletteShown ? null : (
         <div className="palette__overlay">

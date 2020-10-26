@@ -667,9 +667,6 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
-        # Assume that clickhouse has done replacement
-        ch_client.execute("OPTIMIZE TABLE person")
-
         persons = get_persons(team_id=self.team.pk)
         self.assertEqual(
             persons[0]["properties"],
@@ -991,9 +988,6 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         self.assertEqual(sorted(ids[self.team.pk]), sorted(["1", "2"]))
         self.assertEqual(ids[team2.pk], ["2"])
 
-        # Assume that clickhouse has done replacement
-        ch_client.execute("OPTIMIZE TABLE person")
-
         people1 = get_persons(team_id=self.team.pk)
         people2 = get_persons(team_id=team2.pk)
 
@@ -1028,9 +1022,6 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
             now().isoformat(),
         )
-
-        # Assume that clickhouse has done replacement
-        ch_client.execute("OPTIMIZE TABLE person")
 
         person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
         self.assertTrue(person_after_event["is_identified"])

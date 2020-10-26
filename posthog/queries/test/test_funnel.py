@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from freezegun import freeze_time
+
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filter import Filter
@@ -65,6 +67,25 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             filter = Filter(data=filters)
             return Funnel(filter=filter, team=self.team)
+
+        def test_funnel_default(self):
+            funnel = self._single_step_funnel()
+
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                # event
+                person1_stopped_after_signup = person_factory(
+                    distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+                )
+                self._signup_event(distinct_id="stopped_after_signup1")
+
+                person2_stopped_after_signup = person_factory(
+                    distinct_ids=["stopped_after_signup2"], team_id=self.team.pk
+                )
+                self._signup_event(distinct_id="stopped_after_signup2")
+
+            # with self.assertNumQueries(1):
+            result = funnel.run()
+            self.assertEqual(result[0]["count"], 0)
 
         def test_funnel_with_single_step(self):
             funnel = self._single_step_funnel()

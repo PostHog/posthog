@@ -80,5 +80,7 @@ SESSION_SQL = """
     GROUP BY 
         distinct_id, 
         gid
+    ORDER BY
+        start_time DESC
     {sessions_limit}
 """

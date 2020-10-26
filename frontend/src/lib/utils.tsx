@@ -354,7 +354,8 @@ export function humanFriendlyDiff(from: moment.MomentInput, to: moment.MomentInp
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: moment.MomentInput, withSeconds: boolean = false): string {
+export function humanFriendlyDetailedTime(date: moment.MomentInput | null, withSeconds: boolean = false): string {
+    if (!date) return 'Never'
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')

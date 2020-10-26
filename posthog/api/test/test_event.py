@@ -1,7 +1,7 @@
 import json
 
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import datetime
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
@@ -243,6 +243,8 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event1 = event_factory(team=self.team, event="sign up", distinct_id="2")
             with freeze_time("2020-01-8"):
                 event2 = event_factory(team=self.team, event="sign up", distinct_id="2")
+            with freeze_time("2020-01-7"):
+                event3 = event_factory(team=self.team, event="random other event", distinct_id="2")
 
             action = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action, event="sign up")
@@ -262,8 +264,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response["results"][0]["id"], event1.pk)
 
             response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z").json()
-            self.assertEqual(len(response["results"]), 1)
+            self.assertEqual(len(response["results"]), 2)
             self.assertEqual(response["results"][0]["id"], event2.pk)
+            self.assertEqual(response["results"][1]["id"], event3.pk)
 
         def test_pagination(self):
             person_factory(team=self.team, distinct_ids=["1"])
@@ -272,7 +275,8 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     team=self.team,
                     event="some event",
                     distinct_id="1",
-                    timestamp=datetime(2019, 1, 1, 12, 0, 0) + relativedelta(days=idx, seconds=idx),
+                    timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+                    + relativedelta(days=idx, seconds=idx),
                 )
             response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)

@@ -135,26 +135,14 @@ function _Insights() {
                         onChange={(key) => setActiveView(key)}
                         animated={false}
                     >
-                        <TabPane
-                            tab={<span data-attr="insight-trends-tab">Trends</span>}
-                            key={ViewType.TRENDS}
-                        ></TabPane>
-                        <TabPane
-                            tab={<span data-attr="insight-sessions-tab">Sessions</span>}
-                            key={ViewType.SESSIONS}
-                        ></TabPane>
-                        <TabPane
-                            tab={<span data-attr="insight-funnels-tab">Funnels</span>}
-                            key={ViewType.FUNNELS}
-                        ></TabPane>
+                        <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
+                        <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
+                        <TabPane tab={<span data-attr="insight-funnels-tab">Funnels</span>} key={ViewType.FUNNELS} />
                         <TabPane
                             tab={<span data-attr="insight-retention-tab">Retention</span>}
                             key={ViewType.RETENTION}
-                        ></TabPane>
-                        <TabPane
-                            tab={<span data-attr="insight-path-tab">User Paths</span>}
-                            key={ViewType.PATHS}
-                        ></TabPane>
+                        />
+                        <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
                     </Tabs>
                     <Tabs
                         size="large"
@@ -172,7 +160,7 @@ function _Insights() {
                             }
                             key={'HISTORY'}
                             data-attr="insight-trend-tab"
-                        ></TabPane>
+                        />
                     </Tabs>
                 </Row>
                 <Row gutter={16}>
@@ -185,11 +173,11 @@ function _Insights() {
                             */}
                                 {
                                     {
-                                        [`${ViewType.TRENDS}`]: <TrendTab></TrendTab>,
+                                        [`${ViewType.TRENDS}`]: <TrendTab />,
                                         [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                        [`${ViewType.FUNNELS}`]: <FunnelTab></FunnelTab>,
-                                        [`${ViewType.RETENTION}`]: <RetentionTab></RetentionTab>,
-                                        [`${ViewType.PATHS}`]: <PathTab></PathTab>,
+                                        [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                        [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                        [`${ViewType.PATHS}`]: <PathTab />,
                                     }[activeView]
                                 }
                             </div>
@@ -205,16 +193,13 @@ function _Insights() {
                                             placement="right"
                                             title="These consist of funnels by you and the rest of the team"
                                         >
-                                            <InfoCircleOutlined
-                                                className="info"
-                                                style={{ color: '#007bff' }}
-                                            ></InfoCircleOutlined>
+                                            <InfoCircleOutlined className="info" style={{ color: '#007bff' }} />
                                         </Tooltip>
                                     </Row>
                                 }
                             >
                                 <div className="card-body px-4 mb-0">
-                                    <SavedFunnels></SavedFunnels>
+                                    <SavedFunnels />
                                 </div>
                             </Card>
                         )}
@@ -267,11 +252,9 @@ function _Insights() {
                             <div className="card-body card-body-graph">
                                 {
                                     {
-                                        [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
-                                        [`${ViewType.SESSIONS}`]: (
-                                            <TrendInsight view={ViewType.SESSIONS}></TrendInsight>
-                                        ),
-                                        [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
+                                        [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                        [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                        [`${ViewType.FUNNELS}`]: <FunnelInsight />,
                                         [`${ViewType.RETENTION}`]: <RetentionTable />,
                                         [`${ViewType.PATHS}`]: <Paths />,
                                     }[activeView]
@@ -280,7 +263,7 @@ function _Insights() {
                         </Card>
                         {activeView === ViewType.FUNNELS && (
                             <Card>
-                                <FunnelPeople></FunnelPeople>
+                                <FunnelPeople />
                             </Card>
                         )}
                     </Col>

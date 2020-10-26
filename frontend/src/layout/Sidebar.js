@@ -32,7 +32,7 @@ import { triggerResizeAfterADelay } from 'lib/utils'
 import { HogIcon } from 'lib/icons/HogIcon'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
-import whiteLogo from './../../public/posthog-logo-white.svg'
+import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -280,7 +280,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-organization-billing">
                                 <WalletOutlined />
                                 <span className="sidebar-label">Billing</span>
-                                <Link to="/billing" onClick={collapseSidebar} />
+                                <Link to="/organization/billing" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
                     </Menu.SubMenu>

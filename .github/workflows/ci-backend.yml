@@ -24,7 +24,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+              uses: actions/setup-python@v2
               with:
                   python-version: 3.8
 
@@ -62,8 +62,11 @@ jobs:
                   mypy posthog ee
 
     django:
-        name: Django tests
+        name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                python-version: ['3.7.8', '3.8.5', '3.9.0']
 
         services:
             postgres:
@@ -86,10 +89,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+            - name: Set up Python
+              uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: ${{ matrix.python-version }}
 
             - uses: actions/cache@v1
               with:
@@ -231,7 +234,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+              uses: actions/setup-python@v2
               with:
                   python-version: 3.8
 

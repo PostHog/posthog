@@ -107,7 +107,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
+                    "message": "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
@@ -120,7 +120,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
+                    "message": "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
@@ -183,14 +183,16 @@ def get_event(request):
                 sent_at=sent_at,
             )
 
-        process_event.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
-        )
+        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
+        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572]:
+            process_event.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
 
     return cors_response(request, JsonResponse({"status": 1}))

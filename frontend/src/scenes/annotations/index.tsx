@@ -135,7 +135,7 @@ function _Annotations(): JSX.Element {
                 }}
             >
                 {loadingNext ? (
-                    <Spin></Spin>
+                    <Spin />
                 ) : (
                     <Button
                         type="primary"
@@ -168,7 +168,7 @@ function _Annotations(): JSX.Element {
                     closeModal()
                 }}
                 annotation={selectedAnnotation}
-            ></CreateAnnotationModal>
+            />
         </div>
     )
 }
@@ -282,7 +282,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     )}
                 </Row>
             )}
-            <br></br>
+            <br />
             {modalMode === ModalMode.CREATE && (
                 <div>
                     Date:
@@ -292,7 +292,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                         value={selectedDate}
                         onChange={(date): void => setDate(date)}
                         allowClear={false}
-                    ></DatePicker>
+                    />
                 </div>
             )}
             <TextArea
@@ -302,7 +302,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 rows={4}
                 value={textInput}
                 onChange={(e): void => setTextInput(e.target.value)}
-            ></TextArea>
+            />
         </Modal>
     )
 }

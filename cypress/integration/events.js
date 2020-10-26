@@ -21,16 +21,16 @@ describe('Events', () => {
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=prop-filter-event-0]').click()
+        cy.get('[data-attr=prop-filter-event-0]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=events-table]').should('exist')
     })
 
     it('Filter by event', () => {
         cy.get('[data-attr=event-filter-trigger]').click()
         cy.get('[data-attr=event-name-box]').click()
-        cy.get('[data-attr=prop-val-0]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=events-table]').should('exist')
     })
 })

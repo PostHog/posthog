@@ -133,7 +133,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                         >
                             Post to Slack/Teams when this action is triggered.
                         </label>{' '}
-                        <Link to="/setup#webhook">
+                        <Link to="/project/settings#webhook">
                             {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                         </Link>
                         {action.post_to_slack && (
