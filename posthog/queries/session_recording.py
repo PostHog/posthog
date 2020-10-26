@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+import datetime
+from typing import Any, Callable, Dict, List
 
 from django.db.models import F, Max, Min
 
@@ -12,20 +13,26 @@ class SessionRecording(BaseQuery):
         return list(sorted((e.snapshot_data for e in events), key=lambda s: s["timestamp"]))
 
 
+def query_sessions_in_range(team: Team, start_time: datetime.datetime, end_time: datetime.datetime) -> List[dict]:
+    return (
+        SessionRecordingEvent.objects.filter(team=team)
+        .values("distinct_id", "session_id")
+        .annotate(start_time=Min("timestamp"), end_time=Max("timestamp"))
+        .filter(start_time__lte=F("end_time"), end_time__gte=F("start_time"))
+    )
+
+
 # :TRICKY: This mutates sessions list
-def add_session_recording_ids(team: Team, sessions_results: List[Any]) -> List[Any]:
+def add_session_recording_ids(
+    team: Team, sessions_results: List[Any], query: Callable = query_sessions_in_range
+) -> List[Any]:
     if len(sessions_results) == 0:
         return sessions_results
 
     min_ts = min(it["start_time"] for it in sessions_results)
     max_ts = max(it["end_time"] for it in sessions_results)
 
-    session_recordings = (
-        SessionRecordingEvent.objects.filter(team=team)
-        .values("distinct_id", "session_id")
-        .annotate(start_time=Min("timestamp"), end_time=Max("timestamp"))
-        .filter(start_time__lte=F("end_time"), end_time__gte=F("start_time"))
-    )
+    session_recordings = query(team, min_ts, max_ts)
 
     for session in sessions_results:
         session["session_recording_ids"] = [
