@@ -13,7 +13,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
     const { loadResults: loadFunnel } = useActions(logic)
 
     function buildChart() {
-        if (!steps || steps.length == 0) return
+        if (!steps || steps.length === 0) return
         if (container.current) container.current.innerHTML = ''
         let graph = new FunnelGraph({
             container: '.funnel-graph',
@@ -67,7 +67,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
                 ref={container}
                 className="svg-funnel-js"
                 style={{ height: '100%', width: '100%' }}
-            ></div>
+            />
         ) : (
             <p style={{ margin: '1rem' }}>This funnel doesn't have any steps. </p>
         )

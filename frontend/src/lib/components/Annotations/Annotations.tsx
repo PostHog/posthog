@@ -65,7 +65,7 @@ export const Annotations = function Annotations({
                     accessoryColor={accessoryColor}
                     currentDateMarker={currentDateMarker}
                     index={index}
-                ></AnnotationMarker>
+                />
             )
         }
     })

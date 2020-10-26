@@ -23,5 +23,5 @@ export default function SessionsPlayer({ events }: { events: eventWithTime[] }):
         }
     }, [])
 
-    return <div ref={target} id="sessions-player"></div>
+    return <div ref={target} id="sessions-player" />
 }
