@@ -110,7 +110,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         try:
             obj = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
-            raise exceptions.ValidationError(error)
+            raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, obj)
         return obj
 
