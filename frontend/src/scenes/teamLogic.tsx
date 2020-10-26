@@ -18,7 +18,7 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                 // no API request in patch as that's handled in userLogic for now
                 patchCurrentTeam: (patch: Partial<TeamType>) => ({ ...values.currentTeam, ...patch }),
                 createTeam: async (name: string) => await api.create('api/projects/', { name }),
-                resetToken: async () => await api.update('api/projects/@current/reset_token'),
+                resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
         ],
     }),

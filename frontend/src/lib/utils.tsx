@@ -189,7 +189,7 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
 }
 
 export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
-    let timeout: number | undefined
+    let timeout: NodeJS.Timeout | undefined
     return function () {
         const context = this // eslint-disable-line
         function later(): void {
