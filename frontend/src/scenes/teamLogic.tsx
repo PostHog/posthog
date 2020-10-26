@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { teamLogicType } from 'types/scenes/teamLogicType'
 import { TeamType } from '~/types'
 
-export const teamLogic = kea<teamLogicType>({
+export const teamLogic = kea<teamLogicType<TeamType>>({
     loaders: ({ values }) => ({
         currentTeam: [
             null as TeamType | null,

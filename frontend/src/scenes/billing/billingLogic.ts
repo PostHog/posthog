@@ -2,9 +2,9 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogicType } from 'types/scenes/billing/billingLogicType'
-import { BillingSubscription, PlanInterface } from '~/types'
+import { BillingSubscription, PlanInterface, UserType } from '~/types'
 
-export const billingLogic = kea<billingLogicType>({
+export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscription, UserType>>({
     loaders: () => ({
         plans: [
             [] as PlanInterface[],
@@ -66,7 +66,7 @@ export const billingLogic = kea<billingLogicType>({
     }),
     listeners: ({ values }) => ({
         subscribeSuccess: () => {
-            const { subscription_url } = values.billingSubscription
+            const { subscription_url } = values.billingSubscription || {}
             if (subscription_url) {
                 window.location.href = subscription_url
             }
