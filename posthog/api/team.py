@@ -15,9 +15,11 @@ from rest_framework import (
     status,
     viewsets,
 )
+from rest_framework.decorators import action
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
+from posthog.models.utils import generate_random_token
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -105,7 +107,10 @@ class TeamViewSet(viewsets.ModelViewSet):
             return self.request.user.team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404(queryset, **filter_kwargs)
+        try:
+            obj = get_object_or_404(queryset, **filter_kwargs)
+        except ValueError as error:
+            raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, obj)
         return obj
 
@@ -117,6 +122,13 @@ class TeamViewSet(viewsets.ModelViewSet):
             )
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["PATCH"], detail=True)
+    def reset_token(self, request: request.Request, id: str) -> response.Response:
+        team = self.get_object()
+        team.api_token = generate_random_token()
+        team.save()
+        return response.Response(TeamSerializer(team).data)
 
 
 class TeamSignupSerializer(serializers.Serializer):

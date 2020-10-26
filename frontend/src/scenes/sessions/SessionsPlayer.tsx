@@ -7,19 +7,21 @@ export default function SessionsPlayer({ events }: { events: eventWithTime[] }):
     const target = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
-        if (target.current) {
-            new rrwebPlayer({
+        if (target.current && events) {
+            const player = new rrwebPlayer({
                 target: target.current,
                 // eslint-disable-next-line
                 // @ts-ignore
                 props: {
-                    width: 900,
+                    width: 952,
                     events,
                     autoPlay: true,
                 },
             })
+
+            return () => player.pause()
         }
     }, [])
 
-    return <div ref={target} id="sessions-player"></div>
+    return <div ref={target} id="sessions-player" />
 }

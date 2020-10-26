@@ -107,7 +107,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
+                    "message": "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
@@ -120,7 +120,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
+                    "message": "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),

@@ -196,7 +196,7 @@ export function EventsTable({
                     emptyText: (
                         <span>
                             You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                            <Link to="/setup">click here to set PostHog up on your app</Link>.
+                            <Link to="/project">click here to set PostHog up on your app</Link>.
                         </span>
                     ),
                 }}

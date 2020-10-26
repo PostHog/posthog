@@ -52,7 +52,7 @@ export function PathTab(): JSX.Element {
                 style={{ width: 200, paddingTop: 2 }}
                 value={filter.start_point}
                 placeholder={'Select start element'}
-            ></PropertyValue>
+            />
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-path" />

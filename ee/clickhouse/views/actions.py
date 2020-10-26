@@ -70,7 +70,6 @@ class ClickhouseActions(ActionViewSet):
                 )
         else:
             next_url = None
-
         return Response(
             {
                 "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
