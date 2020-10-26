@@ -510,7 +510,7 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
     const itemsUnique: T[] = []
     for (const item of items) {
         const uniqueKey = uniqueResolver(item)
-        if (!uniqueKeysSoFar.has(uniqueKeysSoFar)) {
+        if (!uniqueKeysSoFar.has(uniqueKey)) {
             uniqueKeysSoFar.add(uniqueKey)
             itemsUnique.push(item)
         }
