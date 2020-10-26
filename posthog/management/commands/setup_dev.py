@@ -19,7 +19,6 @@ class Command(BaseCommand):
                 password="pass",
                 first_name="Jane Doe",
                 is_staff=True,
-                is_superuser=True,
                 team_fields={
                     "name": TEAM_NAME,
                     "completed_snippet_onboarding": True,

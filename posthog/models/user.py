@@ -32,40 +32,19 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: str, password: Optional[str], **extra_fields) -> "User":
+    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
-            raise ValueError("The given email must be set")
-
+            raise ValueError("Email must be provided!")
         email = self.normalize_email(email)
         if is_email_restricted_from_signup(email):
-            raise ValueError("Can't sign up with this email")
-
+            raise ValueError("Can't sign up with this email!")
         extra_fields.setdefault("distinct_id", generate_random_token())
-
-        user = self.model(email=email, **extra_fields)
+        user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
             user.set_password(password)
         user.save()
         return user
-
-    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
-        """Create and save a regular User with the given email and password."""
-        extra_fields.setdefault("is_staff", False)
-        extra_fields.setdefault("is_superuser", False)
-        return self._create_user(first_name=first_name, email=email, password=password, **extra_fields)
-
-    def create_superuser(self, email: str, password: str, first_name: str, **extra_fields) -> "User":
-        """Create and save a SuperUser with the given email and password."""
-        extra_fields.setdefault("is_staff", True)
-        extra_fields.setdefault("is_superuser", True)
-
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError("Superuser must have is_staff=True.")
-        if extra_fields.get("is_superuser") is not True:
-            raise ValueError("Superuser must have is_superuser=True.")
-
-        return self._create_user(first_name=first_name, email=email, password=password, **extra_fields)
 
     def bootstrap(
         self,
@@ -115,6 +94,7 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
+    is_superuser = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
