@@ -46,6 +46,8 @@ class ClickhouseEvents(EventViewSet):
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
+            if action.steps.count() == 0:
+                return Response({"next": False, "results": []})
             action_query, params = format_action_filter(action)
             prop_filters += " AND uuid IN {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
