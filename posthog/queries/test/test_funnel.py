@@ -215,7 +215,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "id": "user signed up",
                         "type": "events",
                         "order": 0,
-                        "properties": [{"key": "$browser", "value": "Safari"}],
+                        "properties": [
+                            {"key": "$browser", "value": "Safari"},
+                            {"key": "$browser", "operator": "is_not", "value": "Chrome"},
+                        ],
                     },
                 ],
                 "actions": [

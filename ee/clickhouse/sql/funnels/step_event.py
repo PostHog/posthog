@@ -1,6 +1,6 @@
 STEP_EVENT_SQL = """
     arrayFilter(
-        (timestamp, event, random_event_id) ->
+        (timestamp, event, uuid) ->
             {is_first_step} AND
             (team_id = {team_id}) AND
             event = '{event}' {filters} 
