@@ -9,7 +9,7 @@ from django.utils import timezone
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
 
 def create_session_recording_event(
@@ -32,5 +32,5 @@ def create_session_recording_event(
         "created_at": timestamp,
     }
     p = ClickhouseProducer()
-    p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+    p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL, topic=KAFKA_SESSION_RECORDING_EVENTS, data=data)
     return str(uuid)
