@@ -16,6 +16,9 @@ class SessionRecording(BaseQuery):
 
 # :TRICKY: This mutates sessions list
 def add_session_recording_ids(team: Team, sessions_results: List[Any]) -> List[Any]:
+    if len(sessions_results) == 0:
+        return sessions_results
+
     min_ts = min(it["start_time"] for it in sessions_results)
     max_ts = max(it["end_time"] for it in sessions_results)
 

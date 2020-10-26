@@ -54,6 +54,9 @@ def session_recording_test_factory(session_recording, event_factory):
                 results = add_session_recording_ids(self.team, sessions)
                 self.assertEqual([r["session_recording_ids"] for r in results], [["1", "3"], [], ["2"]])
 
+        def test_query_run_with_no_sessions(self):
+            self.assertEqual(add_session_recording_ids(self.team, []), [])
+
         def create_snapshot(self, distinct_id, session_id, timestamp):
             event_factory(
                 team=self.team,
