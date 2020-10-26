@@ -1,4 +1,4 @@
-from typing import Any, Callable, Literal, Optional, Union, cast
+from typing import Any, Callable, Optional, Union, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -56,7 +56,7 @@ class TeamInviteSurrogate:
         team = Team.objects.select_related("organization").get(signup_token=signup_token)
         self.organization = team.organization
 
-    def validate(*args, **kwargs) -> Literal[True]:
+    def validate(*args, **kwargs) -> bool:
         return True
 
     def use(self, user: Any, *args, **kwargs) -> None:

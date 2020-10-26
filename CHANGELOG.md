@@ -1,5 +1,10 @@
 # Changelog
 
+### 1.15.1 - Thursday 22 October
+
+- Fixed issue where 100s of emails would be sent. (oops!)
+- Fixed performance issues with Redis caches filling up.
+
 ### 1.15.0 - Thursday 15 October
 
 - [ClickHouse 👆🏠](https://github.com/PostHog/posthog/pulls?page=1&q=is%3Apr+clickhouse+is%3Aclosed)

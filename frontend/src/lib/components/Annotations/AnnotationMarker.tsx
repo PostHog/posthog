@@ -175,7 +175,7 @@ export function AnnotationMarker({
                                                 onClick={() => {
                                                     onDelete(data)
                                                 }}
-                                            ></DeleteOutlined>
+                                            />
                                         )}
                                     </Row>
                                     <span>{data.content}</span>
@@ -287,7 +287,7 @@ export function AnnotationMarker({
                         {annotations.length}
                     </span>
                 ) : (
-                    <PlusOutlined style={{ color: _accessoryColor }}></PlusOutlined>
+                    <PlusOutlined style={{ color: _accessoryColor }} />
                 )}
             </div>
         </Popover>

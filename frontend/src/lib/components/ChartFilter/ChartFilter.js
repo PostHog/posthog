@@ -19,7 +19,7 @@ export function ChartFilter(props) {
                 placement="right"
                 title="Click on a point to see users related to the datapoint"
             >
-                <InfoCircleOutlined className="info" style={{ color: '#007bff' }}></InfoCircleOutlined>
+                <InfoCircleOutlined className="info" style={{ color: '#007bff' }} />
             </Tooltip>
         ),
 

@@ -131,7 +131,7 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupPassword"
                             />
-                            <Suspense fallback={<span></span>}>
+                            <Suspense fallback={<span />}>
                                 <PasswordStrength password={formState.password.value} />
                             </Suspense>
                             {!formState.password.valid && (
