@@ -6,6 +6,7 @@ import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
@@ -238,7 +239,7 @@ def process_event(
     properties = data.get("properties", data.get("$set", {}))
 
     # Selectively block certain teams from having events published to Postgres on Posthog Cloud
-    if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572]:
+    if not getattr(settings, "MULTI_TENANCY", False) or team_id not in [536, 572]:
         _capture(
             ip=ip,
             site_url=site_url,
