@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from django.db.models.query import QuerySet
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import serializers
@@ -32,23 +32,6 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
 
 if settings.EE_AVAILABLE and check_ee_enabled():
-
-    @receiver(pre_save, sender=Person)
-    def person_will_be_created(sender, instance: Person, created, **kwargs):
-        prev_person = Person.objects.get(pk=instance.pk)
-        if prev_person:
-            # compare props with current props
-            prev_props = prev_person.properties
-            new_props = instance.properties
-            # emit a person with empty props
-            props_to_clear = {k: "" for k in set(prev_props) - set(new_props)}
-
-            create_person(
-                team_id=instance.team.pk,
-                properties=props_to_clear,
-                uuid=str(instance.uuid),
-                is_identified=instance.is_identified,
-            )
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
