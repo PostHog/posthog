@@ -345,7 +345,15 @@ GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN 
 (
     SELECT id
-    FROM persons_properties_up_to_date_view AS ep
+    FROM persons_properties_view ep JOIN
+    (
+        SELECT id, key, max(created_at) created_at
+        FROM
+        persons_properties_view as ep
+        WHERE {key_statement} AND team_id = %(team_id)s
+        GROUP BY id, key
+    ) latest
+        ON ep.id = latest.id AND ep.created_at = latest.created_at
     WHERE {filters} AND team_id = %(team_id)s
-)
+) AND team_id = %(team_id)s
 """

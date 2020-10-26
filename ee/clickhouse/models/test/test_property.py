@@ -9,6 +9,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
+from posthog.models.team import Team
 
 
 def _create_event(**kwargs) -> Event:
@@ -24,11 +25,15 @@ def _create_person(**kwargs) -> Person:
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
-    def test_prop_cohort(self):
+    def test_prop_cohort_basic(self):
 
         _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
 
-        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$another_prop": "something"})
+        _create_person(
+            distinct_ids=["some_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
         _create_event(
             event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
         )
@@ -45,10 +50,58 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
         query, params = parse_prop_clauses("uuid", filter.properties, self.team)
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(result), 1)
 
+    def test_prop_cohort_multiple_groups(self):
+
+        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+
+        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$another_prop": "something"})
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"},
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something"}}, {"properties": {"$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        query, params = parse_prop_clauses("uuid", filter.properties, self.team)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
+
+    def test_prop_cohort_with_negation(self):
+        team2 = Team.objects.create()
+
+        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+
+        _create_person(distinct_ids=["some_id"], team_id=team2.pk, properties={"$another_prop": "something"})
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"},
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop__is_not": "something"}}], name="cohort1",
+        )
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        query, params = parse_prop_clauses("uuid", filter.properties, self.team)
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(result), 0)
 
     def test_prop_person(self):
 
