@@ -51,7 +51,6 @@ SESSION_SQL = """
                     WHERE 
                         team_id = %(team_id)s
                         AND event != '$feature_flag_called'
-                        AND event != '$snapshot'
                         {date_from}
                         {date_to} 
                         {filters}

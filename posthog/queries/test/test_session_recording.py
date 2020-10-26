@@ -5,7 +5,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Event
+from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recording import SessionRecording, add_session_recording_ids
 
 
@@ -62,12 +62,12 @@ def session_recording_test_factory(session_recording, event_factory):
                 team=self.team,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                event="$snapshot",
-                properties={"$snapshot_data": {"timestamp": timestamp.timestamp()}, "$session_id": session_id,},
+                session_id=session_id,
+                snapshot_data={"timestamp": timestamp.timestamp()},
             )
 
     return TestSessionRecording
 
 
-class DjangoSessionRecordingTest(session_recording_test_factory(SessionRecording, Event.objects.create)):  # type: ignore
+class DjangoSessionRecordingTest(session_recording_test_factory(SessionRecording, SessionRecordingEvent.objects.create)):  # type: ignore
     pass
