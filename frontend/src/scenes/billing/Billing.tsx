@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
-import defaultImg from './../../../public/plan-default.svg'
+import defaultImg from 'public/plan-default.svg'
 import { PlanInterface } from '~/types'
 
 function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: PlanInterface) => void }): JSX.Element {

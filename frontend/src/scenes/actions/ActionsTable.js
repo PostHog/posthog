@@ -5,13 +5,13 @@ import { Table } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { actionsModel } from '../../models/actionsModel'
+import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import moment from 'moment'
-import imgGrouping from '../../../public/actions-tutorial-grouping.svg'
-import imgStandardized from '../../../public/actions-tutorial-standardized.svg'
-import imgRetroactive from '../../../public/actions-tutorial-retroactive.svg'
+import imgGrouping from 'public/actions-tutorial-grouping.svg'
+import imgStandardized from 'public/actions-tutorial-standardized.svg'
+import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
