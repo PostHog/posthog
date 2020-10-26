@@ -140,10 +140,13 @@ $body-color: #37352f;
 
 .code-container {
     position: relative;
-    .copy-icon {
+    .action-icon-container {
         position: absolute;
         top: 1em;
         right: 1em;
+    }
+    .action-icon {
+        margin-left: 0.5em;
         padding: 2px;
         color: white;
         background-color: inherit;
