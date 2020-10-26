@@ -20,6 +20,7 @@
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
+        "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
         "typegen:watch": "kea-typegen watch"
