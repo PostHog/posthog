@@ -232,7 +232,7 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
 """
 
 EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
