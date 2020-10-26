@@ -40,7 +40,7 @@ class UserManager(BaseUserManager):
         if is_email_restricted_from_signup(email):
             raise ValueError("Can't sign up with this email!")
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, **extra_fields)
+        user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
             user.set_password(password)
         user.save()
