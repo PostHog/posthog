@@ -154,7 +154,7 @@ export function RetentionTable() {
                             )}
                         </div>
                     ) : (
-                        <Spin></Spin>
+                        <Spin />
                     )}
                 </Modal>
             )}

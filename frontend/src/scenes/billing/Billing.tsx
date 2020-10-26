@@ -41,7 +41,7 @@ export function Billing(): JSX.Element {
             <h1 className="page-header">
                 Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
             </h1>
-            <div className="space-top"></div>
+            <div className="space-top" />
             <Card title="Current usage">
                 {user?.billing?.current_usage && (
                     <>
@@ -74,7 +74,7 @@ export function Billing(): JSX.Element {
                     </div>
                 )}
             </Card>
-            <div className="space-top"></div>
+            <div className="space-top" />
             <Card title="Billing plan">
                 {user?.billing.plan && !user?.billing.should_setup_billing && (
                     <>
@@ -119,7 +119,7 @@ export function Billing(): JSX.Element {
                     </>
                 )}
             </Card>
-            <div style={{ marginBottom: 128 }}></div>
+            <div style={{ marginBottom: 128 }} />
         </>
     )
 }

@@ -27,7 +27,7 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
                         event.stopPropagation()
                         loadSessionPlayer(sessionRecordingId)
                     }}
-                ></PlayCircleOutlined>
+                />
             ))}
         </>
     )
