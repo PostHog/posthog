@@ -151,11 +151,6 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         )
         return HttpResponse(processed, status=401)
 
-    fields = {name: kwargs.get(name, details.get(name)) for name in backend.setting("USER_FIELDS", ["email"])}
-
-    if not fields:
-        return
-
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
@@ -168,18 +163,19 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             return HttpResponse(processed, status=401)
 
     try:
-        invite.validate(user=None, email=fields["email"])
+        invite.validate(user=None, email=details["email"])
     except ValueError as e:
         processed = render_to_string("auth_error.html", {"message": str(e)},)
         return HttpResponse(processed, status=401)
 
     try:
-        user = strategy.create_user(**fields)
-    except:
+        user = strategy.create_user(email=details["email"], first_name=details["fullname"])
+    except Exception as e:
         processed = render_to_string(
             "auth_error.html",
             {
                 "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
+                + str(e)
             },
         )
         return HttpResponse(processed, status=401)

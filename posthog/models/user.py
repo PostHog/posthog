@@ -32,7 +32,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: str, password: Optional[str], **extra_fields) -> "User":
+    def _create_user(self, email: str, password: Optional[str] = None, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("The given email must be set")
@@ -49,7 +49,7 @@ class UserManager(BaseUserManager):
         user.save()
         return user
 
-    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
+    def create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **extra_fields) -> "User":
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)

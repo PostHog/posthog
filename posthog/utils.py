@@ -171,13 +171,13 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
     if os.environ.get("OPT_OUT_CAPTURE"):
         context["opt_out_capture"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET",):
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
         context["github_auth"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET",):
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
         context["gitlab_auth"] = True
 
-    if os.environ.get("SOCIAL_AUTH_GOOGLE_KEY") and os.environ.get("SOCIAL_AUTH_GOOGLE_SECRET",):
+    if os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY") and os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET"):
         context["google_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
