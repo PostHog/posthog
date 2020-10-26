@@ -9,7 +9,12 @@ interface SessionsPlayerButtonProps {
     session: SessionType
 }
 
-export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element {
+export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
+    // TODO: Work around no clickhouse support yet for session recording
+    if (!session.session_recording_ids) {
+        return null
+    }
+
     const { loadSessionPlayer } = useActions(sessionsTableLogic)
 
     return (
