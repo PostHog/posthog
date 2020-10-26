@@ -237,12 +237,14 @@ def process_event(
 
     properties = data.get("properties", data.get("$set", {}))
 
-    _capture(
-        ip=ip,
-        site_url=site_url,
-        team_id=team_id,
-        event=data["event"],
-        distinct_id=distinct_id,
-        properties=properties,
-        timestamp=handle_timestamp(data, now, sent_at),
-    )
+    # Selectively block certain teams from having events published to Postgres on Posthog Cloud
+    if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572]:
+        _capture(
+            ip=ip,
+            site_url=site_url,
+            team_id=team_id,
+            event=data["event"],
+            distinct_id=distinct_id,
+            properties=properties,
+            timestamp=handle_timestamp(data, now, sent_at),
+        )
