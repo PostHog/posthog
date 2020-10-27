@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:11-alpine
+        image: postgres:12-alpine
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -49,6 +49,8 @@ services:
         volumes:
             - ..:/code
         environment:
+            AWS_ACCESS_KEY_ID: 'nope'
+            AWS_SECRET_ACCESS_KEY: 'nope'
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -82,3 +84,7 @@ services:
         environment:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+    dynamodb:
+        image: amazon/dynamodb-local
+        ports:
+            - '8001:8000'
