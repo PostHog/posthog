@@ -59,3 +59,5 @@ FROM kafka_{table_name}
 INSERT_SESSION_RECORDING_EVENT_SQL = """
 INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
 """
+
+DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = "DROP TABLE session_recording_events"
