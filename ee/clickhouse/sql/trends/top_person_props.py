@@ -3,7 +3,7 @@ SELECT groupArray(value) FROM (
     SELECT value, count(*) as count
     FROM
     events e 
-    INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
+    INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
     INNER JOIN
         (
             SELECT * FROM (

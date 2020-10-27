@@ -5,6 +5,7 @@ import {
     CommandResult,
     CommandFlow,
     RegExpCommandPairs,
+    CommandResultDisplayable,
 } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/commandPaletteLogicType'
 import { kea } from 'kea'
@@ -16,7 +17,14 @@ import { dateMapping } from 'lib/utils'
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<
-    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+    commandPaletteLogicType<
+        Command,
+        CommandRegistrations,
+        CommandResult,
+        CommandFlow,
+        RegExpCommandPairs,
+        CommandResultDisplayable
+    >
 >({
     connect: [commandPaletteLogic, compareFilterLogic, dateFilterLogic],
     events: () => ({

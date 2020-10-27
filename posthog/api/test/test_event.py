@@ -292,6 +292,14 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             self.assertEqual(len(page2["results"]), 50)
 
+        def test_action_no_steps(self):
+            action = Action.objects.create(team=self.team)
+            action.calculate_events()
+
+            response = self.client.get("/api/event/?action_id=%s" % action.pk)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(response.json()["results"]), 0)
+
     return TestEvents
 
 

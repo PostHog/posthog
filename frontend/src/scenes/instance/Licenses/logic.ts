@@ -1,6 +1,7 @@
 import api from 'lib/api'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
+import { licenseLogicType } from 'types/scenes/instance/Licenses/logicType'
 
 interface Error {
     detail: string
@@ -11,7 +12,7 @@ interface License {
     key: string
 }
 
-export const licenseLogic = kea({
+export const licenseLogic = kea<licenseLogicType<License, Error>>({
     actions: {
         setError: (error: Error) => ({ error }),
         addLicense: (license: License) => ({ license }),

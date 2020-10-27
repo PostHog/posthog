@@ -7,7 +7,7 @@ interface BackTo {
     url: string
 }
 
-export const topContentLogic = kea<topContentLogicType>({
+export const topContentLogic = kea<topContentLogicType<BackTo>>({
     actions: {
         setBackTo: (payload) => ({ payload }),
     },

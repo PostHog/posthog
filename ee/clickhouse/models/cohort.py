@@ -20,6 +20,7 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
 
         elif group.get("properties"):
             filter = Filter(data=group)
+            props = []
 
             for idx, prop in enumerate(filter.properties):
                 prepend = "{}_cohort_group_{}".format(cohort.pk, group_idx)
@@ -27,15 +28,23 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
                 arg = "v{}_{}".format(prepend, idx)
                 operator_clause, value = get_operator(prop, arg)
 
-                prop_filters = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
-                    idx=idx, operator_clause=operator_clause, prepend=prepend
+                key_statement = "(ep.key = %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend)
+                prop_filters = "{key_statement} AND {operator_clause}".format(
+                    key_statement=key_statement, operator_clause=operator_clause
                 )
                 clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                    filters=prop_filters, negation="NOT " if prop.operator and "not" in prop.operator else ""
+                    key_statement=key_statement,
+                    filters=prop_filters,
+                    negation="NOT " if prop.operator and "not" in prop.operator else "",
                 )
 
-                filters.append("(" + clause + ")")
+                props.append("(" + clause + ")")
                 params.update({"k{}_{}".format(prepend, idx): prop.key, arg: value})
+
+            prop_separator = " AND distinct_id IN "
+            joined_prop_filter = prop_separator.join(props)
+            final_prop_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=joined_prop_filter)
+            filters.append("(" + final_prop_query + ")")
 
     separator = " OR distinct_id IN "
     joined_filter = separator.join(filters)

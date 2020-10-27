@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './logic'
 import { Row, Col, Space, Card, Button } from 'antd'
-import hedgehogBlue from './../../../public/hedgehog-blue.png'
+import hedgehogBlue from 'public/hedgehog-blue.png'
 import {
     CheckSquareFilled,
     CloseSquareFilled,

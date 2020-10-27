@@ -189,7 +189,7 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
 }
 
 export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
-    let timeout: number | undefined
+    let timeout: NodeJS.Timeout | undefined
     return function () {
         const context = this // eslint-disable-line
         function later(): void {
@@ -510,7 +510,7 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
     const itemsUnique: T[] = []
     for (const item of items) {
         const uniqueKey = uniqueResolver(item)
-        if (!uniqueKeysSoFar.has(uniqueKeysSoFar)) {
+        if (!uniqueKeysSoFar.has(uniqueKey)) {
             uniqueKeysSoFar.add(uniqueKey)
             itemsUnique.push(item)
         }

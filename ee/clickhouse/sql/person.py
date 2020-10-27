@@ -230,7 +230,7 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM persons_up_to_date_view as p inner join person_distinct_id as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+SELECT p.* FROM persons_up_to_date_view as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
 """
 
 GET_PERSONS_BY_DISTINCT_IDS = """
@@ -345,7 +345,15 @@ GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN 
 (
     SELECT id
-    FROM persons_properties_up_to_date_view AS ep
+    FROM persons_properties_view ep JOIN
+    (
+        SELECT id, key, max(created_at) created_at
+        FROM
+        persons_properties_view as ep
+        WHERE {key_statement} AND team_id = %(team_id)s
+        GROUP BY id, key
+    ) latest
+        ON ep.id = latest.id AND ep.created_at = latest.created_at
     WHERE {filters} AND team_id = %(team_id)s
-)
+) AND team_id = %(team_id)s
 """

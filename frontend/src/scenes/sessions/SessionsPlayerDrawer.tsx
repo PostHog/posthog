@@ -21,11 +21,11 @@ export default function SessionsPlayerDrawer(): JSX.Element {
             footer={
                 <>
                     {nav.prev && (
-                        <Button style={{ marginRight: 12 }} onClick={() => loadSessionPlayer(nav.prev)}>
+                        <Button style={{ marginRight: 12 }} onClick={() => nav.prev && loadSessionPlayer(nav.prev)}>
                             Previous
                         </Button>
                     )}
-                    {nav.next && <Button onClick={() => loadSessionPlayer(nav.next)}>Next</Button>}
+                    {nav.next && <Button onClick={() => nav.next && loadSessionPlayer(nav.next)}>Next</Button>}
                 </>
             }
         >

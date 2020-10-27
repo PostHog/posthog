@@ -20,7 +20,7 @@ import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 
-const darkerScenes = {
+const darkerScenes: Record<string, boolean> = {
     dashboard: true,
     insights: true,
     funnel: true,
@@ -28,7 +28,8 @@ const darkerScenes = {
     paths: true,
 }
 
-function App() {
+export const App = hot(_App)
+function _App(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
@@ -53,13 +54,12 @@ function App() {
     }, [scene, user])
 
     if (!user) {
-        return (
-            unauthenticatedRoutes.includes(scene) && (
-                <>
-                    <Scene {...params} />{' '}
-                    <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-                </>
-            )
+        return unauthenticatedRoutes.includes(scene) ? (
+            <>
+                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </>
+        ) : (
+            <div />
         )
     }
 
@@ -83,7 +83,7 @@ function App() {
                     }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <TopContent user={user} />
+                    <TopContent />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&
@@ -101,5 +101,3 @@ function App() {
         </>
     )
 }
-
-export default hot(App)

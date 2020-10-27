@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { toParams, fromParams } from 'lib/utils'
+import { insightLogicType } from 'types/scenes/insights/insightLogicType'
 
 export const ViewType = {
     TRENDS: 'TRENDS',
@@ -13,18 +14,18 @@ InsighLogic maintains state for changing between insight features
 This includes handling the urls and view state
 */
 
-export const insightLogic = kea({
+export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type) => ({ type }),
         updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
     }),
-    reducers: ({ actions }) => ({
+    reducers: () => ({
         cachedUrls: [
             {},
             {
-                [actions.setCachedUrl]: (state, { type, url }) => ({ ...state, [type]: url }),
+                setCachedUrl: (state, { type, url }) => ({ ...state, [type]: url }),
             },
         ],
         activeView: [
@@ -44,7 +45,7 @@ export const insightLogic = kea({
         ],
     }),
     actionToUrl: ({ actions, values }) => ({
-        [actions.setActiveView]: ({ type }) => {
+        setActiveView: ({ type }) => {
             const params = fromParams(window.location.search)
             const { properties, ...restParams } = params
 

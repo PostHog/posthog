@@ -4,7 +4,8 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import moment from 'moment'
+import moment, { Moment } from 'moment'
+import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 
 export const dateOptions = {
     h: 'Hour',
@@ -13,7 +14,7 @@ export const dateOptions = {
     m: 'Month',
 }
 
-function cleanRetentionParams(filters, properties) {
+function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
         properties: properties,
@@ -21,12 +22,12 @@ function cleanRetentionParams(filters, properties) {
     }
 }
 
-export const retentionTableLogic = kea({
+export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     loaders: ({ values }) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
-                let params = {}
+                const params: Record<string, any> = {}
                 params['properties'] = values.properties
                 if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
@@ -41,7 +42,7 @@ export const retentionTableLogic = kea({
                 const people = values.retention.data[rowIndex].values[0].people
 
                 if (people.length === 0) return []
-                let results = (await api.get('api/person/?id=' + people.join(','))).results
+                const results = (await api.get('api/person/?id=' + people.join(','))).results
                 results.sort(function (a, b) {
                     return people.indexOf(a.id) - people.indexOf(b.id)
                 })
@@ -137,13 +138,11 @@ export const retentionTableLogic = kea({
     events: ({ actions }) => ({
         afterMount: actions.loadRetention,
     }),
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setFilters]: () => {
-            return ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }]
-        },
+    actionToUrl: ({ values }) => ({
+        setFilters: () => ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }],
     }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        '*': (_, searchParams: Record<string, any>) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -183,7 +182,7 @@ export const retentionTableLogic = kea({
                 if (next) {
                     const params = toParams({ id: next, offset })
                     const referenceResults = await api.get(`api/person/references/?${params}`)
-                    let retentionCopy = { ...values.retention }
+                    const retentionCopy = { ...values.retention }
                     if (referenceResults.offset) {
                         retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
                     } else {

@@ -12,7 +12,7 @@ const lightColors = [
     'cyan',
     'gray-dark',
 ]
-const getColorVar = (variable): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
+const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
 export const darkWhites = [
     'rgba(255,255,255,0.6)',
@@ -68,7 +68,7 @@ export const dashboardColorHSL = {
 export const cssHSL = (h: number, s: number, l: number): string =>
     `hsl(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%)`
 
-export const dashboardColors = {}
+export const dashboardColors: Record<string, string> = {}
 Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
     dashboardColors[key] = cssHSL(h, s, l)
 })
@@ -89,11 +89,11 @@ export function getChartColors(backgroundColor: string): string[] {
         return lightColors.map((color) => getColorVar(color))
     }
 
-    const colors = dashboardColorHSL[backgroundColor]
+    const colors = dashboardColorHSL[backgroundColor as keyof typeof dashboardColorHSL]
 
-    if (!colors) {
-        return darkWhites
+    if (colors) {
+        return colorsForBackground(colors[0], colors[1], colors[2])
     }
 
-    return colorsForBackground(colors[0], colors[1], colors[2])
+    return darkWhites
 }

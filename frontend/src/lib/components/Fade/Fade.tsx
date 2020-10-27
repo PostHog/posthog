@@ -10,7 +10,7 @@ export function Fade({
 }: {
     visible: boolean
     children: React.ReactNode
-    className: string
+    className?: string
     style?: React.CSSProperties
 }): JSX.Element | null {
     const [shouldRender, setShouldRender] = useState(visible)

@@ -93,9 +93,6 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarTab = 'stats' | 'actions'
-export type ToolbarMode = 'button' | 'dock' | ''
-export type ToolbarAnimationState = 'animating' | 'fading-in' | 'complete' | 'disabled' | 'fading-out'
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
 export type EditorProps = {

@@ -50,6 +50,7 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
+                public: path.resolve(__dirname, 'frontend', 'public'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
