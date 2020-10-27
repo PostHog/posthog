@@ -14,5 +14,5 @@
         "types": ["jest", "node"],
         "resolveJsonModule": true
     },
-    "exclude": ["node_modules", "dist", "samples"]
+    "exclude": ["node_modules", "dist"]
 }

@@ -2,17 +2,24 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { Pool } from 'pg'
 import { createVm } from './vm'
+import { createInternalPostHogInstance } from 'posthog-js-lite'
+import fetch from 'node-fetch'
+import { appRoot, postgresUrl } from './config'
 
 const db = new Pool({
-    connectionString: 'postgres://localhost:5432/posthog',
+    connectionString: postgresUrl,
 })
-
-const ROOT_PATH = '../../posthog'
 
 const plugins = {}
 const pluginsPerTeam = {}
 const pluginVms = {}
 const defaultConfigs = []
+
+export async function processError(error: Error) {
+    // TODO: save in database
+    // TODO: send to sentry
+    console.error(error)
+}
 
 export async function setupPlugins() {
     const { rows: pluginRows } = await db.query('SELECT * FROM posthog_plugin')
@@ -44,7 +51,7 @@ export async function setupPlugins() {
 
 async function loadPlugin(plugin) {
     if (plugin.url.startsWith('file:')) {
-        const pluginPath = path.resolve(ROOT_PATH, plugin.url.substring(5))
+        const pluginPath = path.resolve(appRoot, plugin.url.substring(5))
         const configPath = path.resolve(pluginPath, 'plugin.json')
 
         let config = {}
@@ -97,13 +104,28 @@ export async function runPlugins(event) {
                 name: plugin.name,
                 tag: plugin.tag,
                 config: teamPlugin.config,
+                apiKey: teamPlugin.api_token,
             }
-            const { processEvent } = pluginVms[teamPlugin.plugin_id].vm
+            const { vm, processEvent } = pluginVms[teamPlugin.plugin_id].vm
+
+            if (event?.properties?.token) {
+                const posthog = createInternalPostHogInstance(
+                    event.properties.token,
+                    { apiHost: 'http://localhost:8000', fetch },
+                    {
+                        performance: require('perf_hooks').performance,
+                    }
+                )
+                vm.freeze(posthog, 'posthog')
+            } else {
+                vm.freeze(null, 'posthog')
+            }
+
             if (processEvent) {
                 try {
                     returnedEvent = await processEvent(returnedEvent, meta)
                 } catch (error) {
-                    console.error(error)
+                    processError(error)
                 }
             }
 

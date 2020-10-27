@@ -1,26 +1,33 @@
 {
-  "name": "posthog-plugins",
-  "version": "0.0.0",
-  "description": "gRPC service to run JS plugins on events",
-  "main": "src/index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "yarn run start:server",
-    "start:server": "cd src; ts-node index.ts",
-    "start:test_capture": "cd src; ts-node test_capture.ts"
-  },
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@grpc/proto-loader": "^0.5.5",
-    "@types/protobufjs": "^6.0.0",
-    "google-protobuf": "^3.13.0",
-    "grpc": "^1.24.3",
-    "node-fetch": "^2.6.1",
-    "pb-util": "^0.1.3",
-    "pg": "^8.4.1",
-    "ts-node": "^9.0.0",
-    "typescript": "^4.0.3",
-    "vm2": "^3.9.2"
-  }
+    "name": "posthog-plugins",
+    "version": "0.0.0",
+    "description": "PostHog Plugin Server",
+    "main": "src/index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "cd src; ts-node index.ts"
+    },
+    "author": "Marius Andra <marius.andra@gmail.com>",
+    "license": "MIT",
+    "dependencies": {
+        "@types/node": "^14.14.5",
+        "celery-node": "^0.5.0",
+        "husky": ">=4",
+        "lint-staged": ">=10",
+        "node-fetch": "^2.6.1",
+        "pg": "^8.4.1",
+        "posthog-js-lite": "file:.yalc/posthog-js-lite",
+        "prettier": "^2.1.2",
+        "ts-node": "^9.0.0",
+        "typescript": "^4.0.3",
+        "vm2": "^3.9.2"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "lint-staged"
+        }
+    },
+    "lint-staged": {
+        "*.{js,css,scss}": "prettier --write"
+    }
 }
