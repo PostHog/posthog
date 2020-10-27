@@ -1,10 +1,9 @@
 import { runPlugins, setupPlugins } from './plugins'
 import * as celery from 'celery-node'
+import { defaultCeleryQueue, pluginCeleryQueue, redisUrl } from './config'
 
-const worker = celery.createWorker('redis://localhost/', 'redis://localhost/', 'posthog-plugins')
-const client = celery.createClient('redis://localhost/', 'redis://localhost/', 'celery')
-
-const processEvent = client.createTask('process_event')
+const worker = celery.createWorker(redisUrl, redisUrl, pluginCeleryQueue)
+const client = celery.createClient(redisUrl, redisUrl, defaultCeleryQueue)
 
 setupPlugins()
 
