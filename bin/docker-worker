@@ -15,6 +15,7 @@ then
   echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
 else
   rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
+  ./bin/docker-worker-plugins &
   ./bin/docker-worker-beat &
   ./bin/docker-worker-celery
 fi
