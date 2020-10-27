@@ -1,8 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
 
-from freezegun.api import freeze_time
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query, format_person_query
 from ee.clickhouse.models.event import create_event
@@ -30,7 +28,7 @@ def _create_person(**kwargs) -> Person:
     if kwargs.get("uuid"):
         uuid = str(kwargs.pop("uuid"))
     else:
-        uuid = UUIDT()
+        uuid = str(UUIDT())
     distinct_ids = kwargs.pop("distinct_ids")
     person = create_person(uuid=uuid, **kwargs)
     for id in distinct_ids:
