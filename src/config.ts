@@ -1,5 +1,0 @@
-export const postgresUrl = 'postgres://localhost:5432/posthog'
-export const redisUrl = 'redis://localhost/'
-export const appRoot = '../../posthog'
-export const pluginCeleryQueue = 'posthog-plugins'
-export const defaultCeleryQueue = 'celery'

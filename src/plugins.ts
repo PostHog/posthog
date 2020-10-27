@@ -1,14 +1,10 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { Pool } from 'pg'
-import { createVm } from './vm'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 import fetch from 'node-fetch'
-import { appRoot, postgresUrl } from './config'
-
-const db = new Pool({
-    connectionString: postgresUrl,
-})
+import { createVm } from './vm'
+import { PluginsServerConfig } from './types'
 
 const plugins = {}
 const pluginsPerTeam = {}
@@ -21,11 +17,15 @@ export async function processError(error: Error) {
     console.error(error)
 }
 
-export async function setupPlugins() {
+export async function setupPlugins(serverConfig: PluginsServerConfig) {
+    const db = new Pool({
+        connectionString: serverConfig.DATABASE_URL,
+    })
+
     const { rows: pluginRows } = await db.query('SELECT * FROM posthog_plugin')
     for (const row of pluginRows) {
         plugins[row.id] = row
-        await loadPlugin(row)
+        await loadPlugin(serverConfig, row)
     }
 
     const { rows: pluginConfigRows } = await db.query("SELECT * FROM posthog_pluginconfig WHERE enabled='t'")
@@ -49,9 +49,9 @@ export async function setupPlugins() {
     }
 }
 
-async function loadPlugin(plugin) {
+async function loadPlugin(serverConfig: PluginsServerConfig, plugin) {
     if (plugin.url.startsWith('file:')) {
-        const pluginPath = path.resolve(appRoot, plugin.url.substring(5))
+        const pluginPath = path.resolve(serverConfig.BASE_DIR, plugin.url.substring(5))
         const configPath = path.resolve(pluginPath, 'plugin.json')
 
         let config = {}
