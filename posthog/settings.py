@@ -129,6 +129,8 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
+DYNAMODB_URL = os.environ.get("DYNAMODB_URL", "http://localhost:8001")
+
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 

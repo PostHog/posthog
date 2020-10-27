@@ -2,7 +2,6 @@ import uuid
 
 from django.utils import timezone
 
-from ee.dynamodb.events import update_event_person
 from ee.dynamodb.models.events import Event
 from ee.dynamodb.util import DynamodbTestMixin
 from posthog.api.test.base import BaseTest
