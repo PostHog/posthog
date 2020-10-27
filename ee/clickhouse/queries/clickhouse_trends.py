@@ -146,7 +146,7 @@ class ClickhouseTrends(BaseQuery):
             interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
+            date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         params = {**params, **math_params, **prop_filter_params}
@@ -160,7 +160,7 @@ class ClickhouseTrends(BaseQuery):
                     interval=interval_annotation,
                     seconds_in_interval=seconds_in_interval,
                     num_intervals=num_intervals,
-                    date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
+                    date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
                 )
                 conditions = BREAKDOWN_CONDITIONS_SQL.format(
                     parsed_date_from=parsed_date_from,
