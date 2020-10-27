@@ -8,10 +8,6 @@ from posthog.queries.base import BaseQuery
 from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.session_recording import add_session_recording_ids as _add_session_recording_ids
 
-add_session_recording_ids: Callable = lambda *args, **kw: _add_session_recording_ids(
-    *args, **kw, query=query_sessions_in_range
-)
-
 SINGLE_RECORDING_QUERY = """
     SELECT snapshot_data
     FROM session_recording_events
@@ -40,6 +36,10 @@ class SessionRecording(BaseSessionRecording):
     def query_recording_snapshots(self, team: Team, session_id: str) -> List[Any]:
         response = sync_execute(SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id})
         return [json.loads(row[0]) for row in response]
+
+
+def add_session_recording_ids(team: Team, sessions_results: List[Any]) -> List[Any]:
+    return _add_session_recording_ids(team, sessions_results, query=query_sessions_in_range)
 
 
 def query_sessions_in_range(team: Team, start_time: datetime.datetime, end_time: datetime.datetime) -> List[dict]:
