@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
@@ -74,7 +75,7 @@ class Funnel(BaseQuery):
             annotations["step_{}".format(index)] = query
         return annotations
 
-    def _serialize_step(self, step: Entity, people: Optional[List[int]] = None) -> Dict[str, Any]:
+    def _serialize_step(self, step: Entity, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = Action.objects.get(team=self._team.pk, pk=step.id).name
         else:
