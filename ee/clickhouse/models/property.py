@@ -25,9 +25,7 @@ def parse_prop_clauses(
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(prop, idx, "{}person".format(prepend))
             final += " AND distinct_id IN ({filter_query})".format(
-                filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                    filters=filter_query, negation="" if prop.operator and "not" in prop.operator else ""
-                )
+                filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query)
             )
             params.update(filter_params)
         else:
