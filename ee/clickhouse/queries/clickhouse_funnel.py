@@ -22,13 +22,22 @@ from posthog.utils import relative_date_parse
 class ClickhouseFunnel(Funnel):
     _filter: Filter
     _team: Team
+    _should_join_person: bool
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
         self._team = team
 
+        self._should_join_person = False
+        for entity in self._filter.entities:
+            for entity_prop in entity.properties:
+                if entity_prop.type == "person":
+                    self._should_join_person = True
+
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", entity.properties, self._team, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            "uuid", entity.properties, self._team, prepend=str(index), json_extract=True
+        )
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
@@ -57,6 +66,8 @@ class ClickhouseFunnel(Funnel):
                 filters=filters,
                 step=index,
                 is_first_step=is_first_step,
+                person_prop_param=", person_properties" if self._should_join_person else "",
+                person_prop_arg=", person_props" if self._should_join_person else "",
             )
         else:
             content_sql = STEP_EVENT_SQL.format(
@@ -67,6 +78,8 @@ class ClickhouseFunnel(Funnel):
                 filters=filters,
                 step=index,
                 is_first_step=is_first_step,
+                person_prop_param=", person_properties" if self._should_join_person else "",
+                person_prop_arg=", person_props" if self._should_join_person else "",
             )
         return content_sql
 
@@ -81,7 +94,7 @@ class ClickhouseFunnel(Funnel):
         if not self._filter._date_to:
             self._filter._date_to = timezone.now()
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter)
+        parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter, table="events.")
         self.params: Dict = {"team_id": self._team.pk, **prop_filter_params}
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
@@ -91,6 +104,10 @@ class ClickhouseFunnel(Funnel):
             filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
+            person_prop_join="JOIN (SELECT id, properties FROM person WHERE team_id = %(team_id)s) as person ON person_distinct_id.person_id = person.id"
+            if self._should_join_person
+            else "",
+            person_prop_alias="groupArray(person.properties) as person_props," if self._should_join_person else "",
         )
         return sync_execute(query, self.params)
 
