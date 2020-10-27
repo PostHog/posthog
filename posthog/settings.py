@@ -70,7 +70,7 @@ else:
     JS_URL = os.environ.get("JS_URL", "")
 
 PLUGINS_CELERY_QUEUE = "posthog-plugins"
-PLUGINS_ENABLED = get_bool_from_env("PLUGINS_ENABLED", True)
+PLUGINS_ENABLED = get_bool_from_env("PLUGINS_ENABLED", False)
 INSTALL_PLUGINS_FROM_WEB = get_bool_from_env("INSTALL_PLUGINS_FROM_WEB", True)
 CONFIGURE_PLUGINS_FROM_WEB = INSTALL_PLUGINS_FROM_WEB or get_bool_from_env("CONFIGURE_PLUGINS_FROM_WEB", True)
 
