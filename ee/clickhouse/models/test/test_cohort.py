@@ -116,7 +116,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 0)
 
     def test_cohort_updated_props(self):
-        # The way clickhouse works
+        # The way clickhouse works is that updates aren't instant, so two people with the same ID are in the database
+        # Make sure we get the last one.
         person1 = _create_person(
             distinct_ids=["some_other_id_2"],
             team_id=self.team.pk,
