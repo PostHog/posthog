@@ -5,6 +5,7 @@ SELECT id, {select_steps} FROM (
         groupArray(events.timestamp) as timestamps,
         groupArray(events.event) as eventsArr,
         groupArray(events.uuid) as event_ids,
+        groupArray(events.properties) as event_props,
         {steps}
     FROM events 
     JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id

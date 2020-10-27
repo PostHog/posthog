@@ -28,10 +28,12 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", entity.properties, self._team, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            "uuid", entity.properties, self._team, prepend=str(index), json_extract=True
+        )
         self.params.update(prop_filter_params)
         if entity.properties:
-            return prop_filters.replace("uuid IN", "random_event_id IN", 1)
+            return prop_filters
         return ""
 
     def _build_steps_query(self, entity: Entity, index: int) -> str:
