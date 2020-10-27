@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -68,6 +69,8 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
+PLUGINS_CELERY_QUEUE = "posthog-plugins"
+PLUGINS_ENABLED = get_bool_from_env("PLUGINS_ENABLED", True)
 INSTALL_PLUGINS_FROM_WEB = get_bool_from_env("INSTALL_PLUGINS_FROM_WEB", True)
 CONFIGURE_PLUGINS_FROM_WEB = INSTALL_PLUGINS_FROM_WEB or get_bool_from_env("CONFIGURE_PLUGINS_FROM_WEB", True)
 
@@ -353,6 +356,10 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Only listen to the default queue "celery", unless overridden via the cli
+# NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
+CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
+CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

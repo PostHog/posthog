@@ -11,7 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
-from posthog.tasks.process_event import process_event
+from posthog.tasks.process_event import process_event_with_plugins
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
@@ -162,15 +162,20 @@ def get_event(request):
                 ),
             )
 
-        process_event.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
+        celery_queue = settings.PLUGINS_CELERY_QUEUE if settings.PLUGINS_ENABLED else settings.CELERY_DEFAULT_QUEUE
+        process_event_with_plugins.apply_async(
+            args=[
+                distinct_id,
+                get_ip_address(request),
+                request.build_absolute_uri("/")[:-1],
+                event,
+                team.id,
+                now.isoformat(),
+                sent_at,
+            ],
+            queue=celery_queue,
         )
+
         if check_ee_enabled():
             process_event_ee.delay(
                 distinct_id=distinct_id,

@@ -13,6 +13,17 @@ from posthog.models import Element, Event, Person, Team, User
 from posthog.plugins import Plugins, PosthogEvent
 
 
+@shared_task(name="process_event_with_plugins")
+def process_event_with_plugins(
+    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
+):
+    # If settings.PLUGINS_ENABLED, this task will be sent to the "posthog-plugins" queue, handled by the nodejs process.
+    # If we're here, it means nodejs plugins are disabled. Pass the event along.
+    process_event(
+        distinct_id=distinct_id, ip=ip, site_url=site_url, data=data, team_id=team_id, now=now, sent_at=sent_at
+    )
+
+
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
     old_person: Optional[Person] = None
     new_person: Optional[Person] = None
@@ -202,7 +213,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
     return now_datetime
 
 
-@shared_task
+@shared_task(name="process_event")
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
@@ -223,7 +234,7 @@ def process_event(
     properties = data.get("properties", data.get("$set", {}))
     event = data["event"]
 
-    plugin_event = PosthogEvent(
+    event = PosthogEvent(
         ip=ip,
         site_url=site_url,
         team_id=team_id,
@@ -232,9 +243,6 @@ def process_event(
         properties=properties,
         timestamp=handle_timestamp(data, now, sent_at),
     )
-
-    plugins = Plugins()
-    event = plugins.exec_plugins(plugin_event, team_id)
 
     if event:
         _capture(
