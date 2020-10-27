@@ -1,30 +1,17 @@
-import { runPlugins, setupPlugins } from './plugins'
-import * as celery from 'celery-node'
-import { defaultCeleryQueue, pluginCeleryQueue, redisUrl } from './config'
+#!/usr/bin/env node
+import { setupPlugins } from './plugins'
+import { worker } from './worker'
+import { version } from '../package.json'
 
-const worker = celery.createWorker(redisUrl, redisUrl, pluginCeleryQueue)
-const client = celery.createClient(redisUrl, redisUrl, defaultCeleryQueue)
-
-setupPlugins()
-
-worker.register(
-    'process_event_with_plugins',
-    async (
-        distinct_id: string,
-        ip: string,
-        site_url: string,
-        data: Record<string, any>,
-        team_id: number,
-        now: string,
-        sent_at?: string
-    ) => {
-        const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data }
-        const processedEvent = await runPlugins(event)
-        if (processedEvent) {
-            const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
-            client.sendTask('process_event', [], { distinct_id, ip, site_url, data, team_id, now, sent_at })
+require('yargs')
+    .command(
+        'start',
+        'start the server',
+        (argv) => {
+            console.info(`⚡ Starting posthog-plugins server v${version}!`)
+            setupPlugins()
+            worker.start()
         }
-    }
-)
-
-worker.start()
+    )
+    .demandCommand()
+    .help().argv
