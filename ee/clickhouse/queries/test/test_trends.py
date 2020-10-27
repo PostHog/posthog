@@ -124,8 +124,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[1]["label"], "sign up - other_value")
 
         self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][3], 1)  # property not defined
+        self.assertEqual(event_response[0]["data"][4], 1)  # property not defined
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)
+        self.assertEqual(event_response[1]["data"][5], 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response))
