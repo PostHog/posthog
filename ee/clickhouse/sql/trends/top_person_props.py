@@ -3,7 +3,7 @@ SELECT groupArray(value) FROM (
     SELECT value, count(*) as count
     FROM
     events e 
-    INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
+    INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
     INNER JOIN
         (
             SELECT * FROM (
@@ -16,7 +16,7 @@ SELECT groupArray(value) FROM (
                         id,
                         arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
                         arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-                    FROM person WHERE team_id = %(team_id)s
+                    FROM persons_up_to_date_view WHERE team_id = %(team_id)s
                 )
                 ARRAY JOIN array_property_keys, array_property_values
             ) ep

@@ -1,9 +1,11 @@
 import json
+import uuid
 import warnings
 from typing import Any, Dict, List
 
 from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
+from django.db.models.expressions import Value
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -27,6 +29,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "distinct_ids",
             "properties",
             "created_at",
+            "uuid",
         ]
 
     def get_name(self, person: Person) -> str:
@@ -69,8 +72,11 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         if request.GET.get("id"):
-            people = request.GET["id"].split(",")
-            queryset = queryset.filter(id__in=people)
+            ids = request.GET["id"].split(",")
+            queryset = queryset.filter(id__in=ids)
+        if request.GET.get("uuid"):
+            uuids = request.GET["uuid"].split(",")
+            queryset = queryset.filter(uuid__in=uuids)
         if request.GET.get("search"):
             parts = request.GET["search"].split(" ")
             contains = []

@@ -187,10 +187,7 @@ class Command(BaseCommand):
 
         database = result.path[1:]
         hostname = result.hostname
-        try:
-            conn = psycopg2.connect(dbname=database, host=hostname)
-        except:
-            print("Unable to connect to the database")
+        conn = psycopg2.connect(dbname=database, host=hostname)
 
         conn.autocommit = True
         cur = conn.cursor()

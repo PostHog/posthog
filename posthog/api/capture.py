@@ -15,7 +15,7 @@ from posthog.tasks.process_event import process_event_with_plugins
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import process_event_ee
+    from ee.clickhouse.process_event import log_event, process_event_ee
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -107,7 +107,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
+                    "message": "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
@@ -120,7 +120,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
+                    "message": "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
@@ -162,20 +162,6 @@ def get_event(request):
                 ),
             )
 
-        celery_queue = settings.PLUGINS_CELERY_QUEUE if settings.PLUGINS_ENABLED else settings.CELERY_DEFAULT_QUEUE
-        process_event_with_plugins.apply_async(
-            args=[
-                distinct_id,
-                get_ip_address(request),
-                request.build_absolute_uri("/")[:-1],
-                event,
-                team.id,
-                now.isoformat(),
-                sent_at,
-            ],
-            queue=celery_queue,
-        )
-
         if check_ee_enabled():
             process_event_ee.delay(
                 distinct_id=distinct_id,
@@ -185,6 +171,32 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
+            )
+            # log the event to kafka write ahead log for processing
+            log_event(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
+
+        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
+        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572]:
+            celery_queue = settings.PLUGINS_CELERY_QUEUE if settings.PLUGINS_ENABLED else settings.CELERY_DEFAULT_QUEUE
+            process_event_with_plugins.apply_async(
+                args=[
+                    distinct_id,
+                    get_ip_address(request),
+                    request.build_absolute_uri("/")[:-1],
+                    event,
+                    team.id,
+                    now.isoformat(),
+                    sent_at,
+                ],
+                queue=celery_queue,
             )
 
     return cors_response(request, JsonResponse({"status": 1}))

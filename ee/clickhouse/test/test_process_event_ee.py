@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from django.utils.timezone import now
+from freezegun import freeze_time
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.event import get_events
@@ -616,50 +617,52 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     def test_alias_merge_properties(self) -> None:
-        Person.objects.create(
-            distinct_ids=["old_distinct_id"],
-            team_id=self.team.pk,
-            properties={"key_on_both": "old value both", "key_on_old": "old value"},
-        )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            Person.objects.create(
+                distinct_ids=["old_distinct_id"],
+                team_id=self.team.pk,
+                properties={"key_on_both": "old value both", "key_on_old": "old value"},
+            )
 
-        Person.objects.create(
-            distinct_ids=["new_distinct_id"],
-            team_id=self.team.pk,
-            properties={"key_on_both": "new value both", "key_on_new": "new value"},
-        )
+            Person.objects.create(
+                distinct_ids=["new_distinct_id"],
+                team_id=self.team.pk,
+                properties={"key_on_both": "new value both", "key_on_new": "new value"},
+            )
 
-        process_event(
-            "new_distinct_id",
-            "",
-            "",
-            {
-                "event": "$create_alias",
-                "properties": {
-                    "distinct_id": "new_distinct_id",
-                    "token": self.team.api_token,
-                    "alias": "old_distinct_id",
+        with freeze_time("2020-01-04T16:01:01Z"):
+            process_event(
+                "new_distinct_id",
+                "",
+                "",
+                {
+                    "event": "$create_alias",
+                    "properties": {
+                        "distinct_id": "new_distinct_id",
+                        "token": self.team.api_token,
+                        "alias": "old_distinct_id",
+                    },
                 },
-            },
-            self.team.pk,
-            now().isoformat(),
-            now().isoformat(),
-        )
-        process_event_ee(
-            "new_distinct_id",
-            "",
-            "",
-            {
-                "event": "$create_alias",
-                "properties": {
-                    "distinct_id": "new_distinct_id",
-                    "token": self.team.api_token,
-                    "alias": "old_distinct_id",
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+            process_event_ee(
+                "new_distinct_id",
+                "",
+                "",
+                {
+                    "event": "$create_alias",
+                    "properties": {
+                        "distinct_id": "new_distinct_id",
+                        "token": self.team.api_token,
+                        "alias": "old_distinct_id",
+                    },
                 },
-            },
-            self.team.pk,
-            now().isoformat(),
-            now().isoformat(),
-        )
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
 
         events = get_events()
         self.assertEqual(len(events), 1)
@@ -667,8 +670,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
 
-        # Assume that clickhouse has done replacement
         ch_client.execute("OPTIMIZE TABLE person")
+        ch_client.execute("OPTIMIZE TABLE persons_up_to_date")
 
         persons = get_persons(team_id=self.team.pk)
         self.assertEqual(
@@ -991,9 +994,6 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         self.assertEqual(sorted(ids[self.team.pk]), sorted(["1", "2"]))
         self.assertEqual(ids[team2.pk], ["2"])
 
-        # Assume that clickhouse has done replacement
-        ch_client.execute("OPTIMIZE TABLE person")
-
         people1 = get_persons(team_id=self.team.pk)
         people2 = get_persons(team_id=team2.pk)
 
@@ -1028,9 +1028,6 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
             now().isoformat(),
         )
-
-        # Assume that clickhouse has done replacement
-        ch_client.execute("OPTIMIZE TABLE person")
 
         person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
         self.assertTrue(person_after_event["is_identified"])

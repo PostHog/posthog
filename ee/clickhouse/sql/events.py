@@ -1,4 +1,4 @@
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.topics import KAFKA_EVENTS
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
 
@@ -178,7 +178,7 @@ SELECT
 FROM
     events_with_array_props_view ewap
 where ewap.team_id = %(team_id)s
-AND ewap.uuid IN (select uuid from events WHERE team_id = %(team_id)s {conditions})
+{conditions}
 ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
 
@@ -194,7 +194,8 @@ SELECT
     ewap.created_at
 FROM events_with_array_props_view AS ewap
 WHERE 
-ewap.uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s {conditions})
+team_id = %(team_id)s
+{conditions}
 {filters}
 ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
 """
@@ -231,7 +232,7 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN person_distinct_id as pid ON events.distinct_id = pid.distinct_id
+INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
 """
 
 EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """

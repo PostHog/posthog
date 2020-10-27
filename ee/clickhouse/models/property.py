@@ -19,7 +19,7 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             cohort = Cohort.objects.get(pk=prop.value)
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
-            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=person_id_query)
+            final += "AND distinct_id IN ({clause}) ".format(clause=person_id_query)
 
         elif prop.type == "person":
 
@@ -28,13 +28,19 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
             arg = "v{}_{}".format(prepend, idx)
             operator_clause, value = get_operator(prop, arg)
 
-            filter = "(ep.key = %(k{prepend}_{idx})s) AND {operator_clause}".format(
-                idx=idx, operator_clause=operator_clause, prepend=prepend
+            key_statement = "(ep.key = %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend)
+            filter = "{key_statement} {and_statement} {operator_clause}".format(
+                key_statement=key_statement,
+                and_statement="AND" if operator_clause else "",
+                operator_clause=operator_clause,
             )
-            clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter)
-            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
+            clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                key_statement=key_statement,
+                filters=filter,
+                negation="NOT " if prop.operator and "not" in prop.operator else "",
+            )
+            final += "AND distinct_id IN ({clause}) ".format(clause=clause)
             params.update({"k{}_{}".format(prepend, idx): prop.key, arg: value})
-
         else:
 
             arg = "v{}_{}".format(prepend, idx)
@@ -47,7 +53,7 @@ def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: s
                 prepend=prepend,
             )
             clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
-            final += "{cond} ({clause}) ".format(
+            final += "{cond} ({clause}) AND team_id = %(team_id)s ".format(
                 cond="AND {key} {negation}IN".format(
                     key=key, negation="NOT " if prop.operator and "not" in prop.operator else "",
                 ),

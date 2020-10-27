@@ -130,14 +130,14 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                             >
                                 Post to Slack/Teams when this action is triggered.
                             </label>{' '}
-                            <Link to="/setup#webhook">
+                            <Link to="/project/settings#webhook">
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                             {action.post_to_slack && (
                                 <>
                                     <Input
                                         addonBefore="Message format (optional)"
-                                        placeholder="try: [action.name] triggered by [user.name]"
+                                        placeholder="[action.name] triggered by [user.name]"
                                         value={action.slack_message_format}
                                         onChange={(e) => {
                                             setAction({ ...action, slack_message_format: e.target.value })

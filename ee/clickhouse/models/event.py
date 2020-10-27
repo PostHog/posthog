@@ -1,19 +1,19 @@
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
-from django.utils.timezone import now
+from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.kafka.client import ClickhouseProducer
-from ee.kafka.topics import KAFKA_EVENTS
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
+from posthog.models.person import Person
 from posthog.models.team import Team
 
 
@@ -22,13 +22,14 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[datetime, str]] = None,
+    timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
 ) -> str:
 
     if not timestamp:
-        timestamp = now()
+        timestamp = timezone.now()
+    assert timestamp is not None
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):
@@ -120,7 +121,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     def get_person(self, event):
         if not self.context.get("people") or event[5] not in self.context["people"]:
             return event[5]
-        return self.context["people"][event[5]]["properties"].get("email", event[5])
+        return self.context["people"][event[5]].properties.get("email", event[5])
 
     def get_elements(self, event):
         if not event[6]:
@@ -133,7 +134,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
 def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
-    params = {}
+    params: Dict[str, Union[str, List[str]]] = {}
     for idx, (k, v) in enumerate(conditions.items()):
         if not isinstance(v, str):
             continue
@@ -146,10 +147,10 @@ def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> 
             result += "AND timestamp < %(before)s"
             params.update({"before": timestamp})
         elif k == "person_id":
-            result += """AND distinct_id IN (
-                SELECT distinct_id FROM person_distinct_id WHERE person_id = %(person_id)s AND team_id = %(team_id)s
-            )"""
-            params.update({"person_id": v})
+            result += """AND distinct_id IN (%(distinct_ids)s)"""
+            distinct_ids = Person.objects.filter(pk=v)[0].distinct_ids
+            distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
+            params.update({"distinct_ids": distinct_ids})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})

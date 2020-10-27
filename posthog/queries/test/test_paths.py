@@ -13,42 +13,64 @@ def paths_test_factory(paths, event_factory, person_factory):
         TESTS_API = True
 
         def test_current_url_paths_and_logic(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
-            event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
-            )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
-            event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_2a", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_2b", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_2a", event="$pageview", team=self.team,
-            )
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                person_factory(team_id=self.team.pk, distinct_ids=["fake"])
+                event_factory(
+                    properties={"$current_url": "/"}, distinct_id="fake", event="$pageview", team=self.team,
+                )
+                event_factory(
+                    properties={"$current_url": "/about"}, distinct_id="fake", event="$pageview", team=self.team,
+                )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_3"])
-            event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
-            )
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
+                event_factory(
+                    properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
+                )
+            with freeze_time("2012-01-14T03:28:34.000Z"):
+                event_factory(
+                    properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
+                )
 
-            person_factory(team_id=self.team.pk, distinct_ids=["person_4"])
-            event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,
-            )
-            event_factory(
-                properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
-            )
-            filter = Filter(data={"date_from": "-7d"})
-            response = paths().run(team=self.team, filter=filter)
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                person_factory(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
+                event_factory(
+                    properties={"$current_url": "/"}, distinct_id="person_2a", event="$pageview", team=self.team,
+                )
+            with freeze_time("2012-01-14T03:28:34.000Z"):
+                event_factory(
+                    properties={"$current_url": "/pricing"}, distinct_id="person_2b", event="$pageview", team=self.team,
+                )
+            with freeze_time("2012-01-14T03:29:34.000Z"):
+                event_factory(
+                    properties={"$current_url": "/about"}, distinct_id="person_2a", event="$pageview", team=self.team,
+                )
+
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                person_factory(team_id=self.team.pk, distinct_ids=["person_3"])
+                event_factory(
+                    properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
+                )
+            with freeze_time("2012-01-14T03:28:34.000Z"):
+                event_factory(
+                    properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
+                )
+
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                person_factory(team_id=self.team.pk, distinct_ids=["person_4"])
+                event_factory(
+                    properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,
+                )
+            with freeze_time("2012-01-14T03:28:34.000Z"):
+                event_factory(
+                    properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
+                )
+
+            with freeze_time("2012-01-15T03:21:34.000Z"):
+                filter = Filter(data={"dummy": "dummy"})
+                response = paths().run(team=self.team, filter=filter)
+
             self.assertEqual(response[0]["source"], "1_/", response)
             self.assertEqual(response[0]["target"], "2_/pricing")
             self.assertEqual(response[0]["value"], 2)
@@ -65,37 +87,38 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertEqual(response[3]["target"], "3_/about")
             self.assertEqual(response[3]["value"], 1)
 
-            date_from = now() - relativedelta(days=7)
-            response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
-            self.assertEqual(len(response), 4)
+            with freeze_time("2012-01-15T03:21:34.000Z"):
+                date_from = now() - relativedelta(days=7)
+                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                self.assertEqual(len(response), 4)
 
-            date_to = now() + relativedelta(days=7)
-            response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
-            self.assertEqual(len(response), 4)
+                date_to = now()
+                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                self.assertEqual(len(response), 4)
 
-            date_from = now() + relativedelta(days=7)
-            response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
-            self.assertEqual(len(response), 0)
+                date_from = now() + relativedelta(days=7)
+                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                self.assertEqual(len(response), 0)
 
-            date_to = now() - relativedelta(days=7)
-            response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
-            self.assertEqual(len(response), 0)
+                date_to = now() - relativedelta(days=7)
+                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                self.assertEqual(len(response), 0)
 
-            date_from = now() - relativedelta(days=7)
-            date_to = now() + relativedelta(days=7)
+                date_from = now() - relativedelta(days=7)
+                date_to = now() + relativedelta(days=7)
 
-            date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
+                date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
 
-            filter = Filter(data={**date_params})
-            response = paths().run(team=self.team, filter=filter)
-            self.assertEqual(len(response), 4)
+                filter = Filter(data={**date_params})
+                response = paths().run(team=self.team, filter=filter)
+                self.assertEqual(len(response), 4)
 
-            date_from = now() + relativedelta(days=7)
-            date_to = now() - relativedelta(days=7)
-            date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-            filter = Filter(data={**date_params})
-            response = paths().run(team=self.team, filter=filter)
-            self.assertEqual(len(response), 0)
+                date_from = now() + relativedelta(days=7)
+                date_to = now() - relativedelta(days=7)
+                date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
+                filter = Filter(data={**date_params})
+                response = paths().run(team=self.team, filter=filter)
+                self.assertEqual(len(response), 0)
 
         def test_custom_event_paths(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])

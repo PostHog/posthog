@@ -57,7 +57,7 @@ export const funnelLogic = kea({
     loaders: () => ({
         people: {
             loadPeople: async (steps) => {
-                return (await api.get('api/person/?id=' + steps[0].people.join(','))).results
+                return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
             },
         },
     }),
@@ -95,7 +95,7 @@ export const funnelLogic = kea({
             (steps, people) => {
                 if (!people) return null
                 const score = (person) => {
-                    return steps.reduce((val, step) => (step.people.indexOf(person.id) > -1 ? val + 1 : val), 0)
+                    return steps.reduce((val, step) => (step.people.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
                 return people.sort((a, b) => score(b) - score(a))
             },

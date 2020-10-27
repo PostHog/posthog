@@ -8,7 +8,7 @@ import { getContext } from 'kea'
 import { initKea } from '~/initKea'
 import { Dashboard } from './Dashboard'
 
-import PostHogLogo from './../../../public/posthog-logo.svg'
+import PostHogLogo from 'public/posthog-logo.svg'
 import { Col, Row } from 'antd'
 
 initKea()

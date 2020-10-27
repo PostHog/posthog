@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from freezegun import freeze_time
+
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filter import Filter
@@ -66,6 +68,25 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = Filter(data=filters)
             return Funnel(filter=filter, team=self.team)
 
+        def test_funnel_default(self):
+            funnel = self._single_step_funnel()
+
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                # event
+                person1_stopped_after_signup = person_factory(
+                    distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+                )
+                self._signup_event(distinct_id="stopped_after_signup1")
+
+                person2_stopped_after_signup = person_factory(
+                    distinct_ids=["stopped_after_signup2"], team_id=self.team.pk
+                )
+                self._signup_event(distinct_id="stopped_after_signup2")
+
+            # with self.assertNumQueries(1):
+            result = funnel.run()
+            self.assertEqual(result[0]["count"], 0)
+
         def test_funnel_with_single_step(self):
             funnel = self._single_step_funnel()
 
@@ -82,7 +103,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 2)
             # check ordering of people in first step
             self.assertEqual(
-                result[0]["people"], [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk],
+                result[0]["people"], [person1_stopped_after_signup.uuid, person2_stopped_after_signup.uuid],
             )
 
         def test_funnel_events(self):
@@ -120,17 +141,17 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(
                 result[0]["people"],
                 [
-                    person_stopped_after_movie.pk,
-                    person_stopped_after_pay.pk,
-                    person_stopped_after_signup.pk,
-                    person_wrong_order.pk,
+                    person_stopped_after_movie.uuid,
+                    person_stopped_after_pay.uuid,
+                    person_stopped_after_signup.uuid,
+                    person_wrong_order.uuid,
                 ],
             )
             self.assertEqual(result[1]["name"], "paid")
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 1)
-            self.assertEqual(result[2]["people"], [person_stopped_after_movie.pk])
+            self.assertEqual(result[2]["people"], [person_stopped_after_movie.uuid])
 
             # make sure it's O(n)
             person_wrong_order = person_factory(distinct_ids=["badalgo"], team_id=self.team.pk)
@@ -194,7 +215,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "id": "user signed up",
                         "type": "events",
                         "order": 0,
-                        "properties": [{"key": "$browser", "value": "Safari"}],
+                        "properties": [
+                            {"key": "$browser", "value": "Safari"},
+                            {"key": "$browser", "operator": "is_not", "value": "Chrome"},
+                        ],
                     },
                 ],
                 "actions": [

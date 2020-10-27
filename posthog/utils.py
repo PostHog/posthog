@@ -165,13 +165,10 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
     template = get_template(template_name)
     try:
         context["opt_out_capture"] = request.user.team.opt_out_capture
-        context["js_posthog_apikey"] = request.user.team.api_token
     except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.all()
-        # if there's one team on the instance, and they've set opt_out
-        # we'll opt out anonymous users too
-        if team.count() == 1:
-            context["opt_out_capture"] = (team.first().opt_out_capture,)  # type: ignore
+        # If there's one team on the instance, and they've set opt_out we'll opt out anonymous users too
+        if Team.objects.count() == 1:
+            context["opt_out_capture"] = (Team.objects.first().opt_out_capture,)  # type: ignore
 
     if os.environ.get("OPT_OUT_CAPTURE"):
         context["opt_out_capture"] = True
@@ -190,10 +187,13 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
-    if settings.DEBUG:
-        context["js_posthog_host"] = "window.location.origin"
+    if settings.SELF_CAPTURE:
+        team = Team.objects.first()
+        if team is not None:
+            context["js_posthog_api_key"] = f"'{team.api_token}'"
+            context["js_posthog_host"] = "window.location.origin"
     else:
-        context["js_posthog_apikey"] = "sTMFPsFhdP1Ssg"
+        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     html = template.render(context, request=request)

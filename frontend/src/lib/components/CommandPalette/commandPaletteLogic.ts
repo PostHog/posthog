@@ -10,14 +10,15 @@ import {
     RiseOutlined,
     ContainerOutlined,
     AimOutlined,
+    SmileOutlined,
+    ProjectOutlined,
     CheckOutlined,
     SyncOutlined,
     TagOutlined,
     ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
-    ExperimentOutlined,
-    SettingOutlined,
+    FlagOutlined,
     MessageOutlined,
     TeamOutlined,
     LinkOutlined,
@@ -102,7 +103,14 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 }
 
 export const commandPaletteLogic = kea<
-    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+    commandPaletteLogicType<
+        Command,
+        CommandRegistrations,
+        CommandResult,
+        CommandFlow,
+        RegExpCommandPairs,
+        CommandResultDisplayable
+    >
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
@@ -460,7 +468,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to People',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/people')
+                            push('/people/persons')
                         },
                     },
                     {
@@ -471,19 +479,11 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: ExperimentOutlined,
-                        display: 'Go to Experiments',
+                        icon: FlagOutlined,
+                        display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
-                            push('/experiments/feature_flags')
-                        },
-                    },
-                    {
-                        icon: SettingOutlined,
-                        display: 'Go to Setup',
-                        synonyms: ['settings', 'configuration'],
-                        executor: () => {
-                            push('/setup')
+                            push('/feature_flags')
                         },
                     },
                     {
@@ -495,9 +495,32 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team',
+                        display: 'Go to Organization Members',
+                        synonyms: ['teammates'],
                         executor: () => {
-                            push('/team')
+                            push('/organization/members')
+                        },
+                    },
+                    {
+                        icon: SendOutlined,
+                        display: 'Go to Organization Invites',
+                        executor: () => {
+                            push('/organization/invites')
+                        },
+                    },
+                    {
+                        icon: ProjectOutlined,
+                        display: 'Go to Project Settings',
+                        executor: () => {
+                            push('/project/settings')
+                        },
+                    },
+                    {
+                        icon: SmileOutlined,
+                        display: 'Go to My Settings',
+                        synonyms: ['account'],
+                        executor: () => {
+                            push('/me/settings')
                         },
                     },
                     {
@@ -594,7 +617,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/setup', {}, 'personal-api-keys')
+                                        push('/my/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             return null

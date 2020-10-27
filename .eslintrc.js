@@ -30,6 +30,13 @@ module.exports = {
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
         'react/jsx-no-target-blank': [0],
+        'react/self-closing-comp': [
+            'error',
+            {
+                component: true,
+                html: true,
+            },
+        ],
         'no-unused-vars': ['error', { ignoreRestSiblings: true }],
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',

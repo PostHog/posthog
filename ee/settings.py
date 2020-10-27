@@ -1,10 +1,12 @@
 """
 Django settings for PostHog Enterprise Edition.
 """
+from typing import Dict
+
 from posthog.settings import CLICKHOUSE, PRIMARY_DB, TEST
 
 # Zapier
-HOOK_EVENTS = {
+HOOK_EVENTS: Dict[str, str] = {
     # "event_name": "App.Model.Action" (created/updated/deleted)
     "action_defined": "posthog.Action.created_custom",
     "action_performed": "posthog.Action.performed",

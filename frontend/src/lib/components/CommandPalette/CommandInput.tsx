@@ -2,7 +2,7 @@ import React from 'react'
 import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
-import PostHogIcon from './../../../../public/icon-white.svg'
+import PostHogIcon from 'public/icon-white.svg'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function CommandInput(): JSX.Element {

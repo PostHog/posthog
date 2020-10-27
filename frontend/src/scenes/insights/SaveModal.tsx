@@ -35,7 +35,7 @@ const SaveModal: React.FC<SaveChartModalProps> = (props) => {
             }
             onCancel={_onCancel}
         >
-            <div data-attr="invite-team-modal">
+            <div data-attr="save-modal">
                 <h2>{title}</h2>
                 <label>{prompt}</label>
                 <Input

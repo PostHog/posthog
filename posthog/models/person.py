@@ -1,9 +1,10 @@
-import uuid
 from typing import Any, List
 
 from django.apps import apps
 from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
+
+from posthog.models.utils import UUIDT
 
 
 class PersonManager(models.Manager):
@@ -69,7 +70,7 @@ class Person(models.Model):
     properties: JSONField = JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
-    uuid = models.UUIDField(db_index=True, default=uuid.uuid4, editable=False)
+    uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
 
 class PersonDistinctId(models.Model):

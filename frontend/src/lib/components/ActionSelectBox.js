@@ -23,11 +23,7 @@ function ActionSelectTabs(props) {
     return (
         <div className="select-box" style={{ padding: 0 }}>
             {labels.length > 1 && (
-                <ActionSelectTab
-                    entityType={activeTab}
-                    allTypes={labels}
-                    chooseEntityType={setActiveTab}
-                ></ActionSelectTab>
+                <ActionSelectTab entityType={activeTab} allTypes={labels} chooseEntityType={setActiveTab} />
             )}
             {Array.isArray(props.children)
                 ? props.children.map((child) => {

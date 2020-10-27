@@ -20,8 +20,7 @@ def _create_action(**kwargs):
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person.objects.create(**kwargs)
 
 
 class ClickhouseTestEventApi(
