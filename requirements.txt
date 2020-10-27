@@ -6,6 +6,7 @@ aioch==0.0.2
 backcall==0.1.0
 backoff==1.6.0
 billiard==3.6.3.0
+boto3==1.16.0
 celery==4.4.2
 celery-redbeat==0.13.0
 certifi==2019.11.28
@@ -55,6 +56,7 @@ posthoganalytics==1.1.2
 prompt-toolkit==2.0.10
 psycopg2-binary==2.8.4
 ptyprocess==0.6.0
+pynamodb==4.3.3
 pycparser==2.20
 PyJWT==1.7.1
 pyparsing==2.4.6
