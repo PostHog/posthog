@@ -51,3 +51,11 @@ def is_json(val):
     except ValueError:
         return False
     return True
+
+
+def is_int(val: str) -> bool:
+    try:
+        int(val)
+        return True
+    except ValueError:
+        return False
