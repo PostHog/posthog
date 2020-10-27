@@ -16,7 +16,7 @@
         "lint-staged": ">=10",
         "node-fetch": "^2.6.1",
         "pg": "^8.4.1",
-        "posthog-js-lite": "file:.yalc/posthog-js-lite",
+        "posthog-js-lite": "^0.0.5",
         "prettier": "^2.1.2",
         "ts-node": "^9.0.0",
         "typescript": "^4.0.3",
