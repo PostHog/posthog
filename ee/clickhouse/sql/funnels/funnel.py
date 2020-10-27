@@ -6,6 +6,7 @@ SELECT id, {select_steps} FROM (
         groupArray(events.event) as eventsArr,
         groupArray(events.uuid) as event_ids,
         groupArray(events.properties) as event_props,
+        groupArray(events.distinct_id) as distinct_ids,
         {person_prop_alias}
         {steps}
     FROM events 

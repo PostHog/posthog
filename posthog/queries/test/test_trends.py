@@ -610,6 +610,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
+            self.assertTrue(self._compare_entity_response(event_response, action_response,))
             self.assertEqual(event_response[1]["label"], "watched movie - cohort2")
             self.assertEqual(event_response[2]["label"], "watched movie - cohort3")
             self.assertEqual(event_response[3]["label"], "watched movie - all users")
@@ -626,11 +627,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sum(event_response[3]["data"]), 7)
             self.assertEqual(event_response[3]["breakdown_value"], "all")
 
-            self.assertTrue(self._compare_entity_response(event_response, action_response,))
-
         def test_interval_filtering_breakdown(self):
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"$some_prop": "some_val"}}])
             self._create_events(use_time=True)
+            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"$some_prop": "some_val"}}])
 
             # test minute
             with freeze_time("2020-01-02"):
@@ -646,6 +645,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+
             self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
             self.assertEqual(response[0]["data"][6], 3.0)
 
