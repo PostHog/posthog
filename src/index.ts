@@ -4,14 +4,11 @@ import { worker } from './worker'
 import { version } from '../package.json'
 
 require('yargs')
-    .command(
-        'start',
-        'start the server',
-        (argv) => {
-            console.info(`⚡ Starting posthog-plugins server v${version}!`)
-            setupPlugins()
-            worker.start()
-        }
-    )
+    .scriptName('posthog-plugins')
+    .command('start', 'start the server', (argv) => {
+        console.info(`⚡ Starting posthog-plugins server v${version}!`)
+        setupPlugins()
+        worker.start()
+    })
     .demandCommand()
     .help().argv
