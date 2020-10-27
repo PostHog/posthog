@@ -279,7 +279,6 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    "social_core.pipeline.user.get_username",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.urls.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
@@ -289,9 +288,7 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "invite_id",
-]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY", "")

@@ -2,23 +2,27 @@ from typing import Any, Callable, Optional, Union, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
+from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import authenticate, decorators, login
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import include, path, re_path
+from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
+from social_core.pipeline.partial import partial
+from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
 from posthog.email import is_email_available
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
-from .models import Organization, OrganizationInvite, Team, User
+from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
@@ -137,51 +141,77 @@ def signup_to_organization_view(request, invite_id):
     )
 
 
-def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
+class CompanyNameForm(forms.Form):
+    companyName = forms.CharField(max_length=64)
+    emailOptIn = forms.BooleanField(required=False)
+
+
+def finish_social_signup(request):
+    if request.method == "POST":
+        form = CompanyNameForm(request.POST)
+        print(form.is_valid())
+        if form.is_valid():
+            request.session["company_name"] = form.cleaned_data["companyName"]
+            request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
+            return redirect(reverse("social:complete", args=("google-oauth2",)))
+    else:
+        form = CompanyNameForm()
+    return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
+
+
+@partial
+def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
-
+    print(backend)
+    user_email = details["email"][0]
+    user_name = details["fullname"]
+    strategy.session_set("user_name", user_name)
+    from_invite = False
     invite_id = strategy.session_get("invite_id")
     if invite_id is None:
-        processed = render_to_string(
-            "auth_error.html",
-            {
-                "message": "There is no organization associated with this account! Please use an invite link from an organization to create an account!"
-            },
+        company_name = strategy.session_get("company_name", None)
+        email_opt_in = strategy.session_get("email_opt_in", None)
+        print(company_name, email_opt_in)
+        if not company_name or email_opt_in is None:
+            return redirect(finish_social_signup)
+        _, _, user = User.objects.bootstrap(
+            company_name=company_name, first_name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
         )
-        return HttpResponse(processed, status=401)
-
-    try:
-        invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-            "organization"
-        ).get(id=invite_id)
-    except (OrganizationInvite.DoesNotExist, ValidationError):
+    else:
+        from_invite = True
         try:
-            invite = TeamInviteSurrogate(invite_id)
-        except Team.DoesNotExist:
-            processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
+            invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
+                "organization"
+            ).get(id=invite_id)
+        except (OrganizationInvite.DoesNotExist, ValidationError):
+            try:
+                invite = TeamInviteSurrogate(invite_id)
+            except Team.DoesNotExist:
+                processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
+                return HttpResponse(processed, status=401)
+
+        try:
+            invite.validate(user=None, email=user_email)
+        except ValueError as e:
+            processed = render_to_string("auth_error.html", {"message": str(e)},)
             return HttpResponse(processed, status=401)
 
-    try:
-        invite.validate(user=None, email=details["email"])
-    except ValueError as e:
-        processed = render_to_string("auth_error.html", {"message": str(e)},)
-        return HttpResponse(processed, status=401)
-
-    try:
-        user = strategy.create_user(email=details["email"], first_name=details["fullname"])
-    except Exception as e:
-        processed = render_to_string(
-            "auth_error.html",
-            {
-                "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
-                + str(e)
-            },
-        )
-        return HttpResponse(processed, status=401)
-    invite.use(user, prevalidated=True)
+        try:
+            user = strategy.create_user(email=user_email, name=user_name)
+        except Exception as e:
+            processed = render_to_string(
+                "auth_error.html",
+                {
+                    "message": "Account unable to be created. This account may already exist. Please try again or use different credentials!"
+                },
+            )
+            return HttpResponse(processed, status=401)
+        invite.use(user, prevalidated=True)
     posthoganalytics.capture(
-        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False},
+        user.distinct_id,
+        "user signed up",
+        properties={"is_first_user": User.objects.count() == 1, "is_first_team_user": not from_invite},
     )
 
     return {"is_new": True, "user": user}
@@ -261,6 +291,7 @@ urlpatterns = [
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
+    path("signup/finish/", finish_social_signup, name="signup_finish"),
     path("signup/<str:invite_id>", signup_to_organization_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
     *(
