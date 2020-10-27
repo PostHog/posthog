@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { organizationLogicType } from 'types/scenes/organizationLogicType'
 import { OrganizationType } from '~/types'
 
-export const organizationLogic = kea<organizationLogicType>({
+export const organizationLogic = kea<organizationLogicType<OrganizationType>>({
     loaders: {
         currentOrganization: [
             null as OrganizationType | null,

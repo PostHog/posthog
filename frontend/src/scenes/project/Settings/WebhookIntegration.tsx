@@ -3,56 +3,64 @@ import { kea, useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { Input, Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
+import { UserType } from '~/types'
 
-const logic = kea({
+const logic = kea<logicType<UserType>>({
     actions: () => ({
-        setEditedWebhook: (webhook) => ({ webhook }),
-        saveWebhook: true,
+        setEditedWebhook: (webhook: string) => ({ webhook }),
+        saveWebhook: (webhook: string) => ({ webhook }),
         testAndSaveWebhook: true,
-        setError: (error) => ({ error }),
+        setError: (error: string) => ({ error }),
     }),
 
-    reducers: ({ actions }) => ({
+    defaults: () => (state: Record<string, any>) => ({
+        editedWebhook: userLogic.selectors.user(state, {})?.team?.slack_incoming_webhook,
+    }),
+
+    reducers: () => ({
         editedWebhook: [
-            (state) => userLogic.selectors.user(state)?.team?.slack_incoming_webhook,
+            '',
             {
-                [actions.setEditedWebhook]: (_, { webhook }) => webhook,
+                setEditedWebhook: (_, { webhook }) => webhook,
+                saveWebhook: (_, { webhook }) => webhook,
             },
         ],
         isSaving: [
             false,
             {
-                [actions.saveWebhook]: () => true,
-                [actions.testAndSaveWebhook]: () => true,
-                [actions.setError]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) =>
+                saveWebhook: () => true,
+                testAndSaveWebhook: () => true,
+                setError: () => false,
+                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
                     updateKey === 'slack' ? false : state,
-                [userLogic.actions.userUpdateFailure]: (state, { updateKey }) =>
+                [userLogic.actionTypes.userUpdateFailure]: (state, { updateKey }) =>
                     updateKey === 'slack' ? false : state,
             },
         ],
         isSaved: [
             false,
             {
-                [actions.saveWebhook]: () => false,
-                [actions.testAndSaveWebhook]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => (updateKey === 'slack' ? true : state),
-                [actions.setEditedWebhook]: () => false,
+                saveWebhook: () => false,
+                testAndSaveWebhook: () => false,
+                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
+                    updateKey === 'slack' ? true : state,
+                setEditedWebhook: () => false,
             },
         ],
         error: [
-            null,
+            null as string | null,
             {
-                [actions.saveWebhook]: () => null,
-                [actions.testAndSaveWebhook]: () => null,
-                [actions.setError]: (_, { error }) => error,
-                [actions.setEditedWebhook]: () => null,
+                saveWebhook: () => null,
+                testAndSaveWebhook: () => null,
+                setError: (_, { error }) => error,
+                setEditedWebhook: () => null,
             },
         ],
     }),
 
     listeners: ({ actions, values }) => ({
-        [actions.testAndSaveWebhook]: async () => {
+        testAndSaveWebhook: async () => {
             const { editedWebhook } = values
             if (editedWebhook) {
                 try {
@@ -70,13 +78,13 @@ const logic = kea({
                 actions.saveWebhook(editedWebhook)
             }
         },
-        [actions.saveWebhook]: async () => {
+        saveWebhook: async () => {
             userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'slack')
         },
     }),
 })
 
-export function WebhookIntegration() {
+export function WebhookIntegration(): JSX.Element {
     const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
     const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
 

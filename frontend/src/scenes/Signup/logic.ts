@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { signupLogicType } from 'types/scenes/team/signupLogicType'
+import { signupLogicType } from 'types/scenes/Signup/logicType'
 
 export const signupLogic = kea<signupLogicType>({
     loaders: () => ({

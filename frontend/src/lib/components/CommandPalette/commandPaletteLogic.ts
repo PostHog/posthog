@@ -103,7 +103,14 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 }
 
 export const commandPaletteLogic = kea<
-    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+    commandPaletteLogicType<
+        Command,
+        CommandRegistrations,
+        CommandResult,
+        CommandFlow,
+        RegExpCommandPairs,
+        CommandResultDisplayable
+    >
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
