@@ -5,7 +5,7 @@ from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Event, Team
+from posthog.models import SessionRecordingEvent, Team
 from posthog.tasks.session_recording_retention import session_recording_retention, session_recording_retention_scheduler
 
 threshold = now
@@ -34,8 +34,8 @@ class TestSessionRecording(BaseTest):
 
             session_recording_retention(self.team.id, threshold())
 
-            self.assertEqual(Event.objects.count(), 1)
-            self.assertEqual(Event.objects.last(), event_after_threshold)
+            self.assertEqual(SessionRecordingEvent.objects.count(), 1)
+            self.assertEqual(SessionRecordingEvent.objects.last(), event_after_threshold)
 
     def test_session_recording_retention_does_not_delete_session_near_threshold(self) -> None:
         with freeze_time("2020-01-10"):
@@ -47,13 +47,13 @@ class TestSessionRecording(BaseTest):
 
             session_recording_retention(self.team.id, threshold())
 
-            self.assertEqual(Event.objects.count(), 5)
+            self.assertEqual(SessionRecordingEvent.objects.count(), 5)
 
-    def create_snapshot(self, session_id: str, timestamp: datetime) -> Event:
-        return Event.objects.create(
+    def create_snapshot(self, session_id: str, timestamp: datetime) -> SessionRecordingEvent:
+        return SessionRecordingEvent.objects.create(
             team=self.team,
             distinct_id="distinct_id",
             timestamp=timestamp,
-            event="$snapshot",
-            properties={"$snapshot_data": {"timestamp": timestamp.timestamp()}, "$session_id": session_id,},
+            snapshot_data={"timestamp": timestamp.timestamp()},
+            session_id=session_id,
         )
