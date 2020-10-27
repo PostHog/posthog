@@ -349,12 +349,3 @@ SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN
     WHERE team_id = %(team_id)s {filters}
 ) AND team_id = %(team_id)s
 """
-
-# GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-# SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN
-# (
-#     SELECT argMax(id, _timestamp)
-#     FROM person
-#     WHERE team_id = %(team_id)s {filters}
-# ) AND team_id = %(team_id)s
-# """
