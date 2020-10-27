@@ -608,6 +608,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
+            self.assertTrue(self._compare_entity_response(event_response, action_response,))
             self.assertEqual(event_response[1]["label"], "watched movie - cohort2")
             self.assertEqual(event_response[2]["label"], "watched movie - cohort3")
             self.assertEqual(event_response[3]["label"], "watched movie - all users")
@@ -623,8 +624,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertEqual(sum(event_response[3]["data"]), 7)
             self.assertEqual(event_response[3]["breakdown_value"], "all")
-
-            self.assertTrue(self._compare_entity_response(event_response, action_response,))
 
         def test_breakdown_by_person_property(self):
             person1, person2, person3, person4 = self._create_multiple_people()
