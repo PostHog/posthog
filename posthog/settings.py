@@ -52,7 +52,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
 
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)))
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
