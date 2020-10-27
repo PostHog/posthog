@@ -2,7 +2,7 @@ import io
 import json
 import os
 import re
-import zipfile
+from zipfile import ZipFile
 
 import requests
 
@@ -25,11 +25,11 @@ def load_json_file(filename: str):
 
 
 def load_json_zip_bytes(archive: bytes, filename: str):
-    zip_file = zipfile.ZipFile(io.BytesIO(archive), "r")
+    zip_file = ZipFile(io.BytesIO(archive), "r")
     return load_json_zip_file(zip_file, filename)
 
 
-def load_json_zip_file(zip_file: bytes, filename: str):
+def load_json_zip_file(zip_file: ZipFile, filename: str):
     zip_root_folder = zip_file.namelist()[0]
     file_path = os.path.join(zip_root_folder, filename)
     try:

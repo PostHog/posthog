@@ -5,7 +5,6 @@ from rest_framework.test import APITestCase
 
 from posthog.cache import clear_cache
 from posthog.models import Organization, Team, User
-from posthog.plugins import Plugins
 
 
 class TestMixin:
@@ -30,7 +29,6 @@ class TestMixin:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
                 self.client.force_login(self.user)
-        Plugins().reload_plugins()
 
 
 class ErrorResponsesMixin:

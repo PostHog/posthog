@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
-from kombu import Exchange, Queue
+from kombu import Exchange, Queue  # type: ignore
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration

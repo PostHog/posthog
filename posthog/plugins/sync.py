@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional, Type
 from .utils import download_plugin_github_zip, load_json_file, load_json_zip_bytes
 
 
+def sync_plugin_config():
+    sync_posthog_json_plugins()
+    sync_global_plugin_config()
+
+
 def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
     from posthog.models.plugin import Plugin
 

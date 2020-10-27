@@ -10,13 +10,12 @@ from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, Team, User
-from posthog.plugins import Plugins, PosthogEvent
 
 
 @shared_task(name="process_event_with_plugins")
 def process_event_with_plugins(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
-):
+) -> None:
     # If settings.PLUGINS_ENABLED, this task will be sent to the "posthog-plugins" queue, handled by the nodejs process.
     # If we're here, it means nodejs plugins are disabled. Pass the event along.
     process_event(
@@ -234,23 +233,13 @@ def process_event(
     properties = data.get("properties", data.get("$set", {}))
     event = data["event"]
 
-    event = PosthogEvent(
-        ip=ip,
-        site_url=site_url,
-        team_id=team_id,
-        event=event,
-        distinct_id=distinct_id,
-        properties=properties,
-        timestamp=handle_timestamp(data, now, sent_at),
-    )
-
     if event:
         _capture(
-            ip=event.ip,
-            site_url=event.site_url,
-            team_id=event.team_id,
-            event=event.event,
-            distinct_id=event.distinct_id,
-            properties=event.properties,
+            ip=ip,
+            site_url=site_url,
+            team_id=team_id,
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
             timestamp=handle_timestamp(data, now, sent_at),
         )

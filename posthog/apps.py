@@ -5,6 +5,7 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
+from posthog.plugins import sync_plugin_config
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
 
@@ -16,6 +17,8 @@ class PostHogConfig(AppConfig):
     def ready(self):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+
+        sync_plugin_config()
 
         if settings.DEBUG:
             # log development server launch to posthog

@@ -34,20 +34,6 @@ ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
-@worker_process_init.connect
-def load_initial_plugins(**kwargs):
-    from posthog.plugins import Plugins
-
-    Plugins()
-
-
-@task_prerun.connect
-def reload_plugins_if_needed(**kwargs):
-    from posthog.plugins import Plugins
-
-    Plugins().check_reload_plugins_periodically(seconds=10)
-
-
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     if not settings.DEBUG:
