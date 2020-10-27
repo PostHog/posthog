@@ -5,7 +5,10 @@
     "main": "src/index.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
-        "start": "cd src; ts-node index.ts"
+        "start": "cd src; ts-node index.ts start"
+    },
+    "bin": {
+        "posthog-plugins": "./bin/posthog-plugins"
     },
     "author": "Marius Andra <marius.andra@gmail.com>",
     "license": "MIT",
@@ -20,7 +23,8 @@
         "prettier": "^2.1.2",
         "ts-node": "^9.0.0",
         "typescript": "^4.0.3",
-        "vm2": "^3.9.2"
+        "vm2": "^3.9.2",
+        "yargs": "^15.4.0"
     },
     "husky": {
         "hooks": {
