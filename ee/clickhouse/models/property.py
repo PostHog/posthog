@@ -46,7 +46,6 @@ def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties"
 ) -> Tuple[str, Dict[str, Any]]:
     operator = prop.operator
-
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (

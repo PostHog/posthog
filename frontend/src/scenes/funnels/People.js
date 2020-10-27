@@ -52,7 +52,7 @@ export function People() {
                                         <td
                                             key={index}
                                             className={
-                                                step.people.indexOf(person.id) > -1
+                                                step.people.indexOf(person.uuid) > -1
                                                     ? 'funnel-success'
                                                     : 'funnel-dropped'
                                             }
