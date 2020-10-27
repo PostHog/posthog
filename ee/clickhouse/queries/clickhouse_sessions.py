@@ -44,7 +44,7 @@ class ClickhouseSessions(BaseQuery):
         result = self._parse_list_results(query_result)
 
         self._add_person_properties(team, result)
-        # add_session_recording_ids(team, result)
+        add_session_recording_ids(team, result)
 
         return result
 
@@ -72,6 +72,7 @@ class ClickhouseSessions(BaseQuery):
                     "global_session_id": result[1],
                     "length": result[2],
                     "start_time": result[3],
+                    "end_time": result[9],
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},

@@ -8,13 +8,18 @@ from posthog.queries.base import BaseQuery
 
 
 class SessionRecording(BaseQuery):
+    def query_recording_snapshots(self, team: Team, session_id: str) -> List[Any]:
+        events = SessionRecordingEvent.objects.filter(team=team, session_id=session_id)
+        return [e.snapshot_data for e in events]
+
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        events = SessionRecordingEvent.objects.filter(team=team, session_id=kwargs["session_recording_id"])
-        return list(sorted((e.snapshot_data for e in events), key=lambda s: s["timestamp"]))
+        return list(
+            sorted(self.query_recording_snapshots(team, kwargs["session_recording_id"]), key=lambda s: s["timestamp"])
+        )
 
 
 def query_sessions_in_range(team: Team, start_time: datetime.datetime, end_time: datetime.datetime) -> List[dict]:
-    return (
+    return list(
         SessionRecordingEvent.objects.filter(team=team)
         .values("distinct_id", "session_id")
         .annotate(start_time=Min("timestamp"), end_time=Max("timestamp"))
