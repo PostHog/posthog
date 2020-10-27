@@ -12,7 +12,7 @@ SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
                 ) as sec
             ORDER BY breakdown_value, day_start
             UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value as breakdown_value
+            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start, value as breakdown_value
             FROM 
             events e {event_join} {breakdown_filter}
             GROUP BY day_start, breakdown_value
@@ -30,7 +30,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             {null_sql} as main
             ORDER BY day_start
             UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
+            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
             FROM 
             events e {event_join} {conditions}
             GROUP BY day_start

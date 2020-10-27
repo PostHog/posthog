@@ -127,7 +127,7 @@ class ClickhouseTrends(BaseQuery):
 
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         params = {"team_id": team.pk}
-        inteval_annotation = get_interval_annotation_ch(filter.interval)
+        interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
@@ -143,7 +143,7 @@ class ClickhouseTrends(BaseQuery):
             action_query, action_params = format_action_filter(action)
 
         null_sql = NULL_BREAKDOWN_SQL.format(
-            interval=inteval_annotation,
+            interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
             date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
@@ -157,7 +157,7 @@ class ClickhouseTrends(BaseQuery):
             if "all" in breakdown:
                 params = {**params, "event": entity.id, **action_params}
                 null_sql = NULL_SQL.format(
-                    interval=inteval_annotation,
+                    interval=interval_annotation,
                     seconds_in_interval=seconds_in_interval,
                     num_intervals=num_intervals,
                     date_to=((filter.date_to or timezone.now()) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00"),
@@ -174,6 +174,7 @@ class ClickhouseTrends(BaseQuery):
                     conditions=conditions,
                     event_join=join_condition,
                     aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
                 )
             else:
                 cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team)
@@ -191,6 +192,7 @@ class ClickhouseTrends(BaseQuery):
                     breakdown_filter=breakdown_filter,
                     event_join=join_condition,
                     aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
                 )
         elif filter.breakdown_type == "person":
             top_elements_array = self._get_top_elements(
@@ -214,6 +216,7 @@ class ClickhouseTrends(BaseQuery):
                 breakdown_filter=breakdown_filter,
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
+                interval_annotation=interval_annotation,
             )
         else:
 
@@ -240,8 +243,8 @@ class ClickhouseTrends(BaseQuery):
                 breakdown_filter=breakdown_filter,
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
+                interval_annotation=interval_annotation,
             )
-
         try:
             result = sync_execute(breakdown_query, params)
         except:
@@ -373,7 +376,7 @@ class ClickhouseTrends(BaseQuery):
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
-        inteval_annotation = get_interval_annotation_ch(filter.interval)
+        interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
@@ -391,7 +394,7 @@ class ClickhouseTrends(BaseQuery):
                 action_query, action_params = format_action_filter(action)
                 params = {**params, **action_params}
                 content_sql = VOLUME_ACTIONS_SQL.format(
-                    interval=inteval_annotation,
+                    interval=interval_annotation,
                     timestamp="timestamp",
                     team_id=team.pk,
                     actions_query=action_query,
@@ -405,7 +408,7 @@ class ClickhouseTrends(BaseQuery):
                 return []
         else:
             content_sql = VOLUME_SQL.format(
-                interval=inteval_annotation,
+                interval=interval_annotation,
                 timestamp="timestamp",
                 team_id=team.pk,
                 parsed_date_from=(parsed_date_from or ""),
@@ -416,7 +419,7 @@ class ClickhouseTrends(BaseQuery):
             )
             params = {**params, "event": entity.id}
         null_sql = NULL_SQL.format(
-            interval=inteval_annotation,
+            interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
             date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
