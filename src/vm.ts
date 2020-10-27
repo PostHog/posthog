@@ -20,8 +20,6 @@ export function createVm(plugin, indexJs: string, libJs?: string) {
 
     return {
         vm,
-        processEvent: global.process_event,
-        processCapture: global.process_capture,
-        processIdentify: global.process_identify,
+        processEvent: global.process_event
     }
 }
