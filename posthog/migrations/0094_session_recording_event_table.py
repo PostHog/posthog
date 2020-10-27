@@ -29,4 +29,10 @@ class Migration(migrations.Migration):
             model_name="sessionrecordingevent",
             index=models.Index(fields=["team_id", "session_id"], name="posthog_ses_team_id_265946_idx"),
         ),
+        migrations.AddIndex(
+            model_name="sessionrecordingevent",
+            index=models.Index(
+                fields=["team_id", "distinct_id", "timestamp", "session_id"], name="posthog_ses_team_id_265947_idx"
+            ),
+        ),
     ]

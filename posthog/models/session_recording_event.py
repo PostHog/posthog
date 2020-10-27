@@ -9,6 +9,7 @@ class SessionRecordingEvent(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "session_id"]),
+            models.Index(fields=["team_id", "distinct_id", "timestamp", "session_id"]),
         ]
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)

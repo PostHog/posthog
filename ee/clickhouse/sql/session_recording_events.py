@@ -20,9 +20,10 @@ CREATE TABLE {table_name}
 
 SESSION_RECORDING_EVENTS_TABLE_SQL = (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid
+    + """PARTITION BY toYYYYMMDD(timestamp)
+ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
+TTL toDate(created_at) + INTERVAL 3 WEEK
+SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_RECORDING_EVENTS_TABLE,
