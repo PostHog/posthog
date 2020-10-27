@@ -69,10 +69,10 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
-PLUGINS_CELERY_QUEUE = "posthog-plugins"
 PLUGINS_ENABLED = get_bool_from_env("PLUGINS_ENABLED", False)
-INSTALL_PLUGINS_FROM_WEB = get_bool_from_env("INSTALL_PLUGINS_FROM_WEB", True)
-CONFIGURE_PLUGINS_FROM_WEB = INSTALL_PLUGINS_FROM_WEB or get_bool_from_env("CONFIGURE_PLUGINS_FROM_WEB", True)
+PLUGINS_INSTALL_FROM_WEB = get_bool_from_env("PLUGINS_INSTALL_FROM_WEB", True)
+PLUGINS_CONFIGURE_FROM_WEB = PLUGINS_INSTALL_FROM_WEB or get_bool_from_env("PLUGINS_CONFIGURE_FROM_WEB", True)
+PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.

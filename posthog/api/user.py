@@ -94,8 +94,8 @@ def user(request):
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": request.user.ee_available,
             "plugin_access": {
-                "install": settings.INSTALL_PLUGINS_FROM_WEB,
-                "configure": settings.CONFIGURE_PLUGINS_FROM_WEB,
+                "install": settings.PLUGINS_INSTALL_FROM_WEB,
+                "configure": settings.PLUGINS_CONFIGURE_FROM_WEB,
             },
         }
     )

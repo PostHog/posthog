@@ -18,7 +18,7 @@ class PluginSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
             raise APIException("Plugin installation via the web is disabled!")
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise APIException('Plugin with name "{}" already installed!'.format(validated_data["name"]))
@@ -30,7 +30,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
             raise APIException("Plugin installation via the web is disabled!")
         if plugin.from_json:
             raise APIException('Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name))
@@ -51,20 +51,20 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not settings.INSTALL_PLUGINS_FROM_WEB and not settings.CONFIGURE_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB and not settings.PLUGINS_CONFIGURE_FROM_WEB:
             return queryset.none()
         return queryset
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request):
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
             return Response([])
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
             raise APIException("Plugin installation via the web is disabled!")
         plugin = Plugin.objects.get(pk=pk)
         if plugin.from_json:
@@ -80,7 +80,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         fields = ["id", "plugin", "enabled", "order", "config"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not settings.CONFIGURE_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             raise APIException("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
@@ -88,7 +88,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
-        if not settings.CONFIGURE_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             raise APIException("Plugin configuration via the web is disabled!")
         plugin_config.enabled = validated_data.get("enabled", plugin_config.enabled)
         plugin_config.config = validated_data.get("config", plugin_config.config)
@@ -104,13 +104,13 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not settings.CONFIGURE_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             return queryset.none()
         return queryset.filter(team_id=self.request.user.team.pk)
 
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
-        if not settings.CONFIGURE_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             raise APIException("Plugin configuration via the web is disabled!")
         plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
         plugin_config.enabled = False
@@ -119,7 +119,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def global_plugins(self, request: request.Request):
-        if not settings.INSTALL_PLUGINS_FROM_WEB:
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
             return Response([])
 
         response = []
