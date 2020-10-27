@@ -24,7 +24,7 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             query = ""
             for idx, prop in enumerate(filter.properties):
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop=prop, idx=idx, prepend="{}_{}_person".format(group_idx, idx)
+                    prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
                 )
                 params = {**params, **filter_params}
                 query += " {}".format(filter_query)

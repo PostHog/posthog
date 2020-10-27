@@ -85,9 +85,3 @@ INNER JOIN (
 ) ep
 ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
 """
-
-BREAKDOWN_COHORT_FILTER_SQL = """
-SELECT distinct_id, {cohort_pk} as value
-FROM person_distinct_id
-WHERE distinct_id IN ({clause})
-"""

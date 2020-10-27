@@ -19,7 +19,6 @@ from ee.clickhouse.sql.events import (
 )
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.breakdown import (
-    BREAKDOWN_COHORT_FILTER_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CONDITIONS_SQL,
     BREAKDOWN_DEFAULT_SQL,
@@ -295,7 +294,9 @@ class ClickhouseTrends(BaseQuery):
         for cohort in cohorts:
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
-            cohort_query = BREAKDOWN_COHORT_FILTER_SQL.format(clause=person_id_query, cohort_pk=cohort.pk)
+            cohort_query = person_id_query.replace(
+                "SELECT distinct_id", "SELECT distinct_id, {} as value".format(cohort.pk)
+            )
             queries.append(cohort_query)
         return " UNION ALL ".join(queries), params
 
