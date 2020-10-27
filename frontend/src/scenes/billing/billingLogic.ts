@@ -64,11 +64,10 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
             }
         },
     }),
-    listeners: ({ values }) => ({
-        subscribeSuccess: () => {
-            const { subscription_url } = values.billingSubscription || {}
-            if (subscription_url) {
-                window.location.href = subscription_url
+    listeners: () => ({
+        subscribeSuccess: ({ billingSubscription }) => {
+            if (billingSubscription?.subscription_url) {
+                window.location.href = billingSubscription.subscription_url
             }
         },
     }),
