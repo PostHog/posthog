@@ -23,7 +23,7 @@ paths_query_step_1 = """
             {path_type} AS path_type
             {select_elements_chain}
         FROM events_with_array_props_view AS events
-        JOIN person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
+        JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
         WHERE 
             events.team_id = %(team_id)s 
             AND {event_query}

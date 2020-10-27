@@ -46,7 +46,7 @@ WHERE team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_
 """
 
 BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN person_distinct_id pid ON e.distinct_id = pid.distinct_id
+INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON e.distinct_id = pid.distinct_id
 INNER JOIN (
     SELECT * FROM (
         SELECT

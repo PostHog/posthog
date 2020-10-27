@@ -14,10 +14,13 @@ class Command(BaseCommand):
     help = "Migrate clickhouse"
 
     def handle(self, *args, **options):
-        Database(
-            CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USERNAME,
-            password=CLICKHOUSE_PASSWORD,
-            verify_ssl_cert=False,
-        ).migrate("ee.clickhouse.migrations")
+        try:
+            Database(
+                CLICKHOUSE_DATABASE,
+                db_url=CLICKHOUSE_HTTP_URL,
+                username=CLICKHOUSE_USERNAME,
+                password=CLICKHOUSE_PASSWORD,
+                verify_ssl_cert=False,
+            ).migrate("ee.clickhouse.migrations")
+        except Exception as e:
+            print(e)
