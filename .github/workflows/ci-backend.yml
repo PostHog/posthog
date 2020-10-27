@@ -24,7 +24,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v1
               with:
                   python-version: 3.8
 
@@ -62,11 +62,8 @@ jobs:
                   mypy posthog ee
 
     django:
-        name: Django tests – Py ${{ matrix.python-version }}
+        name: Django tests
         runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                python-version: ['3.7.8', '3.8.5', '3.9.0']
 
         services:
             postgres:
@@ -77,6 +74,10 @@ jobs:
                     POSTGRES_DB: postgres
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            dynamodb:
+                image: amazon/dynamodb-local
+                ports:
+                    - '8001:8000'
             clickhouse-server:
                 image: yandex/clickhouse-server
                 ports:
@@ -89,10 +90,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python
-              uses: actions/setup-python@v2
+            - name: Set up Python 3.8
+              uses: actions/setup-python@v1
               with:
-                  python-version: ${{ matrix.python-version }}
+                  python-version: 3.8
 
             - uses: actions/cache@v1
               with:
@@ -127,6 +128,8 @@ jobs:
                   python manage.py test posthog -v 2
             - name: Run EE tests
               env:
+                  AWS_ACCESS_KEY_ID: 'fakeMyKeyId'
+                  AWS_SECRET_ACCESS_KEY: 'fakeSecretAccessKey'
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   PRIMARY_DB: 'clickhouse'
@@ -134,6 +137,7 @@ jobs:
                   CLICKHOUSE_DATABASE: 'posthog_test'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  DYNAMODB_URL: 'http://localhost:8001'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -154,7 +158,6 @@ jobs:
                     POSTGRES_DB: postgres
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
         steps:
             - name: Fetch posthog-production
               run: |
@@ -234,7 +237,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v1
               with:
                   python-version: 3.8
 
