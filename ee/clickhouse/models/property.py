@@ -53,7 +53,6 @@ def parse_prop_clauses(
                 filter_query, filter_params = prop_filter_kv(key, prop, team, idx, prepend)
                 final += "{filter_query}".format(filter_query=filter_query)
                 params.update(filter_params)
-    print(final, params)
     return final, params
 
 
