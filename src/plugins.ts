@@ -111,7 +111,7 @@ export async function runPlugins(event) {
             if (event?.properties?.token) {
                 const posthog = createInternalPostHogInstance(
                     event.properties.token,
-                    { apiHost: 'http://localhost:8000', fetch },
+                    { apiHost: event.site_url, fetch },
                     {
                         performance: require('perf_hooks').performance,
                     }
