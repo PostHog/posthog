@@ -216,7 +216,14 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 event="$pageview",
                 properties={"$current_url": "https://something.com"},
             )
-            filter = Filter(data={"properties": [{"key": "group", "operator": "lt", "value": 2, "type": "person"}]})
+            filter = Filter(
+                data={
+                    "properties": [
+                        {"key": "group", "operator": "lt", "value": 2, "type": "person"},
+                        {"key": "group", "operator": "gt", "value": 2, "type": "person"},
+                    ]
+                }
+            )
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(events[0]["id"], event2.pk)
             self.assertEqual(len(events), 1)

@@ -107,7 +107,7 @@ def prop_filter_json_extract(
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND toInt64(JSONExtractString({prop_var}, %(k{prepend}_{idx})s)) > %(v{prepend}_{idx})s".format(
+            "AND toInt64(replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s), ' ', '')) > %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -115,7 +115,7 @@ def prop_filter_json_extract(
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND toInt64(JSONExtractString({prop_var}, %(k{prepend}_{idx})s)) < %(v{prepend}_{idx})s".format(
+            "AND toInt64(replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s), ' ', '')) < %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -124,7 +124,7 @@ def prop_filter_json_extract(
         if is_json(prop.value):
             params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
             return (
-                "replaceRegexpAll(JSONExtractString({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')".format(
+                "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')".format(
                     idx=idx, prepend=prepend, prop_var=prop_var
                 ),
                 params,
