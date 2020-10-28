@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -113,6 +113,10 @@ class User(AbstractUser):
     @property
     def ee_available(self) -> bool:
         return settings.EE_AVAILABLE
+
+    @property
+    def is_superuser(self) -> bool:
+        return self.is_staff
 
     @property
     def teams(self):
