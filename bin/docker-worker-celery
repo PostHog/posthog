@@ -2,6 +2,7 @@
 set -e
 
 # On heroku $WEB_CONCURRENCY contains suggested nr of forks per dyno type
+# https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
 if [[ -z "${WEB_CONCURRENCY}" ]]; then
   celery -A posthog worker
 else
