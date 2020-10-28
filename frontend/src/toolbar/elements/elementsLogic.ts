@@ -6,7 +6,7 @@ import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForE
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
-import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
+import { ActionStepType, ActionType } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
@@ -17,8 +17,6 @@ type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 export const elementsLogic = kea<
     elementsLogicType<
-        ToolbarTab,
-        ToolbarMode,
         ActionStepType,
         ActionForm,
         ActionType,

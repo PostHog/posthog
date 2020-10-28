@@ -13,7 +13,7 @@ export function OptInSessionRecording(): JSX.Element {
                 onChange={(checked) => {
                     userUpdateRequest({ team: { session_recording_opt_in: checked } })
                 }}
-                defaultChecked={user.team.session_recording_opt_in}
+                defaultChecked={user?.team?.session_recording_opt_in}
             />
             <label
                 style={{

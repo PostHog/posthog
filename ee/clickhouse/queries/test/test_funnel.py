@@ -9,7 +9,7 @@ from posthog.queries.test.test_funnel import funnel_test_factory
 
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person(id=person.uuid, uuid=person.uuid)
 
 
 def _create_event(**kwargs):
