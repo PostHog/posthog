@@ -12,6 +12,7 @@ export function Repository(): JSX.Element {
 
     return (
         <div>
+            <h2 className="oh-page-subtitle">Available</h2>
             <Table
                 data-attr="plugins-table"
                 size="small"

@@ -535,3 +535,7 @@ export function sampleSingle<T>(items: T[]): T[] {
     if (!items.length) throw Error('Items array is empty!')
     return [items[Math.floor(Math.random() * items.length)]]
 }
+
+export function ellipsis(input: string, max: number): string {
+    return input.length > max ? input.substr(0, max) + '...' : input
+}

@@ -37,12 +37,10 @@ function _Plugins(): JSX.Element {
 
             <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
                 <TabPane tab="Installed" key="installed">
-                    <h2 className="oh-page-subtitle">Installed</h2>
                     <InstalledPlugins />
                 </TabPane>
                 {user.plugin_access?.install && (
                     <TabPane tab="Available" key="available">
-                        <h2 className="oh-page-subtitle">Available</h2>
                         <Repository />
                         <CustomPlugin />
                     </TabPane>
