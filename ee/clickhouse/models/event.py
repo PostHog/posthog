@@ -12,7 +12,6 @@ from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2  # type: ignore
-from ee.idl.gen.pb_python import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
