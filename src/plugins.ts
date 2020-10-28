@@ -1,27 +1,28 @@
 import * as path from 'path'
 import * as fs from 'fs'
-import { Pool } from 'pg'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 import fetch from 'node-fetch'
 import { createVm } from './vm'
-import { PluginsServer } from './types'
+import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginEvent } from './types'
 import { createCache } from './extensions/cache'
 import AdmZip from 'adm-zip'
 
-const plugins = {}
-const pluginsPerTeam = {}
-const pluginVms = {}
-const defaultConfigs = []
+const plugins: Record<string, Plugin> = {}
+const pluginsPerTeam: Record<string, PluginConfig[]> = {}
+const pluginVms: Record<string, PluginVM> = {}
+const defaultConfigs: PluginConfig[] = []
 
-export async function processError(error: Error) {
+export async function processError(plugin: Plugin, error: Error) {
     // TODO: save in database
     // TODO: send to sentry
     console.error(error)
 }
 
 export async function setupPlugins(server: PluginsServer) {
-    const { rows: pluginRows } = await server.db.query("SELECT * FROM posthog_plugin WHERE (select count(*) from posthog_pluginconfig where plugin_id = posthog_plugin.id and enabled='t') > 0")
-    const foundPlugins = {}
+    const { rows: pluginRows }: { rows: Plugin[] } = await server.db.query(
+        "SELECT * FROM posthog_plugin WHERE (select count(*) from posthog_pluginconfig where plugin_id = posthog_plugin.id and enabled='t') > 0"
+    )
+    const foundPlugins: Record<string, boolean> = {}
     for (const row of pluginRows) {
         foundPlugins[row.id] = true
         if (
@@ -44,7 +45,9 @@ export async function setupPlugins(server: PluginsServer) {
         }
     }
 
-    const { rows: pluginConfigRows } = await server.db.query("SELECT * FROM posthog_pluginconfig WHERE enabled='t'")
+    const { rows: pluginConfigRows }: { rows: PluginConfig[] } = await server.db.query(
+        "SELECT * FROM posthog_pluginconfig WHERE enabled='t'"
+    )
     for (const row of pluginConfigRows) {
         if (!row.team_id) {
             defaultConfigs.push(row)
@@ -65,17 +68,17 @@ export async function setupPlugins(server: PluginsServer) {
     }
 }
 
-function unloadPlugin(plugin) {
+function unloadPlugin(plugin: Plugin) {
     delete plugins[plugin.id]
     delete pluginVms[plugin.id]
 }
 
-async function loadPlugin(server: PluginsServer, plugin) {
+async function loadPlugin(server: PluginsServer, plugin: Plugin) {
     if (plugin.url.startsWith('file:')) {
         const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
         const configPath = path.resolve(pluginPath, 'plugin.json')
 
-        let config = {}
+        let config: Record<string, any> = {}
         if (fs.existsSync(configPath)) {
             try {
                 const jsonBuffer = fs.readFileSync(configPath)
@@ -110,7 +113,7 @@ async function loadPlugin(server: PluginsServer, plugin) {
         const zipEntries = zip.getEntries() // an array of ZipEntry records
         const root = zipEntries[0].entryName
 
-        let config = {}
+        let config: Record<string, any> = {}
         const json = zip.getEntry(`${root}plugin.json`)
         if (json) {
             try {
@@ -121,30 +124,34 @@ async function loadPlugin(server: PluginsServer, plugin) {
             }
         }
 
-        const indexEntry = zip.getEntry(`${root}${json['main'] || 'index.js'}`)
+        const indexEntry = zip.getEntry(`${root}${config['main'] || 'index.js'}`)
         const indexJs = indexEntry ? indexEntry.getData().toString() : null
 
-        const libEntry = zip.getEntry(`${root}${json['lib'] || 'lib.js'}`)
+        const libEntry = zip.getEntry(`${root}${config['lib'] || 'lib.js'}`)
         const libJs = libEntry ? libEntry.getData().toString() : null
 
-        pluginVms[plugin.id] = {
-            plugin,
-            indexJs,
-            libJs,
-            vm: await createVm(plugin, indexJs, libJs, server),
-        }
+        if (indexJs) {
+            pluginVms[plugin.id] = {
+                plugin,
+                indexJs,
+                libJs,
+                vm: await createVm(plugin, indexJs, libJs, server),
+            }
 
-        console.log(`Loaded plugin "${plugin.name}"!`)
+            console.log(`Loaded plugin "${plugin.name}"!`)
+        } else {
+            console.error(`Could not load index.js for plugin "${plugin.name}"!`)
+        }
     } else {
         console.error('Undownloaded Github plugins not yet supported')
     }
 }
 
-export async function runPlugins(server: PluginsServer, event) {
+export async function runPlugins(server: PluginsServer, event: PluginEvent) {
     const teamId = event.team_id
     const pluginsToRun = pluginsPerTeam[teamId] || defaultConfigs
 
-    let returnedEvent = event
+    let returnedEvent: PluginEvent | null = event
 
     for (const teamPlugin of pluginsToRun) {
         if (pluginVms[teamPlugin.plugin_id]) {
@@ -154,8 +161,7 @@ export async function runPlugins(server: PluginsServer, event) {
                 order: teamPlugin.order,
                 name: plugin.name,
                 tag: plugin.tag,
-                config: teamPlugin.config,
-                apiKey: teamPlugin.api_token,
+                config: teamPlugin.config
             }
             const { vm, processEvent } = pluginVms[teamPlugin.plugin_id].vm
 
@@ -178,7 +184,7 @@ export async function runPlugins(server: PluginsServer, event) {
                 try {
                     returnedEvent = await processEvent(returnedEvent, meta)
                 } catch (error) {
-                    processError(error)
+                    processError(plugin, error)
                 }
             }
 
