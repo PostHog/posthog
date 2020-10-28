@@ -1,5 +1,6 @@
+import uuid
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Match, Tuple
 
 from django.utils import timezone
 
@@ -98,7 +99,8 @@ class ClickhouseFunnel(Funnel):
         for index, funnel_step in enumerate(self._filter.entities):
             relevant_people = []
             for person in results:
-                if person.max_step <= index:
+                if index < person.max_step:
+                    print("step", index, "person", person.max_step)
                     person_score[person.uuid] += 1
                     relevant_people.append(person.uuid)
 

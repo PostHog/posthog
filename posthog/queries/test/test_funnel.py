@@ -138,7 +138,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
             # check ordering of people in first step
-            self.assertEqual(
+            self.assertCountEqual(
                 result[0]["people"],
                 [
                     person_stopped_after_movie.uuid,
