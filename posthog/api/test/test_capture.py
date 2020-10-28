@@ -32,19 +32,16 @@ class TestCapture(BaseTest):
         print("!!!")
         call_args = patch_process_event_with_plugins.call_args
         try:
-            args = call_args.kwargs["args"]
             print("1")
+            args = call_args.kwargs["args"]
+            distinct_id, ip, site_url, data, team_id, now, sent_at = args
         except TypeError:
-            args = call_args.args
             print("2")
-
-        print(call_args)
-        print("!!!")
-        print(call_args.args or call_args.kwargs)
-        print("!!!")
-        print(call_args.kwargs)
-        print("!!!")
-        distinct_id, ip, site_url, data, team_id, now, sent_at = args
+            print(call_args)
+            args = call_args.args
+            print(args)
+            distinct_id, ip, site_url, data, team_id, now, sent_at = args
+            print(distinct_id)
 
         return {
             "distinct_id": distinct_id,
