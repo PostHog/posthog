@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -94,7 +94,6 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    is_superuser = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -113,6 +112,10 @@ class User(AbstractUser):
     @property
     def ee_available(self) -> bool:
         return settings.EE_AVAILABLE
+
+    @property
+    def is_superuser(self) -> bool:  # type: ignore
+        return self.is_staff
 
     @property
     def teams(self):
