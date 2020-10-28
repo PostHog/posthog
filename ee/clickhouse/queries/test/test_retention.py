@@ -46,6 +46,10 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         result = ClickhouseRetention().run(filter, self.team, total_intervals=7)
 
         self.assertEqual(
+            self.pluck(result, "label"), ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+        )
+
+        self.assertEqual(
             self.pluck(result, "values", "count"),
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
