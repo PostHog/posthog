@@ -1,0 +1,12 @@
+{
+    "name": "plugins",
+    "version": "0.0.0",
+    "license": "MIT",
+    "private": true,
+    "dependencies": {
+        "posthog-plugins": "^0.0.1"
+    },
+    "scripts": {
+        "start": "posthog-plugins"
+    }
+}
