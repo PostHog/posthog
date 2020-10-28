@@ -2,13 +2,13 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
-import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
+from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
@@ -26,16 +26,7 @@ def create_event(
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
 ) -> str:
-
-    if not timestamp:
-        timestamp = timezone.now()
-    assert timestamp is not None
-
-    # clickhouse specific formatting
-    if isinstance(timestamp, str):
-        timestamp = isoparse(timestamp)
-    else:
-        timestamp = timestamp.astimezone(pytz.utc)
+    timestamp = cast_timestamp_or_now(timestamp)
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -45,10 +36,10 @@ def create_event(
         "uuid": str(event_uuid),
         "event": event,
         "properties": json.dumps(properties),
-        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "timestamp": timestamp,
         "team_id": team.pk,
         "distinct_id": distinct_id,
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "created_at": timestamp,
         "elements_chain": elements_chain,
     }
     p = ClickhouseProducer()

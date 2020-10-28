@@ -47,6 +47,10 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
 
+    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+
+        sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
+
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
@@ -99,6 +103,13 @@ def status_report():
 
 
 @app.task
+def run_session_recording_retention():
+    from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
+
+    session_recording_retention_scheduler()
+
+
+@app.task
 def calculate_event_action_mappings():
     from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
@@ -119,7 +130,7 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 

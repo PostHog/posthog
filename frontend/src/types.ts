@@ -15,6 +15,7 @@ export interface UserType {
     current_organization_id: string
     current_team_id: number
     plugin_access: PluginAccess
+    is_multi_tenancy: boolean
 }
 
 export interface UserUpdateType {

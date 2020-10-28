@@ -5,7 +5,7 @@ from typing import Any, Dict
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from ee.clickhouse.client import ch_client
+from ee.clickhouse.client import ch_client, sync_execute
 from ee.clickhouse.models.event import get_events
 from ee.clickhouse.models.person import get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
@@ -735,6 +735,22 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(events[0]["elements"][0]["href"]), 2048)
         self.assertEqual(len(events[0]["elements"][0]["text"]), 400)
+
+    def test_snapshot_event_stored_as_session_recording_event(self) -> None:
+        process_event_ee(
+            "some-id",
+            "",
+            "",
+            {"event": "$snapshot", "properties": {"$session_id": "abcf-efg", "$snapshot_data": {"timestamp": 123,}}},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        recordings = sync_execute("SELECT session_id, distinct_id, snapshot_data FROM session_recording_events", {})
+        self.assertEqual(recordings, [("abcf-efg", "some-id", '{"timestamp": 123}')])
+
+        self.assertEqual(len(get_events()), 0)
 
 
 class TestIdentify(ClickhouseTestMixin, BaseTest):

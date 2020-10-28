@@ -11,6 +11,7 @@ import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const { TabPane } = Tabs
 
@@ -25,6 +26,7 @@ function _Person({ _: distinctId, id }) {
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (distinctId) {
@@ -141,7 +143,7 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {featureFlags['session-recording-player'] && (
+                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"

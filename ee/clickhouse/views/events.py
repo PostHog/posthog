@@ -10,6 +10,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
+from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
@@ -107,3 +108,17 @@ class ClickhouseEvents(EventViewSet):
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
         return Response([{"name": convert_property_value(value[0])} for value in result])
+
+    # ******************************************
+    # /event/session_recording
+    # params:
+    # - session_recording_id: (string) id of the session recording
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.request.user.team
+        snapshots = SessionRecording().run(
+            team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+        )
+
+        return Response({"result": snapshots})
