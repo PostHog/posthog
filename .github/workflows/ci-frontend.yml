@@ -10,10 +10,10 @@ jobs:
         steps:
             - uses: actions/checkout@v1
 
-            - name: Set up Node 12
+            - name: Set up Node 14
               uses: actions/setup-node@v1
               with:
-                  node-version: 12
+                  node-version: 14
 
             - name: Install package.json dependencies with Yarn
               run: yarn
