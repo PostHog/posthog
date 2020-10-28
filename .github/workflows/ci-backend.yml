@@ -66,6 +66,7 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
+                fail-fast: false
                 python-version: ['3.7.8', '3.8.5', '3.9.0']
 
         services:
