@@ -8,5 +8,6 @@ message Event {
   uint64 team_id = 4;
   string distinct_id = 5;
   string elements_hash = 6;
-  google.protobuf.Timestamp created_at = 7;
+  string elements_chain = 7;
+  google.protobuf.Timestamp created_at = 8;
 }
