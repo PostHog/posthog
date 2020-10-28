@@ -7,7 +7,6 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import authenticate, decorators, login
 from django.contrib.auth import views as auth_views
-from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
@@ -21,6 +20,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
 from posthog.email import is_email_available
+from posthog.models.organization import Organization
 
 from .api import api_not_found, capture, dashboard, decide, router, team, user
 from .models import OrganizationInvite, Team, User
@@ -87,7 +87,7 @@ def signup_to_organization_view(request, invite_id):
         except Team.DoesNotExist:
             return redirect("/")
 
-    organization = invite.organization
+    organization = cast(Organization, invite.organization)
 
     if request.method == "POST":
         email = request.POST["email"]
@@ -120,7 +120,7 @@ def signup_to_organization_view(request, invite_id):
                 },
             )
         user = User.objects.create_and_join(
-            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in,  # type: ignore
+            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in
         )
         invite.use(user, prevalidated=True)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -132,7 +132,7 @@ def signup_to_organization_view(request, invite_id):
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
                 "company_name": organization.name,
-                "organization_id": organization.id,  # type: ignore
+                "organization_id": organization.id,
                 "is_organization_first_user": False,
             },
         )
