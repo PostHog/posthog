@@ -11,6 +11,7 @@ const defaultConfig: PluginsServerConfig = {
     PLUGINS_CELERY_QUEUE: 'posthog-plugins',
     REDIS_URL: 'redis://localhost/',
     BASE_DIR: '.',
+    PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
 }
 
 export function startPluginsServer(config: PluginsServerConfig) {
@@ -24,7 +25,7 @@ export function startPluginsServer(config: PluginsServerConfig) {
     const db = new Pool({
         connectionString: serverConfig.DATABASE_URL,
     })
-    const redis = new Redis(serverConfig.REDIS_URL) // uses defaults unless given configuration object
+    const redis = new Redis(serverConfig.REDIS_URL)
 
     const server: PluginsServer = {
         ...serverConfig,
@@ -34,4 +35,13 @@ export function startPluginsServer(config: PluginsServerConfig) {
 
     setupPlugins(server)
     startWorker(server)
+
+    const pubSub = new Redis(serverConfig.REDIS_URL)
+    pubSub.subscribe(serverConfig.PLUGINS_RELOAD_PUBSUB_CHANNEL)
+    pubSub.on('message', (channel, message) => {
+        if (channel === serverConfig.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
+            console.log('Reloading plugins!')
+            setupPlugins(server)
+        }
+    })
 }
