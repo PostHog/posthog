@@ -23,16 +23,30 @@ class ClickhouseFunnel(Funnel):
     _filter: Filter
     _team: Team
     _should_join_person: bool
+    _should_include_event_props: bool
+    _should_include_distinct_ids: bool
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
         self._team = team
 
         self._should_join_person = False
+        self._should_include_event_props = False
+        self._should_include_distinct_ids = False
+
+        for entity in self._filter.entities:
+            if len(entity.properties):
+                self._should_include_event_props = True
+
         for entity in self._filter.entities:
             for entity_prop in entity.properties:
                 if entity_prop.type == "person":
                     self._should_join_person = True
+
+        for entity in self._filter.entities:
+            for entity_prop in entity.properties:
+                if entity_prop.type == "cohort":
+                    self._should_include_distinct_ids = True
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
@@ -68,6 +82,10 @@ class ClickhouseFunnel(Funnel):
                 is_first_step=is_first_step,
                 person_prop_param=", person_properties" if self._should_join_person else "",
                 person_prop_arg=", person_props" if self._should_join_person else "",
+                event_prop_param=", properties" if self._should_include_event_props else "",
+                event_prop_arg=", event_props" if self._should_include_event_props else "",
+                distinct_id_param=", distinct_id" if self._should_include_distinct_ids else "",
+                distinct_id_arg=", distinct_ids" if self._should_include_distinct_ids else "",
             )
         else:
             content_sql = STEP_EVENT_SQL.format(
@@ -80,6 +98,10 @@ class ClickhouseFunnel(Funnel):
                 is_first_step=is_first_step,
                 person_prop_param=", person_properties" if self._should_join_person else "",
                 person_prop_arg=", person_props" if self._should_join_person else "",
+                event_prop_param=", properties" if self._should_include_event_props else "",
+                event_prop_arg=", event_props" if self._should_include_event_props else "",
+                distinct_id_param=", distinct_id" if self._should_include_distinct_ids else "",
+                distinct_id_arg=", distinct_ids" if self._should_include_distinct_ids else "",
             )
         return content_sql
 
@@ -108,6 +130,12 @@ class ClickhouseFunnel(Funnel):
             if self._should_join_person
             else "",
             person_prop_alias="groupArray(person.properties) as person_props," if self._should_join_person else "",
+            event_prop_alias="groupArray(events.properties) as event_props,"
+            if self._should_include_event_props
+            else "",
+            distinct_id_alias="groupArray(events.distinct_id) as distinct_ids,"
+            if self._should_include_distinct_ids
+            else "",
         )
         return sync_execute(query, self.params)
 

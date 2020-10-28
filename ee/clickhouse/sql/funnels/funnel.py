@@ -5,8 +5,8 @@ SELECT id, {select_steps} FROM (
         groupArray(events.timestamp) as timestamps,
         groupArray(events.event) as eventsArr,
         groupArray(events.uuid) as event_ids,
-        groupArray(events.properties) as event_props,
-        groupArray(events.distinct_id) as distinct_ids,
+        {event_prop_alias}
+        {distinct_id_alias}
         {person_prop_alias}
         {steps}
     FROM events 
