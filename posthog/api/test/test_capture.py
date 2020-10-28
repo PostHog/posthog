@@ -29,9 +29,13 @@ class TestCapture(BaseTest):
         return json.loads(base64.b64decode(data))
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
-        distinct_id, ip, site_url, data, team_id, now, sent_at = patch_process_event_with_plugins.call_args.kwargs[
-            "args"
-        ]
+        kwargs = patch_process_event_with_plugins.call_args.kwargs
+        try:
+            distinct_id, ip, site_url, data, team_id, now, sent_at = kwargs["args"]
+        except:
+            # python 3.7
+            distinct_id, ip, site_url, data, team_id, now, sent_at = kwargs[0]
+
         return {
             "distinct_id": distinct_id,
             "ip": ip,
