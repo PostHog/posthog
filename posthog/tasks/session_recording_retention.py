@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 from celery import shared_task
+from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.timezone import now
@@ -13,7 +14,6 @@ RETENTION_PERIOD = timedelta(days=7)
 SESSION_CUTOFF = timedelta(minutes=30)
 
 
-@shared_task
 def session_recording_retention_scheduler() -> None:
     time_threshold = now() - RETENTION_PERIOD
     for team in Team.objects.all().filter(session_recording_opt_in=True):
@@ -21,12 +21,15 @@ def session_recording_retention_scheduler() -> None:
 
 
 @shared_task(max_retries=1)
-def session_recording_retention(team_id: int, time_threshold: timezone.datetime) -> None:
-    events = SessionRecordingEvent.objects.filter(team_id=team_id, timestamp__lte=time_threshold).order_by("timestamp")
+def session_recording_retention(team_id: int, time_threshold: str) -> None:
+    time_threshold_dt = parser.isoparse(time_threshold)
+    events = SessionRecordingEvent.objects.filter(team_id=team_id, timestamp__lte=time_threshold_dt).order_by(
+        "timestamp"
+    )
     purged_sessions = {
         session_id: events
         for session_id, events in build_sessions(events).items()
-        if not close_to_threshold(time_threshold, events)
+        if not close_to_threshold(time_threshold_dt, events)
     }
 
     primary_keys = [event.pk for session_events in purged_sessions.values() for event in session_events]
