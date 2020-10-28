@@ -23,7 +23,14 @@
     chalk "^2.0.0"
     js-tokens "^4.0.0"
 
-"@types/node@^14.14.5":
+"@types/ioredis@^4.17.6":
+  version "4.17.6"
+  resolved "https://registry.yarnpkg.com/@types/ioredis/-/ioredis-4.17.6.tgz#b3b8d6e9fed7f494da08d991d8110daab2e273b8"
+  integrity sha512-Vg3vuhveOaQeiubzGpVU9Hn3UJCi7rPe2TOphc3m3Y2EniHmytHp/wj5ZtfqDGBhFJGaSwbJvGQhhqd/Nqfy4Q==
+  dependencies:
+    "@types/node" "*"
+
+"@types/node@*", "@types/node@^14.14.5":
   version "14.14.5"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.5.tgz#e92d3b8f76583efa26c1a63a21c9d3c1143daa29"
   integrity sha512-H5Wn24s/ZOukBmDn03nnGTp18A60ny9AmCwnEcgJiTgSGsCO7k+NWP7zjCCbhlcnVCoI+co52dUAt9GMhOSULw==
@@ -44,6 +51,11 @@
   integrity sha512-HmU8SeIRhZCWcnRskCs36Q1Q00KBV6Cqh/ora8WN1+22dY07AZdn6Gel8QZ3t26XYPImtcL8WV/eqjhVmMEw4g==
   dependencies:
     "@types/yargs-parser" "*"
+
+adm-zip@^0.4.16:
+  version "0.4.16"
+  resolved "https://registry.yarnpkg.com/adm-zip/-/adm-zip-0.4.16.tgz#cf4c508fdffab02c269cbc7f471a875f05570365"
+  integrity sha512-TFi4HBKSGfIKsK5YCkKaaFG2m4PEDyViZmEwof3MTIgzimHLto6muaHVpbrljdIvIrFZzEq/p4nafOeLcYegrg==
 
 aggregate-error@^3.0.0:
   version "3.1.0"
@@ -451,7 +463,7 @@ inherits@^2.0.3, inherits@~2.0.1:
   resolved "https://registry.yarnpkg.com/inherits/-/inherits-2.0.4.tgz#0fa2c64f932917c3433a0ded55363aae37416b7c"
   integrity sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==
 
-ioredis@^4.14.0:
+ioredis@^4.14.0, ioredis@^4.19.0:
   version "4.19.0"
   resolved "https://registry.yarnpkg.com/ioredis/-/ioredis-4.19.0.tgz#1ab3b36362cb3e805c4dbe90fbb7061182f94b63"
   integrity sha512-7NIkLtpDQ/6WkEircBljnYz/E+kDQcwCJspfR504/tzyXJJQcHaSofMP6G0nuuLfDpOVnpS0AEwDrNIbW38HGg==
@@ -820,15 +832,18 @@ posthog-js-lite@^0.0.5:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
 
-posthog-plugins@^0.0.2:
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.0.2.tgz#89be0713019882cfe5b686bea12e70aa212ef46e"
-  integrity sha512-jIfiXa6BGsBra2naKn2Pyb684kjUUWY2Cn9K/o8yXvlmgid/uI9kzMY16WbXc0a04lI43KVgfVxKi3LozhchXA==
+posthog-plugins@^0.0.3:
+  version "0.0.3"
+  resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.0.3.tgz#0a295016a13935299e256757656c17d0bc87274b"
+  integrity sha512-v1TQgKfsTLiwxRjhGunInlJPEsepVCsPLIqSTTMj65mq3JF9NEBNL2WL49k42a5U8XPrVNi/uG7YjG6HiUjyJg==
   dependencies:
+    "@types/ioredis" "^4.17.6"
     "@types/node" "^14.14.5"
     "@types/yargs" "^15.0.9"
+    adm-zip "^0.4.16"
     celery-node "^0.5.0"
     husky ">=4"
+    ioredis "^4.19.0"
     lint-staged ">=10"
     node-fetch "^2.6.1"
     pg "^8.4.1"

@@ -73,6 +73,7 @@ PLUGINS_ENABLED = get_bool_from_env("PLUGINS_ENABLED", False)
 PLUGINS_INSTALL_FROM_WEB = PLUGINS_ENABLED and get_bool_from_env("PLUGINS_INSTALL_FROM_WEB", True)
 PLUGINS_CONFIGURE_FROM_WEB = PLUGINS_INSTALL_FROM_WEB or get_bool_from_env("PLUGINS_CONFIGURE_FROM_WEB", True)
 PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
+PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
