@@ -1,4 +1,9 @@
 #!/bin/bash
 set -e
 
-celery -A posthog worker
+# On heroku $WEB_CONCURRENCY contains suggested nr of forks per dyno type
+if [[ -z "${WEB_CONCURRENCY}" ]]; then
+  celery -A posthog worker
+else
+  celery -A posthog worker --concurrency $WEB_CONCURRENCY
+fi
