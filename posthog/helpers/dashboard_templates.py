@@ -19,7 +19,8 @@ from posthog.constants import (
     TRENDS_PIE,
     TRENDS_STICKINESS,
 )
-from posthog.models import Dashboard, DashboardItem
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_item import DashboardItem
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
