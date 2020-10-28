@@ -29,7 +29,14 @@ class TestCapture(BaseTest):
         return json.loads(base64.b64decode(data))
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
+        print("!!!")
         call_args = patch_process_event_with_plugins.call_args
+        print(call_args)
+        print("!!!")
+        print(call_args.args)
+        print("!!!")
+        print(call_args.kwargs["args"])
+        print("!!!")
         distinct_id, ip, site_url, data, team_id, now, sent_at = call_args.args or call_args.kwargs["args"]
 
         return {
