@@ -32,9 +32,10 @@ class TestCapture(BaseTest):
         kwargs = patch_process_event_with_plugins.call_args.kwargs
         try:
             distinct_id, ip, site_url, data, team_id, now, sent_at = kwargs["args"]
-        except:
+        except TypeError:
             # python 3.7
-            distinct_id, ip, site_url, data, team_id, now, sent_at = kwargs[0]
+            distinct_id, ip, site_url, data, team_id, now = kwargs[0]
+            sent_at = kwargs[0][6] if len(kwargs[0]) > 6 else None
 
         return {
             "distinct_id": distinct_id,
