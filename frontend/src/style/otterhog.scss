@@ -1,0 +1,69 @@
+@use 'config';
+
+/* Text elements */
+.oh-page-title {
+    font-size: 28px;
+    line-height: 34px;
+    margin-top: 32px;
+    font-weight: 700;
+    color: config.$text_default;
+}
+
+.oh-page-subtitle {
+    margin-top: 24px;
+    font-size: 22px;
+    line-height: 26px;
+    font-weight: 700;
+}
+
+.oh-page-caption {
+    @extend .text-default;
+    max-width: 600px;
+    margin-bottom: 32px;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.oh-spaced-bottom {
+    margin-bottom: 16px;
+}
+
+.card-elevated {
+    @extend .mixin-elevated;
+}
+
+/* AntD overrides */
+
+.ant-btn-primary {
+    background: config.$primary !important;
+    border-color: config.$primary !important;
+    text-shadow: none !important;
+}
+
+.ant-tabs {
+    color: config.$text_default !important;
+}
+
+.ant-tabs-tab-active {
+    .ant-tabs-tab-btn {
+        color: config.$primary !important;
+    }
+}
+
+.ant-tabs-ink-bar {
+    background-color: config.$primary !important;
+}
+
+.ant-switch-checked {
+    background-color: config.$primary !important;
+}

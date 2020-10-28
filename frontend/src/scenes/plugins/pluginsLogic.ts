@@ -13,6 +13,7 @@ export const pluginsLogic = kea<
         installPlugin: (pluginUrl: string, isCustom: boolean = false) => ({ pluginUrl, isCustom }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
+        setPluginTab: (tab: string) => ({ tab }),
     },
 
     loaders: ({ values }) => ({
@@ -182,6 +183,12 @@ export const pluginsLogic = kea<
                 return newPluginConfigs
             },
         },
+        pluginTab: [
+            'installed',
+            {
+                setPluginTab: (_, { tab }) => tab,
+            },
+        ],
     },
 
     selectors: {

@@ -12,7 +12,6 @@ export function Repository(): JSX.Element {
 
     return (
         <div>
-            <h1 className="page-header">Plugin Repository</h1>
             <Table
                 data-attr="plugins-table"
                 size="small"
