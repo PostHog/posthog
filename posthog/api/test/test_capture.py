@@ -29,21 +29,8 @@ class TestCapture(BaseTest):
         return json.loads(base64.b64decode(data))
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
-        kwargs = patch_process_event_with_plugins.call_args.kwargs
-        try:
-            distinct_id, ip, site_url, data, team_id, now, sent_at = kwargs["args"]
-        except TypeError:
-            print("!!!")
-            print(kwargs)
-            print("!!!")
-            print(kwargs[0])
-            print("!!!")
-            print(patch_process_event_with_plugins.call_args)
-            print("!!!")
-
-            # python 3.7
-            distinct_id, ip, site_url, data, team_id, now = kwargs[0]
-            sent_at = kwargs[0][6] if len(kwargs[0]) > 6 else None
+        call_args = patch_process_event_with_plugins.call_args
+        distinct_id, ip, site_url, data, team_id, now, sent_at = call_args.args or call_args.kwargs["args"]
 
         return {
             "distinct_id": distinct_id,
