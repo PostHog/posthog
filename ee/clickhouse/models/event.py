@@ -50,6 +50,7 @@ def create_event(
     pb_event.team_id = team.pk
     pb_event.distinct_id = str(distinct_id)
     pb_event.elements_chain = elements_chain
+    pb_event.created_at = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     p = ClickhouseProducer()
 

@@ -1,3 +1,4 @@
+import io
 import json
 from typing import Any, Callable, Dict, Optional
 
@@ -56,6 +57,14 @@ class ClickhouseProducer:
             self.producer = KafkaProducer()
         else:
             self.send_to_kafka = False
+
+    @staticmethod
+    def proto_length_serializer(data: Any) -> bytes:
+        f = io.BytesIO()
+        f.write(data.ByteSize())
+        f.write(data.SerializeToString())
+        f.seek(0)
+        return f.read()
 
     def produce_proto(self, sql: str, topic: str, data: Any, sync: bool = True):
         if self.send_to_kafka:
