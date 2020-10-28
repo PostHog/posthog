@@ -22,7 +22,7 @@ class Retention(BaseQuery):
             else:
                 raise ValueError(f"Period {period} is unsupported.")
 
-        period = filter.period
+        period = filter.period or "Day"
         date_from: datetime.datetime = filter.date_from  # type: ignore
         filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
         labels_format = "%a. %-d %B"
@@ -35,7 +35,7 @@ class Retention(BaseQuery):
                     resultset.get((first_day, day), {"count": 0, "people": []})
                     for day in range(total_intervals - first_day)
                 ],
-                "label": "Day {}".format(first_day),
+                "label": "{} {}".format(period, first_day),
                 "date": (date_from + _determineTimedelta(first_day, period)).strftime(
                     labels_format + (hourly_format if period == "Hour" else "")
                 ),
