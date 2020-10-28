@@ -16,6 +16,7 @@ from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
+from social_django.models import Partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
@@ -149,11 +150,11 @@ class CompanyNameForm(forms.Form):
 def finish_social_signup(request):
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
-        print(form.is_valid())
         if form.is_valid():
+            partial_pipeline = Partial.objects.get(token=request.session["partial_pipeline_token"])
             request.session["company_name"] = form.cleaned_data["companyName"]
             request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
-            return redirect(reverse("social:complete", args=("google-oauth2",)))
+            return redirect(reverse("social:complete", args=[partial_pipeline.backend]))
     else:
         form = CompanyNameForm()
     return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
@@ -163,16 +164,14 @@ def finish_social_signup(request):
 def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
-    print(backend)
-    user_email = details["email"][0]
+    user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
     user_name = details["fullname"]
     strategy.session_set("user_name", user_name)
     from_invite = False
     invite_id = strategy.session_get("invite_id")
-    if invite_id is None:
+    if not invite_id:
         company_name = strategy.session_get("company_name", None)
         email_opt_in = strategy.session_get("email_opt_in", None)
-        print(company_name, email_opt_in)
         if not company_name or email_opt_in is None:
             return redirect(finish_social_signup)
         _, _, user = User.objects.bootstrap(
@@ -208,6 +207,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
             )
             return HttpResponse(processed, status=401)
         invite.use(user, prevalidated=True)
+
     posthoganalytics.capture(
         user.distinct_id,
         "user signed up",
