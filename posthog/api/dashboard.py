@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import posthoganalytics
 from django.core.cache import cache
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Model, Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -173,7 +173,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def update(self, instance: DashboardItem, validated_data: Dict) -> DashboardItem:
+    def update(self, instance: Model, validated_data: Dict) -> DashboardItem:
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)

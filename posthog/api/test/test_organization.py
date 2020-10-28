@@ -205,7 +205,7 @@ class TestSignup(APIBaseTest):
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog75@posthog.com"},
         )
 
-        dashboard: Dashboard = Dashboard.objects.last()
+        dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.items.count(), 7)
         self.assertEqual(dashboard.name, "My app dashboard")
