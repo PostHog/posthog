@@ -16,5 +16,6 @@ from .organization import Organization, OrganizationInvite, OrganizationMembersh
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .property import Property
+from .session_recording_event import SessionRecordingEvent
 from .team import Team
 from .user import User, UserManager
