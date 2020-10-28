@@ -69,8 +69,9 @@ if check_ee_enabled():
         from ee.clickhouse.views.insights import ClickhouseInsights
         from ee.clickhouse.views.paths import ClickhousePathsViewSet
         from ee.clickhouse.views.person import ClickhousePerson
-    except ImportError:
+    except ImportError as e:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres.")
+        print(e)
 
     router.register(r"action", ClickhouseActions, basename="action")
     router.register(r"event", ClickhouseEvents, basename="event")
