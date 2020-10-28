@@ -37,9 +37,9 @@ class _KafkaProducer:
         return b
 
     def produce(self, topic: str, data: Any, value_serializer: Optional[Callable[[Any], Any]] = None):
-        b = value_serializer
         if not value_serializer:
-            b = self.json_serializer(data)
+            value_serializer = self.json_serializer
+        b = value_serializer(data)
         self.producer.send(topic, b)
 
     def close(self):
