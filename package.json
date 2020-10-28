@@ -24,7 +24,6 @@
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
         "typegen:watch": "kea-typegen watch",
-        "plugins": "cd plugins && yarn --frozen-lockfile && yarn start start --config `../bin/plugins-server-config`",
         "plugins:dev": "cd ../posthog-plugins && yarn start start --config `../posthog/bin/plugins-server-config`"
     },
     "dependencies": {

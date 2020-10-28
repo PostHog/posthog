@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
 
-yarn run plugins
+./bin/plugins-server

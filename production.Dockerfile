@@ -25,7 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
-    && rm -rf frontend/dist/*.map
+    && rm -rf frontend/dist/*.map \
+    && cd plugins \
+    && yarn --frozen-lockfile
 
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile\

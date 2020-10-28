@@ -8,4 +8,4 @@ trap 'kill $(jobs -p)' EXIT
 celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler &
 
 # start celery plugin worker
-yarn run plugins
+./bin/plugins-server
