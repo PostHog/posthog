@@ -6,6 +6,7 @@ import fetch from 'node-fetch'
 import { createVm } from './vm'
 import { PluginsServer } from './types'
 import { createCache } from './extensions/cache'
+import AdmZip from 'adm-zip'
 
 const plugins = {}
 const pluginsPerTeam = {}
@@ -84,9 +85,39 @@ async function loadPlugin(server: PluginsServer, plugin) {
             vm: await createVm(plugin, indexJs, libJs, server),
         }
 
+        console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
+    } else if (plugin.archive) {
+        const zip = new AdmZip(plugin.archive);
+	    const zipEntries = zip.getEntries() // an array of ZipEntry records
+        const root = zipEntries[0].entryName
+
+        let config = {}
+        const json = zip.getEntry(`${root}plugin.json`)
+        if (json) {
+            try {
+                config = JSON.parse(json.getData().toString())
+            } catch (error) {
+                console.error(`Can not load plugin.json for plugin "${plugin.name}"`)
+                console.error(error)
+            }
+        }
+
+        const indexEntry = zip.getEntry(`${root}${json['main'] || 'index.js'}`)
+        const indexJs = indexEntry ? indexEntry.getData().toString() : null
+
+        const libEntry = zip.getEntry(`${root}${json['lib'] || 'lib.js'}`)
+        const libJs = libEntry ? libEntry.getData().toString() : null
+
+        pluginVms[plugin.id] = {
+            plugin,
+            indexJs,
+            libJs,
+            vm: await createVm(plugin, indexJs, libJs, server),
+        }
+
         console.log(`Loaded plugin "${plugin.name}"!`)
     } else {
-        console.error('Github plugins not yet supported')
+        console.error('Undownloaded Github plugins not yet supported')
     }
 }
 
