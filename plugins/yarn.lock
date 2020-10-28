@@ -820,10 +820,10 @@ posthog-js-lite@^0.0.5:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
 
-posthog-plugins@^0.0.1:
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.0.1.tgz#73855dc396f5c9428428d4575857d7c7cb75d1b8"
-  integrity sha512-NcH7biQx78RmpsZYbIpD2LZFqjsNrHJ2Xgg0cDKuCH7vHJ3l6VtJKPwk17VscexNoleK6xorQz6AK1d+eFy5FA==
+posthog-plugins@^0.0.2:
+  version "0.0.2"
+  resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.0.2.tgz#89be0713019882cfe5b686bea12e70aa212ef46e"
+  integrity sha512-jIfiXa6BGsBra2naKn2Pyb684kjUUWY2Cn9K/o8yXvlmgid/uI9kzMY16WbXc0a04lI43KVgfVxKi3LozhchXA==
   dependencies:
     "@types/node" "^14.14.5"
     "@types/yargs" "^15.0.9"

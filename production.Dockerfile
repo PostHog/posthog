@@ -13,6 +13,11 @@ COPY babel.config.js /code/
 COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
+
+RUN mkdir /code/plugins
+COPY plugins/package.json /code/plugins/
+COPY plugins/yarn.lock /code/plugins/
+
 RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \

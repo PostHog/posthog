@@ -31,6 +31,10 @@ COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
 
+RUN mkdir /code/plugins
+COPY plugins/package.json /code/plugins/
+COPY plugins/yarn.lock /code/plugins/
+
 RUN mkdir /code/frontend/dist
 
 COPY . /code/
@@ -41,5 +45,6 @@ EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
 RUN yarn build
+RUN cd plugins && yarn install
 ENV DEBUG 1
 CMD ["./bin/docker-dev"]

@@ -40,6 +40,11 @@ COPY babel.config.js /code/
 COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
+
+RUN mkdir /code/plugins
+COPY plugins/package.json /code/plugins/
+COPY plugins/yarn.lock /code/plugins/
+
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
@@ -52,7 +57,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
-    && rm -rf frontend/dist/*.map
+    && rm -rf frontend/dist/*.map \
+    && cd plugins \
+    && yarn --frozen-lockfile
 
 COPY . /code/
 
