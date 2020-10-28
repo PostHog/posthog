@@ -144,24 +144,13 @@ function _Insights() {
                         />
                         <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
                     </Tabs>
-                    <Tabs
-                        size="large"
-                        activeKey={null}
-                        style={{
-                            overflow: 'visible',
-                        }}
-                        animated={false}
-                    >
-                        <TabPane
-                            tab={
-                                <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
-                                    {'History'}
-                                </Button>
-                            }
-                            key={'HISTORY'}
-                            data-attr="insight-trend-tab"
-                        />
-                    </Tabs>
+                    <div className="ant-tabs ant-tabs-top">
+                        <div className="ant-tabs-nav">
+                            <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
+                                History
+                            </Button>
+                        </div>
+                    </div>
                 </Row>
                 <Row gutter={16}>
                     <Col xs={24} xl={7}>

@@ -60,7 +60,7 @@ class ClickhouseStickiness(BaseQuery):
                 actions_query=action_query,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND uuid IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             )
         else:
             content_sql = STICKINESS_SQL.format(
@@ -68,7 +68,7 @@ class ClickhouseStickiness(BaseQuery):
                 event=entity.id,
                 parsed_date_from=(parsed_date_from or ""),
                 parsed_date_to=(parsed_date_to or ""),
-                filters="AND uuid IN {filters}".format(filters=prop_filters) if filter.properties else "",
+                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             )
 
         aggregated_counts = sync_execute(content_sql, params)

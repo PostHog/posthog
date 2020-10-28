@@ -14,6 +14,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
+import { userLogic } from 'scenes/userLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -22,6 +23,7 @@ interface SessionsTableProps {
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
+    const { user } = useValues(userLogic)
     const {
         sessions,
         sessionsLoading,
@@ -97,7 +99,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         },
     ]
 
-    if (featureFlags['session-recording-player']) {
+    if (!user?.is_multi_tenancy || featureFlags['session-recording-player']) {
         columns.push({
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
