@@ -40,6 +40,8 @@ export interface PluginConfig {
     error: any
 }
 
+export type VMMethod = 'processEvent' | 'setupTeam'
+
 export interface PluginEvent extends Record<string, any>{
 
 }
@@ -52,8 +54,7 @@ export interface PluginVM {
     plugin: Plugin
     indexJs: string | null
     libJs: string | null
-    vm: {
-        vm: VM,
-        processEvent: (event: PluginEvent, meta: PluginMeta) => PluginEvent | null
-    }
+    vm: VM,
+    processEvent: (event: PluginEvent, meta: PluginMeta) => PluginEvent | null
+    setupTeam: (meta: PluginMeta) => void
 }

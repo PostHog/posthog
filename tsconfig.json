@@ -10,8 +10,7 @@
         "noEmit": true,
         "sourceMap": true,
         "baseUrl": "./src",
-        "incremental": true,
-        "types": ["jest", "node"],
+        "types": ["node"],
         "resolveJsonModule": true,
         "strict": true
     },
