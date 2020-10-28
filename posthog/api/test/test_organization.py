@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import tag
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
 
 from .base import APIBaseTest
 
@@ -82,7 +82,7 @@ class TestSignup(APIBaseTest):
         )
 
         mock_identify.assert_called_once_with(
-            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "cloud", "ee_available": False},
+            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "hosted", "ee_available": False},
         )
 
         # Assert that the user is logged in
@@ -181,3 +181,34 @@ class TestSignup(APIBaseTest):
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
+
+    @patch("posthog.models.team.posthoganalytics.feature_enabled")
+    def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
+        """
+        Tests that the default web app dashboard is created on signup.
+        Note: This feature is currently behind a feature flag.
+        """
+
+        mock_feature_enabled.return_value = True
+
+        response = self.client.post(
+            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user: User = User.objects.order_by("-pk").get()
+
+        mock_feature_enabled.assert_called_with("1694-dashboards", user.distinct_id)
+
+        self.assertEqual(
+            response.data,
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog75@posthog.com"},
+        )
+
+        dashboard: Dashboard = Dashboard.objects.last()
+        self.assertEqual(dashboard.team, user.team)
+        self.assertEqual(dashboard.items.count(), 7)
+        self.assertEqual(dashboard.name, "My app dashboard")
+        self.assertEqual(
+            dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
+        )
