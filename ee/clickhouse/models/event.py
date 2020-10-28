@@ -12,9 +12,9 @@ from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2  # type: ignore
+from ee.idl.gen.pb_python import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
-from ee.idl.gen.pb_python import events_pb2
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -39,7 +39,7 @@ def create_event(
     pb_event.uuid = str(event_uuid)
     pb_event.event = event
     pb_event.properties = json.dumps(properties)
-    pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+    pb_event.timestamp = timestamp
     pb_event.team_id = team.pk
     pb_event.distinct_id = str(distinct_id)
     pb_event.elements_chain = elements_chain
