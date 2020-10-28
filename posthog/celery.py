@@ -131,7 +131,7 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
