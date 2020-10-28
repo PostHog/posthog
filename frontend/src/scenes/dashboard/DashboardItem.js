@@ -149,6 +149,7 @@ export function DashboardItem({
                                         router.actions.push(link)
                                     }
                                 }}
+                                style={{ fontSize: 16, fontWeight: 'bold' }}
                             >
                                 {item.name}
                             </Link>
@@ -307,6 +308,10 @@ export function DashboardItem({
                         </div>
                     )}
                 </div>
+                {item.description && (
+                    <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
+                )}
+
                 <div className="dashboard-item-content">
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
