@@ -14,12 +14,12 @@ const defaultConfig: PluginsServerConfig = {
 
 require('yargs')
     .scriptName('posthog-plugins')
-    .command('start', 'start the server', (argv) => {
+    .command('start', 'start the server', ({ argv }) => {
         console.info(`⚡ Starting posthog-plugins server v${version}!`)
 
         const config: PluginsServerConfig = {
             ...defaultConfig,
-            ...(argv.config || {}),
+            ...(argv.config ? JSON.parse(argv.config) : {}),
         }
 
         setupPlugins(config)
