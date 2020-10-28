@@ -1,7 +1,7 @@
 FUNNEL_SQL = """
     SELECT 
         person_id as id,
-        windowFunnel(6048000000000000)(toDateTime(timestamp),
+        windowFunnel(6048000000000000)(toUInt64(toUnixTimestamp64Micro(timestamp)),
             {steps}
         )
     FROM (
