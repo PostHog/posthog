@@ -1,7 +1,8 @@
 import json
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 import kafka_helper  # type: ignore
+from google.protobuf.json_format import MessageToJson
 from kafka import KafkaProducer as KP  # type: ignore
 
 from ee.clickhouse.client import async_execute, sync_execute
@@ -14,7 +15,7 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, data: Dict[str, Any]):
+    def send(self, topic: str, data: Any):
         return
 
     def flush(self):
@@ -35,8 +36,10 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def produce(self, topic: str, data: Dict[str, Any]):
-        b = self.json_serializer(data)
+    def produce(self, topic: str, data: Any, value_serializer: Optional[Callable[[Any], Any]] = None):
+        if not value_serializer:
+            value_serializer = self.json_serializer
+        b = value_serializer(data)
         self.producer.send(topic, b)
 
     def close(self):
@@ -53,6 +56,18 @@ class ClickhouseProducer:
             self.producer = KafkaProducer()
         else:
             self.send_to_kafka = False
+
+    def produce_proto(self, sql: str, topic: str, data: Any, sync: bool = True):
+        if self.send_to_kafka:
+            self.producer.produce(topic=topic, data=data, value_serializer=lambda x: x.SerializeToString())
+        else:
+            dict_data = json.loads(
+                MessageToJson(data, including_default_value_fields=True, preserving_proto_field_name=True)
+            )
+            if sync:
+                sync_execute(sql, dict_data)
+            else:
+                async_execute(sql, dict_data)
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.send_to_kafka:

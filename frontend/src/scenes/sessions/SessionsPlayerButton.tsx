@@ -22,7 +22,7 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
             {session.session_recording_ids.map((sessionRecordingId: string) => (
                 <PlayCircleOutlined
                     key={sessionRecordingId}
-                    style={{ color: green.primary }}
+                    style={{ color: green.primary, marginRight: 5, fontSize: 16 }}
                     onClick={(event: React.MouseEvent) => {
                         event.stopPropagation()
                         loadSessionPlayer(sessionRecordingId)

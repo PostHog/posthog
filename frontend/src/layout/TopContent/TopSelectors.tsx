@@ -28,10 +28,13 @@ export function User(): JSX.Element {
             overlay={
                 <Menu>
                     <Menu.Item key="user-email">
-                        <Link to="/me/settings">
+                        <Link to="/me/settings" title="My Settings">
                             <SettingOutlined size={1} style={{ marginRight: '0.5rem' }} />
                             {user ? user.email : <i>loading</i>}
                         </Link>
+                    </Menu.Item>
+                    <Menu.Item key="user-organizations">
+                        <Organization />
                     </Menu.Item>
                     <Menu.Item key="user-logout">
                         <a href="#" onClick={logout} data-attr="user-options-logout" style={{ color: red.primary }}>
@@ -151,12 +154,7 @@ export function Organization(): JSX.Element {
                     </Menu>
                 }
             >
-                <div
-                    data-attr="user-organization-dropdown"
-                    className="btn btn-sm btn-light btn-top"
-                    style={{ marginRight: '0.75rem' }}
-                    title="Organizations"
-                >
+                <div data-attr="user-organization-dropdown" title="Current Organization">
                     <DeploymentUnitOutlined size={1} style={{ marginRight: '0.5rem' }} />
                     {user ? user.organization.name : <i>loading</i>}
                 </div>
@@ -275,7 +273,7 @@ export function Projects(): JSX.Element {
                     data-attr="user-project-dropdown"
                     className="btn btn-sm btn-light btn-top"
                     style={{ marginRight: '0.75rem' }}
-                    title="Organization Projects"
+                    title="Current Projects"
                 >
                     <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
                     {!user ? <i>loading</i> : user.team ? user.team.name : <i>none yet</i>}

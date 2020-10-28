@@ -59,7 +59,7 @@ def update_cached_items() -> None:
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
-    taskset.apply_async()
+    taskset.apply_async(ignore_result=True)
 
 
 def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:

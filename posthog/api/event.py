@@ -108,7 +108,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
 class EventViewSet(viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
-    queryset = Event.objects.all().exclude(event="$snapshot")
+    queryset = Event.objects.all()
     serializer_class = EventSerializer
 
     def get_queryset(self) -> QuerySet:

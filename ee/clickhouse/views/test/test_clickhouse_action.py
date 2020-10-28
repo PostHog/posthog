@@ -1,3 +1,4 @@
+from unittest.mock import patch
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
@@ -34,7 +35,25 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class ClickhouseTestActionPeople(
+class TestAction(
     ClickhouseTestMixin, action_people_test_factory(_create_event, _create_person, _create_action, _create_cohort)  # type: ignore
 ):
-    pass
+    @patch("posthog.tasks.calculate_action.calculate_action.delay")
+    def test_is_calculating_always_false(self, patch_delay):
+        create = self.client.post("/api/action/", data={"name": "ooh",}, content_type="application/json",).json()
+        self.assertEqual(create["is_calculating"], False)
+        self.assertFalse(patch_delay.called)
+
+        response = self.client.get("/api/action/").json()
+        self.assertEqual(response["results"][0]["is_calculating"], False)
+
+        response = self.client.get("/api/action/%s/" % create["id"]).json()
+        self.assertEqual(response["is_calculating"], False)
+
+        # Make sure we're not re-calculating actions
+        response = self.client.patch(
+            "/api/action/%s/" % create["id"], data={"name": "ooh",}, content_type="application/json",
+        ).json()
+        self.assertEqual(response["name"], "ooh")
+        self.assertEqual(response["is_calculating"], False)
+        self.assertFalse(patch_delay.called)

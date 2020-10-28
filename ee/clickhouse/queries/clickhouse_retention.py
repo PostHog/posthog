@@ -61,8 +61,12 @@ class ClickhouseRetention(BaseQuery):
             ),
             {
                 "team_id": team.pk,
-                "start_date": date_from.strftime("%Y-%m-%d %H:%M:%S"),
-                "end_date": date_to.strftime("%Y-%m-%d %H:%M:%S"),
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
                 **prop_filter_params,
                 **target_params,
                 "period": period,
@@ -85,7 +89,7 @@ class ClickhouseRetention(BaseQuery):
                     result_dict.get((first_day, day), {"count": 0, "people": []})
                     for day in range(total_intervals - first_day)
                 ],
-                "label": "Day {}".format(first_day),
+                "label": "{} {}".format(period, first_day),
                 "date": (date_from + self._determineTimedelta(first_day, period)[0]).strftime(
                     labels_format + (hourly_format if period == "Hour" else "")
                 ),

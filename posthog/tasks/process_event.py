@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, Team, User
+from posthog.models import Element, Event, Person, SessionRecordingEvent, Team, User
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -199,6 +199,18 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
+def _store_session_recording_event(
+    team_id: int, distinct_id: str, session_id: str, timestamp: Union[datetime.datetime, str], snapshot_data: dict
+) -> None:
+    SessionRecordingEvent.objects.create(
+        team_id=team_id,
+        distinct_id=distinct_id,
+        session_id=session_id,
+        timestamp=timestamp,
+        snapshot_data=snapshot_data,
+    )
+
+
 def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.datetime:
     if data.get("timestamp"):
         if sent_at:
@@ -234,6 +246,15 @@ def process_event(
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+    elif data["event"] == "$snapshot":
+        _store_session_recording_event(
+            team_id=team_id,
+            distinct_id=distinct_id,
+            session_id=data["properties"]["$session_id"],
+            timestamp=handle_timestamp(data, now, sent_at),
+            snapshot_data=data["properties"]["$snapshot_data"],
+        )
+        return
 
     properties = data.get("properties", data.get("$set", {}))
 
