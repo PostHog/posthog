@@ -2,13 +2,13 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
+import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2  # type: ignore
 from ee.kafka_client.client import ClickhouseProducer
