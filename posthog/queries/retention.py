@@ -26,11 +26,7 @@ class Retention(BaseQuery):
 
         if period == "Hour":
             date_from: datetime.datetime = filter.date_from  # type: ignore
-            filter._date_to = (
-                (date_from + _determineTimedelta(total_intervals, period)).isoformat()
-                if filter.date_from
-                else filter._date_from
-            )
+            filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
         else:
             filter._date_from = (
                 (filter.date_from.replace(hour=0, minute=0, second=0, microsecond=0)).isoformat()
