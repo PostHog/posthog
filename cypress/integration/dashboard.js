@@ -35,7 +35,7 @@ describe('Dashboards', () => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name]').clear().type('XDefault')
         cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-2]').click()
+        cy.get('[data-attr=dashboard-select-default-app]').click()
 
         cy.get('button').contains('Create').click()
 
