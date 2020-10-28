@@ -77,19 +77,32 @@ function _Setup() {
             <Divider />
             <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
             <WebhookIntegration />
-            <Divider />
-            {featureFlags['session-recording-player'] && (
-                <>
-                    <h2 id="sessionrecording">Collect session recordings</h2>
-                    <OptInSessionRecording />
-                    <Divider />
-                </>
-            )}
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />
             <Divider />
             <h2>PostHog Toolbar</h2>
             <ToolbarSettings />
+            <Divider />
+            {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
+                <>
+                    <h2 id="sessionrecording">
+                        Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
+                    </h2>
+                    <p>
+                        Watch sessions replays to see how users interact with your app and find out what can be
+                        improved.
+                    </p>
+                    <OptInSessionRecording />
+                    <p>
+                        This is a new feature of posthog. Please{' '}
+                        <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
+                            share feedback
+                        </a>{' '}
+                        with us!
+                    </p>
+                    <Divider />
+                </>
+            )}
         </div>
     )
 }
