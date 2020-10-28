@@ -173,10 +173,8 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
 
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
-    print(settings.SOCIAL_AUTH_GITLAB_KEY, settings.SOCIAL_AUTH_GITLAB_SECRET)
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
         context["gitlab_auth"] = True
-    print(settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY, settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET)
     if settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY and settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
         context["google_auth"] = True
 
