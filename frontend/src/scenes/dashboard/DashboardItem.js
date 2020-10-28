@@ -1,6 +1,7 @@
+import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert } from 'antd'
+import { Dropdown, Menu, Tooltip, Alert, Button } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
@@ -133,6 +134,11 @@ export function DashboardItem({
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
         >
+            {item.is_sample && (
+                <div className="sample-dasbhoard-overlay">
+                    <Button onClick={() => router.actions.push(link)}>Configure</Button>
+                </div>
+            )}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'auto' : 'move' }}>
                     <div className="dashboard-item-title">
@@ -149,6 +155,7 @@ export function DashboardItem({
                                         router.actions.push(link)
                                     }
                                 }}
+                                style={{ fontSize: 16, fontWeight: '500' }}
                             >
                                 {item.name}
                             </Link>
@@ -307,6 +314,10 @@ export function DashboardItem({
                         </div>
                     )}
                 </div>
+                {item.description && (
+                    <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
+                )}
+
                 <div className="dashboard-item-content">
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
