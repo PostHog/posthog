@@ -94,7 +94,6 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    is_superuser = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -115,7 +114,7 @@ class User(AbstractUser):
         return settings.EE_AVAILABLE
 
     @property
-    def is_superuser(self) -> bool:
+    def is_superuser(self) -> bool:  # type: ignore
         return self.is_staff
 
     @property
