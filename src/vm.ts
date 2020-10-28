@@ -1,9 +1,9 @@
 import { VM } from 'vm2'
 import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
-import { PluginsServer } from './types'
+import { PluginsServer, Plugin } from './types'
 
-export function createVm(plugin, indexJs: string, libJs: string, server: PluginsServer) {
+export function createVm(plugin: Plugin, indexJs: string, libJs: string | null, server: PluginsServer) {
     const vm = new VM({
         sandbox: {}
     })

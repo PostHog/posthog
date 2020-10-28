@@ -13,8 +13,11 @@
     "author": "Marius Andra <marius.andra@gmail.com>",
     "license": "MIT",
     "dependencies": {
+        "@types/adm-zip": "^0.4.33",
         "@types/ioredis": "^4.17.6",
         "@types/node": "^14.14.5",
+        "@types/node-fetch": "^2.5.7",
+        "@types/pg": "^7.14.5",
         "@types/yargs": "^15.0.9",
         "adm-zip": "^0.4.16",
         "celery-node": "^0.5.0",

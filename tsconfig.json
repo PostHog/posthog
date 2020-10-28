@@ -12,7 +12,8 @@
         "baseUrl": "./src",
         "incremental": true,
         "types": ["jest", "node"],
-        "resolveJsonModule": true
+        "resolveJsonModule": true,
+        "strict": true
     },
     "exclude": ["node_modules"]
 }

@@ -4,7 +4,7 @@ import { startPluginsServer } from './server'
 
 require('yargs')
     .scriptName('posthog-plugins')
-    .command('start', 'start the server', ({ argv }) => {
+    .command('start', 'start the server', ({ argv }: { argv: Record<string, any> }) => {
         const config: PluginsServerConfig = {
             ...(argv.config ? JSON.parse(argv.config) : {}),
         }
