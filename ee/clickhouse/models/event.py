@@ -10,9 +10,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.idl.gen import events_pb2  # type: ignore
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
-from ee.idl.gen.pb_python import events_pb2
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -27,7 +27,16 @@ def create_event(
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
 ) -> str:
-    timestamp = cast_timestamp_or_now(timestamp)
+
+    if not timestamp:
+        timestamp = timezone.now()
+    assert timestamp is not None
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -39,21 +48,12 @@ def create_event(
     pb_event.properties = json.dumps(properties)
     pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
     pb_event.team_id = team.pk
-    pb_event.distinct_id = distinct_id
-    pb_event.elements_hash = elements_hash
+    pb_event.distinct_id = str(distinct_id)
+    pb_event.elements_chain = elements_chain
 
-    data = {
-        "uuid": str(event_uuid),
-        "event": event,
-        "properties": json.dumps(properties),
-        "timestamp": timestamp,
-        "team_id": team.pk,
-        "distinct_id": distinct_id,
-        "created_at": timestamp,
-        "elements_chain": elements_chain,
-    }
     p = ClickhouseProducer()
-    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+
+    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
     return str(event_uuid)
 
 
