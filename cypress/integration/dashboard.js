@@ -22,12 +22,25 @@ describe('Dashboards', () => {
             })
     })
 
-    it('Create dashboard', () => {
-        cy.get('[data-attr="new-dashboard"]').click({ force: true })
+    it('Create an empty dashboard', () => {
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr=dashboard-name]').clear().type('YDefault')
+        cy.get('button').contains('Create').click()
 
-        cy.get('[data-attr=modal-prompt]').clear().type('Test Dashboard')
-        cy.contains('OK').click()
-        cy.contains('Test Dashboard').should('exist')
+        cy.contains('YDefault').should('exist')
+        cy.contains('There are no panels').should('exist')
+    })
+
+    it('Create dashboard from a template', () => {
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr=dashboard-name]').clear().type('XDefault')
+        cy.get('[data-attr=copy-from-template]').click()
+        cy.get('[data-attr=dashboard-select-2]').click()
+
+        cy.get('button').contains('Create').click()
+
+        cy.contains('XDefault').should('exist')
+        cy.get('.dashboard-item').its('length').should('be.gte', 2)
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {

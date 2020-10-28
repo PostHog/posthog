@@ -5,6 +5,8 @@ TREND_FILTER_TYPE_EVENTS = "events"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
+TRENDS_FUNNEL = "FunnelViz"
+TRENDS_PIE = "ActionsPie"
 
 TRENDS_STICKINESS = "Stickiness"
 
