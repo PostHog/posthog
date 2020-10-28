@@ -23,7 +23,14 @@
     chalk "^2.0.0"
     js-tokens "^4.0.0"
 
-"@types/node@^14.14.5":
+"@types/ioredis@^4.17.6":
+  version "4.17.6"
+  resolved "https://registry.yarnpkg.com/@types/ioredis/-/ioredis-4.17.6.tgz#b3b8d6e9fed7f494da08d991d8110daab2e273b8"
+  integrity sha512-Vg3vuhveOaQeiubzGpVU9Hn3UJCi7rPe2TOphc3m3Y2EniHmytHp/wj5ZtfqDGBhFJGaSwbJvGQhhqd/Nqfy4Q==
+  dependencies:
+    "@types/node" "*"
+
+"@types/node@*", "@types/node@^14.14.5":
   version "14.14.5"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.5.tgz#e92d3b8f76583efa26c1a63a21c9d3c1143daa29"
   integrity sha512-H5Wn24s/ZOukBmDn03nnGTp18A60ny9AmCwnEcgJiTgSGsCO7k+NWP7zjCCbhlcnVCoI+co52dUAt9GMhOSULw==
@@ -451,7 +458,7 @@ inherits@^2.0.3, inherits@~2.0.1:
   resolved "https://registry.yarnpkg.com/inherits/-/inherits-2.0.4.tgz#0fa2c64f932917c3433a0ded55363aae37416b7c"
   integrity sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==
 
-ioredis@^4.14.0:
+ioredis@^4.14.0, ioredis@^4.19.0:
   version "4.19.0"
   resolved "https://registry.yarnpkg.com/ioredis/-/ioredis-4.19.0.tgz#1ab3b36362cb3e805c4dbe90fbb7061182f94b63"
   integrity sha512-7NIkLtpDQ/6WkEircBljnYz/E+kDQcwCJspfR504/tzyXJJQcHaSofMP6G0nuuLfDpOVnpS0AEwDrNIbW38HGg==

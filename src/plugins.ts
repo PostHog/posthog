@@ -4,7 +4,8 @@ import { Pool } from 'pg'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 import fetch from 'node-fetch'
 import { createVm } from './vm'
-import { PluginsServerConfig } from './types'
+import { PluginsServer } from './types'
+import { createCache } from './extensions/cache'
 
 const plugins = {}
 const pluginsPerTeam = {}
@@ -17,15 +18,15 @@ export async function processError(error: Error) {
     console.error(error)
 }
 
-export async function setupPlugins(serverConfig: PluginsServerConfig) {
+export async function setupPlugins(server: PluginsServer) {
     const db = new Pool({
-        connectionString: serverConfig.DATABASE_URL,
+        connectionString: server.DATABASE_URL,
     })
 
     const { rows: pluginRows } = await db.query('SELECT * FROM posthog_plugin')
     for (const row of pluginRows) {
         plugins[row.id] = row
-        await loadPlugin(serverConfig, row)
+        await loadPlugin(server, row)
     }
 
     const { rows: pluginConfigRows } = await db.query("SELECT * FROM posthog_pluginconfig WHERE enabled='t'")
@@ -49,9 +50,9 @@ export async function setupPlugins(serverConfig: PluginsServerConfig) {
     }
 }
 
-async function loadPlugin(serverConfig: PluginsServerConfig, plugin) {
+async function loadPlugin(server: PluginsServer, plugin) {
     if (plugin.url.startsWith('file:')) {
-        const pluginPath = path.resolve(serverConfig.BASE_DIR, plugin.url.substring(5))
+        const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
         const configPath = path.resolve(pluginPath, 'plugin.json')
 
         let config = {}
@@ -74,13 +75,13 @@ async function loadPlugin(serverConfig: PluginsServerConfig, plugin) {
         const indexJs = fs.readFileSync(jsPath).toString()
 
         const libPath = path.resolve(pluginPath, config['lib'] || 'lib.js')
-        const libJs = fs.existsSync(libPath) ? fs.readFileSync(libPath).toString() : null
+        const libJs = fs.existsSync(libPath) ? fs.readFileSync(libPath).toString() : ''
 
         pluginVms[plugin.id] = {
             plugin,
             indexJs,
             libJs,
-            vm: await createVm(plugin, indexJs, libJs),
+            vm: await createVm(plugin, indexJs, libJs, server),
         }
 
         console.log(`Loaded plugin "${plugin.name}"!`)
@@ -89,7 +90,7 @@ async function loadPlugin(serverConfig: PluginsServerConfig, plugin) {
     }
 }
 
-export async function runPlugins(event) {
+export async function runPlugins(server: PluginsServer, event) {
     const teamId = event.team_id
     const pluginsToRun = pluginsPerTeam[teamId] || defaultConfigs
 
@@ -107,6 +108,8 @@ export async function runPlugins(event) {
                 apiKey: teamPlugin.api_token,
             }
             const { vm, processEvent } = pluginVms[teamPlugin.plugin_id].vm
+
+            vm.freeze(createCache(server, plugin.name, teamId), 'cache')
 
             if (event?.properties?.token) {
                 const posthog = createInternalPostHogInstance(

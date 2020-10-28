@@ -1,15 +1,14 @@
 import { VM } from 'vm2'
 import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
-import { createCache } from './extensions/cache'
+import { PluginsServer } from './types'
 
-export function createVm(plugin, indexJs: string, libJs?: string) {
+export function createVm(plugin, indexJs: string, libJs: string, server: PluginsServer) {
     const vm = new VM({
         sandbox: {}
     })
     vm.freeze(fetch, 'fetch'); // Second argument adds object to global.
     vm.freeze(createConsole(), 'console')
-    vm.freeze(createCache(), 'cache')
 
     if (libJs) {
         vm.run(libJs)
