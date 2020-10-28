@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && yarn build \
     && cd plugins \
     && yarn --frozen-lockfile \
-    && cd ..
+    && cd .. \
     && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
