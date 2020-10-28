@@ -58,29 +58,9 @@ class ClickhouseFunnel(Funnel):
                 return ""
 
             self.params.update(action_params)
-            content_sql = STEP_ACTION_SQL.format(
-                team_id=self._team.pk,
-                actions_query=action_query,
-                parsed_date_from=(parsed_date_from or ""),
-                parsed_date_to=(parsed_date_to or ""),
-                filters=filters,
-                step=index,
-                is_first_step=is_first_step,
-                person_prop_param=", person_properties" if self._should_join_person else "",
-                person_prop_arg=", person_props" if self._should_join_person else "",
-            )
+            content_sql = STEP_ACTION_SQL.format(actions_query=action_query, filters=filters,)
         else:
-            content_sql = STEP_EVENT_SQL.format(
-                team_id=self._team.pk,
-                event=entity.id,
-                parsed_date_from=(parsed_date_from or ""),
-                parsed_date_to=(parsed_date_to or ""),
-                filters=filters,
-                step=index,
-                is_first_step=is_first_step,
-                person_prop_param=", person_properties" if self._should_join_person else "",
-                person_prop_arg=", person_props" if self._should_join_person else "",
-            )
+            content_sql = STEP_EVENT_SQL.format(event=entity.id, filters=filters)
         return content_sql
 
     def _exec_query(self) -> List[Tuple]:
@@ -120,6 +100,9 @@ class ClickhouseFunnel(Funnel):
         for result_tuple in results:
             result = list(result_tuple)
             person = Person(pk=result[0], uuid=result[0])
+            import ipdb
+
+            ipdb.set_trace()
             for step in range(0, width - 1):
                 setattr(person, "step_{}".format(step), result[step + 1] if result[step + 1].year != 1970 else None)
             res.append(person)
