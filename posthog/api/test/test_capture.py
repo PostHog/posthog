@@ -31,13 +31,20 @@ class TestCapture(BaseTest):
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
         print("!!!")
         call_args = patch_process_event_with_plugins.call_args
+        try:
+            args = call_args.kwargs["args"]
+            print("1")
+        except TypeError:
+            args = call_args.args
+            print("2")
+
         print(call_args)
         print("!!!")
-        print(call_args.args)
+        print(call_args.args or call_args.kwargs)
         print("!!!")
-        print(call_args.kwargs["args"])
+        print(call_args.kwargs)
         print("!!!")
-        distinct_id, ip, site_url, data, team_id, now, sent_at = call_args.args or call_args.kwargs["args"]
+        distinct_id, ip, site_url, data, team_id, now, sent_at = args
 
         return {
             "distinct_id": distinct_id,
