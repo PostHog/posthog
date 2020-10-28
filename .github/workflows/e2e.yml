@@ -104,7 +104,7 @@ jobs:
                   ./bin/docker-worker &
                   ./bin/docker-server &
             - name: Cypress run
-              uses: cypress-io/github-action@v1
+              uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.json
                   record: true
