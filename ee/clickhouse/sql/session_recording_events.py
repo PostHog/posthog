@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
 
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 
@@ -22,13 +22,14 @@ SESSION_RECORDING_EVENTS_TABLE_SQL = (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-TTL toDate(created_at) + INTERVAL 3 WEEK
+{ttl_period}
 SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_RECORDING_EVENTS_TABLE,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(SESSION_RECORDING_EVENTS_TABLE, "_timestamp"),
+    ttl_period=ttl_period(),
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(

@@ -12,7 +12,7 @@ def _create_event(**kwargs):
     )
 
 
-class TestClickhouseSessions(
+class TestClickhouseSessionRecording(
     ClickhouseTestMixin, session_recording_test_factory(SessionRecording, add_session_recording_ids, _create_event)  # type: ignore
 ):
     pass
