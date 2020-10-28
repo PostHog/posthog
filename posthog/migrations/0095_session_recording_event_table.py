@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0093_remove_user_is_superuser"),
+        ("posthog", "0094_description_on_dashboard_items"),
     ]
 
     operations = [

@@ -120,7 +120,7 @@ function _Dashboards(): JSX.Element {
                                 style={{ cursor: 'pointer' }}
                                 onClick={() =>
                                     addDashboard({
-                                        name: 'Default App Dashboard',
+                                        name: 'Web App Dashboard',
                                         show: true,
                                         useTemplate: 'DEFAULT_APP',
                                     })

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -61,9 +61,11 @@ class UserManager(BaseUserManager):
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", company_name)
             organization = Organization.objects.create(**organization_fields)
-            team = Team.objects.create_with_data(organization=organization, **(team_fields or {}))
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
-            membership = user.join(organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,)
+            team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
+            user.join(
+                organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
+            )
             return organization, team, user
 
     def create_and_join(
@@ -94,7 +96,6 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    is_superuser = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -113,6 +114,10 @@ class User(AbstractUser):
     @property
     def ee_available(self) -> bool:
         return settings.EE_AVAILABLE
+
+    @property
+    def is_superuser(self) -> bool:  # type: ignore
+        return self.is_staff
 
     @property
     def teams(self):

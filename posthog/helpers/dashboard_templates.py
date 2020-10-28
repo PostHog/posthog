@@ -19,7 +19,8 @@ from posthog.constants import (
     TRENDS_PIE,
     TRENDS_STICKINESS,
 )
-from posthog.models import Dashboard, DashboardItem
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_item import DashboardItem
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -36,6 +37,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             INTERVAL: "day",
         },
         last_refresh=now(),
+        description="Shows the number of unique users that use your app everyday.",
     )
 
     DashboardItem.objects.create(
@@ -52,6 +54,8 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         color=random.choice(DASHBOARD_COLORS),
+        description="Shows how much revenue your app is capturing from orders every week. "
+        'Sales should be registered with an "Order Completed" event.',
     )
 
     DashboardItem.objects.create(
@@ -67,6 +71,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         color=random.choice(DASHBOARD_COLORS),
+        description="Shows the total cumulative number of unique users that have been using your app.",
     )
 
     DashboardItem.objects.create(
@@ -77,11 +82,12 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
-            DATE_FROM: "-30d",
             SHOWN_AS: TRENDS_STICKINESS,
         },
         last_refresh=now(),
         color=random.choice(DASHBOARD_COLORS),
+        description="Shows you how many users visited your app for a specific number of days "
+        '(e.g. a user that visited your app twice in the time period will be shown under "2 days").',
     )
 
     DashboardItem.objects.create(
@@ -118,6 +124,9 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         },
         last_refresh=now(),
         color=random.choice(DASHBOARD_COLORS),
+        is_sample=True,
+        description="This is a sample of how a user funnel could look like. It represents the number of users that performed "
+        "a specific action at each step.",
     )
 
     DashboardItem.objects.create(
@@ -134,6 +143,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             DISPLAY: TRENDS_PIE,
         },
         last_refresh=now(),
+        description="Shows a breakdown of browsers used to visit your app per unique users in the last 14 days.",
     )
 
     DashboardItem.objects.create(
@@ -148,6 +158,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             BREAKDOWN: "$initial_referring_domain",
         },
         last_refresh=now(),
+        description="Shows a breakdown of where unique users came from when visiting your app.",
     )
 
 
