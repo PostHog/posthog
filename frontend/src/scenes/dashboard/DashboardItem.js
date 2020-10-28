@@ -1,6 +1,7 @@
+import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert } from 'antd'
+import { Dropdown, Menu, Tooltip, Alert, Button } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
@@ -133,6 +134,11 @@ export function DashboardItem({
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
         >
+            {item.is_sample && (
+                <div className="sample-dasbhoard-overlay">
+                    <Button onClick={() => router.actions.push(link)}>Configure</Button>
+                </div>
+            )}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'auto' : 'move' }}>
                     <div className="dashboard-item-title">
