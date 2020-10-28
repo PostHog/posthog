@@ -20,17 +20,31 @@ export async function processError(error: Error) {
 }
 
 export async function setupPlugins(server: PluginsServer) {
-    const db = new Pool({
-        connectionString: server.DATABASE_URL,
-    })
-
-    const { rows: pluginRows } = await db.query('SELECT * FROM posthog_plugin')
+    const { rows: pluginRows } = await server.db.query("SELECT * FROM posthog_plugin WHERE (select count(*) from posthog_pluginconfig where plugin_id = posthog_plugin.id and enabled='t') > 0")
+    const foundPlugins = {}
     for (const row of pluginRows) {
-        plugins[row.id] = row
-        await loadPlugin(server, row)
+        foundPlugins[row.id] = true
+        if (
+            !plugins[row.id] ||
+            row.url.startsWith('file:') ||
+            row.tag !== plugins[row.id].tag ||
+            row.name !== plugins[row.id].name ||
+            row.url !== plugins[row.id].url
+        ) {
+            if (plugins[row.id]) {
+                unloadPlugin(row)
+            }
+            plugins[row.id] = row
+            await loadPlugin(server, row)
+        }
+    }
+    for (const id of Object.keys(plugins)) {
+        if (!foundPlugins[id]) {
+            unloadPlugin(plugins[id])
+        }
     }
 
-    const { rows: pluginConfigRows } = await db.query("SELECT * FROM posthog_pluginconfig WHERE enabled='t'")
+    const { rows: pluginConfigRows } = await server.db.query("SELECT * FROM posthog_pluginconfig WHERE enabled='t'")
     for (const row of pluginConfigRows) {
         if (!row.team_id) {
             defaultConfigs.push(row)
@@ -49,6 +63,11 @@ export async function setupPlugins(server: PluginsServer) {
             pluginsPerTeam[teamId].sort((a, b) => a.order - b.order)
         }
     }
+}
+
+function unloadPlugin(plugin) {
+    delete plugins[plugin.id]
+    delete pluginVms[plugin.id]
 }
 
 async function loadPlugin(server: PluginsServer, plugin) {
@@ -87,8 +106,8 @@ async function loadPlugin(server: PluginsServer, plugin) {
 
         console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
     } else if (plugin.archive) {
-        const zip = new AdmZip(plugin.archive);
-	    const zipEntries = zip.getEntries() // an array of ZipEntry records
+        const zip = new AdmZip(plugin.archive)
+        const zipEntries = zip.getEntries() // an array of ZipEntry records
         const root = zipEntries[0].entryName
 
         let config = {}

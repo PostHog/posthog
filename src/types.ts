@@ -7,6 +7,7 @@ export interface PluginsServerConfig {
     PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     BASE_DIR: string
+    PLUGINS_RELOAD_PUBSUB_CHANNEL: string
 }
 
 export interface PluginsServer extends PluginsServerConfig {
