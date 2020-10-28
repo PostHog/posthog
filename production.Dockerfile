@@ -25,14 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile \
     && yarn build \
+    && cd plugins \
+    && yarn --frozen-lockfile \
+    && cd ..
     && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
-    && rm -rf frontend/dist/*.map \
-    && cd plugins \
-    && yarn --frozen-lockfile
+    && rm -rf frontend/dist/*.map
 
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile\

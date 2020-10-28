@@ -23,8 +23,7 @@
         "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen:watch": "kea-typegen watch",
-        "plugins:dev": "cd ../posthog-plugins && yarn start start --config `../posthog/bin/plugins-server-config`"
+        "typegen:watch": "kea-typegen watch"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
