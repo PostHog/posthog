@@ -7,9 +7,7 @@ from google.protobuf.descriptor import (
 
 from google.protobuf.message import Message as google___protobuf___message___Message
 
-from google.protobuf.timestamp_pb2 import (
-    Timestamp as google___protobuf___timestamp_pb2___Timestamp,
-)
+from google.protobuf.timestamp_pb2 import Timestamp as google___protobuf___timestamp_pb2___Timestamp
 
 from typing import (
     Optional as typing___Optional,
@@ -50,20 +48,13 @@ class Event(google___protobuf___message___Message):
         distinct_id: typing___Optional[typing___Text] = None,
         created_at: typing___Optional[typing___Text] = None,
         elements_chain: typing___Optional[typing___Text] = None,
-        proto_created_at: typing___Optional[
-            google___protobuf___timestamp_pb2___Timestamp
-        ] = None,
-        proto_timestamp: typing___Optional[
-            google___protobuf___timestamp_pb2___Timestamp
-        ] = None,
+        proto_created_at: typing___Optional[google___protobuf___timestamp_pb2___Timestamp] = None,
+        proto_timestamp: typing___Optional[google___protobuf___timestamp_pb2___Timestamp] = None,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing_extensions___Literal[
-            "proto_created_at",
-            b"proto_created_at",
-            "proto_timestamp",
-            b"proto_timestamp",
+            "proto_created_at", b"proto_created_at", "proto_timestamp", b"proto_timestamp",
         ],
     ) -> builtin___bool: ...
     def ClearField(
