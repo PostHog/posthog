@@ -1,10 +1,7 @@
 import * as path from 'path'
 import * as fs from 'fs'
-import { createInternalPostHogInstance } from 'posthog-js-lite'
-import fetch from 'node-fetch'
-import { createVm } from './vm'
+import { createVm, prepareForRun } from './vm'
 import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginEvent } from './types'
-import { createCache } from './extensions/cache'
 import AdmZip from 'adm-zip'
 
 const plugins: Record<string, Plugin> = {}
@@ -57,6 +54,19 @@ export async function setupPlugins(server: PluginsServer) {
             }
             pluginsPerTeam[row.team_id].push(row)
         }
+
+        const setupTeam = prepareForRun(
+            server,
+            pluginVms[row.plugin_id],
+            row.team_id,
+            row,
+            'setupTeam',
+            undefined
+        ) as () => void
+
+        if (setupTeam) {
+            await setupTeam()
+        }
     }
 
     if (defaultConfigs.length > 0) {
@@ -104,7 +114,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
             plugin,
             indexJs,
             libJs,
-            vm: await createVm(plugin, indexJs, libJs, server),
+            ...(await createVm(plugin, indexJs, libJs, server)),
         }
 
         console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
@@ -135,7 +145,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
                 plugin,
                 indexJs,
                 libJs,
-                vm: await createVm(plugin, indexJs, libJs, server),
+                ...(await createVm(plugin, indexJs, libJs, server)),
             }
 
             console.log(`Loaded plugin "${plugin.name}"!`)
@@ -155,36 +165,20 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
 
     for (const teamPlugin of pluginsToRun) {
         if (pluginVms[teamPlugin.plugin_id]) {
-            const plugin = plugins[teamPlugin.plugin_id]
-            const meta = {
-                team: teamPlugin.team_id,
-                order: teamPlugin.order,
-                name: plugin.name,
-                tag: plugin.tag,
-                config: teamPlugin.config
-            }
-            const { vm, processEvent } = pluginVms[teamPlugin.plugin_id].vm
-
-            vm.freeze(createCache(server, plugin.name, teamId), 'cache')
-
-            if (event?.properties?.token) {
-                const posthog = createInternalPostHogInstance(
-                    event.properties.token,
-                    { apiHost: event.site_url, fetch },
-                    {
-                        performance: require('perf_hooks').performance,
-                    }
-                )
-                vm.freeze(posthog, 'posthog')
-            } else {
-                vm.freeze(null, 'posthog')
-            }
+            const processEvent = prepareForRun(
+                server,
+                pluginVms[teamPlugin.plugin_id],
+                teamId,
+                teamPlugin,
+                'processEvent',
+                event
+            )
 
             if (processEvent) {
                 try {
-                    returnedEvent = await processEvent(returnedEvent, meta)
+                    returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    processError(plugin, error)
+                    processError(plugins[teamPlugin.plugin_id], error)
                 }
             }
 
