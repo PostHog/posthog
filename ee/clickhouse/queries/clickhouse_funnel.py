@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
@@ -91,6 +92,26 @@ class ClickhouseFunnel(Funnel):
         )
         return sync_execute(query, self.params)
 
+    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
+        steps = []
+        person_score: Dict = defaultdict(int)
+        for index, funnel_step in enumerate(self._filter.entities):
+            relevant_people = []
+            for person in results:
+                if person.max_step <= index:
+                    person_score[person.uuid] += 1
+                    relevant_people.append(person.uuid)
+
+            steps.append(self._serialize_step(funnel_step, relevant_people))
+
+        if len(steps) > 0:
+            for index, _ in enumerate(steps):
+                steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[
+                    0:100
+                ]
+
+        return steps
+
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         results = self._exec_query()
         if len(results) == 0:
@@ -100,10 +121,6 @@ class ClickhouseFunnel(Funnel):
         for result_tuple in results:
             result = list(result_tuple)
             person = Person(pk=result[0], uuid=result[0])
-            import ipdb
-
-            ipdb.set_trace()
-            for step in range(0, width - 1):
-                setattr(person, "step_{}".format(step), result[step + 1] if result[step + 1].year != 1970 else None)
+            person.max_step = result[1]
             res.append(person)
         return self.data_to_return(res)
