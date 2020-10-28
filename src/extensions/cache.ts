@@ -1,7 +1,7 @@
 import { PluginsServer } from '../types'
 
 export function createCache(server: PluginsServer, pluginName: string, teamId: number) {
-    const getKey = (key: string) => `@plugin/${pluginName}/${teamId}/${key}`
+    const getKey = (key: string) => `@plugin/${pluginName}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
     return {
         set: function (key: string, value: any) {
             server.redis.set(getKey(key), JSON.stringify(value))
