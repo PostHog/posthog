@@ -15,6 +15,7 @@ from posthog.models import (
     ElementGroup,
     Event,
     Person,
+    SessionRecordingEvent,
     Team,
     User,
 )
@@ -499,6 +500,25 @@ class TestProcessEvent(BaseTest):
 
         team.refresh_from_db()
         self.assertEqual(team.ingested_event, True)
+
+    def test_snapshot_event_stored_as_session_recording_event(self) -> None:
+        process_event(
+            "some-id",
+            "",
+            "",
+            {"event": "$snapshot", "properties": {"$session_id": "abcf-efg", "$snapshot_data": {"timestamp": 123,}}},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        self.assertEqual(SessionRecordingEvent.objects.count(), 1)
+        self.assertEqual(Event.objects.count(), 0)
+
+        event = SessionRecordingEvent.objects.get()
+        self.assertEqual(event.session_id, "abcf-efg")
+        self.assertEqual(event.distinct_id, "some-id")
+        self.assertEqual(event.snapshot_data, {"timestamp": 123,})
 
 
 class TestIdentify(TransactionBaseTest):

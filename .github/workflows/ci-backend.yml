@@ -65,9 +65,9 @@ jobs:
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
         strategy:
+            fail-fast: false
             matrix:
                 python-version: ['3.7.8', '3.8.5', '3.9.0']
-
         services:
             postgres:
                 image: postgres:12
@@ -97,9 +97,9 @@ jobs:
             - uses: actions/cache@v1
               with:
                   path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
-                      ${{ runner.os }}-pip-
+                      ${{ runner.os }}-pip-${{ matrix.python-version }}-
 
             - name: Install requirements.txt dependencies with pip
               run: |

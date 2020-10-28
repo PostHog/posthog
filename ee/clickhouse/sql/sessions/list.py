@@ -1,17 +1,18 @@
 SESSION_SQL = """
-    SELECT 
-        distinct_id, 
-        gid, 
+    SELECT
+        distinct_id,
+        gid,
         dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
         arrayReduce('min', groupArray(timestamp)) as start_time,
-        groupArray(uuid) uuids, 
-        groupArray(event) events, 
-        groupArray(properties) properties, 
-        groupArray(timestamp) timestamps, 
-        groupArray(elements_chain) elements_chain
+        groupArray(uuid) uuids,
+        groupArray(event) events,
+        groupArray(properties) properties,
+        groupArray(timestamp) timestamps,
+        groupArray(elements_chain) elements_chain,
+        arrayReduce('max', groupArray(timestamp)) as end_time
     FROM (
         SELECT
-            distinct_id, 
+            distinct_id,
             event,
             timestamp,
             uuid,
@@ -19,51 +20,50 @@ SESSION_SQL = """
             elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
         FROM (
-            SELECT 
-                groupArray(timestamp) as timestamps, 
-                groupArray(event) as events, 
-                groupArray(uuid) as uuids, 
-                groupArray(properties) as property_list, 
-                groupArray(elements_chain) as elements_chains, 
-                groupArray(distinct_id) as distinct_ids, 
+            SELECT
+                groupArray(timestamp) as timestamps,
+                groupArray(event) as events,
+                groupArray(uuid) as uuids,
+                groupArray(properties) as property_list,
+                groupArray(elements_chain) as elements_chains,
+                groupArray(distinct_id) as distinct_ids,
                 groupArray(new_session) AS gids
             FROM (
-                SELECT 
+                SELECT
                     distinct_id,
                     uuid,
                     event,
                     properties,
                     elements_chain,
-                    timestamp, 
+                    timestamp,
                     neighbor(distinct_id, -1) as possible_neighbor,
-                    neighbor(timestamp, -1) as possible_prev, 
+                    neighbor(timestamp, -1) as possible_prev,
                     if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(possible_prev), toDateTime(timestamp)) > 30, 1, 0) as new_session
                 FROM (
-                    SELECT 
+                    SELECT
                         uuid,
                         event,
                         properties,
-                        timestamp, 
+                        timestamp,
                         distinct_id,
                         elements_chain
-                    FROM    
-                        events 
-                    WHERE 
+                    FROM
+                        events
+                    WHERE
                         team_id = %(team_id)s
                         AND event != '$feature_flag_called'
-                        AND event != '$snapshot'
                         {date_from}
-                        {date_to} 
+                        {date_to}
                         {filters}
-                    GROUP BY 
+                    GROUP BY
                         uuid,
                         event,
                         properties,
-                        timestamp, 
+                        timestamp,
                         distinct_id,
-                        elements_chain 
-                    ORDER BY 
-                        distinct_id, 
+                        elements_chain
+                    ORDER BY
+                        distinct_id,
                         timestamp
                 )
             )
@@ -75,10 +75,10 @@ SESSION_SQL = """
             uuids as uuid,
             property_list as properties,
             elements_chains as elements_chain,
-            arrayEnumerate(gids) AS idx 
-    ) 
-    GROUP BY 
-        distinct_id, 
+            arrayEnumerate(gids) AS idx
+    )
+    GROUP BY
+        distinct_id,
         gid
     ORDER BY
         start_time DESC

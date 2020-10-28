@@ -291,6 +291,10 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
         )
 
         self.assertEqual(
+            self.pluck(result, "label"), ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+        )
+
+        self.assertEqual(
             self.pluck(result, "values", "count"),
             [[2, 2, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [0, 0, 0, 0, 0], [1, 0, 1, 0], [0, 0, 0], [1, 0], [0],],
         )

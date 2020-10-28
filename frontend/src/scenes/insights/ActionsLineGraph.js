@@ -4,6 +4,7 @@ import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
+import { LineGraphEmptyState } from './EmptyStates'
 
 export function ActionsLineGraph({
     dashboardItemId = null,
@@ -46,9 +47,7 @@ export function ActionsLineGraph({
                 }
             />
         ) : (
-            <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                We couldn't find any matching events. Try changing dates or pick another action or event.
-            </p>
+            <LineGraphEmptyState color={color} />
         )
     ) : (
         <Loading />

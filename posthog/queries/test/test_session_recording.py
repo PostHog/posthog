@@ -5,11 +5,11 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Event
+from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recording import SessionRecording, add_session_recording_ids
 
 
-def session_recording_test_factory(session_recording, event_factory):
+def session_recording_test_factory(session_recording, add_ids, event_factory):
     class TestSessionRecording(BaseTest):
         def test_query_run(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -51,23 +51,25 @@ def session_recording_test_factory(session_recording, event_factory):
                     },
                     {"distinct_id": "user2", "start_time": now(), "end_time": now() + relativedelta(seconds=30)},
                 ]
-                results = add_session_recording_ids(self.team, sessions)
+                results = add_ids(self.team, sessions)
                 self.assertEqual([r["session_recording_ids"] for r in results], [["1", "3"], [], ["2"]])
 
         def test_query_run_with_no_sessions(self):
-            self.assertEqual(add_session_recording_ids(self.team, []), [])
+            self.assertEqual(add_ids(self.team, []), [])
 
         def create_snapshot(self, distinct_id, session_id, timestamp):
             event_factory(
-                team=self.team,
+                team_id=self.team.id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                event="$snapshot",
-                properties={"$snapshot_data": {"timestamp": timestamp.timestamp()}, "$session_id": session_id,},
+                session_id=session_id,
+                snapshot_data={"timestamp": timestamp.timestamp()},
             )
 
     return TestSessionRecording
 
 
-class DjangoSessionRecordingTest(session_recording_test_factory(SessionRecording, Event.objects.create)):  # type: ignore
+class DjangoSessionRecordingTest(
+    session_recording_test_factory(SessionRecording, add_session_recording_ids, SessionRecordingEvent.objects.create)  # type: ignore
+):
     pass

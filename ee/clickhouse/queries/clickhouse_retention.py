@@ -85,7 +85,7 @@ class ClickhouseRetention(BaseQuery):
                     result_dict.get((first_day, day), {"count": 0, "people": []})
                     for day in range(total_intervals - first_day)
                 ],
-                "label": "Day {}".format(first_day),
+                "label": "{} {}".format(period, first_day),
                 "date": (date_from + self._determineTimedelta(first_day, period)[0]).strftime(
                     labels_format + (hourly_format if period == "Hour" else "")
                 ),

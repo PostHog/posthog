@@ -12,7 +12,7 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[Optional[str], Op
     date_from = None
     date_to = None
 
-    if filter._date_from and filter.date_from:
+    if filter.date_from:
         date_from = "and {table}timestamp >= '{}'".format(
             filter.date_from.strftime(
                 "%Y-%m-%d{}".format(

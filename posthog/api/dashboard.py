@@ -2,15 +2,17 @@ import secrets
 from distutils.util import strtobool
 from typing import Any, Dict
 
+import posthoganalytics
 from django.core.cache import cache
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Model, Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import authentication, request, response, serializers, viewsets
+from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
 
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
@@ -58,6 +60,12 @@ class DashboardSerializer(serializers.ModelSerializer):
                     team=team,
                 )
 
+        posthoganalytics.capture(
+            request.user.distinct_id,
+            "dashboard created",
+            {**dashboard.get_analytics_metadata(), "from_template": bool(use_template), "template_key": use_template},
+        )
+
         return dashboard
 
     def update(  # type: ignore
@@ -66,7 +74,15 @@ class DashboardSerializer(serializers.ModelSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
-        return super().update(instance, validated_data)
+
+        instance = super().update(instance, validated_data)
+
+        if "request" in self.context:
+            posthoganalytics.capture(
+                self.context["request"].user.distinct_id, "dashboard updated", instance.get_analytics_metadata()
+            )
+
+        return instance
 
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
@@ -103,7 +119,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(team=self.request.user.team)
 
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
@@ -121,6 +137,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "filters",
             "order",
             "type",
@@ -131,8 +148,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "created_at",
+            "is_sample",
             "saved",
+            "created_at",
             "created_by",
         ]
 
@@ -154,6 +172,12 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+    def update(self, instance: Model, validated_data: Dict) -> DashboardItem:
+
+        # Remove is_sample if it's set as user has altered the sample configuration
+        validated_data.setdefault("is_sample", False)
+        return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
@@ -184,7 +208,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(team=self.request.user.team)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
         for key in filters:
