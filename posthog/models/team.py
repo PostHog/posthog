@@ -30,7 +30,7 @@ class TeamManager(models.Manager):
         # Create default dashboard
         if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
             # Create app template dashboard if feature flag is active
-            dashboard = Dashboard.objects.create(name="My app dashboard", pinned=True, team=team,)
+            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team,)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
         else:
             # DEPRECATED: Will be retired in favor of dashboard_templates.py

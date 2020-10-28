@@ -155,7 +155,7 @@ export function DashboardItem({
                                         router.actions.push(link)
                                     }
                                 }}
-                                style={{ fontSize: 16, fontWeight: 'bold' }}
+                                style={{ fontSize: 16, fontWeight: '500' }}
                             >
                                 {item.name}
                             </Link>

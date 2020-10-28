@@ -208,7 +208,7 @@ class TestSignup(APIBaseTest):
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.items.count(), 7)
-        self.assertEqual(dashboard.name, "My app dashboard")
+        self.assertEqual(dashboard.name, "My App Dashboard")
         self.assertEqual(
             dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
         )
