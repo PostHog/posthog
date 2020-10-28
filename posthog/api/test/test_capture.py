@@ -29,21 +29,8 @@ class TestCapture(BaseTest):
         return json.loads(base64.b64decode(data))
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
-        print("!!!")
-        call_args = patch_process_event_with_plugins.call_args
-        try:
-            print("1")
-            args = call_args[1]["args"]
-            print("1args")
-            print(args)
-            distinct_id, ip, site_url, data, team_id, now, sent_at = args
-        except TypeError:
-            print("2")
-            print(call_args)
-            args = call_args[1]
-            print(args)
-            distinct_id, ip, site_url, data, team_id, now, sent_at = args
-            print(distinct_id)
+        args = patch_process_event_with_plugins.call_args[1]["args"]
+        distinct_id, ip, site_url, data, team_id, now, sent_at = args
 
         return {
             "distinct_id": distinct_id,
@@ -163,7 +150,7 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(
-            patch_process_event_with_plugins.call_args.kwargs["args"][3]["properties"]["$elements"][0]["$el_text"],
+            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["$elements"][0]["$el_text"],
             "💻 Writing code",
         )
 
@@ -176,7 +163,7 @@ class TestCapture(BaseTest):
             HTTP_REFERER="https://localhost",
         )
         self.assertEqual(response.json()["status"], 1)
-        self.assertEqual(patch_process_event_with_plugins.call_args.kwargs["args"][3]["event"], "whatevefr")
+        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "whatevefr")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
