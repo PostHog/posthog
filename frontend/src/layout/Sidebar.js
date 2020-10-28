@@ -70,7 +70,6 @@ const submenuOverride = {
     billing: 'organization',
     instanceStatus: 'instance',
     instanceLicenses: 'instance',
-    plugins: 'instance',
 }
 
 export const Sidebar = hot(_Sidebar)
@@ -287,9 +286,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         )}
                     </Menu.SubMenu>
 
-                    {(!user.is_multi_tenancy ||
-                        (user.is_multi_tenancy && user.is_staff) ||
-                        user.plugin_access?.configure) && (
+                    {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
                         <Menu.SubMenu
                             key="instance"
                             title={
@@ -320,14 +317,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                     <Link to={'/instance/licenses'} onClick={collapseSidebar} />
                                 </Menu.Item>
                             )}
-
-                            {user.plugin_access?.configure && (
-                                <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
-                                    <ApiOutlined />
-                                    <span className="sidebar-label">Plugins</span>
-                                    <Link to="/instance/plugins" onClick={collapseSidebar} />
-                                </Menu.Item>
-                            )}
                         </Menu.SubMenu>
                     )}
                     <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
@@ -335,6 +324,13 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">Me</span>
                         <Link to={'/me/settings'} onClick={collapseSidebar} />
                     </Menu.Item>
+                    {user.plugin_access?.configure && (
+                        <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
+                            <ApiOutlined />
+                            <span className="sidebar-label">Plugins</span>
+                            <Link to="/plugins" onClick={collapseSidebar} />
+                        </Menu.Item>
+                    )}
                 </Menu>
 
                 <Modal
