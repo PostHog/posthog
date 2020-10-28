@@ -10,6 +10,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_sessions import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessions
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.util import (
     CH_FUNNEL_ENDPOINT,
     CH_PATH_ENDPOINT,
@@ -55,6 +56,13 @@ class ClickhouseInsights(InsightViewSet):
         offset = int(request.GET.get("offset", 0))
 
         response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+
+        if "distinct_id" in request.GET and request.GET["distinct_id"]:
+            try:
+                person_ids = get_persons_by_distinct_ids(team.pk, [request.GET["distinct_id"]])[0].distinct_ids
+                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
+            except IndexError: 
+                response = []
 
         if len(response) > limit:
             response.pop()
