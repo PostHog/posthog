@@ -2,6 +2,7 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
+import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
@@ -39,21 +40,12 @@ def create_event(
     pb_event.properties = json.dumps(properties)
     pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
     pb_event.team_id = team.pk
-    pb_event.distinct_id = distinct_id
-    pb_event.elements_hash = elements_hash
+    pb_event.distinct_id = str(distinct_id)
+    pb_event.elements_chain = elements_chain
 
-    data = {
-        "uuid": str(event_uuid),
-        "event": event,
-        "properties": json.dumps(properties),
-        "timestamp": timestamp,
-        "team_id": team.pk,
-        "distinct_id": distinct_id,
-        "created_at": timestamp,
-        "elements_chain": elements_chain,
-    }
     p = ClickhouseProducer()
-    p.produce(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=data)
+
+    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
     return str(event_uuid)
 
 
