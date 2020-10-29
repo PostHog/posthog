@@ -1,3 +1,4 @@
+import '~/style/otterhog.less' // imports AntD styles too
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
