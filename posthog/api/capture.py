@@ -225,7 +225,7 @@ def replay(b=True):
             print("value 'now' not found")
             continue
         ts = parser.isoparse(val["now"])
-        print("Found event with timestamp %s - skipping" % (ts,))
+        print("Found event with timestamp %s" % (ts,))
         if begin <= ts and ts <= end:
             print("Processing event received at %s" % (val["now"],))
             process_event_ee(
@@ -237,5 +237,7 @@ def replay(b=True):
                 now=val["now"],
                 sent_at=val["sent_at"],
             )
+        else:
+            print(" ~~~ skipping ~~~ outside of bounds %s => %s" % (begin, end))
         if b:
             break
