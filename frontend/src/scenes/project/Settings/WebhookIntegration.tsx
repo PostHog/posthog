@@ -64,7 +64,7 @@ const logic = kea<logicType<UserType>>({
             const { editedWebhook } = values
             if (editedWebhook) {
                 try {
-                    const response = await api.create('api/user/test_slack_webhook', { webhook: editedWebhook })
+                    const response = await api.create('api/user/@me/test_slack_webhook', { webhook: editedWebhook })
 
                     if (response.success) {
                         actions.saveWebhook(editedWebhook)

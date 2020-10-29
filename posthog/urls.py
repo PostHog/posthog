@@ -276,10 +276,6 @@ urlpatterns = [
     path("admin/", include("loginas.urls")),
     # api
     path("api/", include(router.urls)),
-    opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
-    opt_slash_path("api/user/change_password", user.change_password),
-    opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
-    opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", team.TeamSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),

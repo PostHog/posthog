@@ -7,7 +7,7 @@ export function appEditorUrl(actionId: number, appUrl: string): string {
         ...(actionId ? { actionId } : {}),
         ...(appUrl ? { appUrl } : {}),
     }
-    return '/api/user/redirect_to_site/' + encodeParams(params, '?')
+    return '/api/user/@me/redirect_to_site/' + encodeParams(params, '?')
 }
 
 export const defaultUrl = 'https://'

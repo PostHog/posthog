@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import patch
 
 from django.test import tag
@@ -86,7 +87,7 @@ class TestSignup(APIBaseTest):
         )
 
         # Assert that the user is logged in
-        response = self.client.get("/api/user/")
+        response = self.client.get("/api/user/@me")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
 
@@ -103,6 +104,7 @@ class TestSignup(APIBaseTest):
 
         user: User = User.objects.order_by("-pk").get()
         organization: Organization = user.organization
+        print(response.data)
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
@@ -120,7 +122,7 @@ class TestSignup(APIBaseTest):
         )
 
         # Assert that the user is logged in
-        response = self.client.get("/api/user/")
+        response = self.client.get("/api/user/@me")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
 
@@ -196,7 +198,7 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk").get()
+        user = cast(User, User.objects.order_by("-pk").first())
 
         mock_feature_enabled.assert_called_with("1694-dashboards", user.distinct_id)
 

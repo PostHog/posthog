@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, cast
 
 import posthoganalytics
 from django.conf import settings
@@ -20,7 +20,7 @@ from rest_framework.decorators import action
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import OrganizationAdminWriteSpecialPutPermissions, OrganizationMemberPermissions
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -31,7 +31,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if (
             not getattr(settings, "MULTI_TENANCY", False)
-            and request.method in CREATE_METHODS
+            and request.method == "POST"
             and not request.user.organization.is_feature_available("organizations_projects")
             and request.user.organizations.count() >= 1
         ):
@@ -56,6 +56,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "updated_at",
             "anonymize_ips",
             "completed_snippet_onboarding",
+            "session_recording_opt_in",
             "ingested_event",
             "uuid",
             "opt_out_capture",
@@ -92,7 +93,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         permissions.IsAuthenticated,
         PremiumMultiprojectPermissions,
         OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
+        OrganizationAdminWriteSpecialPutPermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
@@ -101,18 +102,18 @@ class TeamViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset().filter(organization__in=self.request.user.organizations.all())
         return queryset
 
-    def get_object(self):
+    def get_object(self) -> Team:
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             return self.request.user.team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
-            obj = get_object_or_404(queryset, **filter_kwargs)
+            team = cast(Team, get_object_or_404(queryset, **filter_kwargs))
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, obj)
-        return obj
+        self.check_object_permissions(self.request, team)
+        return team
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

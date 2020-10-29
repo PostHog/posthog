@@ -1,5 +1,6 @@
 from typing import Type
 
+from django.db.models import query
 from rest_framework import mixins, response, serializers, status, viewsets
 
 from posthog.models import PersonalAPIKey
@@ -35,6 +36,7 @@ class PersonalAPIKeyViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
+    queryset = PersonalAPIKey.objects.none()
     serializer_class = PersonalAPIKeySerializer
     lookup_field = "id"
 

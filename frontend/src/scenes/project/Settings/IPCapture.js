@@ -1,17 +1,17 @@
 import React from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Switch } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import api from 'lib/api'
 
 export function IPCapture() {
-    const { userUpdateRequest } = useActions(userLogic)
     const { user } = useValues(userLogic)
 
     return (
         <div>
             <Switch
                 onChange={(checked) => {
-                    userUpdateRequest({ team: { anonymize_ips: checked } })
+                    api.update('api/team/@current', { anonymize_ips: checked })
                 }}
                 defaultChecked={user.team.anonymize_ips}
             />

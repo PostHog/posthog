@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -26,14 +26,11 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
+    teams = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Organization
-        fields = [
-            "id",
-            "name",
-            "created_at",
-            "updated_at",
-        ]
+        fields = ["id", "name", "created_at", "updated_at", "teams"]
         read_only_fields = [
             "id",
             "created_at",
@@ -45,6 +42,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         organization, _, _ = Organization.objects.bootstrap(request.user, **validated_data)
         return organization
+
+    def get_teams(self, organization: Organization) -> List[dict]:
+        return [row for row in organization.teams.order_by("-created_at").values("name", "id")]  # type: ignore
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):

@@ -11,7 +11,7 @@ class TestUser(BaseTest):
     def test_redirect_to_site(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        response = self.client.get("/api/user/redirect_to_site/?actionId=1")
+        response = self.client.get("/api/user/@me/redirect_to_site/?actionId=1")
         self.assertIn("http://somewebsite.com", response.url)
 
     def test_create_user_when_restricted(self):
@@ -29,25 +29,28 @@ class TestUser(BaseTest):
         self.assertNotEqual(user.distinct_id, None)
 
     def test_user_team_update(self):
+        team: Team = Team.objects.get(id=self.team.pk)
+        self.assertEqual(team.opt_out_capture, False)
+        self.assertEqual(team.anonymize_ips, True)
+        self.assertEqual(team.session_recording_opt_in, False)
         response = self.client.patch(
-            "/api/user/",
-            data={"team": {"opt_out_capture": True, "anonymize_ips": False, "session_recording_opt_in": True}},
+            "/api/user/@me",
+            data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
         ).json()
 
-        self.assertEqual(response["team"]["opt_out_capture"], True)
         self.assertEqual(response["team"]["anonymize_ips"], False)
         self.assertEqual(response["team"]["session_recording_opt_in"], True)
 
-        team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.opt_out_capture, True)
+        team.refresh_from_db()
+        self.assertEqual(team.opt_out_capture, False)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)
 
 
 class TestUserChangePassword(BaseTest):
     TESTS_API = True
-    ENDPOINT: str = "/api/user/change_password/"
+    ENDPOINT: str = "/api/user/@me/change_password/"
 
     def send_request(self, payload):
         return self.client.patch(self.ENDPOINT, payload, content_type="application/json")
@@ -59,12 +62,19 @@ class TestUserChangePassword(BaseTest):
     def test_change_password_invalid_old_password(self):
         response = self.send_request({"oldPassword": "12345", "newPassword": "12345"})
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "Incorrect old password")
+        self.assertEqual(
+            response.json(),
+            {"detail": "Incorrect old password", "attr": None, "code": "invalid_input", "type": "validation_error"},
+        )
 
     def test_change_password_invalid_new_password(self):
-        response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123456"})
+        with self.settings(DEBUG=1):
+            response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "123456"})
+        print(response.json())
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"], "This password is too short. It must contain at least 8 characters.")
+        self.assertEqual(
+            response.json(), {"message": "This password is too short. It must contain at least 8 characters."}
+        )
 
     def test_change_password_success(self):
         response = self.send_request({"oldPassword": self.TESTS_PASSWORD, "newPassword": "prettyhardpassword123456",})
@@ -73,25 +83,35 @@ class TestUserChangePassword(BaseTest):
 
 class TestUserSlackWebhook(BaseTest):
     TESTS_API = True
-    ENDPOINT: str = "/api/user/test_slack_webhook/"
+    ENDPOINT: str = "/api/user/@me/test_slack_webhook/"
 
     def send_request(self, payload):
         return self.client.post(self.ENDPOINT, payload, content_type="application/json")
 
     def test_slack_webhook_no_webhook(self):
         response = self.send_request({})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "no webhook URL")
+        print(response.json())
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Missing webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+        )
 
     def test_slack_webhook_bad_url(self):
         response = self.send_request({"webhook": "blabla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Invalid webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+        )
 
     def test_slack_webhook_bad_url_full(self):
         response = self.send_request({"webhook": "http://localhost/bla"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook URL")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Invalid webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+        )
 
 
 class TestLoginViews(BaseTest):

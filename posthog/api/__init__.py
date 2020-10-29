@@ -20,6 +20,7 @@ from . import (
     person,
     personal_api_key,
     team,
+    user,
 )
 
 
@@ -46,8 +47,9 @@ router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
+router.register(r"user", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
-teams_router = router.register(r"projects", team.TeamViewSet)
+router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
     r"members",

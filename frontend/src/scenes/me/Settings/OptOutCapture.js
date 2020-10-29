@@ -21,7 +21,7 @@ export function OptOutCapture() {
             <Switch
                 id="anonymize-data-collection"
                 onChange={(checked) => {
-                    api.update('api/user', {
+                    api.update('api/user/@me', {
                         user: {
                             anonymize_data: checked,
                         },

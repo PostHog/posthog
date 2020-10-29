@@ -45,6 +45,21 @@ class OrganizationAdminWritePermissions(BasePermission):
         )
 
 
+class OrganizationAdminWriteSpecialPutPermissions(BasePermission):
+    """Require organization admin level to change object, allowing everyone read, adjusted for custom PUT handling."""
+
+    message = "Your organization access level is insufficient."
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if request.method in SAFE_METHODS or request.method == "PUT":
+            return True
+        organization = extract_organization(object)
+        return (
+            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
+
+
 class OrganizationAdminAnyPermissions(BasePermission):
     """Require organization admin level to change and also read object."""
 

@@ -7,8 +7,8 @@ describe('Setup', () => {
     it('See suggestion and save', () => {
         cy.getCookie('csrftoken').then((csrftoken) => {
             cy.request({
-                url: '/api/user/',
-                body: { team: { app_urls: [] } },
+                url: '/api/team/@current',
+                body: { app_urls: [] },
                 method: 'PATCH',
                 headers: {
                     'X-CSRFToken': csrftoken.value,

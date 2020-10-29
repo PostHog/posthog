@@ -89,7 +89,7 @@ export const appUrlsLogic = kea({
     listeners: ({ values, sharedListeners, props }) => ({
         addUrlAndGo: async ({ value }) => {
             let app_urls = [...values.appUrls, value]
-            await api.update('api/user', { team: { app_urls } })
+            await api.update('api/team/@current', { app_urls })
             window.location.href = appEditorUrl(props.actionId, value)
         },
         removeUrl: sharedListeners.saveAppUrls,
@@ -97,10 +97,10 @@ export const appUrlsLogic = kea({
     }),
 
     sharedListeners: ({ values }) => ({
-        saveAppUrls: ({ value }) => {
+        saveAppUrls: async ({ value }) => {
             // Only show toast when clicking "Save"
+            await api.update('api/team/@current', { app_urls: values.appUrls })
             if (value) toast('URLs saved', { toastId: 'EditAppUrls' })
-            userLogic.actions.userUpdateRequest({ team: { app_urls: values.appUrls } }, 'SetupAppUrls')
         },
     }),
 })
