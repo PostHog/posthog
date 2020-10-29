@@ -81,33 +81,20 @@ class ClickhouseFunnel(Funnel):
         )
         return sync_execute(query, self.params)
 
-    def _data_to_return(self, results: List[Dict]) -> List[Dict[str, Any]]:
-        steps = []
-        person_score: Dict = defaultdict(int)
-        for index, funnel_step in enumerate(self._filter.entities):
-            relevant_people = []
-            for person in results:
-                if index < person["max_step"]:
-                    person_score[person["uuid"]] += 1
-                    relevant_people.append(person["uuid"])
-
-            steps.append(self._serialize_step(funnel_step, relevant_people))
-
-        if len(steps) > 0:
-            for index, _ in enumerate(steps):
-                steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[
-                    0:100
-                ]
-
-        return steps
-
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
         results = self._exec_query()
-        if len(results) == 0:
-            return self._data_to_return([])
-        width = len(results[0])  # the three
-        res = []
-        for result_tuple in results:
-            result = list(result_tuple)
-            res.append({"uuid": result[0], "max_step": result[1]})
-        return self._data_to_return(res)
+
+        steps = []
+        relevant_people = []
+        total_people = 0
+
+        for step in reversed(self._filter.entities):
+            # Clickhouse step order starts at one, hence the +1
+            result_step = [x for x in results if step.order + 1 == x[0]]
+            if len(result_step) > 0:
+                total_people += result_step[0][1]
+                relevant_people += result_step[0][2]
+            steps.append(self._serialize_step(step, total_people, relevant_people[0:100]))
+
+        return steps[::-1]  #  reverse

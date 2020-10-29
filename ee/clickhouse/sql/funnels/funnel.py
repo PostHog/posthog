@@ -1,6 +1,6 @@
 FUNNEL_SQL = """
-SELECT id, max_step FROM (
-    SELECT 
+SELECT max_step, count(1), groupArray(100)(id) FROM (
+    SELECT
         pid.person_id as id,
         windowFunnel(6048000000000000)(toUInt64(toUnixTimestamp64Micro(timestamp)),
             {steps}
@@ -15,5 +15,9 @@ SELECT id, max_step FROM (
         team_id = %(team_id)s {filters} {parsed_date_from} {parsed_date_to}
         AND event IN %(events)s
     GROUP BY pid.person_id
-) WHERE max_step > 0;
+)
+WHERE max_step > 0
+GROUP BY max_step
+ORDER BY max_step ASC
+;
 """
