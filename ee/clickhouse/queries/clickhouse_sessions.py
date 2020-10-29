@@ -32,6 +32,8 @@ class ClickhouseSessions(BaseQuery):
         if not filter._date_to and filter.date_from:
             filter._date_to = filter.date_from + relativedelta(days=1)
 
+        self._get_best_timerange(filter, team)
+
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
         query = SESSION_SQL.format(
@@ -47,6 +49,40 @@ class ClickhouseSessions(BaseQuery):
         add_session_recording_ids(team, result)
 
         return result
+
+    def _get_best_timerange(self, filter: Filter, team: Team):
+        count = 0
+        # so parse_timestamps will retain hours and minutes
+        filter.interval = "hour"
+
+        for i in range(1, 8):
+            seconds = 5 ** i
+            diff_check = relativedelta(seconds=seconds)
+            filter._date_from = filter.date_to - diff_check
+            date_from, date_to = parse_timestamps(filter)
+
+            print(
+                "SELECT count(DISTINCT distinct_id) FROM events WHERE team_id = %(team_id)s {date_from} {date_to}".format(
+                    date_from=date_from, date_to=date_to
+                )
+            )
+            result = sync_execute(
+                "SELECT count(DISTINCT distinct_id) FROM events WHERE team_id = %(team_id)s {date_from} {date_to}".format(
+                    date_from=date_from, date_to=date_to
+                ),
+                {"team_id": team.pk},
+            )
+
+            if result:
+                count = result[0][0]
+            print(count)
+            # if this option cross 100 threshold, then return so filter retains the current date range
+            if count > 100:
+                return
+
+        # return entire date range if there's no better option
+        filter._date_from = filter.date_to - relativedelta(days=1)
+        return
 
     def _parse_list_results(self, results: List[Tuple]):
         final = []
