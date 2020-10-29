@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Row } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PlusOutlined } from '@ant-design/icons'
@@ -32,7 +32,7 @@ export function InstalledPlugins(): JSX.Element {
                                 />
                             )
                         })}
-                        {installedPlugins.length == 0 && <div>No Plugins Installed!</div>}
+                        {installedPlugins.length == 0 && <Col span={24}>You don't have any plugins installed yet.</Col>}
                     </>
                 )}
                 {loading && <PluginLoading />}

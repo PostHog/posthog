@@ -81,7 +81,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
 export function PluginLoading(): JSX.Element {
     return (
         <>
-            {[...Array(4)].map((i) => {
+            {[1, 2, 3, 4].map((i) => {
                 return (
                     <Col sm={6} key={i}>
                         <Card>
