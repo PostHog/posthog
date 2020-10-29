@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 import urllib.parse
+from typing import cast
 
 import posthoganalytics
 import requests
@@ -33,6 +34,7 @@ def user(request):
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
     team = request.user.team
     teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
+    user = cast(User, request.user)
 
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -50,10 +52,8 @@ def user(request):
 
         if "user" in data:
             try:
-                request.user.current_organization = request.user.organizations.get(
-                    id=data["user"]["current_organization_id"]
-                )
-                request.user.current_team = request.user.organization.teams.first()
+                user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
+                user.current_team = user.organization.teams.first()
             except KeyError:
                 pass
             except ObjectDoesNotExist:
@@ -63,40 +63,40 @@ def user(request):
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
             try:
-                request.user.current_team = request.user.organization.teams.get(id=int(data["user"]["current_team_id"]))
+                user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
             except (KeyError, TypeError):
                 pass
             except ValueError:
                 return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
-            request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
-            request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
+            user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
+            user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
+            user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
             posthoganalytics.identify(
-                request.user.distinct_id,
+                user.distinct_id,
                 {
-                    "email_opt_in": request.user.email_opt_in,
-                    "anonymize_data": request.user.anonymize_data,
-                    "email": request.user.email if not request.user.anonymize_data else None,
+                    "email_opt_in": user.email_opt_in,
+                    "anonymize_data": user.anonymize_data,
+                    "email": user.email if not user.anonymize_data else None,
                     "is_signed_up": True,
-                    "toolbar_mode": request.user.toolbar_mode,
-                    "billing_plan": request.user.organization.billing_plan,
+                    "toolbar_mode": user.toolbar_mode,
+                    "billing_plan": user.organization.billing_plan,
                     "is_team_unique_user": (team.users.count() == 1),
                     "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
                 },
             )
-            request.user.save()
+            user.save()
 
     return JsonResponse(
         {
-            "id": request.user.pk,
-            "distinct_id": request.user.distinct_id,
-            "name": request.user.first_name,
-            "email": request.user.email,
-            "email_opt_in": request.user.email_opt_in,
-            "anonymize_data": request.user.anonymize_data,
-            "toolbar_mode": request.user.toolbar_mode,
+            "id": user.pk,
+            "distinct_id": user.distinct_id,
+            "name": user.first_name,
+            "email": user.email,
+            "email_opt_in": user.email_opt_in,
+            "anonymize_data": user.anonymize_data,
+            "toolbar_mode": user.toolbar_mode,
             "organization": {
                 "id": organization.id,
                 "name": organization.name,
@@ -124,10 +124,11 @@ def user(request):
                 "ingested_event": team.ingested_event,
             },
             "teams": teams,
+            "has_password": user.has_usable_password(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "ee_available": request.user.ee_available,
+            "ee_available": user.ee_available,
         }
     )
 
@@ -180,20 +181,23 @@ def change_password(request):
     old_password = body.get("oldPassword")
     new_password = body.get("newPassword")
 
-    if not old_password or not new_password:
-        return JsonResponse({"error": "Missing payload"}, status=400)
+    user = cast(User, request.user)
 
-    if not request.user.check_password(old_password):
-        return JsonResponse({"error": "Incorrect old password"}, status=400)
+    if user.has_usable_password():
+        if not old_password or not new_password:
+            return JsonResponse({"error": "Missing payload"}, status=400)
+
+        if not user.check_password(old_password):
+            return JsonResponse({"error": "Incorrect old password"}, status=400)
 
     try:
-        validate_password(new_password, request.user)
+        validate_password(new_password, user)
     except ValidationError as err:
         return JsonResponse({"error": err.messages[0]}, status=400)
 
-    request.user.set_password(new_password)
-    request.user.save()
-    update_session_auth_hash(request, request.user)
+    user.set_password(new_password)
+    user.save()
+    update_session_auth_hash(request, user)
 
     return JsonResponse({})
 
@@ -201,7 +205,7 @@ def change_password(request):
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
-    """Change the password of a regular User."""
+    """Test webhook."""
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
