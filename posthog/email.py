@@ -121,6 +121,6 @@ class EmailMessage:
         }
 
         if send_async:
-            _send_email.apply_async(kwargs=kwargs)
+            _send_email.apply_async(kwargs=kwargs, ignore_result=True)
         else:
             _send_email.apply(kwargs=kwargs)

@@ -74,12 +74,12 @@ def setup_periodic_tasks(sender, **kwargs):
         )
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_heartbeat():
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
