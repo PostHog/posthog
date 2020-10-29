@@ -54,7 +54,7 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
             {caption && <div className="caption">{caption}</div>}
             <Select
                 labelInValue
-                getPopupContainer={() => document.getElementById('action-select-popup')}
+                getPopupContainer={(node) => node.parentNode}
                 showSearch
                 defaultOpen
                 autoFocus
