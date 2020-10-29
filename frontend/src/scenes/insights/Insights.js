@@ -10,6 +10,7 @@ import { ActionsPie } from './ActionsPie'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { PeopleModal } from './PeopleModal'
+import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Button, Drawer, Tooltip } from 'antd'
@@ -124,7 +125,7 @@ function _Insights() {
     return (
         user?.team && (
             <div className="actions-graph">
-                <h1 className="page-header">Insights</h1>
+                <PageHeader title="Insights" />
                 <Row justify="space-between" align="middle">
                     <Tabs
                         size="large"
