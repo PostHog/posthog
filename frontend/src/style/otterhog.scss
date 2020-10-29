@@ -16,10 +16,27 @@
     font-weight: 700;
 }
 
+.oh-h3 {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 19px;
+}
+
 .oh-page-caption {
     @extend .text-default;
-    max-width: 600px;
+    max-width: 640px;
     margin-bottom: 32px;
+}
+
+.text-default {
+    color: config.$text_default;
+    font-size: 14px;
+    line-height: 16.8px;
+}
+
+.text-extra-small {
+    font-size: 11px;
+    line-height: 12.5px;
 }
 
 .text-right {
@@ -44,6 +61,18 @@
 
 .text-success {
     color: config.$success;
+}
+
+.text-warning {
+    color: config.$warning !important;
+}
+
+.text-danger {
+    color: config.$danger !important;
+}
+
+.text-muted {
+    color: config.$text_muted !important;
 }
 
 /* AntD overrides */
