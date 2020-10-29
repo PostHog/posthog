@@ -127,6 +127,13 @@ export const pluginsLogic = kea<
 
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
+                toggleEnabled: async ({ id, enabled }) => {
+                    const { pluginConfigs } = values
+                    const response = await api.update(`api/plugin_config/${id}`, {
+                        enabled,
+                    })
+                    return { ...pluginConfigs, [response.plugin]: response }
+                },
             },
         ],
         repository: [

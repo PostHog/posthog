@@ -7,7 +7,7 @@ import imgPluginDefault from 'public/plugin-default.svg'
 import { ellipsis, parseGithubRepoURL } from 'lib/utils'
 
 export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.Element {
-    const { editPlugin } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled } = useActions(pluginsLogic)
     const [state, setState] = useState({ image: imgPluginDefault })
 
     useEffect(() => {
@@ -50,7 +50,10 @@ export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.El
                 <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(plugin.description, 180)}</div>
                 <div style={{ display: 'flex' }}>
                     <div style={{ flexGrow: 1 }}>
-                        <Switch checked={plugin.pluginConfig?.enabled} />
+                        <Switch
+                            checked={plugin.pluginConfig?.enabled}
+                            onChange={(enabled) => toggleEnabled({ id: plugin.pluginConfig.id, enabled })}
+                        />
                         {plugin.pluginConfig?.global && (
                             <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
                                 Globally enabled
