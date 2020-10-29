@@ -1,19 +1,20 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet
-from django.db.models.base import Model
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
-from posthog.models import OrganizationInvite
+from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
-    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
+    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True,)
+    # Listing target_email explicitly here as it's nullable in ORM but actually required
+    target_email = serializers.CharField(required=True)
 
     class Meta:
         model = OrganizationInvite
@@ -35,12 +36,22 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> OrganizationInvite:
-        request = self.context["request"]
-        invite = OrganizationInvite.objects.create(
-            organization=request.user.organization, created_by=request.user, **validated_data
+    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
+        if OrganizationMembership.objects.filter(
+            organization_id=self.context["organization_id"], user__email=validated_data["target_email"]
+        ).exists():
+            raise ValueError("A user with this email address already belongs to the organization.")
+        if OrganizationInvite.objects.filter(
+            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
+        ).exists():
+            raise exceptions.ValidationError(
+                "An invite intended for this emails already is active in this organization."
+            )
+        return OrganizationInvite.objects.create(
+            organization_id=self.context["organization_id"],
+            created_by=self.context["request"].user,
+            target_email=validated_data["target_email"],
         )
-        return invite
 
 
 class OrganizationInviteViewSet(
@@ -70,3 +81,19 @@ class OrganizationInviteViewSet(
                 raise exceptions.NotFound()
         else:
             return queryset
+
+    def get_serializer_context(self):
+        """
+        Extra context provided to the serializer class.
+        """
+        parents_query_dict = self.get_parents_query_dict()
+        return {
+            "request": self.request,
+            "format": self.format_kwarg,
+            "view": self,
+            "organization_id": (
+                self.request.user.organization.id
+                if parents_query_dict["organization_id"] == "@current"
+                else parents_query_dict["organization_id"]
+            ),
+        }

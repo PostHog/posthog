@@ -7,6 +7,7 @@ from celery.schedules import crontab
 from celery.signals import task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
+from django.utils import timezone
 
 from posthog.cache import get_redis_instance
 
@@ -58,6 +59,8 @@ def setup_periodic_tasks(sender, **kwargs):
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
 
+    sender.add_periodic_task(crontab(day_of_week="fri"), clean_stale_partials.s())
+
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
 
@@ -93,6 +96,14 @@ def update_event_partitions():
         cursor.execute(
             "DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$"
         )
+
+
+@app.task
+def clean_stale_partials():
+    """Clean stale (meaning older than 7 days) partial social auth sessions."""
+    from social_django.models import Partial
+
+    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
 
 
 @app.task

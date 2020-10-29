@@ -32,6 +32,7 @@ drf-exceptions-hog==0.0.4
 fakeredis==1.4.3
 future==0.18.2
 gunicorn==20.0.4
+grpcio==1.33.1
 idna==2.8
 importlib-metadata==1.6.0
 infi.clickhouse-orm==2.1.0
@@ -53,6 +54,7 @@ pexpect==4.7.0
 pickleshare==0.7.5
 posthoganalytics==1.1.2
 prompt-toolkit==2.0.10
+protobuf==3.13.0
 psycopg2-binary==2.8.4
 ptyprocess==0.6.0
 pycparser==2.20
