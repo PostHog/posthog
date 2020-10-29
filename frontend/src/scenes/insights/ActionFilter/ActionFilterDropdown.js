@@ -89,7 +89,8 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
     }
 
     const message = () => {
-        if (entityType === EntityTypes.ACTIONS && !options.length) {
+        const optionsFlattened = options.map((category) => category.options || []).flat()
+        if (entityType === EntityTypes.ACTIONS && !optionsFlattened.length) {
             return (
                 <div
                     style={{
