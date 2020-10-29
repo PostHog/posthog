@@ -73,15 +73,15 @@ class ClickhouseFunnel(Funnel):
         )
         return sync_execute(query, self.params)
 
-    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: List[Dict]) -> List[Dict[str, Any]]:
         steps = []
         person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(self._filter.entities):
             relevant_people = []
             for person in results:
-                if index < person.max_step:
-                    person_score[person.uuid] += 1
-                    relevant_people.append(person.uuid)
+                if index < person["max_step"]:
+                    person_score[person["uuid"]] += 1
+                    relevant_people.append(person["uuid"])
 
             steps.append(self._serialize_step(funnel_step, relevant_people))
 
@@ -96,12 +96,10 @@ class ClickhouseFunnel(Funnel):
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         results = self._exec_query()
         if len(results) == 0:
-            return self.data_to_return([])
+            return self._data_to_return([])
         width = len(results[0])  # the three
         res = []
         for result_tuple in results:
             result = list(result_tuple)
-            person = Person(pk=result[0], uuid=result[0])
-            person.max_step = result[1]
-            res.append(person)
-        return self.data_to_return(res)
+            res.append({"uuid": result[0], "max_step": result[1]})
+        return self._data_to_return(res)
