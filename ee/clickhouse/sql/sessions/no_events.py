@@ -42,6 +42,16 @@ FROM
                 {date_from}
                 {date_to} 
                 {filters}
+                AND distinct_id IN (
+                    SELECT distinct distinct_id
+                    FROM
+                        events
+                    WHERE team_id = %(team_id)s
+                    {date_from}
+                    {date_to}
+                    ORDER BY timestamp DESC
+                    {sessions_limit}
+                )
             GROUP BY
                 uuid,
                 timestamp,
