@@ -52,7 +52,12 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 onCancel={closeModal}
                 visible={isVisible}
             >
-                <p>Create an invite for a teammate with a specific email address.</p>
+                <p>
+                    Create an invite for a teammate with a specific email address.
+                    <br />
+                    Automatic invite emails are coming soon! For now remember to send the invite link over to the
+                    teammate yourself.
+                </p>
                 <Input
                     data-attr="invite-email-input"
                     addonBefore="Email address"
