@@ -185,7 +185,7 @@ class Funnel(BaseQuery):
                     person_score[person.uuid] += 1
                     relevant_people.append(person.uuid)
             steps.append(
-                self._serialize_step(funnel_step, relevant_people, len(relevant_people) if relevant_people else 0)
+                self._serialize_step(funnel_step, len(relevant_people) if relevant_people else 0, relevant_people)
             )
 
         if len(steps) > 0:
