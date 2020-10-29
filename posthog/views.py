@@ -1,12 +1,9 @@
 from typing import Dict, Union
 
-from django import forms
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
-from django.urls.base import reverse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 

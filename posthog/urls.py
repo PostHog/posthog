@@ -151,10 +151,9 @@ def finish_social_signup(request):
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
-            partial_pipeline = Partial.objects.get(token=request.session["partial_pipeline_token"])
             request.session["company_name"] = form.cleaned_data["companyName"]
             request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
-            return redirect(reverse("social:complete", args=[partial_pipeline.backend]))
+            return redirect(reverse("social:complete", args=[request.session["backend"]]))
     else:
         form = CompanyNameForm()
     return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
@@ -167,6 +166,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
     user_name = details["fullname"]
     strategy.session_set("user_name", user_name)
+    strategy.session_set("backend", backend.name)
     from_invite = False
     invite_id = strategy.session_get("invite_id")
     if not invite_id:
@@ -211,7 +211,11 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
     posthoganalytics.capture(
         user.distinct_id,
         "user signed up",
-        properties={"is_first_user": User.objects.count() == 1, "is_first_team_user": not from_invite},
+        properties={
+            "is_first_user": User.objects.count() == 1,
+            "is_first_team_user": not from_invite,
+            "login_provider": backend.name,
+        },
     )
 
     return {"is_new": True, "user": user}
