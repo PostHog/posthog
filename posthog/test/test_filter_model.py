@@ -110,7 +110,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.assertEqual(events[0]["id"], event2.pk)
 
             filter = Filter(data={"properties": {"$current_url__not_regex": "\.eee$"}})
-            events = filter_events(filter, self.team)
+            events = filter_events(filter, self.team, order_by="timestamp")
             self.assertEqual(events[0]["id"], event1.pk)
             self.assertEqual(events[1]["id"], event2.pk)
 
