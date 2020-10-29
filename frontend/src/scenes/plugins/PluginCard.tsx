@@ -1,4 +1,4 @@
-import { Col, Card, Button, Switch } from 'antd'
+import { Col, Card, Button, Switch, Popconfirm } from 'antd'
 import { useActions } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
@@ -33,17 +33,24 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                 <div style={{ display: 'flex' }}>
                     <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
                         {pluginConfig && (
-                            <>
-                                <Switch
-                                    checked={pluginConfig.enabled}
-                                    onChange={(enabled) => toggleEnabled({ id: pluginConfig.id, enabled })}
-                                />
-                                {pluginConfig.global && (
-                                    <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
-                                        Globally enabled
-                                    </div>
-                                )}
-                            </>
+                            <Popconfirm
+                                placement="topLeft"
+                                title={`Are you sure you wish to ${
+                                    pluginConfig.enabled ? 'disable' : 'enable'
+                                } this plugin?`}
+                                onConfirm={() => toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })}
+                                okText="Yes"
+                                cancelText="No"
+                            >
+                                <div>
+                                    <Switch checked={pluginConfig.enabled} />
+                                    {pluginConfig.global && (
+                                        <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
+                                            Globally enabled
+                                        </div>
+                                    )}
+                                </div>
+                            </Popconfirm>
                         )}
                         {!pluginConfig && (
                             <>
