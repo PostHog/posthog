@@ -3,6 +3,9 @@
 
 
 loglevel = "error"
+bind = "unix://tmp/nginx.socket"
+worker_class = "gevent"
+timeout = 90
 
 
 def on_starting(server):
@@ -26,3 +29,7 @@ def on_starting(server):
     print("Server running on \x1b[4mhttp://{}:{}\x1b[0m".format(*server.address[0]))
     print("Questions? Please shoot us an email at \x1b[4mhey@posthog.com\x1b[0m")
     print("\nTo stop, press CTRL + C")
+
+
+def when_ready(server):
+    open("/tmp/app-initialized", "w").close()
