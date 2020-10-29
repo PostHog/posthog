@@ -11,11 +11,14 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
+from posthog.redis import GoldenRetriever
 from posthog.tasks.process_event import process_event
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
+
+POSTGRES_CAPTURE_BLACKLIST = GoldenRetriever("postgres_capture_blacklist")
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -183,8 +186,7 @@ def get_event(request):
                 sent_at=sent_at,
             )
 
-        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
-        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572, 700]:
+        if team.id not in POSTGRES_CAPTURE_BLACKLIST.get():
             process_event.delay(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
