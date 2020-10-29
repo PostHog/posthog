@@ -137,13 +137,13 @@ class OrganizationInvite(UUIDModel):
             assert user is not None, "Either user or email must be provided!"
             email = user.email
         if email != self.target_email:
-            raise ValueError("Invite is not intended for this email.")
+            raise ValueError("Invite intended for another email address.")
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
         if OrganizationMembership.objects.filter(
             organization=self.organization, user__email=self.target_email
         ).exists():
-            raise ValueError("Target email already is a member of the organization.")
+            raise ValueError("A user with this email address already belongs to the organization.")
 
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:

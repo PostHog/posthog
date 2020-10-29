@@ -14,6 +14,8 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
+    has_password: boolean
+    is_multi_tenancy: boolean
 }
 
 export interface UserUpdateType {

@@ -6,6 +6,7 @@ from uuid import UUID
 from celery import shared_task
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
@@ -67,7 +68,7 @@ def _capture_ee(
 
 if check_ee_enabled():
 
-    @shared_task
+    @shared_task(ignore_result=True)
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
@@ -75,6 +76,17 @@ if check_ee_enabled():
         person_uuid = UUIDT()
         event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
+
+        if data["event"] == "$snapshot":
+            create_session_recording_event(
+                uuid=event_uuid,
+                team_id=team_id,
+                distinct_id=distinct_id,
+                session_id=data["properties"]["$session_id"],
+                snapshot_data=data["properties"]["$snapshot_data"],
+                timestamp=ts,
+            )
+            return
 
         _capture_ee(
             event_uuid=event_uuid,
@@ -91,7 +103,7 @@ if check_ee_enabled():
 
 else:
 
-    @shared_task
+    @shared_task(ignore_result=True)
     def process_event_ee(*args, **kwargs) -> None:
         # Noop if ee is not enabled
         return

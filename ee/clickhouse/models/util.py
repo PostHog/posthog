@@ -1,4 +1,9 @@
 import json
+from typing import Optional, Union
+
+import pytz
+from dateutil.parser import isoparse
+from django.utils import timezone
 
 from posthog.models.property import Property
 
@@ -59,3 +64,16 @@ def is_int(val: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")

@@ -7,6 +7,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.clickhouse_session_recording import add_session_recording_ids
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
@@ -32,7 +33,7 @@ class ClickhouseSessions(BaseQuery):
             filter._date_to = filter.date_from + relativedelta(days=1)
 
         date_from, date_to = parse_timestamps(filter)
-        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
+        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
@@ -43,6 +44,7 @@ class ClickhouseSessions(BaseQuery):
         result = self._parse_list_results(query_result)
 
         self._add_person_properties(team, result)
+        add_session_recording_ids(team, result)
 
         return result
 
@@ -70,6 +72,7 @@ class ClickhouseSessions(BaseQuery):
                     "global_session_id": result[1],
                     "length": result[2],
                     "start_time": result[3],
+                    "end_time": result[9],
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},

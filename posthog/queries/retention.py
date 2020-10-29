@@ -23,8 +23,19 @@ class Retention(BaseQuery):
                 raise ValueError(f"Period {period} is unsupported.")
 
         period = filter.period or "Day"
-        date_from: datetime.datetime = filter.date_from  # type: ignore
-        filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
+
+        if period == "Hour":
+            date_from: datetime.datetime = filter.date_from  # type: ignore
+            filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
+        else:
+            filter._date_from = (
+                (filter.date_from.replace(hour=0, minute=0, second=0, microsecond=0)).isoformat()
+                if filter.date_from
+                else filter._date_from
+            )
+            date_from: datetime.datetime = filter.date_from  # type: ignore
+            filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
+
         labels_format = "%a. %-d %B"
         hourly_format = "%-H:%M %p"
         resultset = Event.objects.query_retention(filter, team)

@@ -7,6 +7,7 @@ from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
 from django.db import connection
+from django.utils import timezone
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -48,12 +49,18 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
 
+    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+
+        sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
+
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
 
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
+
+    sender.add_periodic_task(crontab(day_of_week="fri"), clean_stale_partials.s())
 
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
@@ -67,12 +74,12 @@ def setup_periodic_tasks(sender, **kwargs):
         )
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_heartbeat():
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
@@ -84,7 +91,7 @@ def redis_celery_queue_depth():
         return
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_event_partitions():
     with connection.cursor() as cursor:
         cursor.execute(
@@ -92,42 +99,57 @@ def update_event_partitions():
         )
 
 
-@app.task
+@app.task(ignore_result=True)
+def clean_stale_partials():
+    """Clean stale (meaning older than 7 days) partial social auth sessions."""
+    from social_django.models import Partial
+
+    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+
+
+@app.task(ignore_result=True)
 def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
 
 
-@app.task
+@app.task(ignore_result=True)
+def run_session_recording_retention():
+    from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
+
+    session_recording_retention_scheduler()
+
+
+@app.task(ignore_result=True)
 def calculate_event_action_mappings():
     from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
     calculate_actions_from_last_calculation()
 
 
-@app.task
+@app.task(ignore_result=True)
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
 
 
-@app.task
+@app.task(ignore_result=True)
 def check_cached_items():
     from posthog.tasks.update_cache import update_cached_items
 
     update_cached_items()
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
 
 
-@app.task
+@app.task(ignore_result=True)
 def send_weekly_email_report():
     if settings.EMAIL_REPORTS_ENABLED:
         from posthog.tasks.email import send_weekly_email_reports
@@ -135,6 +157,6 @@ def send_weekly_email_report():
         send_weekly_email_reports()
 
 
-@app.task(bind=True)
+@app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))

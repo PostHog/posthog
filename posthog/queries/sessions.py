@@ -79,7 +79,6 @@ class Sessions(BaseQuery):
 
         sessions = (
             events.filter(_date_gte)
-            .exclude(event="$snapshot")
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),

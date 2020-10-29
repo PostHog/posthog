@@ -134,17 +134,6 @@ export const keyMapping = {
             description: 'Direct link to the exception in Sentry',
             examples: ['https://sentry.io/...'],
         },
-        // Events we hide entirely from the list
-        $snapshot_data: {
-            label: 'Snapshot data',
-            description: 'JSON object used for session recordings.',
-            hide: true,
-        },
-        $session_id: {
-            label: 'Session ID',
-            description: 'Session ID used for session recordings',
-            hide: true,
-        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
