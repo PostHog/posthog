@@ -1,4 +1,4 @@
-import { Col, Card, Button, Switch, Popconfirm } from 'antd'
+import { Col, Card, Button, Switch, Popconfirm, Skeleton } from 'antd'
 import { useActions } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
@@ -75,5 +75,25 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                 </div>
             </Card>
         </Col>
+    )
+}
+
+export function PluginLoading(): JSX.Element {
+    return (
+        <>
+            {[...Array(4)].map((i) => {
+                return (
+                    <Col sm={6} key={i}>
+                        <Card>
+                            <div className="text-center">
+                                <Skeleton.Image />
+                            </div>
+
+                            <Skeleton paragraph={{ rows: 6 }} active />
+                        </Card>
+                    </Col>
+                )
+            })}
+        </>
     )
 }

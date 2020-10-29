@@ -3,7 +3,7 @@ import { Button, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { PluginCard } from './PluginCard'
+import { PluginCard, PluginLoading } from './PluginCard'
 
 export function InstalledPlugins(): JSX.Element {
     const { installedPlugins, loading } = useValues(pluginsLogic)
@@ -17,23 +17,26 @@ export function InstalledPlugins(): JSX.Element {
                     Install new plugin
                 </Button>
             </div>
-            {!loading && (
-                <Row gutter={16}>
-                    {installedPlugins.map((plugin) => {
-                        return (
-                            <PluginCard
-                                key={plugin.id}
-                                pluginId={plugin.id}
-                                name={plugin.name}
-                                url={plugin.url}
-                                description={plugin.description}
-                                pluginConfig={plugin.pluginConfig}
-                            />
-                        )
-                    })}
-                    {installedPlugins.length == 0 && <div>No Plugins Installed!</div>}
-                </Row>
-            )}
+            <Row gutter={16}>
+                {!loading && (
+                    <>
+                        {installedPlugins.map((plugin) => {
+                            return (
+                                <PluginCard
+                                    key={plugin.id}
+                                    pluginId={plugin.id}
+                                    name={plugin.name}
+                                    url={plugin.url}
+                                    description={plugin.description}
+                                    pluginConfig={plugin.pluginConfig}
+                                />
+                            )
+                        })}
+                        {installedPlugins.length == 0 && <div>No Plugins Installed!</div>}
+                    </>
+                )}
+                {loading && <PluginLoading />}
+            </Row>
         </div>
     )
 }
