@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -32,7 +33,7 @@ class ClickhouseSessions(BaseQuery):
         if not filter._date_to and filter.date_from:
             filter._date_to = filter.date_from + relativedelta(days=1)
 
-        self._get_best_timerange(filter, team)
+        self._get_best_timerange(filter, filter._date_from, team)
 
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
@@ -50,7 +51,7 @@ class ClickhouseSessions(BaseQuery):
 
         return result
 
-    def _get_best_timerange(self, filter: Filter, team: Team):
+    def _get_best_timerange(self, filter: Filter, original_date_from: Union[str, datetime], team: Team):
         count = 0
         # so parse_timestamps will retain hours and minutes
         filter.interval = "hour"
@@ -58,7 +59,7 @@ class ClickhouseSessions(BaseQuery):
         for i in range(1, 8):
             seconds = 5 ** i
             diff_check = relativedelta(seconds=seconds)
-            filter._date_from = filter.date_to - diff_check
+            filter._date_from = (filter.date_to or timezone.now()) - diff_check
             date_from, date_to = parse_timestamps(filter)
 
             result = sync_execute(
@@ -76,7 +77,8 @@ class ClickhouseSessions(BaseQuery):
                 return
 
         # return entire date range if there's no better option
-        filter._date_from = filter.date_to - relativedelta(days=1)
+        filter._date_from = original_date_from
+        filter.interval = None
         return
 
     def _parse_list_results(self, results: List[Tuple]):
