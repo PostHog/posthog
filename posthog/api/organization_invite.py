@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet
-from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
@@ -12,7 +12,9 @@ from posthog.permissions import OrganizationAdminWritePermissions, OrganizationM
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
-    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
+    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True,)
+    # Listing target_email explicitly here as it's nullable in ORM but actually required
+    target_email = serializers.CharField(required=True)
 
     class Meta:
         model = OrganizationInvite
@@ -46,7 +48,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 "An invite intended for this emails already is active in this organization."
             )
         return OrganizationInvite.objects.create(
-            organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data
+            organization_id=self.context["organization_id"],
+            created_by=self.context["request"].user,
+            target_email=validated_data["target_email"],
         )
 
 
@@ -78,15 +82,18 @@ class OrganizationInviteViewSet(
         else:
             return queryset
 
-    def create(self, request, *args, **kwargs):
+    def get_serializer_context(self):
+        """
+        Extra context provided to the serializer class.
+        """
         parents_query_dict = self.get_parents_query_dict()
-        organization_id = (
-            self.request.user.organization.id
-            if parents_query_dict["organization_id"] == "@current"
-            else parents_query_dict["organization_id"]
-        )
-        serializer = self.get_serializer(data=request.data, context={"organization_id": organization_id})
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return response.Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return {
+            "request": self.request,
+            "format": self.format_kwarg,
+            "view": self,
+            "organization_id": (
+                self.request.user.organization.id
+                if parents_query_dict["organization_id"] == "@current"
+                else parents_query_dict["organization_id"]
+            ),
+        }
