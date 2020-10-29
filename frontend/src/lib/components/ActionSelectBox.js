@@ -57,6 +57,7 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
                 getPopupContainer={() => document.getElementById('action-select-popup')}
                 showSearch
                 defaultOpen
+                autoFocus
                 onChange={(option) => {
                     onSelect(option.value, option.label.props.children)
                 }}

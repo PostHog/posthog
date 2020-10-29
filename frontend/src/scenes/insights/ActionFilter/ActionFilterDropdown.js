@@ -57,7 +57,7 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
 }
 
 export function ActionPanelContainer({ entityType, panelIndex, options, logic }) {
-    const { entities, selectedFilter, filters } = useValues(logic)
+    const { entities, selectedFilter } = useValues(logic)
     const { updateFilter } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -89,7 +89,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
     }
 
     const message = () => {
-        if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]?.length) {
+        if (entityType === EntityTypes.ACTIONS && !options.length) {
             return (
                 <div
                     style={{
