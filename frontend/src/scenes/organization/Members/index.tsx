@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { Table, Modal } from 'antd'
+import { Table, Modal, Card } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
 import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
@@ -9,6 +9,7 @@ import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface MembersProps {
     user: UserType
@@ -88,21 +89,21 @@ function _Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">Organization Members – {user?.organization.name}</h1>
-            <div style={{ maxWidth: 672 }}>
-                <i>
-                    <p>View and manage all organization members here. Build an even better product together.</p>
-                </i>
-            </div>
-            <CreateOrgInviteModalWithButton />
-            <Table
-                dataSource={members}
-                columns={columns}
-                rowKey="membership_id"
-                pagination={false}
-                style={{ marginTop: '1rem' }}
-                loading={membersLoading}
+            <PageHeader
+                title="Organization Members"
+                caption="View and manage all organization members here. Build an even better product together."
             />
+            <Card>
+                <CreateOrgInviteModalWithButton />
+                <Table
+                    dataSource={members}
+                    columns={columns}
+                    rowKey="membership_id"
+                    pagination={false}
+                    style={{ marginTop: '1rem' }}
+                    loading={membersLoading}
+                />
+            </Card>
         </>
     )
 }
