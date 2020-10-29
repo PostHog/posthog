@@ -129,6 +129,7 @@ class OrganizationInvite(UUIDModel):
         related_query_name="organization_invite",
         null=True,
     )
+    emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 

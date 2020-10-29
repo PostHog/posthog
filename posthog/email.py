@@ -29,6 +29,7 @@ def is_email_available() -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
     """
+    print(settings.EMAIL_HOST)
     return bool(settings.EMAIL_HOST)
 
 

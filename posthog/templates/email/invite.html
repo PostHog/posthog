@@ -1,0 +1,10 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+
+{% block main %}
+<div class="container">
+    <div class="section">
+        <h2>{{ invite.created_by.first_name }} invited you to PostHog organization {{ invite.organization.name }} </h2>
+        <span>Gain access to valuable product insights. <a href="{{ invite }}">Join {{ invite.organization.name }} now.</a></span>
+    </div>
+</div>
+{% endblock %}
