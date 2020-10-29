@@ -20,6 +20,14 @@ import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 
+const darkerScenes: Record<string, boolean> = {
+    dashboard: true,
+    insights: true,
+    funnel: true,
+    editFunnel: true,
+    paths: true,
+}
+
 export const App = hot(_App)
 function _App(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -69,7 +77,10 @@ function _App(): JSX.Element {
             <UpgradeModal />
             <Layout>
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
-                <Layout className={`${!sidebarCollapsed ? ' with-open-sidebar' : ''}`} style={{ minHeight: '100vh' }}>
+                <Layout
+                    className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
+                    style={{ minHeight: '100vh' }}
+                >
                     <TopContent />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
