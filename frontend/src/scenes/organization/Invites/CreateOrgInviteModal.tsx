@@ -53,10 +53,11 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 visible={isVisible}
             >
                 <p>
-                    Create an invite for a teammate with a specific email address.
+                    Create an invite link for a teammate with a specific email address.
                     <br />
-                    Automatic invite emails are coming soon! For now remember to send the invite link over to the
-                    teammate yourself.
+                    Remember to send the link to the teammate.
+                    <br />
+                    <i>Invites emailed by PostHog coming soon.</i>
                 </p>
                 <Input
                     data-attr="invite-email-input"
