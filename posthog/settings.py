@@ -355,6 +355,7 @@ CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
+CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 # Password validation

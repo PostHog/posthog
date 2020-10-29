@@ -229,7 +229,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
     return now_datetime
 
 
-@shared_task
+@shared_task(ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:

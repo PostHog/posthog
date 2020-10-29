@@ -13,7 +13,7 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 
-@shared_task
+@shared_task(ignore_result=True)
 def calculate_cohort(cohort_id: int) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
