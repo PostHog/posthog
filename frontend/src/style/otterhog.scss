@@ -42,6 +42,10 @@
     @extend .mixin-elevated;
 }
 
+.text-success {
+    color: config.$success;
+}
+
 /* AntD overrides */
 
 .ant-btn-primary {

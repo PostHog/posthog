@@ -1,13 +1,22 @@
 import { Col, Card, Button, Switch } from 'antd'
 import { useActions } from 'kea'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { pluginsLogic } from './pluginsLogic'
 import { PluginTypeWithConfig } from './types'
 import imgPluginDefault from 'public/plugin-default.svg'
-import { ellipsis } from 'lib/utils'
+import { ellipsis, parseGithubRepoURL } from 'lib/utils'
 
 export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.Element {
     const { editPlugin } = useActions(pluginsLogic)
+    const [state, setState] = useState({ image: imgPluginDefault })
+
+    useEffect(() => {
+        if (plugin.url && plugin.url.includes('github.com')) {
+            const { user, repo } = parseGithubRepoURL(plugin.url)
+            setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
+        }
+    }, [])
+
     return (
         <Col sm={6}>
             <Card
@@ -26,8 +35,14 @@ export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.El
                         marginLeft: 'auto',
                         marginRight: 'auto',
                     }}
+                    bodyStyle={{ padding: 4 }}
                 >
-                    <img src={imgPluginDefault} alt="" />
+                    <img
+                        src={state.image}
+                        style={{ maxWidth: '100%', maxHeight: '100%' }}
+                        alt=""
+                        onError={() => setState({ ...state, image: imgPluginDefault })}
+                    />
                 </Card>
                 <div className="text-center oh-spaced-bottom">
                     <b>{plugin.name}</b>

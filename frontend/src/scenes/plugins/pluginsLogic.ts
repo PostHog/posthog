@@ -3,6 +3,7 @@ import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { parseGithubRepoURL } from 'lib/utils'
 
 export const pluginsLogic = kea<
     pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
@@ -31,11 +32,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl }) => {
                     const { plugins } = values
 
-                    const match = pluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
-                    if (!match) {
-                        throw new Error('Must be in the format: https://github.com/user/repo')
-                    }
-                    const [, , user, repo] = match
+                    const { user, repo } = parseGithubRepoURL(pluginUrl)
 
                     const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
                     const repoCommits: Record<string, any>[] | null = await window
