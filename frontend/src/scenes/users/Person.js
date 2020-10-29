@@ -96,7 +96,7 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 danger
-                onClick={() => deletePersonData(person, () => history.push('/people/persons'))}
+                onClick={() => deletePersonData(person, () => history.push('/persons'))}
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>

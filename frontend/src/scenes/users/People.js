@@ -64,7 +64,7 @@ function _People() {
     }, [cohortId])
 
     useEffect(() => {
-        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people/persons', { category, cohort: cohortId })
+        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/persons', { category, cohort: cohortId })
     }, [categoryRaw])
 
     const exampleEmail =
@@ -75,7 +75,7 @@ function _People() {
             <PageHeader title="Persons" />
             <Cohort
                 onChange={(cohortId) => {
-                    push('/people/persons', { category, cohort: cohortId })
+                    push('/persons', { category, cohort: cohortId })
                 }}
             />
             <Button
@@ -99,7 +99,7 @@ function _People() {
             <Tabs
                 defaultActiveKey={category}
                 onChange={(category) => {
-                    push('/people/persons', { category, cohort: cohortId })
+                    push('/persons', { category, cohort: cohortId })
                     fetchPeople(undefined, undefined, category)
                 }}
             >

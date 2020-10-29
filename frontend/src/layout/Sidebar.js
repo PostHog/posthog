@@ -52,7 +52,7 @@ function Logo() {
 // to show the right page in the sidebar
 const sceneOverride = {
     action: 'actions',
-    person: 'people',
+    person: 'persons',
     dashboard: 'dashboards',
     featureFlags: 'experiments',
 }
@@ -62,7 +62,7 @@ const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
     sessions: 'events',
-    cohorts: 'people',
+    cohorts: 'persons',
     organizationSettings: 'organization',
     organizationMembers: 'organization',
     organizationInvites: 'organization',
@@ -202,7 +202,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.SubMenu>
 
                     <Menu.SubMenu
-                        key="people"
+                        key="persons"
                         title={
                             <span style={itemStyle} data-attr="menu-item-people">
                                 <UserOutlined />
@@ -211,18 +211,18 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/people/persons' && push('/people/persons')
+                            location.pathname !== '/persons' && push('/persons')
                         }}
                     >
-                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-people-persons">
+                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-people-persons">
                             <UserOutlined />
                             <span className="sidebar-label">Persons</span>
-                            <Link to={'/people/persons'} onClick={collapseSidebar} />
+                            <Link to={'/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">Cohorts</span>
-                            <Link to={'/people/cohorts'} onClick={collapseSidebar} />
+                            <Link to={'/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
 

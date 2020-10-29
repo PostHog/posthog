@@ -23,7 +23,7 @@ function _Cohorts() {
             key: 'name',
             render: function RenderName(_, cohort) {
                 return (
-                    <Link className={rrwebBlockClass} to={'/people/persons?cohort=' + cohort.id}>
+                    <Link className={rrwebBlockClass} to={'/persons?cohort=' + cohort.id}>
                         {cohort.name}
                     </Link>
                 )
@@ -99,12 +99,7 @@ function _Cohorts() {
             />
             <Card>
                 <div className="mb text-right">
-                    <LinkButton
-                        to={'/people/new_cohort'}
-                        type="primary"
-                        data-attr="create-cohort"
-                        icon={<PlusOutlined />}
-                    >
+                    <LinkButton to={'/cohorts/new'} type="primary" data-attr="create-cohort" icon={<PlusOutlined />}>
                         New Cohort
                     </LinkButton>
                 </div>

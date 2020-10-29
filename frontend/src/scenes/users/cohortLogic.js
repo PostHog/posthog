@@ -97,7 +97,7 @@ export const cohortLogic = kea({
                 const cohort = await api.get('api/cohort/' + props.id)
                 return actions.setCohort(cohort)
             }
-            actions.setCohort({ groups: router.values.location.pathname.indexOf('new_cohort') > -1 ? [{}] : [] })
+            actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })
         },
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout)
