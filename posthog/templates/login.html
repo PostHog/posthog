@@ -17,17 +17,19 @@
             <label for="inputPassword">Password</label>
         </div>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
-        {% if github_auth or gitlab_auth %}
-        <div class="btn-toolbar mt-3 d-flex justify-content-between">
+        {% if google_auth or github_auth or gitlab_auth %}
+        <div class="btn-toolbar mt-2">
+            {% if google_auth %}
+            <a href="{% url 'social:begin' 'google-oauth2' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with Google</a>
+            {% endif %}
             {% if github_auth %}
-            <a href="{% url 'social:begin' 'github' %}" class="btn btn-outline-dark">Sign In with Github</a>
+            <a href="{% url 'social:begin' 'github' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with GitHub</a>
             {% endif %}
             {% if gitlab_auth %}
-            <a href="{% url 'social:begin' 'gitlab' %}" class="btn btn-outline-dark">Sign In with Gitlab</a>
+            <a href="{% url 'social:begin' 'gitlab' %}{% if invite_id %}?invite_id={{ invite_id }}{% endif %}" class="btn btn-outline-dark btn-block mt-2">Sign in with GitLab</a>
             {% endif %}
         </div>
         {% endif %}
-        <br /><br />
-        <small><a href='/accounts/password_reset/'>Forgot password?</a></small>
+        <div class="mt-3"><small><a href='/accounts/password_reset/'>Forgot password?</a></small></div>
     </form>
 {% endblock %}

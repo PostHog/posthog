@@ -69,7 +69,8 @@ def retention_test_factory(retention, event_factory, person_factory):
                 ]
             )
 
-            result = retention().run(Filter(data={"date_from": self._date(0, hour=0)}), self.team)
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = retention().run(Filter(data={"date_from": self._date(0, hour=6)}), self.team)
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
@@ -288,6 +289,10 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
 
         result = Retention().run(
             Filter(data={"date_from": self._date(0, hour=0), "period": "Week"}), self.team, total_intervals=7,
+        )
+
+        self.assertEqual(
+            self.pluck(result, "label"), ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
         )
 
         self.assertEqual(

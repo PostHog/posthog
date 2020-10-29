@@ -7,6 +7,7 @@ from celery.schedules import crontab
 from celery.signals import task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
+from django.utils import timezone
 
 from posthog.cache import get_redis_instance
 
@@ -47,12 +48,18 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
 
+    if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
+
+        sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
+
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
 
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
+
+    sender.add_periodic_task(crontab(day_of_week="fri"), clean_stale_partials.s())
 
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
@@ -92,10 +99,25 @@ def update_event_partitions():
 
 
 @app.task
+def clean_stale_partials():
+    """Clean stale (meaning older than 7 days) partial social auth sessions."""
+    from social_django.models import Partial
+
+    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+
+
+@app.task
 def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
+
+
+@app.task
+def run_session_recording_retention():
+    from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
+
+    session_recording_retention_scheduler()
 
 
 @app.task
@@ -119,7 +141,7 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 

@@ -34,6 +34,10 @@ from ee.clickhouse.sql.person import (
     PERSONS_UP_TO_DATE_VIEW,
     PERSONS_WITH_PROPS_TABLE_SQL,
 )
+from ee.clickhouse.sql.session_recording_events import (
+    DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    SESSION_RECORDING_EVENTS_TABLE_SQL,
+)
 
 
 class ClickhouseTestMixin:
@@ -41,9 +45,11 @@ class ClickhouseTestMixin:
         try:
             self._destroy_event_tables()
             self._destroy_person_tables()
+            self._destroy_session_recording_tables()
 
             self._create_event_tables()
             self._create_person_tables()
+            self._create_session_recording_tables()
         except ServerException:
             pass
 
@@ -68,6 +74,12 @@ class ClickhouseTestMixin:
         sync_execute(MAT_PERSONS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_PERSONS_PROP_TABLE_SQL)
         sync_execute(PERSONS_PROP_UP_TO_DATE_VIEW)
+
+    def _destroy_session_recording_tables(self):
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+
+    def _create_session_recording_tables(self):
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
 
     def _destroy_event_tables(self):
         sync_execute(DROP_EVENTS_TABLE_SQL)

@@ -153,6 +153,23 @@
             }
         }
     }
+
+    .sample-dasbhoard-overlay {
+        background-color: rgba(0, 0, 0, 0.7);
+        position: absolute;
+        padding: 32px;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+    }
+
+    &:hover .sample-dasbhoard-overlay {
+        display: flex;
+    }
 }
 
 .react-grid-layout {
