@@ -5,6 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Col } from 'antd'
+import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -227,7 +228,7 @@ export class ActionStep extends Component {
             <div>
                 <span>
                     <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
-                        Select element on site <i className="fi flaticon-export" />
+                        Select element on site <ExportOutlined />
                     </AppEditorLink>
                     <a
                         href="https://posthog.com/docs/features/actions"

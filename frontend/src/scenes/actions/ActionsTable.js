@@ -2,7 +2,7 @@ import React from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Table } from 'antd'
-import { QuestionCircleOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -86,7 +86,7 @@ export function ActionsTable() {
                 return (
                     <span>
                         <Link to={'/action/' + action.id}>
-                            <i className="fi flaticon-edit" />
+                            <EditOutlined />
                         </Link>
                         <DeleteWithUndo
                             endpoint="action"
@@ -95,7 +95,7 @@ export function ActionsTable() {
                             style={{ marginLeft: 8 }}
                             callback={loadActions}
                         >
-                            <i className="fi flaticon-basket" />
+                            <DeleteOutlined />
                         </DeleteWithUndo>
                     </span>
                 )
