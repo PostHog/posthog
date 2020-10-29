@@ -1,8 +1,7 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet
-from django.db.models.base import Model
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
@@ -90,4 +89,4 @@ class OrganizationInviteViewSet(
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
