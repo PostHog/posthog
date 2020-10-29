@@ -1,6 +1,7 @@
 from django.test.runner import DiscoverRunner
 from infi.clickhouse_orm import Database  # type: ignore
 
+from ee.clickhouse.client import sync_execute
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -28,6 +29,8 @@ class ClickhouseTestRunner(DiscoverRunner):
             pass
         database.create_database()
         database.migrate("ee.clickhouse.migrations")
+        # Make DELETE / UPDATE synchronous to avoid flaky tests
+        sync_execute("SET mutations_sync = 1")
         return super().setup_databases(**kwargs)
 
     def teardown_databases(self, old_config, **kwargs):
