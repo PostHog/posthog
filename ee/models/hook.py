@@ -33,4 +33,4 @@ def find_and_fire_hook(
 
 def deliver_hook_wrapper(target, payload, instance, hook):
     # pass IDs not objects because using pickle for objects is a bad thing
-    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id), ignore_result=True)
+    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id))

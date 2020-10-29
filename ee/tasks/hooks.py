@@ -9,6 +9,7 @@ from rest_hooks.utils import get_hook_model
 
 class DeliverHook(Task):
     max_retries = 3
+    ignore_result = True
 
     def run(self, target: str, payload: dict, hook_id: str) -> None:
         try:
