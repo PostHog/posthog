@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team, User
 
 
-@shared_task(name="process_event_with_plugins")
+@shared_task(name="process_event_with_plugins", ignore_result=True)
 def process_event_with_plugins(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
 ) -> None:
@@ -240,7 +240,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
     return now_datetime
 
 
-@shared_task(name="process_event")
+@shared_task(name="process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
