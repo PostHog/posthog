@@ -208,7 +208,7 @@ from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 
 
 def replay(b=True):
-    begin = parser.isoparse("2020-10-28 15:36:00")
+    begin = parser.isoparse("2020-10-28 08:16:00")
     end = parser.isoparse("2020-10-29 00:48:00")
     consumer = kafka.KafkaConsumer(
         KAFKA_EVENTS_WAL,
