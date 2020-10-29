@@ -31,8 +31,8 @@ function _Plugins(): JSX.Element {
         <div>
             <h1 className="oh-page-title">Plugins</h1>
             <div className="oh-page-caption">
-                Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et
-                dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.
+                Plugins enable you to extend PostHog's core functionality. Examples include, normalizing your revenue
+                information to a single currency, adding geographical information to your events, etc.
             </div>
 
             <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>

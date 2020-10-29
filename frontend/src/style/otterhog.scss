@@ -48,6 +48,10 @@
 
 /* AntD overrides */
 
+a {
+    color: config.$primary;
+}
+
 .ant-btn-primary {
     background: config.$primary !important;
     border-color: config.$primary !important;

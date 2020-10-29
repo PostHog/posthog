@@ -11,7 +11,7 @@ export function InstalledPlugins(): JSX.Element {
 
     return (
         <div>
-            <h2 className="oh-page-subtitle">Installed ({installedPlugins.length})</h2>
+            <h2 className="oh-page-subtitle">Installed {!loading && <>({installedPlugins.length})</>}</h2>
             <div className="text-right oh-spaced-bottom">
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
                     Install new plugin
@@ -20,7 +20,16 @@ export function InstalledPlugins(): JSX.Element {
             {!loading && (
                 <Row gutter={16}>
                     {installedPlugins.map((plugin) => {
-                        return <PluginCard plugin={plugin} key={plugin.id} />
+                        return (
+                            <PluginCard
+                                key={plugin.id}
+                                pluginId={plugin.id}
+                                name={plugin.name}
+                                url={plugin.url}
+                                description={plugin.description}
+                                pluginConfig={plugin.pluginConfig}
+                            />
+                        )
                     })}
                     {installedPlugins.length == 0 && <div>No Plugins Installed!</div>}
                 </Row>

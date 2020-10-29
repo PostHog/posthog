@@ -2,17 +2,27 @@ import { Col, Card, Button, Switch } from 'antd'
 import { useActions } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { pluginsLogic } from './pluginsLogic'
-import { PluginTypeWithConfig } from './types'
 import imgPluginDefault from 'public/plugin-default.svg'
 import { ellipsis, parseGithubRepoURL } from 'lib/utils'
+import { PluginConfigType } from '~/types'
+import { PlusOutlined } from '@ant-design/icons'
+import { Link } from 'lib/components/Link'
 
-export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.Element {
-    const { editPlugin, toggleEnabled } = useActions(pluginsLogic)
+interface PluginCardType {
+    name: string
+    description: string
+    url: string
+    pluginConfig?: PluginConfigType
+    pluginId?: number
+}
+
+export function PluginCard({ name, description, url, pluginConfig, pluginId }: PluginCardType): JSX.Element {
+    const { editPlugin, toggleEnabled, installPlugin } = useActions(pluginsLogic)
     const [state, setState] = useState({ image: imgPluginDefault })
 
     useEffect(() => {
-        if (plugin.url && plugin.url.includes('github.com')) {
-            const { user, repo } = parseGithubRepoURL(plugin.url)
+        if (url.includes('github.com')) {
+            const { user, repo } = parseGithubRepoURL(url)
             setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
         }
     }, [])
@@ -45,25 +55,43 @@ export function PluginCard({ plugin }: { plugin: PluginTypeWithConfig }): JSX.El
                     />
                 </Card>
                 <div className="text-center oh-spaced-bottom">
-                    <b>{plugin.name}</b>
+                    <b>{name}</b>
                 </div>
-                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(plugin.description, 180)}</div>
+                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(description, 180)}</div>
                 <div style={{ display: 'flex' }}>
-                    <div style={{ flexGrow: 1 }}>
-                        <Switch
-                            checked={plugin.pluginConfig?.enabled}
-                            onChange={(enabled) => toggleEnabled({ id: plugin.pluginConfig.id, enabled })}
-                        />
-                        {plugin.pluginConfig?.global && (
-                            <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
-                                Globally enabled
-                            </div>
+                    <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                        {pluginConfig && (
+                            <>
+                                <Switch
+                                    checked={pluginConfig.enabled}
+                                    onChange={(enabled) => toggleEnabled({ id: pluginConfig.id, enabled })}
+                                />
+                                {pluginConfig.global && (
+                                    <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
+                                        Globally enabled
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        {!pluginConfig && (
+                            <>
+                                <Link to={url} target="_blank" rel="noopener noreferrer">
+                                    Learn more
+                                </Link>
+                            </>
                         )}
                     </div>
                     <div>
-                        <Button type="primary" onClick={() => editPlugin(plugin.id)}>
-                            Configure
-                        </Button>
+                        {pluginId && (
+                            <Button type="primary" onClick={() => editPlugin(pluginId)}>
+                                Configure
+                            </Button>
+                        )}
+                        {!pluginId && (
+                            <Button type="primary" onClick={() => installPlugin(url)} icon={<PlusOutlined />}>
+                                Install
+                            </Button>
+                        )}
                     </div>
                 </div>
             </Card>
