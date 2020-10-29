@@ -32,7 +32,7 @@ def is_email_available() -> bool:
     return bool(settings.EMAIL_HOST)
 
 
-@app.task(max_retries=3)
+@app.task(ignore_result=True, max_retries=3)
 def _send_email(
     campaign_key: str, to: List[Dict[str, str]], subject: str, headers: Dict, txt_body: str = "", html_body: str = "",
 ) -> None:
@@ -121,6 +121,6 @@ class EmailMessage:
         }
 
         if send_async:
-            _send_email.apply_async(kwargs=kwargs, ignore_result=True)
+            _send_email.apply_async(kwargs=kwargs)
         else:
             _send_email.apply(kwargs=kwargs)

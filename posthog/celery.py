@@ -157,6 +157,6 @@ def send_weekly_email_report():
         send_weekly_email_reports()
 
 
-@app.task(bind=True)
+@app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))
