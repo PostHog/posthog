@@ -3,7 +3,7 @@ import json
 from typing import Any, Callable, Dict, Optional
 
 import kafka_helper  # type: ignore
-from google.protobuf.internal.encoder import _VarintBytes
+from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
 from kafka import KafkaProducer as KP  # type: ignore
 
