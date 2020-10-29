@@ -40,6 +40,8 @@ class ClickhouseFunnel(Funnel):
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
+            for action_step in action.steps.all():
+                self.params["events"].append(action_step.event)
             action_query, action_params = format_action_filter(action, "step_{}".format(index))
             if action_query == "":
                 return ""
@@ -47,6 +49,7 @@ class ClickhouseFunnel(Funnel):
             self.params.update(action_params)
             content_sql = "uuid IN {actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
+            self.params["events"].append(entity.id)
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
         return content_sql
 
@@ -62,7 +65,12 @@ class ClickhouseFunnel(Funnel):
             self._filter._date_to = timezone.now()
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter, table="events.")
-        self.params: Dict = {"team_id": self._team.pk, **prop_filter_params}
+        self.params: Dict = {
+            "team_id": self._team.pk,
+            "events": [],  # purely a speed optimization, don't need this for filtering
+            **prop_filter_params,
+        }
+        self.events: List[str] = []
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
             team_id=self._team.id,
