@@ -61,11 +61,6 @@ class ClickhouseSessions(BaseQuery):
             filter._date_from = filter.date_to - diff_check
             date_from, date_to = parse_timestamps(filter)
 
-            print(
-                "SELECT count(DISTINCT distinct_id) FROM events WHERE team_id = %(team_id)s {date_from} {date_to}".format(
-                    date_from=date_from, date_to=date_to
-                )
-            )
             result = sync_execute(
                 "SELECT count(DISTINCT distinct_id) FROM events WHERE team_id = %(team_id)s {date_from} {date_to}".format(
                     date_from=date_from, date_to=date_to
@@ -75,7 +70,7 @@ class ClickhouseSessions(BaseQuery):
 
             if result:
                 count = result[0][0]
-            print(count)
+
             # if this option cross 100 threshold, then return so filter retains the current date range
             if count > 100:
                 return
