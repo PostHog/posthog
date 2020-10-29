@@ -13,6 +13,13 @@ $text_default: #2d2d2d;
 $text_muted: #d9d9d9;
 $text_muted_alt: #35416b;
 
+// Background colors
+$bg_navy: #35416b;
+$bg_charcoal: #2d2d2d;
+$bg_light: #f2f2f2;
+$bg_depth: #0f0f0f;
+
+// Additional style configurations
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
