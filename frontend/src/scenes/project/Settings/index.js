@@ -16,6 +16,7 @@ import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -29,7 +30,7 @@ function _Setup() {
 
     return (
         <div>
-            <h1 className="page-header">Project Settings – {user.team.name}</h1>
+            <PageHeader title={`Project Settings – ${user.team.name}`} />
             <Divider />
             <h2 id="snippet">Website Event Autocapture</h2>
             To integrate PostHog into your webiste and get event autocapture with no additional work, include the

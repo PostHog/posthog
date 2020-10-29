@@ -1,7 +1,7 @@
 import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown, Card } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
@@ -11,6 +11,8 @@ import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, 
 import { AnnotationScope, annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PlusOutlined } from '@ant-design/icons'
 
 const { TextArea } = Input
 
@@ -98,55 +100,59 @@ function _Annotations(): JSX.Element {
 
     return (
         <div>
-            <h1 className="page-header">Annotations</h1>
-            <p style={{ maxWidth: 600 }}>
-                <i>
-                    Here you can add organization- and project-wide annotations.
-                    <br />
-                    Dashboard-specific ones can be added directly in the dashboard.
-                    <br />
-                    Edit any annotation by clicking on it below.
-                </i>
-            </p>
-            <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
-                + Create Annotation
-            </Button>
-            <Table
-                data-attr="annotations-table"
-                size="small"
-                rowKey={(item): string => item.id}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
-                dataSource={annotations}
-                columns={columns}
-                loading={annotationsLoading}
-                onRow={(annotation): HTMLAttributes<HTMLElement> => ({
-                    onClick: (): void => {
-                        setSelected(annotation)
-                        setOpen(true)
-                    },
-                })}
+            <PageHeader
+                title="Annotations"
+                caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
             />
-            <div
-                style={{
-                    visibility: next ? 'visible' : 'hidden',
-                    margin: '2rem auto 5rem',
-                    textAlign: 'center',
-                }}
-            >
-                {loadingNext ? (
-                    <Spin />
-                ) : (
+
+            <Card>
+                <div className="mb text-right">
                     <Button
                         type="primary"
-                        onClick={(): void => {
-                            loadAnnotationsNext()
-                        }}
+                        data-attr="create-annotation"
+                        onClick={(): void => setOpen(true)}
+                        icon={<PlusOutlined />}
                     >
-                        {'Load more annotations'}
+                        Create Annotation
                     </Button>
-                )}
-            </div>
+                </div>
+                <Table
+                    data-attr="annotations-table"
+                    size="small"
+                    rowKey={(item): string => item.id}
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    rowClassName="cursor-pointer"
+                    dataSource={annotations}
+                    columns={columns}
+                    loading={annotationsLoading}
+                    onRow={(annotation): HTMLAttributes<HTMLElement> => ({
+                        onClick: (): void => {
+                            setSelected(annotation)
+                            setOpen(true)
+                        },
+                    })}
+                />
+                <div
+                    style={{
+                        visibility: next ? 'visible' : 'hidden',
+                        margin: '2rem auto 5rem',
+                        textAlign: 'center',
+                    }}
+                >
+                    {loadingNext ? (
+                        <Spin />
+                    ) : (
+                        <Button
+                            type="primary"
+                            onClick={(): void => {
+                                loadAnnotationsNext()
+                            }}
+                        >
+                            {'Load more annotations'}
+                        </Button>
+                    )}
+                </div>
+            </Card>
             <CreateAnnotationModal
                 visible={open}
                 onCancel={(): void => {

@@ -28,3 +28,50 @@ $bg_depth: #0f0f0f;
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
+$default_spacing: 16px;
+
+// Text styles
+
+.text-default {
+    color: $text_default;
+    font-size: 14px;
+    line-height: 16.8px;
+}
+
+.page-title {
+    font-size: 28px;
+    line-height: 34px;
+    margin-top: 32px;
+    font-weight: 700;
+    color: $text_default;
+}
+
+.page-caption {
+    @extend .text-default;
+    max-width: 640px;
+    margin-bottom: 32px;
+}
+
+.subtitle {
+    margin-top: 24px;
+    font-size: 22px;
+    line-height: 26px;
+    font-weight: 700;
+}
+
+.l3 {
+    /* Level 3 title (ideally H3) */
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 19px;
+}
+
+// Spacing & layout
+
+.mb {
+    margin-bottom: $default_spacing;
+}
+
+.mt {
+    margin-top: $default_spacing;
+}
