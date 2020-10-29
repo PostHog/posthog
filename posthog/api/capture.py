@@ -208,6 +208,7 @@ from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 
 
 def replay(b=True):
+    # set b to true if you want to test with 1 row
     begin = parser.isoparse("2020-10-28 08:16:00")
     end = parser.isoparse("2020-10-29 00:48:00")
     consumer = kafka.KafkaConsumer(
@@ -227,7 +228,7 @@ def replay(b=True):
         print("Found event with timestamp %s - skipping" % (ts,))
         if begin <= ts and ts <= end:
             print("Processing event received at %s" % (val["now"],))
-            process_event(
+            process_event_ee(
                 distinct_id=val["distinct_id"],
                 ip=val["ip"],
                 site_url=val["site_url"],
