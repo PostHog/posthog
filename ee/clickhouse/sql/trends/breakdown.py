@@ -12,7 +12,7 @@ SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
                 ) as sec
             ORDER BY breakdown_value, day_start
             UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start, value as breakdown_value
+            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start, value as breakdown_value
             FROM 
             events e {event_join} {breakdown_filter}
             GROUP BY day_start, breakdown_value
@@ -30,7 +30,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             {null_sql} as main
             ORDER BY day_start
             UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime(toStartOfDay(timestamp), 'UTC') as day_start
+            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
             FROM 
             events e {event_join} {conditions}
             GROUP BY day_start
@@ -84,10 +84,4 @@ INNER JOIN (
     {cohort_queries}
 ) ep
 ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
-"""
-
-BREAKDOWN_COHORT_FILTER_SQL = """
-SELECT distinct_id, {cohort_pk} as value
-FROM person_distinct_id
-WHERE distinct_id IN ({clause})
 """

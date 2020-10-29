@@ -2,12 +2,11 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.util import get_operator
-from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL, GET_LATEST_PERSON_SQL
 from posthog.models import Action, Cohort, Filter
 
 
-def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
     for group_idx, group in enumerate(cohort.groups):
@@ -19,34 +18,23 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             filters.append("(" + extract_person + ")")
 
         elif group.get("properties"):
+            from ee.clickhouse.models.property import prop_filter_json_extract
+
             filter = Filter(data=group)
-            props = []
-
+            query = ""
             for idx, prop in enumerate(filter.properties):
-                prepend = "{}_cohort_group_{}".format(cohort.pk, group_idx)
-
-                arg = "v{}_{}".format(prepend, idx)
-                operator_clause, value = get_operator(prop, arg)
-
-                key_statement = "(ep.key = %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend)
-                prop_filters = "{key_statement} AND {operator_clause}".format(
-                    key_statement=key_statement, operator_clause=operator_clause
+                filter_query, filter_params = prop_filter_json_extract(
+                    prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
                 )
-                clause = GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                    key_statement=key_statement,
-                    filters=prop_filters,
-                    negation="NOT " if prop.operator and "not" in prop.operator else "",
-                )
+                params = {**params, **filter_params}
+                query += " {}".format(filter_query)
+            filters.append(GET_LATEST_PERSON_SQL.format(query=query))
 
-                props.append("(" + clause + ")")
-                params.update({"k{}_{}".format(prepend, idx): prop.key, arg: value})
+    joined_filter = " OR person_id IN ".join(filters)
+    return joined_filter, params
 
-            prop_separator = " AND distinct_id IN "
-            joined_prop_filter = prop_separator.join(props)
-            final_prop_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=joined_prop_filter)
-            filters.append("(" + final_prop_query + ")")
 
-    separator = " OR distinct_id IN "
-    joined_filter = separator.join(filters)
-    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=joined_filter)
+def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+    person_query, params = format_person_query(cohort)
+    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=person_query)
     return person_id_query, params

@@ -263,6 +263,42 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        def test_funnel_person_prop(self):
+            action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
+            ActionStep.objects.create(
+                action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10"
+            )
+            action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
+            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            filters = {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "email", "value": "hello@posthog.com", "type": "person"},],
+                    },
+                ],
+                "actions": [
+                    {"id": action_credit_card.pk, "type": "actions", "order": 1,},
+                    {"id": action_play_movie.pk, "type": "actions", "order": 2,},
+                ],
+            }
+            funnel = self._basic_funnel(filters=filters)
+
+            # events
+            with_property = person_factory(
+                distinct_ids=["with_property"], team_id=self.team.pk, properties={"email": "hello@posthog.com"},
+            )
+            self._signup_event(distinct_id="with_property")
+            self._pay_event(distinct_id="with_property")
+            self._movie_event(distinct_id="with_property")
+
+            result = funnel.run()
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
     return TestGetFunnel
 
 

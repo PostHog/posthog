@@ -265,7 +265,7 @@ where person_distinct_id.team_id = %(team_id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
+INSERT INTO person SELECT %(id)s, %(timestamp)s, %(team_id)s, %(properties)s, %(is_identified)s, %(timestamp)s, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -342,18 +342,10 @@ GROUP BY key ORDER BY count DESC LIMIT %(limit)s
 
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM person_distinct_id WHERE person_id {negation}IN 
+SELECT distinct_id FROM person_distinct_id WHERE person_id IN
 (
     SELECT id
-    FROM persons_properties_view ep JOIN
-    (
-        SELECT id, key, max(created_at) created_at
-        FROM
-        persons_properties_view as ep
-        WHERE {key_statement} AND team_id = %(team_id)s
-        GROUP BY id, key
-    ) latest
-        ON ep.id = latest.id AND ep.created_at = latest.created_at
-    WHERE {filters} AND team_id = %(team_id)s
+    FROM person
+    WHERE team_id = %(team_id)s {filters}
 ) AND team_id = %(team_id)s
 """

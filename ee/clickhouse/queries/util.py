@@ -8,17 +8,18 @@ from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filter import Filter
 
 
-def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
+def parse_timestamps(filter: Filter, table: str = "") -> Tuple[Optional[str], Optional[str]]:
     date_from = None
     date_to = None
 
     if filter._date_from and filter.date_from:
-        date_from = "and timestamp >= '{}'".format(
+        date_from = "and {table}timestamp >= '{}'".format(
             filter.date_from.strftime(
                 "%Y-%m-%d{}".format(
                     " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
                 )
-            )
+            ),
+            table=table,
         )
     else:
         try:
@@ -26,12 +27,13 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
         except IndexError:
             date_from = ""
         else:
-            date_from = "and timestamp >= '{}'".format(
+            date_from = "and {table}timestamp >= '{}'".format(
                 earliest_date.strftime(
                     "%Y-%m-%d{}".format(
                         " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
                     )
-                )
+                ),
+                table=table,
             )
 
     if filter.date_to:
@@ -39,12 +41,13 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
     else:
         _date_to = timezone.now()
 
-    date_to = "and timestamp <= '{}'".format(
+    date_to = "and {table}timestamp <= '{}'".format(
         _date_to.strftime(
             "%Y-%m-%d{}".format(
                 " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 23:59:59"
-            )
-        )
+            ),
+        ),
+        table=table,
     )
     return date_from, date_to
 

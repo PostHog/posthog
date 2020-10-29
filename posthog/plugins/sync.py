@@ -2,18 +2,24 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Type
 
+from .reload import reload_plugins_on_workers
 from .utils import download_plugin_github_zip, load_json_file, load_json_zip_bytes
 
 
 def sync_plugin_config():
-    sync_posthog_json_plugins()
-    sync_global_plugin_config()
+    did_something = False
+    did_something = sync_posthog_json_plugins() or did_something
+    did_something = sync_global_plugin_config() or did_something
+
+    if did_something:
+        reload_plugins_on_workers()
 
 
 def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
     from posthog.models.plugin import Plugin
 
     json_plugins = get_json_plugins(raise_errors=raise_errors, filename=filename)
+    did_something = False
 
     config_plugins: Dict[str, Dict[str, Any]] = {}
 
@@ -28,8 +34,10 @@ def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
             if plugin.from_web:
                 plugin.from_json = False
                 plugin.save()
+                did_something = True
             else:
                 plugin.delete()
+                did_something = True
                 continue
         db_plugins[plugin.name] = plugin
 
@@ -37,8 +45,12 @@ def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
         db_plugin = db_plugins.get(name, None)
         if not db_plugin:
             create_plugin_from_config(config_plugin)
+            did_something = True
         elif not config_and_db_plugin_in_sync(config_plugin, db_plugin):
             update_plugin_from_config(db_plugin, config_plugin)
+            did_something = True
+
+    return did_something
 
 
 def get_json_plugins(raise_errors=False, filename="posthog.json"):
@@ -144,6 +156,7 @@ def print_or_raise(msg, raise_errors):
 def sync_global_plugin_config(filename="posthog.json"):
     from posthog.models.plugin import Plugin, PluginConfig
 
+    did_something = False
     posthog_json = load_json_file(filename)
 
     # get all plugins with global configs from posthog.json
@@ -165,6 +178,7 @@ def sync_global_plugin_config(filename="posthog.json"):
         name = plugin_config.plugin.name
         if not json_plugin_configs.get(name, None) or not db_plugins.get(name, None):
             plugin_config.delete()
+            did_something = True
             continue
         db_plugin_configs[name] = plugin_config
 
@@ -185,7 +199,10 @@ def sync_global_plugin_config(filename="posthog.json"):
                 db_plugin_config.order = order
                 db_plugin_config.config = config
                 db_plugin_config.save()
+                did_something = True
         elif db_plugins.get(name, None):
             PluginConfig.objects.create(
                 team=None, plugin=db_plugins[name], enabled=enabled, order=order, config=config,
             )
+
+    return did_something
