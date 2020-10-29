@@ -1,0 +1,18 @@
+/* This file contains the main styling configuration for PostHog. We also use AntD which uses LESS,
+when changing any base config here, please remember to update antd.less too  */
+
+// Main colors
+$primary: #5375ff;
+$primary_alt: #35416b;
+$success: #77b96c;
+$warning: #f7a501;
+$danger: #f96132;
+
+// Text colors
+$text_default: #2d2d2d;
+$text_muted: #d9d9d9;
+$text_muted_alt: #35416b;
+
+.mixin-elevated {
+    box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
+}

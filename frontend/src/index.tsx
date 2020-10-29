@@ -1,4 +1,6 @@
-import './style.scss'
+import '~/style/style.scss' /* Contains PostHog's main styling configurations */
+import '~/style/antd.less' /* Imports Ant Design's components */
+import './style.scss' /* DEPRECATED */
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
