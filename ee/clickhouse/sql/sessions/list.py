@@ -63,7 +63,7 @@ SESSION_SQL = """
                             {date_from}
                             {date_to}
                             ORDER BY timestamp DESC
-                            {sessions_limit}
+                            LIMIT %(distinct_id_limit)s
                         )
                     GROUP BY
                         uuid,
