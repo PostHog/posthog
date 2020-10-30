@@ -19,8 +19,19 @@ interface PluginCardType {
 export function PluginCard({ name, description, url, pluginConfig, pluginId }: PluginCardType): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin } = useActions(pluginsLogic)
 
+    const handleClick = (): void => {
+        if (pluginId) {
+            editPlugin(pluginId)
+        }
+    }
+
     return (
-        <Col sm={6}>
+        <Col
+            sm={6}
+            style={pluginConfig && { cursor: 'pointer' }}
+            onClick={handleClick}
+            data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
+        >
             <Card
                 style={{ height: '100%', display: 'flex' }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
@@ -31,7 +42,10 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                 </div>
                 <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(description, 180)}</div>
                 <div style={{ display: 'flex' }}>
-                    <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                    <div
+                        style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {pluginConfig && (
                             <Popconfirm
                                 placement="topLeft"
@@ -61,11 +75,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                         )}
                     </div>
                     <div>
-                        {pluginId && (
-                            <Button type="primary" onClick={() => editPlugin(pluginId)}>
-                                Configure
-                            </Button>
-                        )}
+                        {pluginId && <Button type="primary">Configure</Button>}
                         {!pluginId && (
                             <Button type="primary" onClick={() => installPlugin(url)} icon={<PlusOutlined />}>
                                 Install
