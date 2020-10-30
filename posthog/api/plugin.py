@@ -65,17 +65,17 @@ class PluginViewSet(viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
-    def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, *args, **kwargs) -> Response:  # type: ignore
         if not settings.PLUGINS_INSTALL_FROM_WEB:
             raise ValidationError("Plugin installation via the web is disabled!")
-        plugin = Plugin.objects.get(pk=pk)
+        plugin = Plugin.objects.get(pk=kwargs["pk"])
         if plugin.from_json:
             raise ValidationError(
                 'Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name)
             )
-        plugin.delete()
+        response = super().destroy(request, *args, **kwargs)
         reload_plugins_on_workers()
-        return Response(status=204)
+        return response
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):
