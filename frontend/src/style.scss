@@ -25,12 +25,6 @@
 @import 'node_modules/bootstrap/scss/_card';
 @import 'node_modules/bootstrap/scss/_dropdown';
 
-// // funnel
-@import 'node_modules/funnel-graph-js/src/scss/main.scss';
-
-// our components
-@import 'style/send-events-overlay';
-
 .layout-container {
     max-width: 100vw;
 }
