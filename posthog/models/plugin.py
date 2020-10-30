@@ -4,7 +4,7 @@ from django.db import models
 
 
 class FileURLField(models.URLField):
-    """URL field that accepts URLs that start with ssh:// only."""
+    """URL field that accepts URLs that start with http://, https:// and file: only"""
 
     default_validators = [validators.URLValidator(schemes=["http", "https", "file"])]
 
