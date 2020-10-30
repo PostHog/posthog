@@ -5,16 +5,15 @@
     <div class="section">
         <h1>Join {{ invite.organization.name }} on PostHog</h1>
         <p>
-            <b>{{ invite.created_by.first_name }}</b> ({{ invite.created_by.email }}) invited you to join organization {{ invite.organization.name }} on PostHog.<br/>
+            <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) invited you to join organization {{ invite.organization.name }} on PostHog.<br/>
             PostHog is an open-source product analytics tool that will help you better understand your users.
         </p>
-        <p>If you received this invite by mistake, please delete it.</p>
-        <p>For security invites, the invite will expire in 3 days.</p>
-        <a href="{{ invite }}"><button>Join {{ invite.organization.name }} now.</button></a>
+        <p><a class="button" href="{{ invite }}">Join {{ invite.organization.name }} Now</a></p>
         <p>
             If the button above does not work, paste the following link into your browser:<br/>
             <a href="{{ invite }}">{{ invite }}</a>
         </p>
+        <p>The invite will expire in 3 days.<br/>If you received this by mistake, please delete it.</p>
     </div>
 </div>
 {% endblock %}
