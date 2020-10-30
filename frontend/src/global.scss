@@ -27,6 +27,11 @@ $bg_mid: #f2f2f2;
 $bg_light: #ffffff;
 $bg_depth: #0f0f0f;
 
+// Border colors
+$border_light: #f0f0f0;
+$border: #d9d9d9;
+$border_dark: #bdbdbd;
+
 .bg-mid {
     background-color: $bg_mid !important;
 }
@@ -137,4 +142,13 @@ $radius: 2px;
     .error-details {
         font-style: italic;
     }
+}
+
+// Table styles
+.table-bordered td {
+    border: 1px solid $border;
+}
+
+.table-full-width {
+    width: 100%;
 }
