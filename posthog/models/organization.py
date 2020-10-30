@@ -137,6 +137,8 @@ class OrganizationInvite(UUIDModel):
         if not email:
             assert user is not None, "Either user or email must be provided!"
             email = user.email
+        if self.is_expired():
+            raise ValueError("Invite has expired.")
         if email != self.target_email:
             raise ValueError("Invite intended for another email address.")
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
@@ -155,6 +157,10 @@ class OrganizationInvite(UUIDModel):
             user.current_team = user.current_organization.teams.first()
             user.save()
         self.delete()
+
+    def is_expired(self) -> bool:
+        """Check if invite is older than 3 days."""
+        return self.created_at < timezone.now() - timezone.timedelta(3)
 
     def __str__(self):
         return f"{settings.SITE_URL}/signup/{self.id}/"

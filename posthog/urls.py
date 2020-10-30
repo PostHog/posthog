@@ -15,7 +15,6 @@ from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
-from social_django.models import Partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
