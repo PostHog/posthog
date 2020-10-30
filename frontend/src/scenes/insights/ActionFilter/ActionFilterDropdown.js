@@ -7,6 +7,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { ExportOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Link } from 'lib/components/Link'
+import './ActionFilterDropDown.scss'
 
 export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
