@@ -16,6 +16,7 @@ import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DeleteProject } from './DeleteProject'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -82,9 +83,9 @@ function _Setup() {
             <Divider />
             <h2>PostHog Toolbar</h2>
             <ToolbarSettings />
-            <Divider />
             {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
                 <>
+                    <Divider />
                     <h2 id="sessionrecording">
                         Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
                     </h2>
@@ -100,9 +101,11 @@ function _Setup() {
                         </a>{' '}
                         with us!
                     </p>
-                    <Divider />
                 </>
             )}
+            <Divider />
+            <h2 style={{ color: red.primary }}>Danger Zone</h2>
+            <DeleteProject />
         </div>
     )
 }
