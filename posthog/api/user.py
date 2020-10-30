@@ -17,6 +17,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
 from posthog.auth import authenticate_secondarily
+from posthog.email import is_email_available
 from posthog.models import Event, Team, User
 from posthog.version import VERSION
 
@@ -97,6 +98,7 @@ def user(request):
             "email_opt_in": user.email_opt_in,
             "anonymize_data": user.anonymize_data,
             "toolbar_mode": user.toolbar_mode,
+            "are_invite_emails_available": is_email_available(with_absolute_urls=True),
             "organization": {
                 "id": organization.id,
                 "name": organization.name,
