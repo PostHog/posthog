@@ -324,11 +324,7 @@ function FunnelInsight() {
 function FunnelPeople() {
     const { stepsWithCount } = useValues(funnelLogic)
     if (stepsWithCount && stepsWithCount.length > 0) {
-        return (
-            <div className="funnel">
-                <People />
-            </div>
-        )
+        return <People />
     }
     return <></>
 }

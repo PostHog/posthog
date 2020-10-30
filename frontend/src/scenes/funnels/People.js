@@ -4,12 +4,13 @@ import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
 import { Card, percentage, Loading } from 'lib/utils'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
+import './FunnelPeople.scss'
 
 export function People() {
     const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
 
     return (
-        <Card title="Per user" style={{ padding: 16 }}>
+        <Card title="Per user" style={{ padding: 16 }} className="funnel-people">
             {peopleLoading && <Loading />}
             {!peopleSorted && !peopleLoading && (
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
