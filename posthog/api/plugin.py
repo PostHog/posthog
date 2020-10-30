@@ -13,16 +13,10 @@ from posthog.plugins import download_plugin_github_zip, reload_plugins_on_worker
 
 
 class PluginSerializer(serializers.ModelSerializer):
-    # read_only=True if plugin is from posthog.json and shouldn't be modified in the interface
-    read_only = serializers.SerializerMethodField()
-
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json", "read_only"]
-        read_only_fields = ["id", "from_json", "read_only"]
-
-    def get_read_only(self, plugin: Plugin):
-        return plugin.from_json
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json"]
+        read_only_fields = ["id", "from_json"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.PLUGINS_INSTALL_FROM_WEB:
