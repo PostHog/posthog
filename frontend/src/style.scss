@@ -37,20 +37,8 @@
 @import 'style/action-filter-dropdown';
 @import 'style/retention-table';
 
-.posthog-title {
-    font-weight: 500;
-    font-size: 20px;
-    color: #fff;
-    padding-left: 15px;
-    margin-top: 8px;
-}
-
 .layout-container {
     max-width: 100vw;
-}
-
-.cursor-pointer {
-    cursor: pointer;
 }
 
 .badge .close {
@@ -176,20 +164,6 @@ hr {
 
 .close {
     color: hsl(0, 0%, 80%);
-}
-
-h5.modal-title {
-    font-size: 120%;
-}
-
-h2.subtitle {
-    font-size: 18px;
-    font-weight: bold;
-}
-
-.page-caption {
-    color: rgba(0, 0, 0, 0.6);
-    font-size: 14px;
 }
 
 button.no-style {
@@ -397,13 +371,6 @@ label.disabled {
 
 .btn-top {
     font-weight: 500;
-}
-
-@media screen and (max-width: 480px) {
-    h1.title {
-        line-height: 1.1em;
-        font-size: 28px;
-    }
 }
 
 @media screen and (max-width: 480px) {
