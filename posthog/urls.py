@@ -198,7 +198,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
             return HttpResponse(processed, status=401)
 
         try:
-            user = strategy.create_user(email=user_email, name=user_name)
+            user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
             processed = render_to_string(
