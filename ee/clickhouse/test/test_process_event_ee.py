@@ -49,6 +49,6 @@ def get_elements(event_id: Union[int, UUID]) -> List[Element]:
 
 class ClickhouseProcessEvent(
     ClickhouseTestMixin,
-    test_process_event_factory(process_event_ee, _get_events, get_session_recording_events, get_elements),
+    test_process_event_factory(process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
 ):
     pass
