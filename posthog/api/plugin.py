@@ -102,9 +102,9 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            return queryset.none()
-        return queryset.filter(team_id=self.request.user.team.pk)
+        if settings.PLUGINS_CONFIGURE_FROM_WEB:
+            return queryset.filter(team_id=self.request.user.team.pk)
+        return queryset.none()
 
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
