@@ -25,6 +25,8 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
         }
     }
 
+    const switchDisabled = (pluginConfig && pluginConfig.global) || !pluginConfig || !pluginConfig.id
+
     return (
         <Col
             sm={6}
@@ -37,14 +39,16 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
                 <PluginImage url={url} />
-                <div className="text-center oh-spaced-bottom">
+                <div className="text-center mb" style={{ marginBottom: 16 }}>
                     <b>{name}</b>
                 </div>
                 <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(description, 180)}</div>
-                <div style={{ display: 'flex' }}>
+                <div style={{ display: 'flex', minHeight: 44, alignItems: 'center' }}>
                     <div
                         style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                            if (!switchDisabled) e.stopPropagation()
+                        }}
                     >
                         {pluginConfig && (
                             <Popconfirm
@@ -55,9 +59,10 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                                 onConfirm={() => toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })}
                                 okText="Yes"
                                 cancelText="No"
+                                disabled={switchDisabled}
                             >
                                 <div>
-                                    <Switch checked={pluginConfig.enabled} />
+                                    <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
                                     {pluginConfig.global && (
                                         <div style={{ paddingTop: 4, fontSize: 11 }} className="text-muted">
                                             Globally enabled

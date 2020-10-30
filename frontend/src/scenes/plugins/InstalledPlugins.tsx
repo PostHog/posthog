@@ -22,7 +22,7 @@ export function InstalledPlugins(): JSX.Element {
                 </div>
             )}
             <Row gutter={16}>
-                {!loading && (
+                {(!loading || installedPlugins.length > 0) && (
                     <>
                         {installedPlugins.map((plugin) => {
                             return (
@@ -39,7 +39,7 @@ export function InstalledPlugins(): JSX.Element {
                         {installedPlugins.length == 0 && <Col span={24}>You don't have any plugins installed yet.</Col>}
                     </>
                 )}
-                {loading && <PluginLoading />}
+                {loading && installedPlugins.length === 0 && <PluginLoading />}
             </Row>
         </div>
     )

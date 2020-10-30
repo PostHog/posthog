@@ -17,7 +17,7 @@ export const pluginsLogic = kea<
         setPluginTab: (tab: string) => ({ tab }),
     },
 
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -66,8 +66,6 @@ export const pluginsLogic = kea<
                         tag,
                         config_schema: json.config,
                     })
-
-                    actions.setPluginTab('installed')
 
                     return { ...plugins, [response.id]: response }
                 },
