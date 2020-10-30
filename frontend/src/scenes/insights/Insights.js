@@ -305,7 +305,6 @@ function FunnelInsight() {
     return (
         <div style={{ height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
-            <Loading />
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
