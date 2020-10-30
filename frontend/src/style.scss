@@ -122,9 +122,12 @@ $body-color: #37352f;
     background: #fff;
     text-align: center;
     min-height: 6rem;
-    > div {
-        height: calc(50% - 20px);
-    }
+    opacity: 0.7;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     &.over-table {
         display: block;
         background: rgba(0, 0, 0, 0.1);
