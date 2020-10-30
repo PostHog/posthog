@@ -5,7 +5,7 @@ import requests
 from django.conf import settings
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.models import Plugin, PluginConfig
@@ -19,9 +19,9 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.PLUGINS_INSTALL_FROM_WEB:
-            raise APIException("Plugin installation via the web is disabled!")
+            raise ValidationError("Plugin installation via the web is disabled!")
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
-            raise APIException('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+            raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
         if "from_json" in validated_data:  # prevent hackery
             del validated_data["from_json"]
@@ -31,9 +31,11 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if not settings.PLUGINS_INSTALL_FROM_WEB:
-            raise APIException("Plugin installation via the web is disabled!")
+            raise ValidationError("Plugin installation via the web is disabled!")
         if plugin.from_json:
-            raise APIException('Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name))
+            raise ValidationError(
+                'Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name)
+            )
         plugin.name = validated_data.get("name", plugin.name)
         plugin.description = validated_data.get("description", plugin.description)
         plugin.url = validated_data.get("url", plugin.url)
@@ -58,17 +60,19 @@ class PluginViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request):
         if not settings.PLUGINS_INSTALL_FROM_WEB:
-            return Response([])
+            raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         if not settings.PLUGINS_INSTALL_FROM_WEB:
-            raise APIException("Plugin installation via the web is disabled!")
+            raise ValidationError("Plugin installation via the web is disabled!")
         plugin = Plugin.objects.get(pk=pk)
         if plugin.from_json:
-            raise APIException('Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name))
+            raise ValidationError(
+                'Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name)
+            )
         plugin.delete()
         reload_plugins_on_workers()
         return Response(status=204)
@@ -81,15 +85,15 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            raise APIException("Plugin configuration via the web is disabled!")
+            raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
         reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
-        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            raise APIException("Plugin configuration via the web is disabled!")
+        if True or not settings.PLUGINS_CONFIGURE_FROM_WEB:
+            raise ValidationError("Plugin configuration via the web is disabled!")
         plugin_config.enabled = validated_data.get("enabled", plugin_config.enabled)
         plugin_config.config = validated_data.get("config", plugin_config.config)
         plugin_config.order = validated_data.get("order", plugin_config.order)
@@ -111,7 +115,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         if not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            raise APIException("Plugin configuration via the web is disabled!")
+            raise ValidationError("Plugin configuration via the web is disabled!")
         plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
