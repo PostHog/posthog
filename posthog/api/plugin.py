@@ -42,7 +42,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == "get" or self.action == "list":
+        if self.action == "get" or self.action == "list":  # type: ignore
             if settings.PLUGINS_INSTALL_FROM_WEB or settings.PLUGINS_CONFIGURE_FROM_WEB:
                 return queryset
         else:
@@ -59,7 +59,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
-    def destroy(self, request: request.Request, *args, **kwargs) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
         reload_plugins_on_workers()
         return response
