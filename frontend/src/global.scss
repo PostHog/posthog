@@ -1,6 +1,13 @@
 /* This file contains the main styling configuration for PostHog. We also use AntD which uses LESS,
 when changing any base config here, please remember to update antd.less too  */
 
+/* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
+nimble to simplify maintenance. */
+
+// Global components
+@import 'node_modules/react-toastify/dist/ReactToastify';
+@import 'node_modules/react-datepicker/dist/react-datepicker';
+
 // Main colors
 $primary: #5375ff;
 $primary_alt: #35416b;
@@ -29,12 +36,14 @@ $bg_depth: #0f0f0f;
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
 $default_spacing: 16px;
+$radius: 2px;
 
 // Text styles
 .text-default {
     color: $text_default;
     font-size: 14px;
     line-height: 20px;
+    font-weight: 400;
 }
 
 .page-title {
@@ -89,4 +98,43 @@ $default_spacing: 16px;
 // Random general styles
 .cursor-pointer {
     cursor: pointer;
+}
+
+// Toasts
+.Toastify__toast-container {
+    opacity: 1;
+    transform: none;
+}
+
+.Toastify__toast {
+    padding: 16px;
+    border-radius: $radius;
+    color: $text_default;
+    font-family: inherit;
+    background-color: $bg_light;
+}
+
+.Toastify__toast-body {
+    @extend .l3;
+    color: $success;
+    p {
+        @extend .text-default;
+        color: $text_default;
+    }
+}
+
+.Toastify__progress-bar--default {
+    background: $success;
+}
+
+.Toastify__toast--error {
+    h1 {
+        color: $danger;
+    }
+    .Toastify__progress-bar {
+        background: $danger;
+    }
+    .error-details {
+        font-style: italic;
+    }
 }

@@ -32,7 +32,6 @@
 // our components
 @import 'style/events';
 @import 'style/funnel';
-@import 'style/toast';
 @import 'style/trends';
 @import 'style/send-events-overlay';
 @import 'style/action-filter-dropdown';
@@ -214,33 +213,6 @@ button.no-style {
     overflow: scroll;
 }
 
-.Toastify__toast--error {
-    background: white !important;
-
-    h1 {
-        font-size: 16px !important;
-        color: red;
-    }
-    p {
-        font-size: 14px;
-        margin-bottom: 8px;
-    }
-    p.info {
-        margin-bottom: 0;
-    }
-    p.error-message {
-        font-style: italic;
-    }
-    .Toastify__progress-bar {
-        background: #ffbcbc;
-    }
-}
-
-.Toastify__toast--success {
-    background: hsl(111 88% 33%);
-    color: white;
-}
-
 label.disabled {
     color: #888;
 }
@@ -303,10 +275,6 @@ label.disabled {
 }
 .ant-select-selection-item .property-key-info-logo {
     vertical-align: text-bottom;
-}
-
-.Toastify__progress-bar--default {
-    background: var(--success) !important;
 }
 
 #bottom-notice {

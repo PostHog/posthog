@@ -535,3 +535,16 @@ export function sampleSingle<T>(items: T[]): T[] {
     if (!items.length) throw Error('Items array is empty!')
     return [items[Math.floor(Math.random() * items.length)]]
 }
+
+export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
+    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
+    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
+    const match = input.match(/[A-Za-z][a-z]*/g)
+    if (!match) return null
+
+    return match
+        .map((group) => {
+            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
+        })
+        .join(' ')
+}
