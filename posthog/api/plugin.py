@@ -30,8 +30,6 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if not settings.PLUGINS_INSTALL_FROM_WEB:
-            raise ValidationError("Plugin installation via the web is disabled!")
         if plugin.from_json:
             raise ValidationError(
                 'Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name)
@@ -53,8 +51,13 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if settings.PLUGINS_INSTALL_FROM_WEB or settings.PLUGINS_CONFIGURE_FROM_WEB:
-            return queryset
+        if self.action == "get" or self.action == "list":
+            if settings.PLUGINS_INSTALL_FROM_WEB or settings.PLUGINS_CONFIGURE_FROM_WEB:
+                return queryset
+        else:
+            if settings.PLUGINS_INSTALL_FROM_WEB:
+                # block update/delete for plugins that come from posthog.json
+                return queryset.filter(from_json=False)
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
@@ -66,13 +69,6 @@ class PluginViewSet(viewsets.ModelViewSet):
         return Response(json.loads(plugins.text))
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:  # type: ignore
-        if not settings.PLUGINS_INSTALL_FROM_WEB:
-            raise ValidationError("Plugin installation via the web is disabled!")
-        plugin = Plugin.objects.get(pk=kwargs["pk"])
-        if plugin.from_json:
-            raise ValidationError(
-                'Can not delete plugin "{}", which is configured from posthog.json!'.format(plugin.name)
-            )
         response = super().destroy(request, *args, **kwargs)
         reload_plugins_on_workers()
         return response
@@ -92,8 +88,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
-        if True or not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            raise ValidationError("Plugin configuration via the web is disabled!")
         plugin_config.enabled = validated_data.get("enabled", plugin_config.enabled)
         plugin_config.config = validated_data.get("config", plugin_config.config)
         plugin_config.order = validated_data.get("order", plugin_config.order)
@@ -114,8 +108,6 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
 
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
-        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            raise ValidationError("Plugin configuration via the web is disabled!")
         plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
