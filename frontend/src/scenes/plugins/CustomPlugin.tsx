@@ -10,7 +10,7 @@ export function CustomPlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 32 }}>
             <Card>
-                <h3 className="oh-h3">Install Custom Plugin</h3>
+                <h3 className="l3">Install Custom Plugin</h3>
                 <p>
                     To install a third-party or custom plugin, please paste the plugin's repository below.{' '}
                     <b className="text-warning">Warning: Only install plugin from trusted sources.</b>

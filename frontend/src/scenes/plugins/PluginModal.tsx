@@ -91,7 +91,7 @@ export function PluginModal(): JSX.Element {
                                 <Switch />
                             </Form.Item>
                         </div>
-                        <h3 className="oh-h3" style={{ marginTop: 32 }}>
+                        <h3 className="l3" style={{ marginTop: 32 }}>
                             Configuration
                         </h3>
                         {Object.keys(editingPlugin.config_schema).map((configKey) => (

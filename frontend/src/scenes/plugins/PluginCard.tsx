@@ -45,7 +45,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                                 <div>
                                     <Switch checked={pluginConfig.enabled} />
                                     {pluginConfig.global && (
-                                        <div style={{ paddingTop: 4 }} className="text-extra-small text-muted">
+                                        <div style={{ paddingTop: 4, fontSize: 11 }} className="text-muted">
                                             Globally enabled
                                         </div>
                                     )}

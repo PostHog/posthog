@@ -13,7 +13,7 @@ export function InstalledPlugins(): JSX.Element {
 
     return (
         <div>
-            <h2 className="oh-page-subtitle">Installed {!loading && <>({installedPlugins.length})</>}</h2>
+            <h2 className="subtitle">Installed {!loading && <>({installedPlugins.length})</>}</h2>
             {user?.plugin_access?.install && (
                 <div className="text-right oh-spaced-bottom">
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>

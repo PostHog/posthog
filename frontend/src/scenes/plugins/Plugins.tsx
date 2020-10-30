@@ -29,8 +29,8 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            <h1 className="oh-page-title">Plugins</h1>
-            <div className="oh-page-caption">
+            <h1 className="page-header">Plugins</h1>
+            <div style={{ maxWidth: 600 }}>
                 Plugins enable you to extend PostHog's core functionality. Examples include, normalizing your revenue
                 information to a single currency, adding geographical information to your events, etc.
             </div>

@@ -1,6 +1,5 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
-import '~/style/otterhog.scss'
 import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'

@@ -9,7 +9,7 @@ export function Repository(): JSX.Element {
 
     return (
         <div>
-            <h2 className="oh-page-subtitle">Available</h2>
+            <h2 className="subtitle">Available</h2>
             <Row gutter={16}>
                 {!loading && !repositoryLoading && (
                     <>
