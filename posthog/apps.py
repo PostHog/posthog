@@ -28,6 +28,7 @@ class PostHogConfig(AppConfig):
         ):
             from posthog.plugins import sync_plugin_config
 
+            # syncs posthog.json['plugins'] and the Plugin/PluginConfig models
             sync_plugin_config()
 
         if settings.DEBUG:
