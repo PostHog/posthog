@@ -28,11 +28,12 @@ function _Members({ user }: MembersProps): JSX.Element {
                         member.user_id == user.id ? 'Leave' : `Remove ${member.user_first_name} from`
                     } organization ${user.organization.name}?`,
                     icon: <ExclamationCircleOutlined />,
-                    okText: 'Delete',
+                    okText: member.user_id == user.id ? 'Leave' : 'Remove',
                     okType: 'danger',
                     cancelText: 'Cancel',
                     onOk() {
                         removeMember(member)
+                        if (member.user_id == user.id) location.reload()
                     },
                 })
             }
