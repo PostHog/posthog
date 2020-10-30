@@ -30,7 +30,8 @@ class PluginSerializer(serializers.ModelSerializer):
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
-        plugin = Plugin.objects.create(from_web=True, **validated_data)
+        validated_data["from_web"] = True
+        plugin = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin
 
@@ -74,22 +75,22 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = PluginConfig
         fields = ["id", "plugin", "enabled", "order", "config"]
+        read_only_fields = ["id"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        plugin_config = PluginConfig.objects.create(team=request.user.team, **validated_data)
+        validated_data["team"] = request.user.team
+        plugin_config = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
-        plugin_config.enabled = validated_data.get("enabled", plugin_config.enabled)
-        plugin_config.config = validated_data.get("config", plugin_config.config)
-        plugin_config.order = validated_data.get("order", plugin_config.order)
-        plugin_config.save()
+        validated_data.pop("plugin", None)
+        response = super().update(plugin_config, validated_data)
         reload_plugins_on_workers()
-        return plugin_config
+        return response
 
 
 class PluginConfigViewSet(viewsets.ModelViewSet):
@@ -111,7 +112,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def global_plugins(self, request: request.Request):
-        if not settings.PLUGINS_INSTALL_FROM_WEB:
+        if not settings.PLUGINS_CONFIGURE_FROM_WEB:
             return Response([])
 
         response = []
