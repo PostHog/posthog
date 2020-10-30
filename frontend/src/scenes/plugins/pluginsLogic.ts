@@ -3,6 +3,7 @@ import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { userLogic } from 'scenes/userLogic'
 
 export const pluginsLogic = kea<
     pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
@@ -243,6 +244,13 @@ export const pluginsLogic = kea<
     },
 
     events: ({ actions }) => ({
-        afterMount: [actions.loadPlugins, actions.loadPluginConfigs, actions.loadRepository],
+        afterMount: () => {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+
+            if (userLogic.values.user?.plugin_access.install) {
+                actions.loadRepository()
+            }
+        },
     }),
 })
