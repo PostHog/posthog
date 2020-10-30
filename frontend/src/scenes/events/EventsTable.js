@@ -12,10 +12,9 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 import { PageHeader } from 'lib/components/PageHeader'
-
 import { eventToName, toParams } from 'lib/utils'
-
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import './EventsTable.scss'
 
 export function EventsTable({
     fixedFilters,

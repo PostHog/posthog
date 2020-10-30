@@ -4,7 +4,7 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
-import './retentionTable.scss'
+import './RetentionTable.scss'
 
 export function RetentionTable() {
     const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(retentionTableLogic)

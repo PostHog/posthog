@@ -1,6 +1,9 @@
+@import '~/vars';
+
 .events {
     .event-day-separator {
-        background-color: $gray-300;
+        background-color: darken($bg_mid, 10%);
+        font-weight: bold;
         text-align: center;
     }
     .event-row {
@@ -10,7 +13,9 @@
     }
     .event-row-new,
     .event-new-events {
-        background-color: $gray-300;
+        background-color: darken($bg_mid, 10%);
+        font-weight: bold;
+        transition: background-color 0.3s ease-out;
     }
     .event-row-is-exception {
         background-color: lighten($danger, 40%);
