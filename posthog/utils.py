@@ -25,7 +25,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
 
-from posthog.cache import get_redis_instance
+from posthog.redis import get_client
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -285,7 +285,7 @@ def generate_cache_key(stringified: str) -> str:
 
 
 def get_redis_heartbeat() -> Union[str, int]:
-    redis_instance = get_redis_instance()
+    redis_instance = get_client()
     if not redis_instance:
         return "offline"
 
@@ -409,8 +409,8 @@ def is_redis_alive() -> bool:
 
 
 def get_redis_info() -> Mapping[str, Any]:
-    return get_redis_instance().info()
+    return get_client().info()
 
 
 def get_redis_queue_depth() -> int:
-    return get_redis_instance().llen("celery")
+    return get_client().llen("celery")

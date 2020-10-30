@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from posthog.cache import get_redis_instance
+from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -75,14 +75,14 @@ def setup_periodic_tasks(sender, **kwargs):
 
 @app.task(ignore_result=True)
 def redis_heartbeat():
-    get_redis_instance().set("POSTHOG_HEARTBEAT", int(time.time()))
+    get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        llen = get_redis_instance().llen("celery")
+        llen = get_client().llen("celery")
         g.send("queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
