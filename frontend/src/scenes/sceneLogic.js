@@ -34,7 +34,7 @@ export const scenes = {
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
 export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {

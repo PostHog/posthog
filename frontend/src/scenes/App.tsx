@@ -55,9 +55,9 @@ function _App(): JSX.Element {
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (
-            <>
+            <Layout>
                 <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
+            </Layout>
         ) : (
             <div />
         )

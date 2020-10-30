@@ -31,7 +31,6 @@ $bg_depth: #0f0f0f;
 $default_spacing: 16px;
 
 // Text styles
-
 .text-default {
     color: $text_default;
     font-size: 14px;
@@ -66,12 +65,28 @@ $default_spacing: 16px;
     line-height: 19px;
 }
 
-// Spacing & layout
+.text-right {
+    text-align: right;
+}
 
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+// Spacing & layout
 .mb {
     margin-bottom: $default_spacing;
 }
 
 .mt {
     margin-top: $default_spacing;
+}
+
+// Random general styles
+.cursor-pointer {
+    cursor: pointer;
 }
