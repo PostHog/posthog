@@ -1,3 +1,5 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -41,6 +43,7 @@ export interface OrganizationType {
     billing_plan: string
     billing: OrganizationBilling
     teams: TeamType[]
+    membership_level: OrganizationMembershipLevel | null
 }
 
 export interface TeamType {

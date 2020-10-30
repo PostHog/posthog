@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, status, viewsets
 
 from posthog.models import Organization
+from posthog.models.organization import OrganizationMembership
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -26,14 +27,11 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
+    membership_level = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Organization
-        fields = [
-            "id",
-            "name",
-            "created_at",
-            "updated_at",
-        ]
+        fields = ["id", "name", "created_at", "updated_at", "membership_level"]
         read_only_fields = [
             "id",
             "created_at",
@@ -42,9 +40,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        request = self.context["request"]
-        organization, _, _ = Organization.objects.bootstrap(request.user, **validated_data)
+        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
+
+    def get_membership_level(self) -> Optional[OrganizationMembership.Level]:
+        membership = OrganizationMembership.objects.filter(
+            organization=self.instance, user=self.context["request"].user
+        ).first()
+        return membership.level if membership is not None else None
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
