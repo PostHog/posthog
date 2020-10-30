@@ -5,11 +5,13 @@ import { invitesLogic } from './logic'
 import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 export function CreateOrgInviteModalWithButton(): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -52,7 +54,13 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 onCancel={closeModal}
                 visible={isVisible}
             >
-                <p>Create an invite for a teammate with a specific email address.</p>
+                <p>
+                    Create an invite for a teammate with a specific email address.
+                    <br />
+                    {user?.are_invite_emails_available
+                        ? 'PostHog will then email it to the address.'
+                        : "Since this PostHog instance isn't configured for emailing invites, remember to share the link!"}
+                </p>
                 <Input
                     data-attr="invite-email-input"
                     addonBefore="Email address"

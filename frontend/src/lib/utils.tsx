@@ -112,7 +112,16 @@ export function Card(props: Record<string, any>): JSX.Element {
     )
 }
 
-export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
+export function deleteWithUndo({
+    undo = false,
+    ...props
+}: {
+    undo?: boolean
+    endpoint: string
+    name?: string
+    object: { id: any; name?: string }
+    callback?: () => void
+}): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
         deleted: !undo,
