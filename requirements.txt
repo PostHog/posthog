@@ -79,8 +79,11 @@ sqlparse==0.3.0
 tenacity==6.1.0
 toronado==0.0.11
 traitlets==4.3.3
+typing==3.7.4.3
+typing-extensions==3.7.4.2
 uritemplate==3.0.1
 urllib3==1.25.8
+uuid==1.30
 vine==1.3.0
 wcwidth==0.1.9
 Werkzeug==1.0.0
