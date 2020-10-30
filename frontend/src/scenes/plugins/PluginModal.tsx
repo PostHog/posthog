@@ -1,12 +1,13 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Drawer, Popconfirm, Switch } from 'antd'
+import { Button, Form, Input, Popconfirm, Switch } from 'antd'
 import { DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from './PluginImage'
 import { ellipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
+import { Drawer } from 'lib/components/Drawer'
 
 export function PluginModal(): JSX.Element {
     const { user } = useValues(userLogic)
