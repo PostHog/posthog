@@ -7,6 +7,7 @@ import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { userLogic } from 'scenes/userLogic'
 
 function trimTag(tag: string): string {
+    // show the short 7-char tag if it's a 40-char github hash
     if (tag.match(/^[a-f0-9]{40}$/)) {
         return tag.substring(0, 7)
     }
