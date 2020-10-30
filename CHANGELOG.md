@@ -9,7 +9,7 @@
 
 - [ClickHouse 👆🏠](https://github.com/PostHog/posthog/pulls?page=1&q=is%3Apr+clickhouse+is%3Aclosed)
 
-![Clickhouse Screenshot](https://posthog.com/static/497eaa939ba2d66d6e2492a3631d468f/2cefc/clickhouse.png)
+![Clickhouse Screenshot](https://posthog.com/static/bf2c9d775b519ae2132048751c1909b0/2cefc/clickhouse.png)
 
 If you've followed our progress on GitHub over the past months, you'll know that ClickHouse has been the talk of the town.
 
@@ -25,7 +25,7 @@ If you're interested in using PostHog with ClickHouse, send us an email at _sale
 
 - [Command Palette](https://github.com/PostHog/posthog/pull/1819)
 
-![Command Palette Screenshot](https://posthog.com/static/8513e8c18553e4fc9a3e6948dab5c35b/2cefc/command-palette.png)
+![Command Palette Screenshot](https://posthog.com/static/8e2f200d5ba2252b33f4bdb20784d614/2cefc/command-palette.png)
 
 <br />
 
@@ -41,7 +41,7 @@ Stay tuned for more exciting features that were built during the hackathon.
 
 - [Backend Feature Flags](https://github.com/PostHog/posthog-python/pull/9)
 
-![Backend Feature Flags Code](https://posthog.com/static/b12efdcc6c415513af002951f35c8528/2cefc/backend-flags.png)
+![Backend Feature Flags Code](https://posthog.com/static/5dfed95825588d03f88309c661539326/2cefc/backend-flags.png)
 
 Based on community feedback, we made it easier for feature flags to be integrated with your backend, in addition to our frontend JavaScript implementation.
 
@@ -51,7 +51,7 @@ We have ourselves been using feature flags with the Python integration to slowly
 
 - [Weekly Report Email](https://github.com/PostHog/posthog/pull/1700)
 
-![Weekly Email Screenshot](https://posthog.com/static/054f1fcbdb9fcb12383b34c0019f5966/2cefc/weekly-email.png)
+![Weekly Email Screenshot](https://posthog.com/static/b2f8999a674c1be5307cafd5bc760070/2cefc/weekly-email.png)
 
 To help users keep up with their key metrics in a simple way, we have introduced a weekly email that gives you an overview of your active and churned users over the previous week.
 
@@ -459,7 +459,7 @@ Clicking on any section in the retention table will tell you exactly what users 
 
 - Many toolbar fixes.
 
-![heatmap](../images/casts/heatmap.gif)
+![heatmap](https://posthog.com/images/429b37ae1bb9cc559ade21c81b56a687/heatmap.gif)
 
 #### Bug fixes and performance improvements
 
@@ -487,28 +487,28 @@ Clicking on any section in the retention table will tell you exactly what users 
 
 - It's like inspect element, but for user data.
 
-![inspect](https://posthog.com/images/3ce1232ef29d0d59b4ac2779d8e97cf8/inspect.gif)
+![inspect](https://posthog.com/images/c9709b954e8ea19cf23a633eb35cac05/inspect.gif)
 
 - Easily see the ranking of which parts of the page your users are interacting with the most:
 
-![heatmap](https://posthog.com/images/782d9d2142c331403efdbec7ebd56145/heatmap.gif)
+![heatmap](https://posthog.com/images/429b37ae1bb9cc559ade21c81b56a687/heatmap.gif)
 
 - We learned a ton about our product and website within minutes of trying this out.
 
-![toolbar dance](https://posthog.com/images/55fe4bbc5e8fbc428fe4f1830f3d280c/dance.gif)
+![toolbar dance](https://posthog.com/images/1f1984b6926d02444eef3148293c72af/dance.gif)
 
 #### Feature flags
 
 - Feature flags let you roll out changes to users with a certain property, or to a percentage of users, or some combo of the two.
 
-![feature flags](https://posthog.com/static/2824e49b2d3200ba4260a1bb83edb6ad/db910/feature-flags.png)
+![feature flags](https://posthog.com/static/99083b2fefbe9b348c4150c0964d474e/db910/feature-flags.png)
 
 #### Other exciting, enthralling and invigorating features
 
 - Flutter Integration. You asked for it and now [it's here](https://posthog.com/docs/integrations/flutter-integration)!
 - Retention page. PostHog already had stickiness, but now there is a table that demonstrates perhaps more clearly how your users are coming back (or not!)
 
-![retention view](https://posthog.com/static/c72806fa990efb5ea9bcf852c9ba9ffe/dc333/retention-view.png)
+![retention view](https://posthog.com/static/33cdb2d1cd630a44b67da0425ca639e3/dc333/retention-view.png)
 
 - Better onboarding. We've had a go at redoing how our set up flow works, and will be tracking if it helps more people get through PostHog's own funnel!
 - Platform.sh deployment. A very simple, new and trendy way to get up and running!
@@ -544,7 +544,7 @@ Clicking on any section in the retention table will tell you exactly what users 
 ### 1.9.0 - Thursday 18 June 2020
 
 - [Sessions view](https://github.com/PostHog/posthog/pull/926)
-![sessions overview](https://posthog.com/static/b64e1508790f6b60958d5d320f2b8a22/efc66/sessions-overview.png)
+![sessions overview](https://posthog.com/static/bdce507cbee394ad12a0a86695889f5f/2cefc/sessions-overview.png)
 - You can then see exactly how a user interacted with your app:
 ![sessions more detail](https://posthog.com/static/c4fe51ff11bbe87eb64c00daf7cc3d78/efc66/session-broken-out.png)
 This should really help with debugging, or just trying to get a detailed view of what users are up to.
@@ -594,7 +594,7 @@ This should really help with debugging, or just trying to get a detailed view of
 
 - [Cumulative graphs](https://github.com/PostHog/posthog/pull/862)
 
-![cumulative graphs](https://posthog.com/images/8b9a5516ddcc2ac7030b690273ed7e8e/cumulative-graph.gif)
+![cumulative graphs](https://posthog.com/images/bfe6baa6ab1a5cac9ca7a74a9d920a7c/cumulative-graph.gif)
 
 - [More powerful paths](https://github.com/PostHog/posthog/pull/897)
 
@@ -630,12 +630,12 @@ This should really help with debugging, or just trying to get a detailed view of
 - [Reactive Native](https://github.com/PostHog/posthog-react-native)
 - [Comparison charts](https://github.com/PostHog/posthog/pull/824)
 
-![Comparison charts](https://posthog.com/images/a1571726df68831e4626a937a19821d0/side-by-side-comparison.gif)
+![Comparison charts](https://posthog.com/images/8fe8e9e7c6ac033b80ba06f9c3f36f98/side-by-side-comparison.gif)
 
 
 - [Tooltip: View the users inside each datapoint](https://github.com/PostHog/posthog/pull/830/commits/64e1ef34b5d8565934b1980d33432cef4e7002f7)
 
-![Hover breakdown](https://posthog.com/static/729a492575e82595e30266d63dc13765/c83ae/hover-breakdown.png)
+![Hover breakdown](https://posthog.com/static/5a29596c659e08c983fe803abd607f21/2cefc/hover-breakdown.png)
 
 - [Property keys explained](https://github.com/PostHog/posthog/pull/822)
 

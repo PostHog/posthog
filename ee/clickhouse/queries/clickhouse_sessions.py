@@ -33,7 +33,7 @@ class ClickhouseSessions(BaseQuery):
             filter._date_to = filter.date_from + relativedelta(days=1)
 
         date_from, date_to = parse_timestamps(filter)
-        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
+        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,

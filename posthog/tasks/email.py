@@ -24,7 +24,7 @@ def send_weekly_email_reports() -> None:
         _send_weekly_email_report_for_team.delay(team_id=team.pk,)
 
 
-@app.task(max_retries=1)
+@app.task(ignore_result=True, max_retries=1)
 def _send_weekly_email_report_for_team(team_id: int) -> None:
     """
     Sends the weekly email report to all users in a team.

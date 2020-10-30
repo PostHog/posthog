@@ -68,7 +68,7 @@ def _capture_ee(
 
 if check_ee_enabled():
 
-    @shared_task
+    @shared_task(ignore_result=True)
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
@@ -103,7 +103,7 @@ if check_ee_enabled():
 
 else:
 
-    @shared_task
+    @shared_task(ignore_result=True)
     def process_event_ee(*args, **kwargs) -> None:
         # Noop if ee is not enabled
         return

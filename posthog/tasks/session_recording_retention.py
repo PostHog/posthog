@@ -20,7 +20,7 @@ def session_recording_retention_scheduler() -> None:
         session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold)
 
 
-@shared_task(max_retries=1)
+@shared_task(ignore_result=True, max_retries=1)
 def session_recording_retention(team_id: int, time_threshold: str) -> None:
     time_threshold_dt = parser.isoparse(time_threshold)
     events = SessionRecordingEvent.objects.filter(team_id=team_id, timestamp__lte=time_threshold_dt).order_by(

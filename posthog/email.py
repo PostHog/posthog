@@ -33,7 +33,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     return bool(settings.EMAIL_HOST) and (not with_absolute_urls or settings.SITE_URL is not None)
 
 
-@app.task(max_retries=3)
+@app.task(ignore_result=True, max_retries=3)
 def _send_email(
     campaign_key: str, to: List[Dict[str, str]], subject: str, headers: Dict, txt_body: str = "", html_body: str = "",
 ) -> None:

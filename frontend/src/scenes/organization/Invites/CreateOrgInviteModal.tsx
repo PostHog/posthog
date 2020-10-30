@@ -36,7 +36,7 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
             </Button>
             <Modal
                 title="Inviting Teammate"
-                okText="Create Invite"
+                okText="Create Invite Link"
                 cancelText="Cancel"
                 onOk={() => {
                     setErrorMessage(null)
