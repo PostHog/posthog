@@ -50,7 +50,8 @@ class ClickhouseTestMixin:
             self._create_event_tables()
             self._create_person_tables()
             self._create_session_recording_tables()
-        except ServerException:
+        except ServerException as e:
+            print(e)
             pass
 
     def _destroy_person_tables(self):
@@ -113,4 +114,4 @@ CH_RETENTION_ENDPOINT = "ch-retention-endpoint"
 
 
 def endpoint_enabled(endpoint_flag: str, distinct_id: str):
-    return posthoganalytics.feature_enabled(endpoint_flag, distinct_id) or settings.DEBUG or settings.TEST
+    return settings.DEBUG or settings.TEST or posthoganalytics.feature_enabled(endpoint_flag, distinct_id)
