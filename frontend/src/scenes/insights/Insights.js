@@ -48,6 +48,8 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 
+import './Insights.scss'
+
 const { TabPane } = Tabs
 
 const displayMap = {
