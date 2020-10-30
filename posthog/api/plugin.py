@@ -53,9 +53,9 @@ class PluginViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not settings.PLUGINS_INSTALL_FROM_WEB and not settings.PLUGINS_CONFIGURE_FROM_WEB:
-            return queryset.none()
-        return queryset
+        if settings.PLUGINS_INSTALL_FROM_WEB or settings.PLUGINS_CONFIGURE_FROM_WEB:
+            return queryset
+        return queryset.none()
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request):
