@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from uuid import UUID
 
 from celery import shared_task
+from django.db.utils import IntegrityError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
@@ -11,9 +12,10 @@ from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
+from posthog.tasks.process_event import handle_identify_or_alias, handle_timestamp, store_names_and_properties
 
 
 def _capture_ee(
@@ -54,6 +56,14 @@ def _capture_ee(
 
     store_names_and_properties(team=team, event=event, properties=properties)
 
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        # Catch race condition where in between getting and creating,
+        # another request already created this user
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            pass
+
     # # determine create events
     create_event(
         event_uuid=event_uuid,
@@ -72,18 +82,22 @@ if check_ee_enabled():
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
-        properties = data.get("properties", data.get("$set", {}))
+        properties = data.get("properties", {})
+        if data.get("$set"):
+            properties["$set"] = data["$set"]
+
         person_uuid = UUIDT()
         event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
+        handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 
         if data["event"] == "$snapshot":
             create_session_recording_event(
                 uuid=event_uuid,
                 team_id=team_id,
                 distinct_id=distinct_id,
-                session_id=data["properties"]["$session_id"],
-                snapshot_data=data["properties"]["$snapshot_data"],
+                session_id=properties["$session_id"],
+                snapshot_data=properties["$snapshot_data"],
                 timestamp=ts,
             )
             return
