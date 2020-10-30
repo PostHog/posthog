@@ -13,9 +13,16 @@ from posthog.plugins import download_plugin_github_zip, reload_plugins_on_worker
 
 
 class PluginSerializer(serializers.ModelSerializer):
+    # read_only=True if plugin is from posthog.json and shouldn't be modified in the interface
+    read_only = serializers.SerializerMethodField()
+
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json", "read_only"]
+        read_only_fields = ["id", "from_json", "read_only"]
+
+    def get_read_only(self, plugin: Plugin):
+        return plugin.from_json
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.PLUGINS_INSTALL_FROM_WEB:
@@ -23,26 +30,15 @@ class PluginSerializer(serializers.ModelSerializer):
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
-        if "from_json" in validated_data:  # prevent hackery
-            del validated_data["from_json"]
         plugin = Plugin.objects.create(from_web=True, **validated_data)
         reload_plugins_on_workers()
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        if plugin.from_json:
-            raise ValidationError(
-                'Can not update plugin "{}", which is configured from posthog.json!'.format(plugin.name)
-            )
-        plugin.name = validated_data.get("name", plugin.name)
-        plugin.description = validated_data.get("description", plugin.description)
-        plugin.url = validated_data.get("url", plugin.url)
-        plugin.config_schema = validated_data.get("config_schema", plugin.config_schema)
-        plugin.tag = validated_data.get("tag", plugin.tag)
-        plugin.archive = download_plugin_github_zip(plugin.url, plugin.tag)
-        plugin.save()
+        validated_data["archive"] = download_plugin_github_zip(plugin.url, plugin.tag)
+        response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
-        return plugin
+        return response
 
 
 class PluginViewSet(viewsets.ModelViewSet):
