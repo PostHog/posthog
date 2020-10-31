@@ -1,8 +1,8 @@
 import React, { useState, useRef, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './logic'
-import hedgehogBlue from '../../../public/hedgehog-blue.png'
-import posthogLogo from '../../../public/posthog-icon.svg'
+import hedgehogBlue from 'public/hedgehog-blue.png'
+import posthogLogo from 'public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
