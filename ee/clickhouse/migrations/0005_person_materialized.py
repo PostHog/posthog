@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations  # type: ignore
+from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.sql.person import (
     MAT_PERSONS_PROP_TABLE_SQL,

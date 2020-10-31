@@ -1,16 +1,14 @@
 import json
-import uuid
 import warnings
 from typing import Any, Dict, List
 
 from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
-from django.db.models.expressions import Value
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers  # type: ignore
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.models import Event, Filter, Person, Team
 from posthog.utils import convert_property_value

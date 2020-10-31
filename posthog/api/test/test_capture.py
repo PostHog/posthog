@@ -2,16 +2,14 @@ import base64
 import gzip
 import json
 from datetime import timedelta
-from unittest.mock import call, patch
+from unittest.mock import patch
 from urllib.parse import quote
 
-import lzstring  # type: ignore
-from django.conf import settings
+import lzstring
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import PersonalAPIKey, Team
-from posthog.tasks.process_event import _capture
+from posthog.models import PersonalAPIKey
 
 from .base import BaseTest
 

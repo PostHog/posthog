@@ -2,7 +2,7 @@ import os
 import time
 
 import redis
-import statsd  # type: ignore
+import statsd
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings

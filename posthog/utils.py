@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
-import lzstring  # type: ignore
+import lzstring
 import pytz
 import redis
 from dateutil import parser
