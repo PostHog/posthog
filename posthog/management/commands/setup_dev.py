@@ -13,6 +13,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         with transaction.atomic():
+            print("!")
             organization, team, user = User.objects.bootstrap(
                 company_name=ORGANIZATION_NAME,
                 email="test@posthog.com",
@@ -30,10 +31,15 @@ class Command(BaseCommand):
             user.current_organization = organization
             user.current_team = team
             user.save()
+            print("!!")
             heroku_app_name = os.getenv("HEROKU_APP_NAME")
             base_url = (
                 f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
             )
+            print("!!!")
             _create_anonymous_users(team=team, base_url=base_url)
+            print("!!!!")
             _create_funnel(team=team, base_url=base_url)
+            print("!!!!!")
             _recalculate(team=team)
+            print("!!!!!! - END")
