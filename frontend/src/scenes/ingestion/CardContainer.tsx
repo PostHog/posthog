@@ -43,6 +43,7 @@ export function CardContainer({
                 <Card
                     data-attr="wizard-continue-button"
                     className="card big-button"
+                    role="button"
                     style={{
                         marginTop: 20,
                         width: '65vw',

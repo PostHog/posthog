@@ -75,6 +75,7 @@
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
         "@hot-loader/react-dom": "^16.13.0",
+        "@testing-library/cypress": "^7.0.1",
         "@types/react-dom": "^16.9.8",
         "@types/react-redux": "^7.1.9",
         "@types/react-syntax-highlighter": "^11.0.4",

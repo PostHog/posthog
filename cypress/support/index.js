@@ -6,56 +6,58 @@ require('cypress-terminal-report/src/installLogsCollector')()
 beforeEach(() => {
     cy.visit('/')
 
+    const signupDetails = {
+        name: 'name',
+        company: 'Hedgehogs, Inc.',
+        email: 'fake@posthog.com',
+        password: 'Test1234',
+    }
+
     cy.url().then((url) => {
         if (url.includes('preflight')) {
-            cy.get('.text-center > .ant-btn-default').click()
-            cy.get('[data-attr=preflight-complete]').click()
-            signUp()
+            cy.findByRole('button', { name: /Just experimenting/i }).click()
+            cy.findByRole('button', { name: /Continue/i }).click()
+            cy.signUp(signupDetails, true)
         } else if (url.includes('signup')) {
-            signUp()
+            cy.signUp(signupDetails, true)
         } else if (url.includes('login')) {
-            logIn()
+            cy.loginByForm()
         }
-        cy.wait(200)
+
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=select-platform-Web]').length) {
-                cy.get('[data-attr=select-platform-Web]').click()
-                cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 2')
-                cy.get('[data-attr=wizard-continue-button]').click()
-                cy.get('[data-attr=wizard-complete-button]').should('exist')
-                cy.get('[data-attr=wizard-complete-button]').click()
+                cy.findByRole('button', { name: /Web/i }).click()
+                cy.findByTestId('wizard-step-counter').should('contain', 'Step 2')
+                cy.findByRole('button', { name: /Continue/i }).click()
+                cy.findByTestId('wizard-step-counter').should('contain', 'Step 3')
+                cy.findByRole('button', { name: /Complete/i }).click()
             }
         })
     })
 })
 
-const signUp = () => {
-    cy.get('#signupCompanyName').type('Hedgehogs, Inc.').should('have.value', 'Hedgehogs, Inc.')
+// const signUp = () => {
+//     cy.signUp()
 
-    cy.get('#signupFirstName').type('name').should('have.value', 'name')
+//     cy.visit('/demo')
 
-    cy.get('#signupEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+//     cy.location('pathname', { timeout: 6000 }).should('eq', '/demo')
 
-    cy.get('#signupPassword').type('Test1234').should('have.value', 'Test1234')
+//     cy.visit('/')
 
-    cy.get('button[data-attr="signup"]').click()
+//     cy.location('pathname', { timeout: 6000 }).should('eq', '/')
+// }
 
-    cy.wait(3000)
+// const logIn = () => {
+//     cy.findByRole('textbox', { name: /Email address/i })
+//         .type('fake@posthog.com')
+//         .should('have.value', 'fake@posthog.com')
+//     cy.findByLabelText(/Password/i)
+//         .type('Test1234')
+//         .should('have.value', 'Test1234')
 
-    cy.visit('/demo')
-
-    cy.wait(1000)
-
-    cy.visit('/')
-}
-
-const logIn = () => {
-    cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-
-    cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
-
-    cy.get('.btn').click()
-}
+//     cy.findByRole('button', { name: /Sign in/i }).click()
+// }
 
 Cypress.on('uncaught:exception', () => {
     return false

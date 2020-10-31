@@ -122,8 +122,9 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 />
             </Form.Item>
 
-            <Form.Item label="Roll out feature to percentage of users">
+            <Form.Item name="rollout" label="Roll out feature to percentage of users">
                 <Switch
+                    id="rollout"
                     checked={!!rollout_percentage}
                     onChange={(checked) => (checked ? setRolloutPercentage(30) : setRolloutPercentage(null))}
                     data-attr="feature-flag-switch"

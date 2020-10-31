@@ -1,30 +1,33 @@
 describe('Auth', () => {
     it('Logout', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.findByTestId('user-options-dropdown').trigger('mouseover')
+        cy.findByRole('link', { name: /Logout/i })
+            .should('exist')
+            .click()
+        cy.location('pathname', { timeout: 6000 }).should('eq', '/login')
     })
 
     it('Logout and login', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.findByTestId('user-options-dropdown').trigger('mouseover')
+        cy.findByRole('link', { name: /Logout/i })
+            .should('exist')
+            .click()
 
-        cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+        cy.location('pathname', { timeout: 6000 }).should('eq', '/login')
 
-        cy.get('#inputPassword').type('password').should('have.value', 'password')
+        cy.loginByForm()
 
-        cy.get('.btn').click()
+        cy.location('pathname', { timeout: 6000 }).should('eq', '/insights')
     })
 
     it('Try logging in improperly', () => {
-        cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
-        cy.get('[data-attr=user-options-logout]').click()
+        cy.findByTestId('user-options-dropdown').trigger('mouseover')
+        cy.findByRole('link', { name: /Logout/i })
+            .should('exist')
+            .click()
 
-        cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+        cy.loginByForm('fake@posthog.com', 'wrong password')
 
-        cy.get('#inputPassword').type('wrong password').should('have.value', 'wrong password')
-
-        cy.get('.btn').click()
-
-        cy.get('[data-attr=login-error]').should('exist')
+        cy.findByText(/Your username and password didn't match. Please try again./i)
     })
 })

@@ -1,8 +1,8 @@
 import React, { useState, useRef, lazy, Suspense } from 'react'
 import { useActions, useValues } from 'kea'
 import { signupLogic } from './logic'
-import hedgehogBlue from 'public/hedgehog-blue.png'
-import posthogLogo from 'public/posthog-icon.svg'
+import hedgehogBlue from '../../../public/hedgehog-blue.png'
+import posthogLogo from '../../../public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
 import queryString from 'query-string'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
@@ -81,7 +81,7 @@ function Signup() {
                 >
                     <form onSubmit={handleSubmit}>
                         <div className="ph-input-group">
-                            <label>First Name</label>
+                            <label htmlFor="signupFirstName">First Name</label>
                             <Input
                                 placeholder="Jane"
                                 autoFocus
@@ -94,7 +94,7 @@ function Signup() {
                         </div>
 
                         <div className="ph-input-group">
-                            <label>Company or Project</label>
+                            <label htmlFor="signupCompanyName">Company or Project</label>
                             <Input
                                 placeholder="Hogflix Movies"
                                 value={formState.companyName.value}
@@ -105,7 +105,7 @@ function Signup() {
                         </div>
 
                         <div className="ph-input-group">
-                            <label>Email</label>
+                            <label htmlFor="signupEmail">Email</label>
                             <Input
                                 placeholder="jane@hogflix.io"
                                 type="email"
@@ -122,7 +122,7 @@ function Signup() {
                                 state.submitted && !formState.password.valid ? 'errored' : ''
                             }`}
                         >
-                            <label>Password</label>
+                            <label htmlFor="signupPassword">Password</label>
                             <Input.Password
                                 value={formState.password.value}
                                 onChange={(e) => updateForm('password', e.target)}
@@ -131,7 +131,7 @@ function Signup() {
                                 disabled={accountLoading}
                                 id="signupPassword"
                             />
-                            <Suspense fallback={<span />}>
+                            <Suspense fallback={<span></span>}>
                                 <PasswordStrength password={formState.password.value} />
                             </Suspense>
                             {!formState.password.valid && (
