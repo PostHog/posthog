@@ -8,7 +8,6 @@ import re
 import subprocess
 import time
 import uuid
-from datetime import date
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
@@ -155,21 +154,23 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
-def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
+def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from posthog.models import Team
 
-    if context is None:
-        context = {}
     template = get_template(template_name)
+
+    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
+    team: Optional[Team] = None
     try:
-        context["opt_out_capture"] = request.user.team.opt_out_capture
+        team = request.user.team
     except (Team.DoesNotExist, AttributeError):
-        # If there's one team on the instance, and they've set opt_out we'll opt out anonymous users too
-        if Team.objects.count() == 1:
-            context["opt_out_capture"] = (Team.objects.first().opt_out_capture,)  # type: ignore
+        team = Team.objects.first()
 
     if os.environ.get("OPT_OUT_CAPTURE"):
+        # Prioritise instance-level config
         context["opt_out_capture"] = True
+    else:
+        context["opt_out_capture"] = team.opt_out_capture if team else False
 
     if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
@@ -187,8 +188,7 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["git_branch"] = get_git_branch()
 
     if settings.SELF_CAPTURE:
-        team = Team.objects.first()
-        if team is not None:
+        if team:
             context["js_posthog_api_key"] = f"'{team.api_token}'"
             context["js_posthog_host"] = "window.location.origin"
     else:
