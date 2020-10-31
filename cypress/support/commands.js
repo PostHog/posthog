@@ -116,8 +116,6 @@ Cypress.Commands.add('signUp', (signupDetails, includeNavigation = true) => {
     cy.location('pathname', { timeout: 6000 }).should('eq', '/insights')
 
     if (includeNavigation) {
-        cy.signUp()
-
         cy.visit('/demo')
 
         cy.location('pathname', { timeout: 6000 }).should('eq', '/demo')
