@@ -10,7 +10,7 @@ from posthog.models import Action
 logger = logging.getLogger(__name__)
 
 
-@shared_task
+@shared_task(ignore_result=True)
 def calculate_action(action_id: int) -> None:
     start_time = time.time()
     action = Action.objects.get(pk=action_id)

@@ -75,7 +75,7 @@ class Funnel(BaseQuery):
             annotations["step_{}".format(index)] = query
         return annotations
 
-    def _serialize_step(self, step: Entity, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = Action.objects.get(team=self._team.pk, pk=step.id).name
         else:
@@ -85,7 +85,7 @@ class Funnel(BaseQuery):
             "name": name,
             "order": step.order,
             "people": people if people else [],
-            "count": len(people) if people else 0,
+            "count": count,
             "type": step.type,
         }
 
@@ -184,7 +184,9 @@ class Funnel(BaseQuery):
                 if getattr(person, "step_{}".format(index)):
                     person_score[person.uuid] += 1
                     relevant_people.append(person.uuid)
-            steps.append(self._serialize_step(funnel_step, relevant_people))
+            steps.append(
+                self._serialize_step(funnel_step, len(relevant_people) if relevant_people else 0, relevant_people)
+            )
 
         if len(steps) > 0:
             for index, _ in enumerate(steps):

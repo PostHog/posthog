@@ -1,6 +1,5 @@
-from posthog.cache import get_redis_instance
+from posthog.redis import get_client
 
 
 def reload_plugins_on_workers():
-    redis_instance = get_redis_instance()
-    redis_instance.publish("reload-plugins", "reload!")
+    get_client().publish("reload-plugins", "reload!")

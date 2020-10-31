@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
@@ -55,6 +56,13 @@ class ClickhouseInsights(InsightViewSet):
         offset = int(request.GET.get("offset", 0))
 
         response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+
+        if "distinct_id" in request.GET and request.GET["distinct_id"]:
+            try:
+                person_ids = get_persons_by_distinct_ids(team.pk, [request.GET["distinct_id"]])[0].distinct_ids
+                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
+            except IndexError:
+                response = []
 
         if len(response) > limit:
             response.pop()

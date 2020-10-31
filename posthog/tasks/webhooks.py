@@ -100,7 +100,7 @@ def determine_webhook_type(team: Team) -> str:
     return "teams"
 
 
-@app.task(bind=True, max_retries=3)
+@app.task(ignore_result=True, bind=True, max_retries=3)
 def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
         event = Event.objects.get(pk=event_id)

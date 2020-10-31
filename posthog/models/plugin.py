@@ -1,11 +1,18 @@
 from django.contrib.postgres.fields import JSONField
+from django.core import validators
 from django.db import models
+
+
+class FileURLField(models.URLField):
+    """URL field that accepts URLs that start with http://, https:// and file: only"""
+
+    default_validators = [validators.URLValidator(schemes=["http", "https", "file"])]
 
 
 class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    url: models.CharField = FileURLField(max_length=800, null=True, blank=True)
     config_schema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)

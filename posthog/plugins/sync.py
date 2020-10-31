@@ -6,12 +6,14 @@ from .reload import reload_plugins_on_workers
 from .utils import download_plugin_github_zip, load_json_file, load_json_zip_bytes
 
 
+# def sync_plugin_config()
+# - Runs on boot
+# - Syncs information about plugins from posthog.json into the plugin model, downloading plugins as needed.
+# - Will only download the same plugin/tag once.
+# - Syncs globally enabled plugin config from posthog.json into the pluginconfig model.
 def sync_plugin_config():
-    did_something = False
-    did_something = sync_posthog_json_plugins() or did_something
-    did_something = sync_global_plugin_config() or did_something
-
-    if did_something:
+    changes = [sync_posthog_json_plugins(), sync_global_plugin_config()]
+    if any(changes):
         reload_plugins_on_workers()
 
 
