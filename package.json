@@ -1,5 +1,5 @@
 {
-    "name": "posthog-plugins",
+    "name": "posthog-plugin-server",
     "version": "0.0.4",
     "description": "PostHog Plugin Server",
     "main": "src/index.js",
@@ -8,9 +8,10 @@
         "start": "cd src; ts-node index.ts start --config \"{\\\"BASE_DIR\\\": \\\"../../posthog\\\"}\""
     },
     "bin": {
-        "posthog-plugins": "./bin/posthog-plugins"
+        "posthog-plugin-server": "./bin/posthog-plugin-server"
     },
     "author": "Marius Andra <marius.andra@gmail.com>",
+    "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
         "@types/adm-zip": "^0.4.33",
