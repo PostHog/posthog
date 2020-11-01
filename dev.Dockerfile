@@ -44,7 +44,6 @@ RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py c
 EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
-RUN yarn build
 RUN cd plugins && yarn install
 ENV DEBUG 1
 CMD ["./bin/docker-dev"]

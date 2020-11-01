@@ -162,16 +162,27 @@ def get_event(request):
                 ),
             )
 
+        event_queue = "process_event"
+        celery_queue = settings.CELERY_DEFAULT_QUEUE
         if check_ee_enabled():
-            process_event_ee.delay(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
+            event_queue += "_ee"
+        if team.plugins_opt_in:
+            event_queue += "_with_plugins"
+            celery_queue = settings.PLUGINS_CELERY_QUEUE
+        process_event_with_plugins.apply_async(
+            args=[
+                distinct_id,
+                get_ip_address(request),
+                request.build_absolute_uri("/")[:-1],
+                event,
+                team.id,
+                now.isoformat(),
+                sent_at,
+            ],
+            queue=celery_queue,
+        )
+
+        if check_ee_enabled():
             # log the event to kafka write ahead log for processing
             log_event(
                 distinct_id=distinct_id,
@@ -181,22 +192,6 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
-            )
-
-        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
-        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572, 700]:
-            celery_queue = settings.PLUGINS_CELERY_QUEUE if settings.PLUGINS_ENABLED else settings.CELERY_DEFAULT_QUEUE
-            process_event_with_plugins.apply_async(
-                args=[
-                    distinct_id,
-                    get_ip_address(request),
-                    request.build_absolute_uri("/")[:-1],
-                    event,
-                    team.id,
-                    now.isoformat(),
-                    sent_at,
-                ],
-                queue=celery_queue,
             )
 
     return cors_response(request, JsonResponse({"status": 1}))

@@ -23,6 +23,17 @@ def process_event_with_plugins(
     )
 
 
+@shared_task(name="process_event_ee_with_plugins", ignore_result=True)
+def process_event_ee_with_plugins(
+    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
+) -> None:
+    # If settings.PLUGINS_ENABLED, this task will be sent to the "posthog-plugins" queue, handled by the nodejs process.
+    # If we're here, it means nodejs plugins are disabled. Pass the event along.
+    process_event(
+        distinct_id=distinct_id, ip=ip, site_url=site_url, data=data, team_id=team_id, now=now, sent_at=sent_at
+    )
+
+
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
     old_person: Optional[Person] = None
     new_person: Optional[Person] = None
@@ -78,6 +89,13 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
+    if not team.ingested_event:
+        # First event for the team captured
+        for user in Team.objects.get(pk=team.pk).users.all():
+            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.ingested_event = True
+        save = True
     if event not in team.event_names:
         save = True
         team.event_names.append(event)
@@ -122,14 +140,6 @@ def _capture(
     team = Team.objects.only(
         "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
     ).get(pk=team_id)
-
-    if not team.ingested_event:
-        # First event for the team captured
-        for user in Team.objects.get(pk=team_id).users.all():
-            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
-
-        team.ingested_event = True
-        team.save()
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
@@ -240,24 +250,32 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
     return now_datetime
 
 
+def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, team_id: int) -> None:
+    if event == "$create_alias":
+        _alias(
+            previous_distinct_id=properties["alias"], distinct_id=distinct_id, team_id=team_id,
+        )
+    elif event == "$identify":
+        if properties.get("$anon_distinct_id"):
+            _alias(
+                previous_distinct_id=properties["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
+            )
+        if properties.get("$set"):
+            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+
+
 @shared_task(name="process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
-    if data["event"] == "$create_alias":
-        _alias(
-            previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
-        )
-    elif data["event"] == "$identify":
+    properties = data.get("properties", {})
+    if data.get("$set"):
+        properties["$set"] = data["$set"]
 
-        if data.get("properties") and data["properties"].get("$anon_distinct_id"):
-            _alias(
-                previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
-            )
-        if data.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
-        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
-    elif data["event"] == "$snapshot":
+    handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
+
+    if data["event"] == "$snapshot":
         _store_session_recording_event(
             team_id=team_id,
             distinct_id=distinct_id,
@@ -267,16 +285,12 @@ def process_event(
         )
         return
 
-    properties = data.get("properties", data.get("$set", {}))
-    event = data["event"]
-
-    if event:
-        _capture(
-            ip=ip,
-            site_url=site_url,
-            team_id=team_id,
-            event=event,
-            distinct_id=distinct_id,
-            properties=properties,
-            timestamp=handle_timestamp(data, now, sent_at),
-        )
+    _capture(
+        ip=ip,
+        site_url=site_url,
+        team_id=team_id,
+        event=data["event"],
+        distinct_id=distinct_id,
+        properties=properties,
+        timestamp=handle_timestamp(data, now, sent_at),
+    )
