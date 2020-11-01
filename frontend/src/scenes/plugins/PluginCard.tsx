@@ -2,7 +2,7 @@ import { Col, Card, Button, Switch, Popconfirm, Skeleton } from 'antd'
 import { useActions } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
-import { ellipsis } from 'lib/utils'
+import { ellipsis, someParentMatchesSelector } from 'lib/utils'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import { PlusOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -22,7 +22,10 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
-    const handleClick = (): void => {
+    const handleClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>): void => {
+        if (someParentMatchesSelector(e.target as HTMLElement, '.ant-popover,.ant-tag')) {
+            return
+        }
         if (canConfigure) {
             editPlugin(pluginId || null)
         }

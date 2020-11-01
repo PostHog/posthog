@@ -548,3 +548,10 @@ export function parseGithubRepoURL(url: string): Record<string, string> {
     const [, , user, repo] = match
     return { user, repo }
 }
+
+export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
+    if (element.matches(selector)) {
+        return true
+    }
+    return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
+}
