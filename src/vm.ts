@@ -34,6 +34,9 @@ export function prepareForRun(
     method: VMMethod,
     event?: PluginEvent
 ) {
+    if (!pluginVM) {
+        return null
+    }
     const { plugin, vm, [method]: pluginFunction } = pluginVM
     if (!pluginFunction) {
         return null
