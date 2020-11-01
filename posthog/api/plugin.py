@@ -2,7 +2,10 @@ import json
 from typing import Any, Dict
 
 import requests
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -10,6 +13,7 @@ from rest_framework.response import Response
 
 from posthog.models import Plugin, PluginConfig
 from posthog.plugins import download_plugin_github_zip, reload_plugins_on_workers
+from posthog.redis import get_client
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -58,6 +62,19 @@ class PluginViewSet(viewsets.ModelViewSet):
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
+
+    @action(methods=["GET"], detail=False)
+    def status(self, request: request.Request):
+        if not settings.PLUGINS_INSTALL_FROM_WEB:
+            raise ValidationError("Plugin installation via the web is disabled!")
+
+        ping = get_client().get("@posthog-plugin-server/ping")
+        if ping:
+            ping_datetime = parser.isoparse(ping)
+            if ping_datetime > now() - relativedelta(seconds=30):
+                return Response({"status": "online"})
+
+        return Response({"status": "offline"})
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)

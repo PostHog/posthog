@@ -1,12 +1,28 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions } from 'kea'
-import { Button, Checkbox } from 'antd'
-import { ApiOutlined } from '@ant-design/icons'
+import { Button, Checkbox, Spin } from 'antd'
+import { ApiOutlined, CheckOutlined, WarningOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import api from 'lib/api'
 
 export function OptInPlugins(): JSX.Element {
     const { userUpdateRequest } = useActions(userLogic)
     const [optIn, setOptIn] = useState(false)
+    const [serverStatus, setServerStatus] = useState('loading')
+
+    useEffect(() => {
+        async function setStatus(): Promise<void> {
+            try {
+                const response = await api.get('api/plugin/status')
+                setServerStatus(response.status)
+            } catch (e) {
+                setServerStatus('offline')
+            }
+        }
+        setStatus()
+        const interval = window.setInterval(setStatus, 5000)
+        return () => window.clearInterval(interval)
+    }, [])
 
     return (
         <div>
@@ -26,14 +42,28 @@ export function OptInPlugins(): JSX.Element {
                 at your own risk or wait a few weeks until we're out of beta.
             </div>
             <div style={{ marginBottom: 20 }}>
-                <Checkbox checked={optIn} onChange={() => setOptIn(!optIn)}>
+                Plugin server:{' '}
+                {serverStatus === 'loading' ? (
+                    <Spin />
+                ) : serverStatus === 'online' ? (
+                    <span style={{ color: 'var(--green)' }}>
+                        <CheckOutlined /> Online
+                    </span>
+                ) : (
+                    <span style={{ color: 'var(--red)' }}>
+                        <WarningOutlined /> Offline
+                    </span>
+                )}
+            </div>
+            <div style={{ marginBottom: 20 }}>
+                <Checkbox checked={optIn} onChange={() => setOptIn(!optIn)} disabled={serverStatus !== 'online'}>
                     I understand the risks and I'm not worried about potentially losing a few events.
                 </Checkbox>
             </div>
             <div>
                 <Button
                     type="primary"
-                    disabled={!optIn}
+                    disabled={!optIn || serverStatus !== 'online'}
                     onClick={() => userUpdateRequest({ team: { plugins_opt_in: true } })}
                 >
                     <ApiOutlined /> Enable plugins for this project
