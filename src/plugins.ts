@@ -9,7 +9,7 @@ const pluginsPerTeam: Record<string, PluginConfig[]> = {}
 const pluginVms: Record<string, PluginVM> = {}
 const defaultConfigs: PluginConfig[] = []
 
-export async function processError(plugin: Plugin, error: Error) {
+export async function processError(plugin: Plugin, teamPlugin: PluginConfig, error: Error) {
     // TODO: save in database
     // TODO: send to sentry
     console.error(error)
@@ -178,7 +178,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    processError(plugins[teamPlugin.plugin_id], error)
+                    processError(plugins[teamPlugin.plugin_id], teamPlugin, error)
                 }
             }
 
