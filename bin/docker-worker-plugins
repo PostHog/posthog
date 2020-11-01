@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
 
-./bin/plugins-server
+./bin/plugin-server
