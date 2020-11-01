@@ -1,10 +1,11 @@
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.contrib.postgres.fields import JSONField
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -19,8 +20,12 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "from_json"]
-        read_only_fields = ["id", "from_json"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "error", "from_json"]
+        read_only_fields = ["id", "error", "from_json"]
+
+    def get_error(self, plugin: Plugin) -> Optional[JSONField]:
+        if plugin.error and settings.PLUGINS_INSTALL_FROM_WEB:
+            return plugin.error
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.PLUGINS_INSTALL_FROM_WEB:
