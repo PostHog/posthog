@@ -4,12 +4,17 @@ import { PluginModal } from 'scenes/plugins/PluginModal'
 import { CustomPlugin } from 'scenes/plugins/CustomPlugin'
 import { Repository } from 'scenes/plugins/Repository'
 import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
+import { pluginsLogic } from './pluginsLogic'
+import { Tabs } from 'antd'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { pluginTab } = useValues(pluginsLogic)
+    const { setPluginTab } = useActions(pluginsLogic)
+    const { TabPane } = Tabs
 
     if (!user) {
         return <div />
@@ -24,19 +29,23 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            <InstalledPlugins />
+            <h1 className="page-header">Plugins</h1>
+            <div style={{ maxWidth: 600 }}>
+                Plugins enable you to extend PostHog's core functionality. Examples include, normalizing your revenue
+                information to a single currency, adding geographical information to your events, etc.
+            </div>
 
-            {user.plugin_access?.install ? (
-                <>
-                    <br />
-                    <br />
-                    <Repository />
-                    <br />
-                    <br />
-                    <CustomPlugin />
-                </>
-            ) : null}
-
+            <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
+                <TabPane tab="Installed" key="installed">
+                    <InstalledPlugins />
+                </TabPane>
+                {user.plugin_access?.install && (
+                    <TabPane tab="Available" key="available">
+                        <Repository />
+                        <CustomPlugin />
+                    </TabPane>
+                )}
+            </Tabs>
             <PluginModal />
         </div>
     )

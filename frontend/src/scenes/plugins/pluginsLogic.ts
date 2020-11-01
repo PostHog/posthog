@@ -3,6 +3,7 @@ import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { parseGithubRepoURL } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export const pluginsLogic = kea<
@@ -14,6 +15,7 @@ export const pluginsLogic = kea<
         installPlugin: (pluginUrl: string, isCustom: boolean = false) => ({ pluginUrl, isCustom }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
+        setPluginTab: (tab: string) => ({ tab }),
     },
 
     loaders: ({ values }) => ({
@@ -31,11 +33,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl }) => {
                     const { plugins } = values
 
-                    const match = pluginUrl.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
-                    if (!match) {
-                        throw new Error('Must be in the format: https://github.com/user/repo')
-                    }
-                    const [, , user, repo] = match
+                    const { user, repo } = parseGithubRepoURL(pluginUrl)
 
                     const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
                     const repoCommits: Record<string, any>[] | null = await window
@@ -130,6 +128,13 @@ export const pluginsLogic = kea<
 
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
+                toggleEnabled: async ({ id, enabled }) => {
+                    const { pluginConfigs } = values
+                    const response = await api.update(`api/plugin_config/${id}`, {
+                        enabled,
+                    })
+                    return { ...pluginConfigs, [response.plugin]: response }
+                },
             },
         ],
         repository: [
@@ -183,6 +188,12 @@ export const pluginsLogic = kea<
                 return newPluginConfigs
             },
         },
+        pluginTab: [
+            'installed',
+            {
+                setPluginTab: (_, { tab }) => tab,
+            },
+        ],
     },
 
     selectors: {

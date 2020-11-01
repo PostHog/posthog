@@ -535,3 +535,16 @@ export function sampleSingle<T>(items: T[]): T[] {
     if (!items.length) throw Error('Items array is empty!')
     return [items[Math.floor(Math.random() * items.length)]]
 }
+
+export function ellipsis(input: string, max: number): string {
+    return input.length > max ? input.substr(0, max) + '...' : input
+}
+
+export function parseGithubRepoURL(url: string): Record<string, string> {
+    const match = url.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
+    if (!match) {
+        throw new Error('Must be in the format: https://github.com/user/repo')
+    }
+    const [, , user, repo] = match
+    return { user, repo }
+}

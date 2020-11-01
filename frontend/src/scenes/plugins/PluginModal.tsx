@@ -1,9 +1,13 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Input, Modal, Popconfirm, Switch } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { Button, Form, Input, Popconfirm, Switch } from 'antd'
+import { DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import { PluginImage } from './PluginImage'
+import { ellipsis } from 'lib/utils'
+import { Link } from 'lib/components/Link'
+import { Drawer } from 'lib/components/Drawer'
 
 export function PluginModal(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -25,44 +29,72 @@ export function PluginModal(): JSX.Element {
     }, [editingPlugin?.name])
 
     return (
-        <Modal
+        <Drawer
             forceRender={true}
             visible={!!editingPlugin}
-            okText="Save"
-            onOk={() => form.submit()}
-            onCancel={() => editPlugin(null)}
-            confirmLoading={pluginsLoading}
+            onClose={() => editPlugin(null)}
+            width={480}
+            title={editingPlugin?.name}
             footer={
                 <>
-                    {canDelete && (
-                        <Popconfirm
-                            placement="topLeft"
-                            title="Are you sure you wish to uninstall this plugin?"
-                            onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
-                            okText="Yes"
-                            cancelText="No"
-                        >
-                            <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
-                                <DeleteOutlined /> Uninstall
+                    <div style={{ display: 'flex' }}>
+                        <div style={{ flexGrow: 1 }}>
+                            {canDelete && (
+                                <Popconfirm
+                                    placement="topLeft"
+                                    title="Are you sure you wish to uninstall this plugin?"
+                                    onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
+                                    okText="Yes"
+                                    cancelText="No"
+                                >
+                                    <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
+                                        <DeleteOutlined /> Uninstall
+                                    </Button>
+                                </Popconfirm>
+                            )}
+                        </div>
+                        <div>
+                            <Button onClick={() => editPlugin(null)} style={{ marginRight: 16 }}>
+                                Cancel
                             </Button>
-                        </Popconfirm>
-                    )}
-                    <Button onClick={() => editPlugin(null)}>Cancel</Button>
-                    <Button type="primary" loading={pluginsLoading} onClick={() => form.submit()}>
-                        Save
-                    </Button>
+                            <Button type="primary" loading={pluginsLoading} onClick={() => form.submit()}>
+                                Save
+                            </Button>
+                        </div>
+                    </div>
                 </>
             }
         >
             <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
                 {editingPlugin ? (
                     <div>
-                        <h2>{editingPlugin.name}</h2>
-                        <p>{editingPlugin.description}</p>
-
-                        <Form.Item label="Enabled?" fieldKey="__enabled" name="__enabled" valuePropName="checked">
-                            <Switch />
-                        </Form.Item>
+                        <div style={{ display: 'flex', marginBottom: 16 }}>
+                            <div>
+                                <PluginImage url={editingPlugin.url} />
+                            </div>
+                            <div style={{ flexGrow: 1, paddingLeft: 16 }}>
+                                {ellipsis(editingPlugin.description, 140)}
+                                <div>
+                                    <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
+                                        View plugin <ArrowRightOutlined />
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <b style={{ paddingRight: 8 }}>Enabled</b>
+                            <Form.Item
+                                fieldKey="__enabled"
+                                name="__enabled"
+                                valuePropName="checked"
+                                style={{ display: 'inline-block', marginBottom: 0 }}
+                            >
+                                <Switch />
+                            </Form.Item>
+                        </div>
+                        <h3 className="l3" style={{ marginTop: 32 }}>
+                            Configuration
+                        </h3>
                         {Object.keys(editingPlugin.config_schema).map((configKey) => (
                             <Form.Item
                                 key={configKey}
@@ -82,6 +114,6 @@ export function PluginModal(): JSX.Element {
                     </div>
                 ) : null}
             </Form>
-        </Modal>
+        </Drawer>
     )
 }

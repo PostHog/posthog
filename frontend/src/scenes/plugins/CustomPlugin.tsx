@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Col, Input, Row } from 'antd'
+import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
@@ -8,33 +8,36 @@ export function CustomPlugin(): JSX.Element {
     const { setCustomPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
-        <div>
-            <h1 className="page-header">Install Custom Plugin</h1>
-            <p>
-                Paste the URL of the Plugin's <strong>Github Repository</strong> to install it
-            </p>
+        <div style={{ marginTop: 32 }}>
+            <Card>
+                <h3 className="l3">Install Custom Plugin</h3>
+                <p>
+                    To install a third-party or custom plugin, please paste the plugin's repository below.{' '}
+                    <b className="text-warning">Warning: Only install plugin from trusted sources.</b>
+                </p>
 
-            <Row style={{ maxWidth: 600, width: '100%' }}>
-                <Col style={{ flex: 1 }}>
-                    <Input
-                        value={customPluginUrl}
-                        disabled={loading}
-                        onChange={(e) => setCustomPluginUrl(e.target.value)}
-                        placeholder="https://github.com/user/repo"
-                    />
-                </Col>
-                <Col>
-                    <Button
-                        disabled={loading}
-                        loading={loading}
-                        type="primary"
-                        onClick={() => installPlugin(customPluginUrl, true)}
-                    >
-                        Install
-                    </Button>
-                </Col>
-            </Row>
-            {pluginError ? <p style={{ color: 'var(--red)', marginTop: 10 }}>{pluginError}</p> : null}
+                <Row style={{ width: '100%' }} gutter={16}>
+                    <Col style={{ flex: 1 }}>
+                        <Input
+                            value={customPluginUrl}
+                            disabled={loading}
+                            onChange={(e) => setCustomPluginUrl(e.target.value)}
+                            placeholder="https://github.com/user/repo"
+                        />
+                    </Col>
+                    <Col>
+                        <Button
+                            disabled={loading}
+                            loading={loading}
+                            type="default"
+                            onClick={() => installPlugin(customPluginUrl, true)}
+                        >
+                            Fetch and install
+                        </Button>
+                    </Col>
+                </Row>
+                {pluginError ? <p style={{ color: 'var(--red)', marginTop: 10 }}>{pluginError}</p> : null}
+            </Card>
         </div>
     )
 }

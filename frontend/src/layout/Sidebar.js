@@ -64,6 +64,8 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
+    projectSettings: 'project',
+    plugins: 'project',
     organizationSettings: 'organization',
     organizationMembers: 'organization',
     organizationInvites: 'organization',
@@ -239,11 +241,32 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <Link to={'/annotations'} onClick={collapseSidebar} />
                     </Menu.Item>
 
-                    <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
-                        <ProjectOutlined />
-                        <span className="sidebar-label">Project</span>
-                        <Link to={'/project/settings'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                    <Menu.SubMenu
+                        key="project"
+                        title={
+                            <span style={itemStyle} data-attr="menu-item-project">
+                                <DeploymentUnitOutlined />
+                                <span className="sidebar-label">Project</span>
+                            </span>
+                        }
+                        onTitleClick={() => {
+                            collapseSidebar()
+                            if (location.pathname !== '/project/settings') push('/project/settings')
+                        }}
+                    >
+                        <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
+                            <ProjectOutlined />
+                            <span className="sidebar-label">Settings</span>
+                            <Link to={'/project/settings'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                        {user.plugin_access?.configure && (
+                            <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
+                                <ApiOutlined />
+                                <span className="sidebar-label">Plugins</span>
+                                <Link to="/plugins" onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+                    </Menu.SubMenu>
 
                     <Menu.SubMenu
                         key="organization"
@@ -324,13 +347,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">Me</span>
                         <Link to={'/me/settings'} onClick={collapseSidebar} />
                     </Menu.Item>
-                    {user.plugin_access?.configure && (
-                        <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
-                            <ApiOutlined />
-                            <span className="sidebar-label">Plugins</span>
-                            <Link to="/plugins" onClick={collapseSidebar} />
-                        </Menu.Item>
-                    )}
                 </Menu>
 
                 <Modal
