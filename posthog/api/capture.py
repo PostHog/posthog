@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.celery import app as celery_app
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.tasks.process_event import process_event_with_plugins
@@ -162,14 +163,16 @@ def get_event(request):
                 ),
             )
 
-        event_queue = "process_event"
+        task_name = "process_event_ee" if check_ee_enabled() else "process_event"
         celery_queue = settings.CELERY_DEFAULT_QUEUE
-        if check_ee_enabled():
-            event_queue += "_ee"
+
         if team.plugins_opt_in:
-            event_queue += "_with_plugins"
+            task_name += "_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
-        process_event_with_plugins.apply_async(
+
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
             args=[
                 distinct_id,
                 get_ip_address(request),
@@ -179,7 +182,6 @@ def get_event(request):
                 now.isoformat(),
                 sent_at,
             ],
-            queue=celery_queue,
         )
 
         if check_ee_enabled():
