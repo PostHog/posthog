@@ -8,6 +8,7 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
 import { Tabs } from 'antd'
+import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -35,18 +36,26 @@ function _Plugins(): JSX.Element {
                 information to a single currency, adding geographical information to your events, etc.
             </div>
 
-            <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
-                <TabPane tab="Installed" key="installed">
-                    <InstalledPlugins />
-                </TabPane>
-                {user.plugin_access?.install && (
-                    <TabPane tab="Available" key="available">
-                        <Repository />
-                        <CustomPlugin />
-                    </TabPane>
-                )}
-            </Tabs>
-            <PluginModal />
+            <div style={{ maxWidth: 600, marginTop: 20 }}>
+                <OptInPlugins />
+            </div>
+
+            {user.team.plugins_opt_in ? (
+                <>
+                    <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
+                        <TabPane tab="Installed" key="installed">
+                            <InstalledPlugins />
+                        </TabPane>
+                        {user.plugin_access?.install && (
+                            <TabPane tab="Available" key="available">
+                                <Repository />
+                                <CustomPlugin />
+                            </TabPane>
+                        )}
+                    </Tabs>
+                    <PluginModal />
+                </>
+            ) : null}
         </div>
     )
 }

@@ -64,6 +64,7 @@ export interface TeamType {
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    plugins_opt_in: boolean
     ingested_event: boolean
 }
 
