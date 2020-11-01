@@ -259,7 +259,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">Settings</span>
                             <Link to={'/project/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        {user.plugin_access?.configure && (
+                        {user.plugin_access.configure && (
                             <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
                                 <ApiOutlined />
                                 <span className="sidebar-label">Plugins</span>

@@ -15,7 +15,7 @@ export function PluginDrawer(): JSX.Element {
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
-    const canDelete = user?.plugin_access?.install && !editingPlugin?.from_json
+    const canDelete = user?.plugin_access.install && !editingPlugin?.from_json
 
     useEffect(() => {
         if (editingPlugin) {

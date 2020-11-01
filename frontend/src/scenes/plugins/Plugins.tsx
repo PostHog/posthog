@@ -22,7 +22,7 @@ function _Plugins(): JSX.Element {
         return <div />
     }
 
-    if (!user?.plugin_access?.configure) {
+    if (!user.plugin_access.configure) {
         useEffect(() => {
             window.location.href = '/'
         }, [])
@@ -42,7 +42,7 @@ function _Plugins(): JSX.Element {
                         <TabPane tab="Installed" key="installed">
                             <InstalledPlugins />
                         </TabPane>
-                        {user.plugin_access?.install && (
+                        {user.plugin_access.install && (
                             <TabPane tab="Available" key="available">
                                 <Repository />
                                 <CustomPlugin />

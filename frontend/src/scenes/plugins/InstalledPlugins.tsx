@@ -17,7 +17,7 @@ export function InstalledPlugins(): JSX.Element {
                 <h2 className="subtitle" style={{ flex: 1 }}>
                     Installed {!loading || installedPlugins.length > 0 ? `(${installedPlugins.length})` : ''}
                 </h2>
-                {user?.plugin_access?.install && (
+                {user?.plugin_access.install && (
                     <div className="float-right mb" style={{ marginBottom: 16 }}>
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
                             Install new plugin

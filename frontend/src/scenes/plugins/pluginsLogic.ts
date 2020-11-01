@@ -220,7 +220,7 @@ export const pluginsLogic = kea<
                         }
                         return { ...plugin, pluginConfig }
                     })
-                    .sort((a, b) => a.pluginConfig?.order - b.pluginConfig?.order)
+                    .sort((a, b) => a.pluginConfig.order - b.pluginConfig.order)
                     .map((plugin, index) => ({ ...plugin, order: index + 1 }))
             },
         ],
