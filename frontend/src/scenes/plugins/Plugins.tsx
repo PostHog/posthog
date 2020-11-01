@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
 import { Tabs } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
+import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -30,17 +31,10 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
+            {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
             <h1 className="page-header">
                 Plugins <span style={{ color: 'var(--red)' }}>BETA!</span>
             </h1>
-            <div style={{ maxWidth: 600 }}>
-                Plugins enable you to extend PostHog's core functionality. Examples include, normalizing your revenue
-                information to a single currency, adding geographical information to your events, etc.
-            </div>
-
-            <div style={{ maxWidth: 600, marginTop: 20 }}>
-                <OptInPlugins />
-            </div>
 
             {user.team.plugins_opt_in ? (
                 <>
@@ -57,7 +51,11 @@ function _Plugins(): JSX.Element {
                     </Tabs>
                     <PluginModal />
                 </>
-            ) : null}
+            ) : (
+                <div style={{ maxWidth: 600, marginTop: 20 }}>
+                    <OptInPlugins />
+                </div>
+            )}
         </div>
     )
 }
