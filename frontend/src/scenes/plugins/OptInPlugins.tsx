@@ -18,7 +18,7 @@ export function OptInPlugins(): JSX.Element {
                 Plugins are currently an <strong>experimental</strong> feature that you must opt in to.
             </div>
             <div style={{ marginBottom: 20 }}>
-                Plugins support requires the cooperation of the main posthog application and a new nodejs based{' '}
+                Plugin support requires the cooperation of the main posthog application and a new nodejs based{' '}
                 <a href="https://github.com/PostHog/posthog-plugins" target="_blank" rel="noreferrer noopener">
                     <code>posthog-plugin-server</code>
                 </a>

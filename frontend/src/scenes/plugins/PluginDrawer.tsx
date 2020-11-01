@@ -9,7 +9,7 @@ import { ellipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 
-export function PluginModal(): JSX.Element {
+export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
@@ -33,7 +33,7 @@ export function PluginModal(): JSX.Element {
             forceRender={true}
             visible={!!editingPlugin}
             onClose={() => editPlugin(null)}
-            width={480}
+            width="min(90vw, 420px)"
             title={editingPlugin?.name}
             footer={
                 <>

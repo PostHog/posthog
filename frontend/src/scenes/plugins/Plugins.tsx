@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { hot } from 'react-hot-loader/root'
-import { PluginModal } from 'scenes/plugins/PluginModal'
+import { PluginDrawer } from 'scenes/plugins/PluginDrawer'
 import { CustomPlugin } from 'scenes/plugins/CustomPlugin'
 import { Repository } from 'scenes/plugins/Repository'
 import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
@@ -49,7 +49,7 @@ function _Plugins(): JSX.Element {
                             </TabPane>
                         )}
                     </Tabs>
-                    <PluginModal />
+                    <PluginDrawer />
                 </>
             ) : (
                 <div style={{ maxWidth: 600, marginTop: 20 }}>
