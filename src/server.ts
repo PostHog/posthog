@@ -46,7 +46,7 @@ export function startPluginsServer(config: PluginsServerConfig) {
         }
     })
 
-    // every 5 sec set a @plugin-ping redis key
+    // every 5 sec set a @posthog-plugin-server/ping redis key
     schedule.scheduleJob('*/5 * * * * *', function () {
         redis.set('@posthog-plugin-server/ping', new Date().toISOString())
         redis.expire('@posthog-plugin-server/ping', 60)
