@@ -100,7 +100,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
 export function PluginLoading(): JSX.Element {
     return (
         <>
-            {[1, 2, 3, 4].map((i) => {
+            {[1, 2, 3].map((i) => {
                 return (
                     <Col sm={12} md={12} lg={8} xl={6} key={i} style={{ marginBottom: 20 }}>
                         <Card>
@@ -108,7 +108,7 @@ export function PluginLoading(): JSX.Element {
                                 <Skeleton.Image />
                             </div>
 
-                            <Skeleton paragraph={{ rows: 6 }} active />
+                            <Skeleton paragraph={{ rows: 4 }} active />
                         </Card>
                     </Col>
                 )
