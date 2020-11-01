@@ -13,14 +13,18 @@ export function InstalledPlugins(): JSX.Element {
 
     return (
         <div>
-            <h2 className="subtitle">Installed {!loading && <>({installedPlugins.length})</>}</h2>
-            {user?.plugin_access?.install && (
-                <div className="text-right mb" style={{ marginBottom: 16 }}>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
-                        Install new plugin
-                    </Button>
-                </div>
-            )}
+            <Row>
+                <h2 className="subtitle" style={{ flex: 1 }}>
+                    Installed {!loading || installedPlugins.length > 0 ? `(${installedPlugins.length})` : ''}
+                </h2>
+                {user?.plugin_access?.install && (
+                    <div className="float-right mb" style={{ marginBottom: 16 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
+                            Install new plugin
+                        </Button>
+                    </div>
+                )}
+            </Row>
             <Row gutter={16}>
                 {(!loading || installedPlugins.length > 0) && (
                     <>

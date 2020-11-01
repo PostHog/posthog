@@ -33,7 +33,7 @@ function _Plugins(): JSX.Element {
         <div>
             {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
             <h1 className="page-header">
-                Plugins <span style={{ color: 'var(--red)' }}>BETA!</span>
+                Plugins <span style={{ color: 'var(--red)' }}>BETA</span>
             </h1>
 
             {user.team.plugins_opt_in ? (
