@@ -30,13 +30,16 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
 
     return (
         <Col
-            sm={6}
-            style={pluginConfig && canConfigure ? { cursor: 'pointer' } : {}}
+            sm={12}
+            md={12}
+            lg={8}
+            xl={6}
+            style={{ cursor: pluginConfig && canConfigure ? 'pointer' : 'inherit', width: '100%', marginBottom: 20 }}
             onClick={handleClick}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
             <Card
-                style={{ height: '100%', display: 'flex' }}
+                style={{ height: '100%', display: 'flex', marginBottom: 20 }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
                 <PluginImage url={url} />
@@ -99,7 +102,7 @@ export function PluginLoading(): JSX.Element {
         <>
             {[1, 2, 3, 4].map((i) => {
                 return (
-                    <Col sm={6} key={i}>
+                    <Col sm={12} md={12} lg={8} xl={6} key={i} style={{ marginBottom: 20 }}>
                         <Card>
                             <div className="text-center">
                                 <Skeleton.Image />
