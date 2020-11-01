@@ -30,7 +30,7 @@ beforeEach(() => {
                 cy.findByTestId('wizard-step-counter').should('contain', 'Step 2')
                 cy.findByRole('button', { name: /Continue/i }).click()
                 cy.findByTestId('wizard-step-counter').should('contain', 'Step 3')
-                cy.findByRole('button', { name: /Complete/i }).click()
+                cy.findByRole('button', { name: /Continue/i }).click()
             }
         })
     })
