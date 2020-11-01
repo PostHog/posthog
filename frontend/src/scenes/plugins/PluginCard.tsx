@@ -19,9 +19,10 @@ interface PluginCardType {
 export function PluginCard({ name, description, url, pluginConfig, pluginId }: PluginCardType): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin } = useActions(pluginsLogic)
 
+    const canConfigure = pluginId && !pluginConfig?.global
     const handleClick = (): void => {
-        if (pluginId) {
-            editPlugin(pluginId)
+        if (canConfigure) {
+            editPlugin(pluginId || null)
         }
     }
 
@@ -30,7 +31,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
     return (
         <Col
             sm={6}
-            style={pluginConfig && { cursor: 'pointer' }}
+            style={pluginConfig && canConfigure ? { cursor: 'pointer' } : {}}
             onClick={handleClick}
             data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
         >
@@ -64,9 +65,9 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                                 <div>
                                     <Switch checked={pluginConfig.enabled} disabled={switchDisabled} />
                                     {pluginConfig.global && (
-                                        <div style={{ paddingTop: 4, fontSize: 11 }} className="text-muted">
+                                        <span style={{ marginLeft: 10, fontSize: 11 }} className="text-muted">
                                             Globally enabled
-                                        </div>
+                                        </span>
                                     )}
                                 </div>
                             </Popconfirm>
@@ -80,7 +81,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                         )}
                     </div>
                     <div>
-                        {pluginId && <Button type="primary">Configure</Button>}
+                        {canConfigure && <Button type="primary">Configure</Button>}
                         {!pluginId && (
                             <Button type="primary" onClick={() => installPlugin(url)} icon={<PlusOutlined />}>
                                 Install
