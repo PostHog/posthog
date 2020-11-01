@@ -16,6 +16,7 @@ export const pluginsLogic = kea<
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setPluginTab: (tab: string) => ({ tab }),
+        resetPluginConfigError: (id: number) => ({ id }),
     },
 
     loaders: ({ values }) => ({
@@ -132,6 +133,13 @@ export const pluginsLogic = kea<
                     const { pluginConfigs } = values
                     const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
+                    })
+                    return { ...pluginConfigs, [response.plugin]: response }
+                },
+                resetPluginConfigError: async ({ id }) => {
+                    const { pluginConfigs } = values
+                    const response = await api.update(`api/plugin_config/${id}`, {
+                        error: null,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },

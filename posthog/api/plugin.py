@@ -85,7 +85,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config"]
+        fields = ["id", "plugin", "enabled", "order", "config", "error"]
         read_only_fields = ["id"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
@@ -131,6 +131,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
         for plugin_config in plugin_configs:
             plugin = PluginConfigSerializer(plugin_config).data
             plugin["config"] = None
+            plugin["error"] = None
             response.append(plugin)
 
         return Response(response)

@@ -3,21 +3,23 @@ import { useActions } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
 import { ellipsis } from 'lib/utils'
-import { PluginConfigType } from '~/types'
+import { PluginConfigType, PluginErrorType } from '~/types'
 import { PlusOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
+import { PluginError } from 'scenes/plugins/PluginError'
 
-interface PluginCardType {
+interface PluginCardProps {
     name: string
     description: string
     url: string
     pluginConfig?: PluginConfigType
     pluginId?: number
+    error?: PluginErrorType
 }
 
-export function PluginCard({ name, description, url, pluginConfig, pluginId }: PluginCardType): JSX.Element {
-    const { editPlugin, toggleEnabled, installPlugin } = useActions(pluginsLogic)
+export function PluginCard({ name, description, url, pluginConfig, pluginId, error }: PluginCardProps): JSX.Element {
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const handleClick = (): void => {
@@ -42,6 +44,14 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId }: P
                 style={{ height: '100%', display: 'flex', marginBottom: 20 }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
+                {pluginConfig?.error ? (
+                    <PluginError
+                        error={pluginConfig.error}
+                        reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
+                    />
+                ) : error ? (
+                    <PluginError error={error} />
+                ) : null}
                 <PluginImage url={url} />
                 <div className="text-center mb" style={{ marginBottom: 16 }}>
                     <b>{name}</b>
