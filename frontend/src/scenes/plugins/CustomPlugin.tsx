@@ -13,7 +13,7 @@ export function CustomPlugin(): JSX.Element {
                 <h3 className="l3">Install Custom Plugin</h3>
                 <p>
                     To install a third-party or custom plugin, please paste the plugin's repository below.{' '}
-                    <b className="text-warning">Warning: Only install plugin from trusted sources.</b>
+                    <b className="text-warning">Warning: Only install plugins from trusted sources.</b>
                 </p>
 
                 <Row style={{ width: '100%' }} gutter={16}>
