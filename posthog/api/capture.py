@@ -12,7 +12,6 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.celery import app as celery_app
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
-from posthog.tasks.process_event import process_event_with_plugins
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:

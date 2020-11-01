@@ -123,17 +123,6 @@ else:
         return
 
 
-@shared_task(name="process_event_ee_with_plugins", ignore_result=True)
-def process_event_ee_with_plugins(
-    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]
-) -> None:
-    # If settings.PLUGINS_ENABLED, this task will be sent to the "posthog-plugins" queue, handled by the nodejs process.
-    # If we're here, it means nodejs plugins are disabled. Pass the event along.
-    process_event_ee(
-        distinct_id=distinct_id, ip=ip, site_url=site_url, data=data, team_id=team_id, now=now, sent_at=sent_at
-    )
-
-
 def log_event(
     distinct_id: str,
     ip: str,
