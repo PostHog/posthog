@@ -1,19 +1,14 @@
 import * as path from 'path'
 import * as fs from 'fs'
+import AdmZip from 'adm-zip'
 import { createVm, prepareForRun } from './vm'
 import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginEvent } from './types'
-import AdmZip from 'adm-zip'
+import { clearError, processError } from './error'
 
 const plugins: Record<string, Plugin> = {}
 const pluginsPerTeam: Record<string, PluginConfig[]> = {}
 const pluginVms: Record<string, PluginVM> = {}
 const defaultConfigs: PluginConfig[] = []
-
-export async function processError(plugin: Plugin, teamPlugin: PluginConfig, error: Error) {
-    // TODO: save in database
-    // TODO: send to sentry
-    console.error(error)
-}
 
 export async function setupPlugins(server: PluginsServer) {
     const { rows: pluginRows }: { rows: Plugin[] } = await server.db.query(
@@ -94,13 +89,23 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
                 const jsonBuffer = fs.readFileSync(configPath)
                 config = JSON.parse(jsonBuffer.toString())
             } catch (e) {
-                console.error(`Could not load posthog config at "${configPath}" for plugin "${plugin.name}"`)
+                await processError(
+                    server,
+                    plugin,
+                    null,
+                    `Could not load posthog config at "${configPath}" for plugin "${plugin.name}"`
+                )
                 return
             }
         }
 
         if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
-            console.error(`No "main" config key or "index.js" file found for plugin "${plugin.name}"`)
+            await processError(
+                server,
+                plugin,
+                null,
+                `No "main" config key or "index.js" file found for plugin "${plugin.name}"`
+            )
             return
         }
 
@@ -110,14 +115,18 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
         const libPath = path.resolve(pluginPath, config['lib'] || 'lib.js')
         const libJs = fs.existsSync(libPath) ? fs.readFileSync(libPath).toString() : ''
 
-        pluginVms[plugin.id] = {
-            plugin,
-            indexJs,
-            libJs,
-            ...(await createVm(plugin, indexJs, libJs, server)),
+        try {
+            pluginVms[plugin.id] = {
+                plugin,
+                indexJs,
+                libJs,
+                ...(await createVm(plugin, indexJs, libJs, server)),
+            }
+            console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
+            await clearError(server, plugin, null)
+        } catch (error) {
+            await processError(server, plugin, null, error)
         }
-
-        console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
     } else if (plugin.archive) {
         const zip = new AdmZip(plugin.archive)
         const zipEntries = zip.getEntries() // an array of ZipEntry records
@@ -129,8 +138,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
             try {
                 config = JSON.parse(json.getData().toString())
             } catch (error) {
-                console.error(`Can not load plugin.json for plugin "${plugin.name}"`)
-                console.error(error)
+                await processError(server, plugin, null, `Can not load plugin.json for plugin "${plugin.name}"`)
             }
         }
 
@@ -141,16 +149,20 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
         const libJs = libEntry ? libEntry.getData().toString() : null
 
         if (indexJs) {
-            pluginVms[plugin.id] = {
-                plugin,
-                indexJs,
-                libJs,
-                ...(await createVm(plugin, indexJs, libJs, server)),
+            try {
+                pluginVms[plugin.id] = {
+                    plugin,
+                    indexJs,
+                    libJs,
+                    ...(await createVm(plugin, indexJs, libJs, server)),
+                }
+                console.log(`Loaded plugin "${plugin.name}"!`)
+                await clearError(server, plugin, null)
+            } catch (error) {
+                await processError(server, plugin, null, error)
             }
-
-            console.log(`Loaded plugin "${plugin.name}"!`)
         } else {
-            console.error(`Could not load index.js for plugin "${plugin.name}"!`)
+            await processError(server, plugin, null, `Could not load index.js for plugin "${plugin.name}"!`)
         }
     } else {
         console.error('Undownloaded Github plugins not yet supported')
@@ -178,7 +190,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    processError(plugins[teamPlugin.plugin_id], teamPlugin, error)
+                    await processError(server, plugins[teamPlugin.plugin_id], teamPlugin, error)
                 }
             }
 
