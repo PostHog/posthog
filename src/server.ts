@@ -3,6 +3,7 @@ import { PluginsServer, PluginsServerConfig } from './types'
 import { version } from '../package.json'
 import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
+import schedule from 'node-schedule'
 import Redis from 'ioredis'
 
 const defaultConfig: PluginsServerConfig = {
@@ -43,5 +44,11 @@ export function startPluginsServer(config: PluginsServerConfig) {
             console.log('Reloading plugins!')
             setupPlugins(server)
         }
+    })
+
+    // every 5 sec set a @plugin-ping redis key
+    schedule.scheduleJob('*/5 * * * * *', function () {
+        redis.set('@posthog-plugin-server/ping', new Date().toISOString())
+        redis.expire('@posthog-plugin-server/ping', 60)
     })
 }
