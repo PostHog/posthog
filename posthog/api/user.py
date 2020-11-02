@@ -18,7 +18,7 @@ from rest_framework import exceptions, serializers
 
 from posthog.auth import authenticate_secondarily
 from posthog.models import Event, Team, User
-from posthog.plugins import reload_plugins_on_workers
+from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 
 
@@ -134,10 +134,7 @@ def user(request):
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": user.ee_available,
-            "plugin_access": {
-                "install": settings.PLUGINS_INSTALL_FROM_WEB,
-                "configure": settings.PLUGINS_CONFIGURE_FROM_WEB,
-            },
+            "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
         }
     )
 
