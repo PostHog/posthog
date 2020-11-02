@@ -58,9 +58,9 @@ export function percentage(division: number): string {
         : ''
 }
 
-export function Loading(): JSX.Element {
+export function Loading(props: Record<string, any>): JSX.Element {
     return (
-        <div className="loading-overlay">
+        <div className="loading-overlay" style={props.style}>
             <Spin />
         </div>
     )

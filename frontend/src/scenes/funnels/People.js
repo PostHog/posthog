@@ -9,8 +9,8 @@ export function People() {
     const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
 
     return (
-        <Card title="Per user">
-            {peopleLoading && <Loading />}
+        <Card title="Per user" style={{ boxShadow: 'none', marginBottom: 0 }}>
+            {peopleLoading && <Loading style={{ minHeight: 50 }} />}
             {!peopleSorted && !peopleLoading && (
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
             )}
