@@ -303,18 +303,22 @@ function FunnelInsight() {
     const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic)
 
     return (
-        <div style={{ height: 300 }}>
+        <div style={{ height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz steps={stepsWithCount} />
             ) : (
-                <div
-                    style={{
-                        textAlign: 'center',
-                    }}
-                >
-                    <span>Enter the details to your funnel and click 'calculate' to create a funnel visualization</span>
-                </div>
+                !stepsWithCountLoading && (
+                    <div
+                        style={{
+                            textAlign: 'center',
+                        }}
+                    >
+                        <span>
+                            Enter the details to your funnel and click 'calculate' to create a funnel visualization
+                        </span>
+                    </div>
+                )
             )}
         </div>
     )
