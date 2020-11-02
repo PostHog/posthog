@@ -10,18 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
-import ast
 import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
-from kombu import Exchange, Queue  # type: ignore
+from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -229,7 +228,7 @@ EE_AVAILABLE = False
 
 # Append Enterprise Edition as an app if available
 try:
-    from ee.apps import EnterpriseConfig
+    from ee.apps import EnterpriseConfig  # noqa: F401
 except ImportError:
     pass
 else:
@@ -240,7 +239,7 @@ else:
 
 # Use django-extensions if it exists
 try:
-    import django_extensions
+    import django_extensions  # noqa: F401
 except ImportError:
     pass
 else:
@@ -462,7 +461,7 @@ if DEBUG and not TEST:
 
     # Load debug_toolbar if we can
     try:
-        import debug_toolbar
+        import debug_toolbar  # noqa: F401
     except ImportError:
         pass
     else:
@@ -490,7 +489,7 @@ DEBUG_TOOLBAR_CONFIG = {
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
-    from ee.settings import *
+    from ee.settings import *  # noqa: F401, F403
 
 
 # TODO: Temporary

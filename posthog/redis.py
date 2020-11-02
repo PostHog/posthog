@@ -1,6 +1,6 @@
 from typing import Optional
 
-import fakeredis  # type: ignore
+import fakeredis
 import redis
 from django.conf import settings
 
