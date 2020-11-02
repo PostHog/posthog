@@ -4,7 +4,7 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Checkbox, Col, Input } from 'antd'
+import { Card, Checkbox, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
@@ -160,56 +160,36 @@ export class ActionStep extends Component {
     }
     TypeSwitcher = () => {
         let { step } = this.props
+        const handleChange = (e) => {
+            const type = e.target.value
+            if (type === 'autocapture') {
+                this.setState(
+                    {
+                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
+                        type,
+                    },
+                    () => this.sendStep({ ...step, event: '$autocapture' })
+                )
+            } else if (type === 'event') {
+                this.setState({ selection: [], type }, () => this.sendStep({ ...step, event: '' }))
+            } else if (type === 'pageview') {
+                this.setState({ selection: ['url'], type }, () =>
+                    this.sendStep({
+                        ...step,
+                        event: '$pageview',
+                        url: step.url,
+                    })
+                )
+            }
+        }
+
         return (
             <div>
-                <div className="type-switcher btn-group">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            this.setState(
-                                {
-                                    selection: Object.keys(step).filter(
-                                        (key) => key !== 'id' && key !== 'isNew' && step[key]
-                                    ),
-                                },
-                                () => this.sendStep({ ...step, event: '$autocapture' })
-                            )
-                        }
-                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
-                    >
-                        Autocapture
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
-                        className={
-                            'btn ' +
-                            (typeof step.event !== 'undefined' &&
-                            step.event !== '$autocapture' &&
-                            step.event !== '$pageview'
-                                ? 'btn-secondary'
-                                : 'btn-light btn-action')
-                        }
-                    >
-                        Custom event
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            this.setState({ selection: ['url'] }, () =>
-                                this.sendStep({
-                                    ...step,
-                                    event: '$pageview',
-                                    url: step.url,
-                                })
-                            )
-                        }}
-                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
-                        data-attr="action-step-pageview"
-                    >
-                        Page view
-                    </button>
-                </div>
+                <Radio.Group buttonStyle="solid" onChange={handleChange} value={this.state.type}>
+                    <Radio.Button value="autocapture">Autocapture</Radio.Button>
+                    <Radio.Button value="event">Custom event</Radio.Button>
+                    <Radio.Button value="pageview">Page view</Radio.Button>
+                </Radio.Group>
             </div>
         )
     }
@@ -222,7 +202,7 @@ export class ActionStep extends Component {
             )
         }
         return (
-            <div>
+            <div className="selector-config">
                 <span>
                     <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
                         Select element on site <ExportOutlined />

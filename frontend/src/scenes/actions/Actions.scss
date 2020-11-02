@@ -40,8 +40,10 @@
 .action-edit-container {
     margin-top: 32px;
 
-    label {
-        font-weight: bold;
+    .selector-config {
+        label {
+            font-weight: bold;
+        }
     }
 
     .match-group-section {

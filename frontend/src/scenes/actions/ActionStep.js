@@ -5,7 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { ExportOutlined } from '@ant-design/icons'
-import { Card, Checkbox, Input } from 'antd'
+import { Card, Checkbox, Input, Radio } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -28,6 +28,7 @@ export class ActionStep extends Component {
             step: props.step,
             selection: Object.keys(props.step).filter((key) => key !== 'id' && key !== 'isNew' && props.step[key]),
             inspecting: false,
+            type: 'autocapture',
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
 
@@ -171,61 +172,38 @@ export class ActionStep extends Component {
     }
     TypeSwitcher = () => {
         let { step, isEditor } = this.props
+        const handleChange = (e) => {
+            const type = e.target.value
+            if (type === 'autocapture') {
+                this.setState(
+                    {
+                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
+                        type,
+                    },
+                    () => this.sendStep({ ...step, event: '$autocapture' })
+                )
+            } else if (type === 'event') {
+                this.setState({ selection: [], type }, () => this.sendStep({ ...step, event: '' }))
+            } else if (type === 'pageview') {
+                this.setState({ selection: ['url'], type }, () =>
+                    this.sendStep({
+                        ...step,
+                        event: '$pageview',
+                        url: isEditor
+                            ? window.location.protocol + '//' + window.location.host + window.location.pathname
+                            : step.url,
+                    })
+                )
+            }
+        }
+
         return (
             <div>
-                <div className="btn-group">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            this.setState(
-                                {
-                                    selection: Object.keys(step).filter(
-                                        (key) => key !== 'id' && key !== 'isNew' && step[key]
-                                    ),
-                                },
-                                () => this.sendStep({ ...step, event: '$autocapture' })
-                            )
-                        }
-                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
-                    >
-                        Frontend element
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
-                        className={
-                            'btn ' +
-                            (typeof step.event !== 'undefined' &&
-                            step.event !== '$autocapture' &&
-                            step.event !== '$pageview'
-                                ? 'btn-secondary'
-                                : 'btn-light btn-action')
-                        }
-                    >
-                        Custom event
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            this.setState({ selection: ['url'] }, () =>
-                                this.sendStep({
-                                    ...step,
-                                    event: '$pageview',
-                                    url: isEditor
-                                        ? window.location.protocol +
-                                          '//' +
-                                          window.location.host +
-                                          window.location.pathname
-                                        : step.url,
-                                })
-                            )
-                        }}
-                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
-                        data-attr="action-step-pageview"
-                    >
-                        Page view
-                    </button>
-                </div>
+                <Radio.Group buttonStyle="solid" onChange={handleChange} value={this.state.type}>
+                    <Radio.Button value="autocapture">Frontend element</Radio.Button>
+                    <Radio.Button value="event">Custom event</Radio.Button>
+                    <Radio.Button value="pageview">Page view</Radio.Button>
+                </Radio.Group>
             </div>
         )
     }
