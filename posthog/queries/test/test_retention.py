@@ -70,13 +70,13 @@ def retention_test_factory(retention, event_factory, person_factory):
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().run(Filter(data={"date_from": self._date(0, hour=6)}), self.team)
+            result = retention().run(Filter(data={"date_to": self._date(10, hour=6)}), self.team)
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], "Jun 10")
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
@@ -119,7 +119,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 Filter(
                     data={
                         "properties": [{"key": "$some_property", "value": "value"}],
-                        "date_from": self._date(0, hour=0),
+                        "date_to": self._date(10, hour=0),
                     }
                 ),
                 self.team,
@@ -129,7 +129,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 self.pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], "Jun 10")
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
@@ -175,7 +175,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 Filter(
                     data={
                         "properties": [{"key": "email", "value": "person1@test.com", "type": "person",}],
-                        "date_from": self._date(0, hour=0),
+                        "date_to": self._date(6, hour=0),
                     }
                 ),
                 self.team,
@@ -186,7 +186,7 @@ def retention_test_factory(retention, event_factory, person_factory):
             self.assertEqual(
                 self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], "Jun 10")
             self.assertEqual(
                 self.pluck(result, "values", "count"),
                 [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1],],
@@ -213,7 +213,7 @@ def retention_test_factory(retention, event_factory, person_factory):
 
             start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(data={"date_from": self._date(0, hour=0), "target_entity": start_entity,}),
+                Filter(data={"date_to": self._date(6, hour=0), "target_entity": start_entity,}),
                 self.team,
                 total_intervals=7,
             )
@@ -222,7 +222,7 @@ def retention_test_factory(retention, event_factory, person_factory):
             self.assertEqual(
                 self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], "Jun 10")
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
@@ -288,7 +288,7 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
         )
 
         result = Retention().run(
-            Filter(data={"date_from": self._date(0, hour=0), "period": "Week"}), self.team, total_intervals=7,
+            Filter(data={"date_to": self._date(15, month=1, hour=0), "period": "Week"}), self.team, total_intervals=7,
         )
 
         self.assertEqual(
@@ -301,14 +301,5 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
         )
 
         self.assertEqual(
-            self.pluck(result, "date"),
-            [
-                "Wed. 10 June",
-                "Wed. 17 June",
-                "Wed. 24 June",
-                "Wed. 1 July",
-                "Wed. 8 July",
-                "Wed. 15 July",
-                "Wed. 22 July",
-            ],
+            self.pluck(result, "date"), ["Jun 13", "Jun 20", "Jun 27", "Jul 4", "Jul 11", "Jul 18", "Jul 25",],
         )
