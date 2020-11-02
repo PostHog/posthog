@@ -117,7 +117,7 @@ if check_ee_enabled():
 
 else:
 
-    @shared_task(name="process_event_ee", ignore_result=True)
+    @shared_task(name="ee.clickhouse.process_event.process_event_ee", ignore_result=True)
     def process_event_ee(*args, **kwargs) -> None:
         # Noop if ee is not enabled
         return
