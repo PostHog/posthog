@@ -19,6 +19,7 @@ import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
+import { organizationLogic } from './organizationLogic'
 
 const darkerScenes: Record<string, boolean> = {
     dashboard: true,
@@ -28,10 +29,13 @@ const darkerScenes: Record<string, boolean> = {
     paths: true,
 }
 
+const plainScenes: string[] = ['ingestion', 'organizationCreateFirst']
+
 export const App = hot(_App)
 function _App(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
@@ -46,12 +50,22 @@ function _App(): JSX.Element {
             return
         }
 
-        // redirect to ingestion if not completed
+        // If user is in no organization, redirect to organization creation
+        if (
+            !currentOrganizationLoading &&
+            !currentOrganization?.name &&
+            !location.pathname.startsWith('/organization/create')
+        ) {
+            replace('/organization/create')
+            return
+        }
+
+        // If ingestion tutorial not completed, redirect to it
         if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
             replace('/ingestion')
             return
         }
-    }, [scene, user])
+    }, [scene, user, currentOrganization, currentOrganizationLoading])
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (
@@ -63,7 +77,7 @@ function _App(): JSX.Element {
         )
     }
 
-    if (scene === 'ingestion' || !scene) {
+    if (!scene || plainScenes.includes(scene)) {
         return (
             <>
                 <Scene user={user} {...params} />

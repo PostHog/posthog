@@ -53,8 +53,9 @@ def user(request):
         if "user" in data:
             try:
                 user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
+                assert user.organization is not None, "Organization should have been just set"
                 user.current_team = user.organization.teams.first()
-            except KeyError:
+            except (KeyError, ValueError):
                 pass
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
@@ -62,14 +63,15 @@ def user(request):
                 pass
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            try:
-                user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
-            except (KeyError, TypeError):
-                pass
-            except ValueError:
-                return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
+            if user.organization is not None:
+                try:
+                    user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
+                except (KeyError, TypeError):
+                    pass
+                except ValueError:
+                    return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
+                except ObjectDoesNotExist:
+                    return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
@@ -81,7 +83,7 @@ def user(request):
                     "email": user.email if not user.anonymize_data else None,
                     "is_signed_up": True,
                     "toolbar_mode": user.toolbar_mode,
-                    "billing_plan": user.organization.billing_plan,
+                    "billing_plan": user.organization.billing_plan if user.organization is not None else None,
                     "is_team_unique_user": (team.users.count() == 1),
                     "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
                 },
@@ -97,7 +99,9 @@ def user(request):
             "email_opt_in": user.email_opt_in,
             "anonymize_data": user.anonymize_data,
             "toolbar_mode": user.toolbar_mode,
-            "organization": {
+            "organization": None
+            if organization is None
+            else {
                 "id": organization.id,
                 "name": organization.name,
                 "billing_plan": organization.billing_plan,
@@ -107,8 +111,9 @@ def user(request):
                 "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
             },
             "organizations": organizations,
-            "team": team
-            and {
+            "team": None
+            if team is None
+            else {
                 "id": team.id,
                 "name": team.name,
                 "app_urls": team.app_urls,

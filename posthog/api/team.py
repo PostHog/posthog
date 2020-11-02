@@ -32,7 +32,10 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if (
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
+            and (
+                request.user.organization is None
+                or not request.user.organization.is_feature_available("organizations_projects")
+            )
             and request.user.organizations.count() >= 1
         ):
             return False

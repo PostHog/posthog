@@ -19,7 +19,10 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         if (
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
+            and (
+                request.user.organization is None
+                or not request.user.organization.is_feature_available("organizations_projects")
+            )
             and request.user.organizations.count() >= 1
         ):
             return False
@@ -72,15 +75,16 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    def get_queryset(self) -> QuerySet:
+        return self.request.user.organizations.all()
+
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             return self.request.user.organization
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, obj)
-        return obj
-
-    def get_queryset(self) -> QuerySet:
-        return self.request.user.organizations.all()
+        organization = get_object_or_404(queryset, **filter_kwargs)
+        self.check_object_permissions(self.request, organization)
+        print(organization)
+        return organization

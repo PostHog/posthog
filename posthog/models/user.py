@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
@@ -124,19 +125,18 @@ class User(AbstractUser):
         return Team.objects.filter(organization__in=self.organizations.all())
 
     @property
-    def organization(self) -> Organization:
+    def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
             self.current_organization = self.organizations.first()
-            assert self.current_organization is not None, "Null current organization is not supported yet!"
             self.save()
         return self.current_organization
 
     @property
     def team(self) -> Team:
-        if self.current_team is None:
+        if self.current_team is None and self.organization is not None:
             self.current_team = self.organization.teams.first()
-            assert self.current_team is not None, "Null current team is not supported yet!"
             self.save()
+        assert self.current_team is not None, "Null current team is not supported yet!"
         return self.current_team
 
     def join(
@@ -156,17 +156,20 @@ class User(AbstractUser):
             return membership
 
     def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+        if (
+            OrganizationMembership.objects.filter(
+                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+            ).count()
+            == 1
+        ):
+            raise ValidationError("Cannot leave the organization as its last admin!")
         with transaction.atomic():
             OrganizationMembership.objects.get(user=self, organization=organization).delete()
-            if team is not None:
-                team.users.remove(self)
-            if self.organizations.exists():
-                self.delete()
-            else:
-                if self.current_organization == organization:
-                    self.current_organization = self.organizations.first()
-                if self.current_organization is not None:
-                    self.current_team = self.current_organization.teams.first()
+            if self.current_organization == organization:
+                self.current_organization = self.organizations.first()
+                self.current_team = (
+                    None if self.current_organization is None else self.current_organization.teams.first()
+                )
                 self.save()
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

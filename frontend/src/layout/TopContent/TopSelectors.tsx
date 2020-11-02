@@ -53,26 +53,27 @@ export function User(): JSX.Element {
     )
 }
 
-function CreateOrganizationModal({
+export function CreateOrganizationModal({
     isVisible,
     setIsVisible,
 }: {
     isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    setIsVisible?: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
-        setIsVisible(false)
+        if (setIsVisible) setIsVisible(false)
         if (inputRef.current) inputRef.current.setValue('')
     }, [inputRef, setIsVisible])
 
     return (
         <Modal
-            title="Creating an Organization"
+            title={currentOrganization?.name ? 'Creating an Organization' : 'Creating Your First Organization'}
             okText="Create Organization"
             cancelText="Cancel"
             onOk={() => {
@@ -163,7 +164,7 @@ export function Organization(): JSX.Element {
     )
 }
 
-function CreateProjectModal({
+export function CreateProjectModal({
     isVisible,
     setIsVisible,
 }: {

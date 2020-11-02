@@ -9,7 +9,7 @@ export interface UserType {
     name: string
     opt_out_capture: null
     posthog_version: string
-    organization: OrganizationType
+    organization: OrganizationType | null
     team: TeamType
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
