@@ -46,7 +46,7 @@ def user(request):
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
-            if data["team"].get("plugins_opt_in", None) != None:
+            if data["team"].get("plugins_opt_in") is not None:
                 reload_plugins_on_workers()
             team.plugins_opt_in = data["team"].get("plugins_opt_in", team.plugins_opt_in)
             team.completed_snippet_onboarding = data["team"].get(
