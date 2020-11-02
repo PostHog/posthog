@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
@@ -18,7 +18,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop:
 
     or_queries = []
     for index, step in enumerate(steps):
-        conditions = []
+        conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
             el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
@@ -26,7 +26,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop:
             conditions += el_conditions
         # filter event
         else:
-            event_conditions, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
+            event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
             params = {**params, **event_params}
             conditions += event_conditions
 
@@ -46,7 +46,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop:
     return formatted_query, params
 
 
-def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[str, Dict, int]:
+def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[List[str], Dict]:
     params = {}
     conditions = []
 
@@ -63,7 +63,7 @@ def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[s
 
     conditions.append("event = '{}'".format(step.event))
 
-    return conditions, params, index + 1
+    return conditions, params
 
 
 def _create_regex(selector: Selector) -> str:
@@ -83,7 +83,7 @@ def _create_regex(selector: Selector) -> str:
     return regex
 
 
-def filter_element(step: ActionStep, prepend: str = "") -> Tuple[str, Dict, int]:
+def filter_element(step: ActionStep, prepend: str = "") -> Tuple[List[str], Dict]:
     filters = model_to_dict(step)
     params = {}
     conditions = []
