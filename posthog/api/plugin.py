@@ -26,6 +26,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and settings.PLUGINS_INSTALL_FROM_WEB:
             return plugin.error
+        return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not settings.PLUGINS_INSTALL_FROM_WEB:
