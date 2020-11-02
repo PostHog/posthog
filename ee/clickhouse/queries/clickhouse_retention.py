@@ -35,7 +35,7 @@ class ClickhouseRetention(BaseQuery):
             date_to = timezone.now()
             date_from = date_to - tdelta
 
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
 
         target_query = ""
         target_params: Dict = {}

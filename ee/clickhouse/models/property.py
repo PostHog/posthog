@@ -10,13 +10,10 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 
 
-def parse_prop_clauses(
-    key: str, filters: List[Property], team: Team, prepend: str = "", json_extract: bool = False
-) -> Tuple[str, Dict]:
+def parse_prop_clauses(filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
     final = ""
-    params: Dict[str, Any] = {}
+    params: Dict[str, Any] = {"team_id": team.pk}
     for idx, prop in enumerate(filters):
-
         if prop.type == "cohort":
             cohort = Cohort.objects.get(pk=prop.value)
             person_id_query, cohort_filter_params = format_filter_query(cohort)

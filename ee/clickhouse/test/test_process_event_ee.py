@@ -512,8 +512,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person1 = get_person_by_distinct_id(team_id=self.team.pk, distinct_id="old_distinct_id")
-        person2 = get_person_by_distinct_id(team_id=self.team.pk, distinct_id="new_distinct_id")
+        person1 = get_person_by_distinct_id(team=self.team, distinct_id="old_distinct_id")
+        person2 = get_person_by_distinct_id(team=self.team, distinct_id="new_distinct_id")
 
         self.assertEqual(person1, person2)
 
@@ -873,7 +873,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        person = get_person_by_distinct_id(self.team, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
         self.assertEqual(person["properties"]["email"], "someone@gmail.com")
@@ -919,7 +919,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
         )
 
         # self.assertEqual(Event.objects.count(), 0)
-        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        person = get_person_by_distinct_id(self.team, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id"]))
         self.assertEqual(person["properties"]["email"], "someone@gmail.com")
@@ -961,7 +961,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person = get_person_by_distinct_id(self.team.pk, "new_distinct_id")
+        person = get_person_by_distinct_id(self.team, "new_distinct_id")
         distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids(team_id=self.team.pk)]
         self.assertEqual(sorted(distinct_ids), sorted(["anonymous_id", "new_distinct_id", "anonymous_id_2"]))
         self.assertEqual(person["properties"]["email"], "someone@gmail.com")
@@ -1023,7 +1023,7 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
     def test_set_is_identified(self) -> None:
         distinct_id = "777"
         Person.objects.create(team_id=self.team.pk, distinct_ids=[distinct_id])
-        person_before_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
+        person_before_event = get_person_by_distinct_id(team=self.team, distinct_id=distinct_id)
 
         self.assertFalse(person_before_event["is_identified"])
         process_event(
@@ -1045,5 +1045,5 @@ class TestIdentify(ClickhouseTestMixin, BaseTest):
             now().isoformat(),
         )
 
-        person_after_event = get_person_by_distinct_id(team_id=self.team.pk, distinct_id=distinct_id)
+        person_after_event = get_person_by_distinct_id(team=self.team, distinct_id=distinct_id)
         self.assertTrue(person_after_event["is_identified"])
