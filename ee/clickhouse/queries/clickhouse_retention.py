@@ -87,7 +87,7 @@ class ClickhouseRetention(BaseQuery):
             date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
 
         labels_format = "%b %-d"
-        hourly_format = ", %-H %p"
+        hourly_format = ", %-I %p"
         parsed = [
             {
                 "values": [

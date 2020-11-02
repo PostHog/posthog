@@ -43,7 +43,7 @@ class Retention(BaseQuery):
         filter._date_to = date_to.isoformat()
 
         labels_format = "%b %-d"
-        hourly_format = ", %-H %p"
+        hourly_format = ", %-I %p"
         resultset = Event.objects.query_retention(filter, team)
 
         result = [

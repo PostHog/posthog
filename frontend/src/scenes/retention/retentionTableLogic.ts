@@ -77,7 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 startEntity: {
                     events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                 },
-                selectedDate: moment(),
+                selectedDate: moment().startOf('hour'),
                 period: 'd',
             },
             {
