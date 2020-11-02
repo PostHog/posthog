@@ -29,7 +29,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             loadRetention: async () => {
                 const params: Record<string, any> = {}
                 params['properties'] = values.properties
-                if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
+                if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
                 const urlParams = toParams(params)
@@ -77,7 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 startEntity: {
                     events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                 },
-                selectedDate: moment().subtract(11, 'days'),
+                selectedDate: moment(),
                 period: 'd',
             },
             {
