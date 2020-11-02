@@ -1,10 +1,9 @@
 import os
 import time
 
-import statsd  # type: ignore
+import statsd
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone

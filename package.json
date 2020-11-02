@@ -21,12 +21,13 @@
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly --https",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
-        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
+        "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen:watch": "kea-typegen watch"
+        "typegen:watch": "kea-typegen watch",
+        "format-python": "black . && isort ."
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
@@ -124,11 +125,12 @@
         }
     },
     "lint-staged": {
-        "*.{js,ts,tsx,json,yml,css,scss}": "prettier --write",
+        "*.{js,ts,tsx,json,yml,css,scss}": "prettier --check",
         "*.{js,ts,tsx}": "eslint",
-        "*.py": [
-            "./env/bin/black -l 120",
-            "./env/bin/isort -m 3 --tc --fgw 8 --up -n -l 120"
+        "*.{py,pyi}": [
+            "flake8 --select=E9,F63,F7,F82,F401",
+            "black",
+            "isort"
         ]
     }
 }
