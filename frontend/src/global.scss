@@ -134,3 +134,8 @@ style files without adding already imported styles. */
 .table-full-width {
     width: 100%;
 }
+
+// Card styles
+.card-elevated {
+    @extend .mixin-elevated;
+}

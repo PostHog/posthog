@@ -2,7 +2,7 @@ import React from 'react'
 import { CloseButton, fromParams } from 'lib/utils'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
-import { Button, Card } from 'antd'
+import { Button, Card, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 
 const isSubmitDisabled = (cohorts) => {
@@ -38,15 +38,15 @@ export function Cohort({ onChange }) {
                             saveCohort(cohort)
                         }}
                     >
-                        <input
-                            style={{ marginBottom: '1rem' }}
-                            required
-                            className="form-control"
-                            autoFocus
-                            placeholder="Cohort name..."
-                            value={cohort.name}
-                            onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
-                        />
+                        <div className="mb">
+                            <Input
+                                required
+                                autoFocus
+                                placeholder="Cohort name..."
+                                value={cohort.name}
+                                onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
+                            />
+                        </div>
                         {cohort.groups
                             .map((group, index) => (
                                 <CohortGroup
@@ -72,22 +72,23 @@ export function Cohort({ onChange }) {
                                 </div>,
                                 curr,
                             ])}
-
-                        <Button
-                            type="primary"
-                            htmlType="submit"
-                            disabled={isSubmitDisabled(cohort)}
-                            data-attr="save-cohort"
-                            style={{ marginTop: '1rem' }}
-                        >
-                            Save cohort
-                        </Button>
-                        <Button
-                            style={{ marginTop: '1rem', marginLeft: 12 }}
-                            onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
-                        >
-                            New group
-                        </Button>
+                        <div className="mt">
+                            <Button
+                                type="primary"
+                                htmlType="submit"
+                                disabled={isSubmitDisabled(cohort)}
+                                data-attr="save-cohort"
+                                style={{ marginTop: '1rem' }}
+                            >
+                                Save cohort
+                            </Button>
+                            <Button
+                                style={{ marginTop: '1rem', marginLeft: 12 }}
+                                onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
+                            >
+                                New group
+                            </Button>
+                        </div>
                     </form>
                 </Card>
             </div>

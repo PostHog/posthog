@@ -44,9 +44,8 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 }}
             >
                 <label>Action name:</label>
-                <input
+                <Input
                     required
-                    className="form-control"
                     placeholder="e.g. user account created, purchase completed, movie watched"
                     value={action.name}
                     onChange={(e) => {

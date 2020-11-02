@@ -4,7 +4,7 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Col } from 'antd'
+import { Card, Checkbox, Col, Input } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
@@ -129,11 +129,9 @@ export class ActionStep extends Component {
         }
 
         return (
-            <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
                 <label>
-                    <input
-                        type="checkbox"
-                        name="selection"
+                    <Checkbox
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={(e) => {
@@ -149,11 +147,10 @@ export class ActionStep extends Component {
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
+                    <Input
                         data-attr="edit-action-url-input"
-                        className="form-control"
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />

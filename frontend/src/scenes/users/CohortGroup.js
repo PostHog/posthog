@@ -27,7 +27,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
     const { actionsGrouped } = useValues(actionsModel)
     const [selected, setSelected] = useState((group.action_id && 'action') || (group.properties && 'property'))
     return (
-        <Card title={false} style={{ margin: 0 }}>
+        <Card title={false} style={{ margin: 0 }} className="card-elevated">
             {index > 0 && <CloseButton className="float-right" onClick={onRemove} />}
             <div style={{ height: 32 }}>
                 User has

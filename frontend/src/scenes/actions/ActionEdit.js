@@ -5,7 +5,7 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 
 import { ActionStep } from './ActionStep'
-import { Input } from 'antd'
+import { Card, Input } from 'antd'
 
 // TODO: isEditor === false always
 export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, showNewActionButton, temporaryToken }) {
@@ -36,26 +36,26 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
     )
 
     return (
-        <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }}>
+        <Card style={{ marginTop: isEditor ? 8 : '' }}>
             <form
-                className={isEditor ? '' : 'card-body'}
                 onSubmit={(e) => {
                     e.preventDefault()
                     if (isEditor && showNewActionButton) setCreateNew(true)
                     saveAction()
                 }}
             >
-                <input
-                    required
-                    className="form-control"
-                    placeholder="For example: user signed up"
-                    value={action.name}
-                    onChange={(e) => {
-                        setAction({ ...action, name: e.target.value })
-                        setEdited(e.target.value ? true : false)
-                    }}
-                    data-attr="edit-action-input"
-                />
+                <div className="mt">
+                    <Input
+                        required
+                        placeholder="For example: user signed up"
+                        value={action.name}
+                        onChange={(e) => {
+                            setAction({ ...action, name: e.target.value })
+                            setEdited(e.target.value ? true : false)
+                        }}
+                        data-attr="edit-action-input"
+                    />
+                </div>
 
                 {action.count > -1 && (
                     <div>
@@ -185,6 +185,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                     </button>
                 </div>
             </form>
-        </div>
+        </Card>
     )
 }

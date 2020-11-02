@@ -5,7 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { ExportOutlined } from '@ant-design/icons'
-import { Card } from 'antd'
+import { Card, Checkbox, Input } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -134,15 +134,14 @@ export class ActionStep extends Component {
             selectorError = true
         }
         return (
-            <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
                 {props.selector && this.props.isEditor && (
                     <small className={'form-text float-right ' + (selectorError ? 'text-danger' : 'text-muted')}>
                         {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
                     </small>
                 )}
                 <label>
-                    <input
-                        type="checkbox"
+                    <Checkbox
                         name="selection"
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
@@ -159,11 +158,10 @@ export class ActionStep extends Component {
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
+                    <Input
                         data-attr="edit-action-url-input"
-                        className="form-control"
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />
