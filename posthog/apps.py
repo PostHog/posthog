@@ -23,7 +23,7 @@ class PostHogConfig(AppConfig):
             not settings.TEST
             and not "makemigrations" in sys.argv
             and not "migrate" in sys.argv
-            and not "manage.py" in sys.argv
+            and not "manage.py" in " ".join(sys.argv)
             and not "/mypy" in sys.argv[0]
         ):
             from posthog.plugins import sync_plugin_config
