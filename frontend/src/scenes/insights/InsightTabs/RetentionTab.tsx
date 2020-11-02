@@ -59,9 +59,9 @@ export function RetentionTab(): JSX.Element {
                 <h4 className="secondary">Current Date</h4>
                 <div>
                     <DatePicker
-                        showTime
+                        showTime={filters.period === 'h'}
                         use12Hours
-                        format="YYYY-MM-DD, h a"
+                        format={filters.period === 'h' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-2"
                         value={selectedDate}
                         onChange={(date): void => setFilters({ selectedDate: date })}
