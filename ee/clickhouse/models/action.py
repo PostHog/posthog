@@ -24,11 +24,11 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
             params = {**params, **element_params}
             conditions += el_conditions
-        # filter event
-        else:
-            event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
-            params = {**params, **event_params}
-            conditions += event_conditions
+
+        # filter event conditions (ie URL)
+        event_conditions, event_params = filter_event(step, "{}{}".format(index, prepend), index)
+        params = {**params, **event_params}
+        conditions += event_conditions
 
         if step.properties:
             from ee.clickhouse.models.property import parse_prop_clauses
@@ -39,7 +39,8 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
 
-        or_queries.append(" AND ".join(conditions))
+        if len(conditions) > 0:
+            or_queries.append(" AND ".join(conditions))
     or_separator = (
         ") OR (" if not use_loop else ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND "
     )
