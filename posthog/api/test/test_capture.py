@@ -43,7 +43,7 @@ class TestCapture(BaseTest):
         }
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_capture_event(self, patch_process_event_with_plugins):
         data = {
             "event": "$autocapture",
@@ -80,7 +80,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):
         key = PersonalAPIKey(label="X", user=self.user, team=self.team)
         key.save()
@@ -119,7 +119,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_multiple_events(self, patch_process_event_with_plugins):
         self.client.post(
             "/track/",
@@ -136,7 +136,7 @@ class TestCapture(BaseTest):
         self.assertEqual(patch_process_event_with_plugins.call_count, 2)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_emojis_in_text(self, patch_process_event_with_plugins):
         self.team.api_token = "xp9qT2VLY76JJg"
         self.team.save()
@@ -155,7 +155,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_incorrect_padding(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
@@ -166,7 +166,7 @@ class TestCapture(BaseTest):
         self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "whatevefr")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_empty_request_returns_an_error(self, patch_process_event_with_plugins):
         """
         Empty requests that fail silently cause confusion as to whether they were successful or not.
@@ -183,7 +183,7 @@ class TestCapture(BaseTest):
         self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_batch(self, patch_process_event_with_plugins):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
         response = self.client.post(
@@ -204,7 +204,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
@@ -234,7 +234,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_gzip_param(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
@@ -263,7 +263,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_lzstring(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
@@ -332,7 +332,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_engage(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/engage/?data=%s"
@@ -361,7 +361,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_python_library(self, patch_process_event_with_plugins):
         self.client.post(
             "/track/",
@@ -374,7 +374,7 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["team_id"], self.team.pk)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_base64_decode_variations(self, patch_process_event_with_plugins):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
@@ -400,7 +400,7 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_js_library_underscore_sent_at(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -430,7 +430,7 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_long_distinct_id(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -451,7 +451,7 @@ class TestCapture(BaseTest):
         self.assertEqual(len(arguments["distinct_id"]), 200)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event_with_plugins.apply_async")
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_sent_at_field(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
