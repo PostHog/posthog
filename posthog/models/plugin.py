@@ -20,7 +20,7 @@ class Plugin(models.Model):
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
-    # Error installing or configuring this plugin
+    # Error installing or configuring this plugin (frontend: PluginErrorType)
     # - e.g: "could not find plugin.json" / "syntax error in index.js")
     # - error = { message: "Could not find plugin.json", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
@@ -32,7 +32,7 @@ class PluginConfig(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     config: JSONField = JSONField(default=dict)
-    # Error when running this plugin on an event
+    # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
