@@ -2,7 +2,7 @@ import { Col, Card, Button, Switch, Popconfirm, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
-import { ellipsis, someParentMatchesSelector } from 'lib/utils'
+import { someParentMatchesSelector } from 'lib/utils'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import { PlusOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -60,7 +60,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                 <div className="text-center mb" style={{ marginBottom: 16 }}>
                     <b>{name}</b>
                 </div>
-                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{ellipsis(description, 180)}</div>
+                <div style={{ flexGrow: 1, paddingBottom: 16 }}>{description}</div>
                 <div style={{ display: 'flex', minHeight: 44, alignItems: 'center' }}>
                     <div
                         style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}

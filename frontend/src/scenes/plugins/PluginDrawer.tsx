@@ -5,7 +5,6 @@ import { Button, Form, Input, Popconfirm, Switch } from 'antd'
 import { DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from './PluginImage'
-import { ellipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 
@@ -73,7 +72,7 @@ export function PluginDrawer(): JSX.Element {
                                 <PluginImage url={editingPlugin.url} />
                             </div>
                             <div style={{ flexGrow: 1, paddingLeft: 16 }}>
-                                {ellipsis(editingPlugin.description, 140)}
+                                {editingPlugin.description}
                                 <div>
                                     <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
                                         View plugin <ArrowRightOutlined />
