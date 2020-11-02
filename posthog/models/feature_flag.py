@@ -41,7 +41,7 @@ class FeatureFlag(models.Model):
     def _query_clickhouse(self, distinct_id: str) -> bool:
         from ee.clickhouse.models.person import get_person_by_distinct_id
 
-        return get_person_by_distinct_id(self.team, distinct_id, Filter(data=self.filters))
+        return len(get_person_by_distinct_id(self.team, distinct_id, Filter(data=self.filters))) > 0
 
     def _match_distinct_id(self, distinct_id: str) -> bool:
         if check_ee_enabled():
