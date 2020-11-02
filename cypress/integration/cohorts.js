@@ -9,7 +9,7 @@ describe('Cohorts', () => {
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
-        cy.get('form > input[type="text"]').type('Test Cohort')
+        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"
         cy.get('[data-attr="cohort-group-property"]').click()

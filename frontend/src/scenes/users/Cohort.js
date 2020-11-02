@@ -44,6 +44,7 @@ export function Cohort({ onChange }) {
                                 autoFocus
                                 placeholder="Cohort name..."
                                 value={cohort.name}
+                                data-attr="cohort-name"
                                 onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
                             />
                         </div>
