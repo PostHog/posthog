@@ -2,7 +2,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, viewsets
+from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 
 from ee.models.license import License, LicenseError

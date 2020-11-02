@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from django.utils import timezone

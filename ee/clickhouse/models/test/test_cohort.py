@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_filter_query, format_person_query
+from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses

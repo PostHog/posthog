@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.util import get_operator
 from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL, GET_LATEST_PERSON_ID_SQL
 from posthog.models import Action, Cohort, Filter
 

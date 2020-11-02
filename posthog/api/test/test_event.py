@@ -189,7 +189,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response["results"][0]["action"]["id"], action_watch_movie.pk)
 
             # test after
-            sign_up_event = self._signup_event("stopped_after_pay")
+            self._signup_event("stopped_after_pay")
             response = self.client.get(
                 "/api/event/actions/?after=%s" % last_event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
             ).json()

@@ -1,6 +1,3 @@
-from unittest.mock import patch
-
-from django.test.utils import tag
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership

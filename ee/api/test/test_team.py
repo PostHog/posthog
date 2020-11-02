@@ -1,7 +1,3 @@
-from unittest.mock import patch
-
-from django.test.utils import tag
-
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User

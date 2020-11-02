@@ -1,9 +1,7 @@
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
 from posthog.models import Element
-from posthog.models.utils import UUIDT
 
 
 class TestClickhouseElement(ClickhouseTestMixin, BaseTest):

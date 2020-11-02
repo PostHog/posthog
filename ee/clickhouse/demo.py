@@ -1,7 +1,6 @@
 import json
 import random
 from pathlib import Path
-from typing import List
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta

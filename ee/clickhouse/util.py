@@ -52,7 +52,6 @@ class ClickhouseTestMixin:
             self._create_session_recording_tables()
         except ServerException as e:
             print(e)
-            pass
 
     def _destroy_person_tables(self):
         sync_execute(DROP_PERSON_VIEW_SQL)

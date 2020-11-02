@@ -1,13 +1,7 @@
 from django.core.management.base import BaseCommand
 from infi.clickhouse_orm import Database  # type: ignore
 
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USERNAME,
-    CLICKHOUSE_VERIFY,
-)
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USERNAME
 
 
 class Command(BaseCommand):

@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
-from ee.clickhouse.models.util import get_operator, is_int, is_json
-from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.models.util import is_int, is_json
+from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property

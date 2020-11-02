@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
+from .clickhouse import KAFKA_COLUMNS, kafka_engine, table_engine, ttl_period
 
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 

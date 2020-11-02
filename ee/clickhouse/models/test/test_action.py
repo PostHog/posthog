@@ -1,5 +1,4 @@
-import json
-from typing import Dict, List, Optional
+from typing import List, Optional
 from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute

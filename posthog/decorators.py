@@ -20,7 +20,6 @@ def cached_function(cache_type: str, expiry=30):
             request = args[1]
             team = request.user.team
             payload = None
-            dashboard_item_id = None
             refresh = request.GET.get("refresh", None)
 
             if cache_type == TRENDS_ENDPOINT:

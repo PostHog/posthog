@@ -1,5 +1,4 @@
-from django.db import connection
-from rest_framework import request, viewsets
+from rest_framework import request
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -8,7 +7,7 @@ from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from ee.clickhouse.util import CH_PATH_ENDPOINT, endpoint_enabled
 from posthog.api.paths import PathsViewSet
-from posthog.models import Event, Filter
+from posthog.models import Filter
 
 
 class ClickhousePathsViewSet(PathsViewSet):

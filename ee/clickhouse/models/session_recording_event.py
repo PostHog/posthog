@@ -1,10 +1,7 @@
 import datetime
 import json
 import uuid
-from typing import Dict, List, Optional, Tuple, Union
-
-from dateutil.parser import isoparse
-from django.utils import timezone
+from typing import Union
 
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_EVENT_SQL

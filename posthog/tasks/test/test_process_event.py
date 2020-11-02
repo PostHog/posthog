@@ -32,7 +32,7 @@ def test_process_event_factory(
 ) -> Callable:
     class TestProcessEvent(BaseTest):
         def test_capture_new_person(self) -> None:
-            user = self._create_user("tim")
+            self._create_user("tim")
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action1, selector="a", event="$autocapture")
             action2 = Action.objects.create(team=self.team)
@@ -73,7 +73,7 @@ def test_process_event_factory(
             self.assertEqual(event.distinct_id, "2")
 
         def test_capture_no_element(self) -> None:
-            user = self._create_user("tim")
+            self._create_user("tim")
             Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
 
             process_event(
@@ -185,7 +185,7 @@ def test_process_event_factory(
             self.assertLess(difference, 1)
 
         def test_ip_capture(self) -> None:
-            user = self._create_user("tim")
+            self._create_user("tim")
             Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
 
             process_event(
@@ -202,7 +202,7 @@ def test_process_event_factory(
             self.assertEqual(event.properties["$ip"], "11.12.13.14")
 
         def test_ip_override(self) -> None:
-            user = self._create_user("tim")
+            self._create_user("tim")
             Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
 
             process_event(
@@ -225,7 +225,7 @@ def test_process_event_factory(
             self.team.anonymize_ips = True
             self.team.save()
 
-            user = self._create_user("tim")
+            self._create_user("tim")
             Person.objects.create(team=self.team, distinct_ids=["asdfasdfasdf"])
 
             process_event(

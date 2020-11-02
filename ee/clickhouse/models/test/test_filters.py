@@ -3,7 +3,6 @@ from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
-from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.util import ClickhouseTestMixin

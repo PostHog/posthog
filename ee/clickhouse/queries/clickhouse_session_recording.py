@@ -1,10 +1,9 @@
 import datetime
 import json
-from typing import Any, Callable, List
+from typing import Any, List
 
 from ee.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.queries.base import BaseQuery
 from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.session_recording import add_session_recording_ids as _add_session_recording_ids
 

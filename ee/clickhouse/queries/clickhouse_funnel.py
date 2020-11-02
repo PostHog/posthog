@@ -1,6 +1,4 @@
-import uuid
-from collections import defaultdict
-from typing import Any, Dict, List, Match, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 
@@ -13,7 +11,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse

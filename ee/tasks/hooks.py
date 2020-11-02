@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 import requests
 from celery.task import Task
