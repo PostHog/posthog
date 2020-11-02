@@ -1,10 +1,11 @@
-import { Plugin, PluginConfig, PluginsServer } from './types'
+import { Plugin, PluginConfig, PluginEvent, PluginsServer } from './types'
 
 export async function processError(
     server: PluginsServer,
     plugin: Plugin,
     teamPlugin: PluginConfig | null,
-    error: Error | string
+    error: Error | string,
+    event?: PluginEvent | null
 ) {
     console.error(error)
 
@@ -19,7 +20,9 @@ export async function processError(
                   time: new Date().toISOString(),
                   name: error.name,
                   stack: error.stack,
+                  event: event,
               }
+
     if (teamPlugin) {
         await server.db.query('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [errorJson, teamPlugin.id])
     } else {

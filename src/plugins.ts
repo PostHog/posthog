@@ -190,7 +190,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    await processError(server, plugins[teamPlugin.plugin_id], teamPlugin, error)
+                    await processError(server, plugins[teamPlugin.plugin_id], teamPlugin, error, returnedEvent)
                 }
             }
 
