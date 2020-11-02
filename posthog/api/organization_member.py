@@ -1,14 +1,13 @@
 from typing import cast
 
-from django.db.models import Model, QuerySet, query
+from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
-from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 

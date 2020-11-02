@@ -1,6 +1,5 @@
 import base64
 import json
-from unittest.mock import patch
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
 

@@ -1,6 +1,6 @@
 from django.test import Client, TestCase
 
-from posthog.models import Team, User, organization
+from posthog.models import User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 
 

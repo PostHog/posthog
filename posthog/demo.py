@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -17,7 +16,6 @@ from posthog.models import (
     DashboardItem,
     Element,
     Event,
-    Funnel,
     Person,
     PersonDistinctId,
     Team,

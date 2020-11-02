@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from posthog.models import CohortPeople, Person, PersonDistinctId, Team
+from posthog.models import Person, Team
 
 
 class Command(BaseCommand):

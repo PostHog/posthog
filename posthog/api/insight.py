@@ -1,4 +1,3 @@
-from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
 
@@ -13,10 +12,9 @@ from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Filter, Person
-from posthog.models.action import Action
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-from posthog.utils import generate_cache_key, request_to_date_query
+from posthog.utils import generate_cache_key
 
 
 class InsightSerializer(serializers.ModelSerializer):

@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import FeatureFlag, Team
-from posthog.utils import base64_to_json, cors_response, load_data_from_request
+from posthog.utils import cors_response, load_data_from_request
 
 
 def _get_token(data, request):

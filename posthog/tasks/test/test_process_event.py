@@ -1,14 +1,13 @@
 from datetime import timedelta
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List, Union
 from unittest.mock import patch
 from uuid import UUID
 
 from django.conf import settings
-from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest, TransactionBaseTest
+from posthog.api.test.base import BaseTest
 from posthog.models import (
     Action,
     ActionStep,

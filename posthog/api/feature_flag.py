@@ -1,9 +1,8 @@
 from typing import Any, Dict
 
-import posthoganalytics
 from django.db import IntegrityError
 from django.db.models import QuerySet
-from rest_framework import response, serializers, status, viewsets
+from rest_framework import serializers, viewsets
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin

@@ -6,8 +6,6 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.celery import app
-from posthog.ee import check_ee_enabled
 from posthog.models import Cohort
 
 logger = logging.getLogger(__name__)

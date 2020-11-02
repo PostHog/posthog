@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q

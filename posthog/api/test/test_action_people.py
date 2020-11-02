@@ -1,5 +1,3 @@
-from json import dumps as jdumps
-
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Cohort, Event, Person, Team

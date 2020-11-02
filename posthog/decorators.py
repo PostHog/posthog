@@ -1,9 +1,6 @@
-import json
-from datetime import datetime
-
 from django.core.cache import cache
 
-from posthog.models import DashboardItem, Filter
+from posthog.models import Filter
 from posthog.utils import generate_cache_key
 
 from .utils import generate_cache_key
@@ -15,7 +12,7 @@ FUNNEL_ENDPOINT = "Funnel"
 def cached_function(cache_type: str, expiry=30):
     def inner_decorator(f):
         def wrapper(*args, **kw):
-            from posthog.celery import update_cache_item_task
+            pass
 
             cache_key = ""
 

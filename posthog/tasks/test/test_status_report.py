@@ -1,7 +1,6 @@
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Dashboard
 from posthog.tasks.status_report import status_report
 
 

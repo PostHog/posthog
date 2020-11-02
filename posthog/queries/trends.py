@@ -14,7 +14,6 @@ from django.db.models import (
     Min,
     OuterRef,
     Prefetch,
-    Q,
     QuerySet,
     Sum,
     Value,

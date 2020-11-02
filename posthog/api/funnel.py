@@ -1,10 +1,8 @@
-import datetime
-import json
 from typing import Any, Dict, List
 
 from django.db.models import QuerySet
 from django.utils import timezone
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.response import Response
 
 from posthog.decorators import FUNNEL_ENDPOINT, cached_function

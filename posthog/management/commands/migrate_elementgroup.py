@@ -1,13 +1,11 @@
 import hashlib
 import json
 
-from dateutil.relativedelta import relativedelta
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.db import models, transaction
 from django.forms.models import model_to_dict
-from django.utils import timezone
 
-from posthog.models import Element, ElementGroup, Event
+from posthog.models import ElementGroup, Event
 
 
 class Command(BaseCommand):

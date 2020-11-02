@@ -1,13 +1,11 @@
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.test import tag
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models.user import User
 
 
 class TestUser(BaseTest):

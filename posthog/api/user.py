@@ -1,4 +1,3 @@
-import functools
 import json
 import os
 import secrets
@@ -14,10 +13,10 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
-from rest_framework import exceptions, serializers
+from rest_framework import serializers
 
 from posthog.auth import authenticate_secondarily
-from posthog.models import Event, Team, User
+from posthog.models import User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 

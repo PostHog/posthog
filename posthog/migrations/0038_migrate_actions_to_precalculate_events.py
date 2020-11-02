@@ -4,7 +4,7 @@ import re
 from typing import Dict, List, Union
 
 from django.db import connection, migrations, models
-from django.db.models import Exists, F, OuterRef, Q, Subquery
+from django.db.models import F, OuterRef, Q, Subquery
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 

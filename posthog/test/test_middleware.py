@@ -1,13 +1,8 @@
-import json
-import urllib
-from typing import Dict
-
 from django.conf import settings
 from django.test import Client, TestCase
 from rest_framework import status
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Team, User
 
 
 class TestSignup(TestCase):

@@ -9,21 +9,10 @@ from urllib.parse import urlparse
 import psycopg2
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.core import serializers
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from posthog.models import (
-    Action,
-    ActionStep,
-    Element,
-    Event,
-    Funnel,
-    FunnelStep,
-    Person,
-    PersonDistinctId,
-    Team,
-)
+from posthog.models import Action, ActionStep, Funnel, FunnelStep, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
 

@@ -1,4 +1,4 @@
-from rest_framework import decorators, exceptions, response
+from rest_framework import decorators, exceptions
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 
 from posthog.ee import check_ee_enabled

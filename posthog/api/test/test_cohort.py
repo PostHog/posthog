@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from posthog.models import Cohort, Person
+from posthog.models import Person
 
 from .base import BaseTest
 

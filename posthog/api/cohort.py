@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 
 from django.db.models import Count, QuerySet
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import serializers, viewsets
 
 from posthog.api.user import UserSerializer
 from posthog.models import Cohort

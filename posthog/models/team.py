@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
