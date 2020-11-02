@@ -17,6 +17,7 @@ from ee.clickhouse.sql.events import (
     NULL_BREAKDOWN_SQL,
     NULL_SQL,
 )
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_COHORT_JOIN_SQL,
@@ -194,9 +195,12 @@ class ClickhouseTrends(BaseQuery):
                     interval_annotation=interval_annotation,
                 )
         elif filter.breakdown_type == "person":
-            top_elements_array = self._get_top_elements(
-                TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL, filter, parsed_date_from, parsed_date_to, team
+            elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             )
+            top_elements_array = self._get_top_elements(elements_query, filter, team)
             params = {
                 **params,
                 "values": top_elements_array,
@@ -209,6 +213,7 @@ class ClickhouseTrends(BaseQuery):
                 parsed_date_to=parsed_date_to,
                 actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
+                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
@@ -219,9 +224,11 @@ class ClickhouseTrends(BaseQuery):
             )
         else:
 
-            top_elements_array = self._get_top_elements(
-                TOP_ELEMENTS_ARRAY_OF_KEY_SQL, filter, parsed_date_from, parsed_date_to, team
+            elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
+
+            top_elements_array = self._get_top_elements(elements_query, filter, team)
 
             params = {
                 **params,
@@ -271,14 +278,11 @@ class ClickhouseTrends(BaseQuery):
 
         return parsed_results
 
-    def _get_top_elements(
-        self, query: str, filter: Filter, parsed_date_from: Optional[str], parsed_date_to: Optional[str], team: Team
-    ) -> List:
+    def _get_top_elements(self, query: str, filter: Filter, team: Team) -> List:
         element_params = {"key": filter.breakdown, "limit": 20, "team_id": team.pk}
-        element_query = query.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to)
 
         try:
-            top_elements_array_result = sync_execute(element_query, element_params)
+            top_elements_array_result = sync_execute(query, element_params)
             top_elements_array = top_elements_array_result[0][0]
         except:
             top_elements_array = []

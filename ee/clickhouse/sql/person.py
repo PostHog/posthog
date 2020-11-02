@@ -10,14 +10,6 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
-DROP_PERSON_MATERIALIZED_SQL = """
-DROP TABLE persons_up_to_date
-"""
-
-DROP_PERSON_VIEW_SQL = """
-DROP VIEW persons_up_to_date_view
-"""
-
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -64,44 +56,27 @@ FROM kafka_{table_name}
     table_name=PERSONS_TABLE
 )
 
-PERSONS_UP_TO_DATE_MATERIALIZED_VIEW = """
-CREATE MATERIALIZED VIEW persons_up_to_date
-ENGINE = AggregatingMergeTree() ORDER BY (
-    team_id,
-    updated_at,
-    id
-)
-POPULATE
-AS SELECT  
-id,
-argMaxState(team_id, created_at) team_id,
-argMaxState(is_identified, created_at) is_identified,
-argMaxState(properties, created_at) properties,
-minState(created_at) created_at_,
-maxState(created_at) updated_at
-FROM {table_name}
-GROUP BY id
-""".format(
-    table_name=PERSONS_TABLE
-)
-
-PERSONS_UP_TO_DATE_VIEW = """
-CREATE VIEW persons_up_to_date_view
-AS
-SELECT 
-id,
-minMerge(created_at_) as created_at,
-argMaxMerge(team_id) as team_id,
-argMaxMerge(properties) as properties,
-argMaxMerge(is_identified) as is_identified,
-maxMerge(updated_at) as updated_at
-FROM persons_up_to_date 
-GROUP BY id
+GET_LATEST_PERSON_SQL = """
+SELECT * FROM person JOIN (
+    SELECT id, max(created_at) as created_at FROM person WHERE team_id = %(team_id)s GROUP BY id
+) as person_max ON person.id = person_max.id AND person.created_at = person_max.created_at
+WHERE team_id = %(team_id)s
+{query}
 """
+
+GET_LATEST_PERSON_ID_SQL = """
+(select id from (
+    {latest_person_sql}
+))
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL
+)
 
 GET_PERSON_SQL = """
-SELECT * FROM persons_up_to_date_view WHERE team_id = %(team_id)s
-"""
+SELECT * FROM {latest_person_sql} person WHERE team_id = %(team_id)s
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL
+)
 
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
@@ -156,8 +131,10 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM persons_up_to_date_view as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
-"""
+SELECT p.* FROM {latest_person_sql} as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL
+)
 
 GET_PERSONS_BY_DISTINCT_IDS = """
 SELECT 
@@ -218,10 +195,6 @@ where distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-DELETE_PERSON_MATERIALIZED_BY_ID = """
-ALTER TABLE persons_up_to_date DELETE where id = %(id)s
-"""
-
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
 ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 """
@@ -254,15 +227,6 @@ SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_i
 LIMIT 200 OFFSET %(offset)s 
 """
 
-PEOPLE_BY_TEAM_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
-) as pdi ON persons_up_to_date_view.id = pdi.person_id 
-WHERE team_id = %(team_id)s {filters} 
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100 OFFSET %(offset)s 
-"""
-
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id WHERE person_id IN
 (
@@ -271,19 +235,3 @@ SELECT distinct_id FROM person_distinct_id WHERE person_id IN
     WHERE team_id = %(team_id)s {filters}
 ) AND team_id = %(team_id)s
 """
-
-GET_LATEST_PERSON_SQL = """
-SELECT * FROM person JOIN (
-    SELECT id, max(created_at) as created_at FROM person WHERE team_id = %(team_id)s GROUP BY id
-) as person_max ON person.id = person_max.id AND person.created_at = person_max.created_at
-WHERE team_id = %(team_id)s
-{query}
-"""
-
-GET_LATEST_PERSON_ID_SQL = """
-(select id from (
-    {latest_person_sql}
-))
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL
-)
