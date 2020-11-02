@@ -7,7 +7,7 @@ import { InstalledPlugins } from 'scenes/plugins/InstalledPlugins'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs } from 'antd'
+import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 
@@ -33,7 +33,10 @@ function _Plugins(): JSX.Element {
         <div>
             {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
             <h1 className="page-header">
-                Plugins <span style={{ color: 'var(--red)' }}>BETA</span>
+                Plugins{' '}
+                <Tag color="orange" style={{ verticalAlign: 'top' }}>
+                    BETA
+                </Tag>
             </h1>
 
             {user.team.plugins_opt_in ? (
