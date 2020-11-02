@@ -1,6 +1,6 @@
 {
     "name": "posthog-plugin-server",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "description": "PostHog Plugin Server",
     "main": "src/index.js",
     "scripts": {
