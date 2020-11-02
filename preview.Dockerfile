@@ -40,13 +40,21 @@ COPY babel.config.js /code/
 COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
+
+RUN mkdir /code/plugins
+COPY plugins/package.json /code/plugins/
+COPY plugins/yarn.lock /code/plugins/
+
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
+    && curl -sL https://deb.nodesource.com/setup_14.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile \
     && yarn build \
+    && cd plugins \
+    && yarn --frozen-lockfile \
+    && cd .. \
     && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \

@@ -507,3 +507,16 @@ label.disabled {
         background-color: #f7a501;
     }
 }
+
+.Papercups-toggleButtonContainer {
+    transition: bottom 0.5s ease-out;
+}
+
+.drawer-open {
+    .Papercups-toggleButtonContainer {
+        bottom: 60px !important;
+    }
+    #bottom-notice {
+        height: 0px !important;
+    }
+}
