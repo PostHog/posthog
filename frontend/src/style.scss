@@ -14,7 +14,6 @@
 // bootstrap components
 @import 'node_modules/bootstrap/scss/_root';
 @import 'node_modules/bootstrap/scss/utilities';
-@import 'node_modules/bootstrap/scss/_reboot';
 @import 'node_modules/bootstrap/scss/_buttons';
 @import 'node_modules/bootstrap/scss/_button-group';
 @import 'node_modules/bootstrap/scss/_dropdown';
@@ -174,10 +173,7 @@ label.disabled {
 .ant-select-dropdown {
     z-index: 1065 !important;
 }
-.anticon {
-    // not sure why this doesn't just work..
-    vertical-align: 0.125em !important;
-}
+
 .ant-select-arrow .anticon {
     vertical-align: top !important;
 }
