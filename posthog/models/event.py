@@ -11,22 +11,11 @@ from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.core.cache import cache
 from django.db import connection, models, transaction
-from django.db.models import (
-    Exists,
-    F,
-    OuterRef,
-    Prefetch,
-    Q,
-    QuerySet,
-    Subquery,
-    Value,
-    signals,
-)
-from django.db.models.functions import Trunc, TruncDay
+from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models.functions import TruncDay
 from django.db.models.functions.datetime import TruncHour, TruncMonth, TruncWeek
 from django.forms.models import model_to_dict
 from django.utils import timezone
-from psycopg2 import sql  # type: ignore
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity

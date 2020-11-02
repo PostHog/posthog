@@ -42,9 +42,10 @@ jobs:
                   python -m pip install -r requirements/dev.txt
               if: steps.cache.outputs.cache-hit != 'true'
 
-            - name: Check formatting with black
+            - name: Check formatting
               run: |
-                  black -l 120 --check .
+                  black --check .
+                  isort --check-only .
 
             - name: Lint with flake8
               run: |
@@ -59,7 +60,7 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
               run: |
-                  mypy posthog ee
+                  mypy .
 
     django:
         name: Django tests – Py ${{ matrix.python-version }}

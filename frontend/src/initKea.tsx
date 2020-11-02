@@ -18,7 +18,7 @@ export function initKea(): void {
                         <div>
                             <h1>Error loading "{reducerKey}".</h1>
                             <p className="info">Action "{actionKey}" responded with</p>
-                            <p className="error-message">"{error.message}"</p>
+                            <p className="error-message">"{error.message || error.detail}"</p>
                         </div>
                     )
                     window['Sentry'] ? window['Sentry'].captureException(error) : console.error(error)

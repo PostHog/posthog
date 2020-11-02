@@ -7,7 +7,7 @@ from django.contrib.postgres.fields import JSONField
 from django.db import connection, models
 from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
-from psycopg2 import sql  # type: ignore
+from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 

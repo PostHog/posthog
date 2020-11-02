@@ -66,7 +66,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
                 data-attr="funnel-viz"
                 ref={container}
                 className="svg-funnel-js"
-                style={{ height: '100%', width: '100%' }}
+                style={{ height: '100%', width: '100%', overflow: 'hidden' }}
             />
         ) : (
             <p style={{ margin: '1rem' }}>This funnel doesn't have any steps. </p>
