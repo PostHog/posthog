@@ -1,13 +1,15 @@
 import os
 import time
 
-import redis
 import statsd  # type: ignore
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -26,9 +28,6 @@ app.autodiscover_tasks()
 # Make sure Redis doesn't add too many connections
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
-
-# Connect to our Redis instance to store the heartbeat
-redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
@@ -76,14 +75,14 @@ def setup_periodic_tasks(sender, **kwargs):
 
 @app.task(ignore_result=True)
 def redis_heartbeat():
-    redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
+    get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        llen = redis_instance.llen("celery")
+        llen = get_client().llen("celery")
         g.send("queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.

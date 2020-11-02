@@ -2,6 +2,7 @@ import base64
 import gzip
 import json
 from datetime import timedelta
+from typing import Any
 from unittest.mock import call, patch
 from urllib.parse import quote
 
@@ -11,7 +12,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import PersonalAPIKey, Team
-from posthog.tasks.process_event import _capture
 
 from .base import BaseTest
 
@@ -28,9 +28,23 @@ class TestCapture(BaseTest):
     def _dict_from_b64(self, data: str) -> dict:
         return json.loads(base64.b64decode(data))
 
+    def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
+        args = patch_process_event_with_plugins.call_args[1]["args"]
+        distinct_id, ip, site_url, data, team_id, now, sent_at = args
+
+        return {
+            "distinct_id": distinct_id,
+            "ip": ip,
+            "site_url": site_url,
+            "data": data,
+            "team_id": team_id,
+            "now": now,
+            "sent_at": sent_at,
+        }
+
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_capture_event(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_capture_event(self, patch_process_event_with_plugins):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -51,7 +65,7 @@ class TestCapture(BaseTest):
                     HTTP_ORIGIN="https://localhost",
                 )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -66,8 +80,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_personal_api_key(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_personal_api_key(self, patch_process_event_with_plugins):
         key = PersonalAPIKey(label="X", user=self.user, team=self.team)
         key.save()
         data = {
@@ -90,7 +104,7 @@ class TestCapture(BaseTest):
                     HTTP_ORIGIN="https://localhost",
                 )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -105,8 +119,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_multiple_events(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_multiple_events(self, patch_process_event_with_plugins):
         self.client.post(
             "/track/",
             data={
@@ -119,11 +133,11 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,
             },
         )
-        self.assertEqual(patch_process_event.call_count, 2)
+        self.assertEqual(patch_process_event_with_plugins.call_count, 2)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_emojis_in_text(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_emojis_in_text(self, patch_process_event_with_plugins):
         self.team.api_token = "xp9qT2VLY76JJg"
         self.team.save()
 
@@ -136,23 +150,24 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(
-            patch_process_event.call_args[1]["data"]["properties"]["$elements"][0]["$el_text"], "💻 Writing code",
+            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["$elements"][0]["$el_text"],
+            "💻 Writing code",
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_incorrect_padding(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_incorrect_padding(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
             content_type="application/json",
             HTTP_REFERER="https://localhost",
         )
         self.assertEqual(response.json()["status"], 1)
-        self.assertEqual(patch_process_event.call_args[1]["data"]["event"], "whatevefr")
+        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "whatevefr")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_empty_request_returns_an_error(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_empty_request_returns_an_error(self, patch_process_event_with_plugins):
         """
         Empty requests that fail silently cause confusion as to whether they were successful or not.
         """
@@ -160,21 +175,21 @@ class TestCapture(BaseTest):
         # Empty GET
         response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(patch_process_event.call_count, 0)
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
         # Empty POST
         response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(patch_process_event.call_count, 0)
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_batch(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch(self, patch_process_event_with_plugins):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
         response = self.client.post(
             "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json",
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -189,8 +204,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_batch_gzip_header(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
@@ -204,7 +219,7 @@ class TestCapture(BaseTest):
             HTTP_CONTENT_ENCODING="gzip",
         )
 
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -219,8 +234,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_batch_gzip_param(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch_gzip_param(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
@@ -233,7 +248,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -248,8 +263,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_batch_lzstring(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch_lzstring(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
@@ -263,7 +278,7 @@ class TestCapture(BaseTest):
             HTTP_CONTENT_ENCODING="lz64",
         )
 
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
@@ -317,8 +332,8 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_engage(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_engage(self, patch_process_event_with_plugins):
         response = self.client.get(
             "/engage/?data=%s"
             % quote(
@@ -335,7 +350,7 @@ class TestCapture(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
@@ -346,8 +361,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_python_library(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_python_library(self, patch_process_event_with_plugins):
         self.client.post(
             "/track/",
             data={
@@ -355,12 +370,12 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,  # main difference in this test
             },
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["team_id"], self.team.pk)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_base64_decode_variations(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_base64_decode_variations(self, patch_process_event_with_plugins):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
         self.assertDictEqual(
@@ -371,7 +386,7 @@ class TestCapture(BaseTest):
         self.client.post(
             "/track/", data={"data": base64, "api_key": self.team.api_token,},  # main difference in this test
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
@@ -380,13 +395,13 @@ class TestCapture(BaseTest):
             "/track/",
             data={"data": base64.replace("+", " "), "api_key": self.team.api_token,},  # main difference in this test
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_js_library_underscore_sent_at(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_js_library_underscore_sent_at(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -403,7 +418,7 @@ class TestCapture(BaseTest):
             HTTP_ORIGIN="https://localhost",
         )
 
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
 
         # right time sent as sent_at to process_event
@@ -415,8 +430,8 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_long_distinct_id(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_long_distinct_id(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -432,12 +447,12 @@ class TestCapture(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         self.assertEqual(len(arguments["distinct_id"]), 200)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.tasks.process_event.process_event.delay")
-    def test_sent_at_field(self, patch_process_event):
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_sent_at_field(self, patch_process_event_with_plugins):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -453,7 +468,7 @@ class TestCapture(BaseTest):
             },
         )
 
-        arguments = patch_process_event.call_args[1]
+        arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
 
         # right time sent as sent_at to process_event

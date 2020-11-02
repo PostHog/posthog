@@ -12,6 +12,9 @@
     },
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
+    "engines": {
+        "node": "14.x"
+    },
     "scripts": {
         "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
@@ -38,7 +41,6 @@
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
         "editor": "^1.0.0",
-        "eslint-plugin-cypress": "^2.11.1",
         "expr-eval": "^2.0.2",
         "funnel-graph-js": "^1.4.1",
         "fuse.js": "^6.4.1",
@@ -92,6 +94,7 @@
         "cypress-terminal-report": "^2.1.0",
         "eslint": "^7.8.0",
         "eslint-config-prettier": "^6.11.0",
+        "eslint-plugin-cypress": "^2.11.2",
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
         "file-loader": "^6.1.0",
