@@ -13,8 +13,8 @@ export function RetentionTable() {
 
     let columns = [
         {
-            title: 'Cohort',
-            key: 'cohort',
+            title: 'Date',
+            key: 'date',
             render: (row) => row.date,
         },
         {
