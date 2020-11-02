@@ -12,9 +12,10 @@ export const pluginsLogic = kea<
     actions: {
         editPlugin: (id: number | null) => ({ id }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, isCustom: boolean = false) => ({ pluginUrl, isCustom }),
+        installPlugin: (pluginUrl: string, type: 'local' | 'custom' | 'repository') => ({ pluginUrl, type }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
+        setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setPluginTab: (tab: string) => ({ tab }),
         resetPluginConfigError: (id: number) => ({ id }),
     },
@@ -31,8 +32,15 @@ export const pluginsLogic = kea<
                     }
                     return plugins
                 },
-                installPlugin: async ({ pluginUrl }) => {
+                installPlugin: async ({ pluginUrl, type }) => {
                     const { plugins } = values
+
+                    if (type === 'local') {
+                        const response = await api.create('api/plugin', {
+                            url: `file:${pluginUrl}`,
+                        })
+                        return { ...plugins, [response.id]: response }
+                    }
 
                     const { user, repo } = parseGithubRepoURL(pluginUrl)
 
@@ -174,6 +182,13 @@ export const pluginsLogic = kea<
             '',
             {
                 setCustomPluginUrl: (_, { customPluginUrl }) => customPluginUrl,
+                installPluginSuccess: () => '',
+            },
+        ],
+        localPluginUrl: [
+            '',
+            {
+                setLocalPluginUrl: (_, { localPluginUrl }) => localPluginUrl,
                 installPluginSuccess: () => '',
             },
         ],

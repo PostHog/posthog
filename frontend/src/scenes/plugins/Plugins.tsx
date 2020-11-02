@@ -10,6 +10,7 @@ import { pluginsLogic } from './pluginsLogic'
 import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
+import { LocalPlugin } from 'scenes/plugins/LocalPlugin'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -49,6 +50,7 @@ function _Plugins(): JSX.Element {
                             <TabPane tab="Available" key="available">
                                 <Repository />
                                 <CustomPlugin />
+                                <LocalPlugin />
                             </TabPane>
                         )}
                     </Tabs>
