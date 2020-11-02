@@ -5,6 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { ExportOutlined } from '@ant-design/icons'
+import { Card } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -304,21 +305,21 @@ export class ActionStep extends Component {
         let { step, isEditor, actionId, isOnlyStep } = this.props
 
         return (
-            <div
-                className={isEditor ? '' : 'card'}
+            <Card
                 style={{
                     marginBottom: 0,
                     background: isEditor ? 'rgba(0,0,0,0.05)' : '',
                 }}
             >
-                <div className={isEditor ? '' : 'card-body'}>
+                <div>
                     {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
-                                margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
+                                border: 0,
+                                float: 'right',
+                                color: 'hsl(0, 0%, 80%)',
                             }}
                             type="button"
-                            className="close pull-right"
                             aria-label="Close"
                             onClick={this.props.onDelete}
                         >
@@ -395,7 +396,7 @@ export class ActionStep extends Component {
                         )}
                     </div>
                 </div>
-            </div>
+            </Card>
         )
     }
 }

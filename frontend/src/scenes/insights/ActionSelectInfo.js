@@ -23,7 +23,7 @@ export class ActionSelectInfo extends Component {
                     entity.steps.map((step, index) => (
                         <div key={step.id}>
                             <Card key={step.id} style={{ marginBottom: 0 }}>
-                                <div className="card-body">
+                                <div>
                                     <strong>
                                         {step.event && step.event[0] == '$'
                                             ? step.event[1].toUpperCase() + step.event.slice(2)

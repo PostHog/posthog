@@ -4,7 +4,7 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Col } from 'antd'
+import { Card, Col } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
@@ -293,9 +293,9 @@ export class ActionStep extends Component {
 
         return (
             <Col span={24} md={12}>
-                <div className="action-step card" style={{ overflow: 'visible' }}>
+                <Card className="action-step" style={{ overflow: 'visible' }}>
                     {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
-                    <div className="card-body">
+                    <div>
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
                                 <button type="button" aria-label="delete" onClick={onDelete}>
@@ -364,7 +364,7 @@ export class ActionStep extends Component {
                             )}
                         </div>
                     </div>
-                </div>
+                </Card>
             </Col>
         )
     }

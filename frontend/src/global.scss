@@ -64,6 +64,24 @@ style files without adding already imported styles. */
     margin-top: $default_spacing;
 }
 
+.pa {
+    // Padding all
+    padding: $default_spacing;
+}
+
+.pb {
+    padding-bottom: $default_spacing;
+}
+
+.pt {
+    padding-top: $default_spacing;
+}
+
+// Color styles
+.bg-primary {
+    background-color: $primary;
+}
+
 // Random general styles
 .cursor-pointer {
     cursor: pointer;

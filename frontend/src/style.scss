@@ -150,10 +150,6 @@ hr {
     border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
-.close {
-    color: hsl(0, 0%, 80%);
-}
-
 button.no-style {
     background: none;
     border: none;
@@ -162,13 +158,6 @@ button.no-style {
 .table th,
 .table td {
     padding: 0.25rem;
-}
-
-.select-with-close {
-    display: inline-block;
-    .close {
-        margin-left: 10px;
-    }
 }
 
 .modal {

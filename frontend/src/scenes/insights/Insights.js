@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { Card, Loading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
@@ -13,7 +13,7 @@ import { PeopleModal } from './PeopleModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Button, Drawer, Tooltip } from 'antd'
+import { Tabs, Row, Col, Button, Drawer, Tooltip, Card } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -157,8 +157,8 @@ function _Insights() {
                 </Row>
                 <Row gutter={16}>
                     <Col xs={24} xl={7}>
-                        <Card className="mb-3" style={{ overflow: 'visible' }}>
-                            <div className="card-body px-4 mb-0">
+                        <Card className="" style={{ overflow: 'visible' }}>
+                            <div>
                                 {/* 
                             These are insight specific filters. 
                             They each have insight specific logics
@@ -189,10 +189,9 @@ function _Insights() {
                                         </Tooltip>
                                     </Row>
                                 }
+                                style={{ marginTop: 16 }}
                             >
-                                <div className="card-body px-4 mb-0">
-                                    <SavedFunnels />
-                                </div>
+                                <SavedFunnels />
                             </Card>
                         )}
                     </Col>
@@ -241,7 +240,7 @@ function _Insights() {
                                 </div>
                             }
                         >
-                            <div className="card-body card-body-graph">
+                            <div>
                                 {
                                     {
                                         [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,

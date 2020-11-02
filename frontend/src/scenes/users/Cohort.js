@@ -1,8 +1,8 @@
 import React from 'react'
-import { Card, CloseButton, fromParams } from 'lib/utils'
+import { CloseButton, fromParams } from 'lib/utils'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
-import { Button } from 'antd'
+import { Button, Card } from 'antd'
 import { useValues, useActions } from 'kea'
 
 const isSubmitDisabled = (cohorts) => {
@@ -17,12 +17,12 @@ export function Cohort({ onChange }) {
     if (!cohort) return null
     return (
         cohort.groups.length > 0 && (
-            <div style={{ maxWidth: 750 }}>
+            <div style={{ maxWidth: 750 }} className="mb">
                 <Card
                     title={
                         <span>
                             <CloseButton
-                                className="float-right"
+                                style={{ float: 'right' }}
                                 onClick={() => {
                                     setCohort({ id: false, groups: [] })
                                     onChange()
@@ -33,7 +33,6 @@ export function Cohort({ onChange }) {
                     }
                 >
                     <form
-                        className="card-body"
                         onSubmit={(e) => {
                             e.preventDefault()
                             saveCohort(cohort)
