@@ -8,12 +8,11 @@ import re
 import subprocess
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
-import redis
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -23,6 +22,8 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
+
+from posthog.redis import get_client
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -283,10 +284,8 @@ def generate_cache_key(stringified: str) -> str:
 
 
 def get_redis_heartbeat() -> Union[str, int]:
-
-    if settings.REDIS_URL:
-        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    else:
+    redis_instance = get_client()
+    if not redis_instance:
         return "offline"
 
     last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
@@ -408,11 +407,9 @@ def is_redis_alive() -> bool:
         return False
 
 
-def get_redis_info() -> dict:
-    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    return redis_instance.info()
+def get_redis_info() -> Mapping[str, Any]:
+    return get_client().info()
 
 
 def get_redis_queue_depth() -> int:
-    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    return redis_instance.llen("celery")
+    return get_client().llen("celery")

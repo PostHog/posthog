@@ -9,9 +9,9 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.celery import app as celery_app
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
-from posthog.tasks.process_event import process_event
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
@@ -162,28 +162,30 @@ def get_event(request):
                 ),
             )
 
+        task_name = "process_event_ee" if check_ee_enabled() else "process_event"
+        celery_queue = settings.CELERY_DEFAULT_QUEUE
+
+        if team.plugins_opt_in:
+            task_name += "_with_plugins"
+            celery_queue = settings.PLUGINS_CELERY_QUEUE
+
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[
+                distinct_id,
+                get_ip_address(request),
+                request.build_absolute_uri("/")[:-1],
+                event,
+                team.id,
+                now.isoformat(),
+                sent_at,
+            ],
+        )
+
         if check_ee_enabled():
-            process_event_ee.delay(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
             # log the event to kafka write ahead log for processing
             log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
-        else:
-            process_event.delay(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],

@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from kombu import Exchange, Queue  # type: ignore
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -51,7 +52,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
 
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)))
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -67,6 +68,12 @@ if DEBUG:
     JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
 else:
     JS_URL = os.environ.get("JS_URL", "")
+
+PLUGINS_INSTALL_VIA_API = get_bool_from_env("PLUGINS_INSTALL_VIA_API", True)
+PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGINS_CONFIGURE_VIA_API", True)
+
+PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
+PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
@@ -351,6 +358,10 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Only listen to the default queue "celery", unless overridden via the cli
+# NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
+CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
+CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

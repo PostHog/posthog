@@ -5,7 +5,7 @@ WORKDIR /code
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl git \
-    && curl -sL https://deb.nodesource.com/setup_12.x | bash - \
+    && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
@@ -30,6 +30,10 @@ COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
 
+RUN mkdir /code/plugins
+COPY plugins/package.json /code/plugins/
+COPY plugins/yarn.lock /code/plugins/
+
 RUN mkdir /code/frontend/dist
 
 COPY . /code/
@@ -39,5 +43,6 @@ RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py c
 EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
+RUN cd plugins && yarn install
 ENV DEBUG 1
 CMD ["./bin/docker-dev"]
