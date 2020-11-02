@@ -8,6 +8,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from 'scenes/plugins/PluginError'
+import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
 
 interface PluginCardProps {
     name: string
@@ -48,6 +49,13 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                 style={{ height: '100%', display: 'flex', marginBottom: 20 }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
+                {url?.startsWith('file:') ? (
+                    <LocalPluginTag
+                        url={url}
+                        title="Local"
+                        style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }}
+                    />
+                ) : null}
                 {pluginConfig?.error ? (
                     <PluginError
                         error={pluginConfig.error}
@@ -103,7 +111,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                             <Button
                                 type="primary"
                                 loading={loading}
-                                onClick={() => installPlugin(url)}
+                                onClick={() => installPlugin(url, 'repository')}
                                 icon={<PlusOutlined />}
                             >
                                 Install

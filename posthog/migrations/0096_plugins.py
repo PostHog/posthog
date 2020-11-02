@@ -1,7 +1,8 @@
 import django.contrib.postgres.fields.jsonb
 import django.db.models.deletion
-import posthog.models.plugin
 from django.db import migrations, models
+
+import posthog.models.plugin
 
 
 class Migration(migrations.Migration):
@@ -17,7 +18,7 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
                 ("name", models.CharField(blank=True, max_length=200, null=True)),
                 ("description", models.TextField(blank=True, null=True)),
-                ("url", posthog.models.plugin.FileURLField(blank=True, max_length=800, null=True),),
+                ("url", models.CharField(blank=True, max_length=800, null=True),),
                 ("config_schema", django.contrib.postgres.fields.jsonb.JSONField(default=dict),),
                 ("tag", models.CharField(blank=True, max_length=200, null=True)),
                 ("archive", models.BinaryField(blank=True, null=True)),

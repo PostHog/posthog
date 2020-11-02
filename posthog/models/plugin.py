@@ -1,18 +1,11 @@
 from django.contrib.postgres.fields import JSONField
-from django.core import validators
 from django.db import models
-
-
-class FileURLField(models.URLField):
-    """URL field that accepts URLs that start with http://, https:// and file: only"""
-
-    default_validators = [validators.URLValidator(schemes=["http", "https", "file"])]
 
 
 class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
-    url: models.CharField = FileURLField(max_length=800, null=True, blank=True)
+    url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
     config_schema: JSONField = JSONField(default=dict)
