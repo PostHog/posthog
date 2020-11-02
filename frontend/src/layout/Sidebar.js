@@ -263,7 +263,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
                                 <ApiOutlined />
                                 <span className="sidebar-label">Plugins</span>
-                                <Link to="/plugins" onClick={collapseSidebar} />
+                                <Link to="/project/plugins" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
                     </Menu.SubMenu>

@@ -40,6 +40,7 @@ export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
+    '/plugins': '/project/plugins',
 }
 
 export const routes = {
@@ -60,6 +61,7 @@ export const routes = {
     '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
     '/project/settings': 'projectSettings',
+    '/project/plugins': 'plugins',
     '/organization/settings': 'organizationSettings',
     '/organization/members': 'organizationMembers',
     '/organization/invites': 'organizationInvites',
@@ -67,7 +69,6 @@ export const routes = {
     '/instance/licenses': 'instanceLicenses',
     '/instance/status': 'instanceStatus',
     '/me/settings': 'mySettings',
-    '/plugins': 'plugins',
     '/preflight': 'preflightCheck',
     '/signup': 'signup',
     '/ingestion': 'ingestion',
