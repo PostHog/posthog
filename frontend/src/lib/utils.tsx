@@ -98,20 +98,6 @@ export function CloseButton(props: Record<string, any>): JSX.Element {
     )
 }
 
-export function Card(props: Record<string, any>): JSX.Element {
-    return (
-        <div
-            {...props}
-            className={'card' + (props.className ? ` ${props.className}` : '')}
-            style={props.style}
-            title=""
-        >
-            {props.title && <div className="card-header">{props.title}</div>}
-            {props.children}
-        </div>
-    )
-}
-
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,

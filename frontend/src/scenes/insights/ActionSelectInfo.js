@@ -1,5 +1,5 @@
+import { Card } from 'antd'
 import React, { Component } from 'react'
-import { Card } from '../../lib/utils'
 
 export class ActionSelectInfo extends Component {
     infoDiv = React.createRef()

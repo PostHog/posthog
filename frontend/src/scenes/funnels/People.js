@@ -2,15 +2,16 @@ import React from 'react'
 import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
-import { Card, percentage, Loading } from 'lib/utils'
+import { percentage, Loading } from 'lib/utils'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
 import './FunnelPeople.scss'
+import { Card } from 'antd'
 
 export function People() {
     const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
 
     return (
-        <Card title="Per user" style={{ padding: 16 }} className="funnel-people">
+        <Card title="Per user" className="funnel-people">
             {peopleLoading && <Loading />}
             {!peopleSorted && !peopleLoading && (
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
