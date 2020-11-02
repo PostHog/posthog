@@ -91,6 +91,14 @@ style files without adding already imported styles. */
     width: 100%;
 }
 
+.float-right {
+    float: right;
+}
+
+.float-left {
+    float: left;
+}
+
 // Color styles
 .bg-primary {
     background-color: $primary;

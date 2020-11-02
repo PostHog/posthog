@@ -162,18 +162,17 @@ export class ActionStep extends Component {
         let { step } = this.props
         const handleChange = (e) => {
             const type = e.target.value
-            if (type === 'autocapture') {
+            if (type === '$autocapture') {
                 this.setState(
                     {
                         selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
-                        type,
                     },
                     () => this.sendStep({ ...step, event: '$autocapture' })
                 )
             } else if (type === 'event') {
-                this.setState({ selection: [], type }, () => this.sendStep({ ...step, event: '' }))
-            } else if (type === 'pageview') {
-                this.setState({ selection: ['url'], type }, () =>
+                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
+            } else if (type === '$pageview') {
+                this.setState({ selection: ['url'] }, () =>
                     this.sendStep({
                         ...step,
                         event: '$pageview',
@@ -185,10 +184,18 @@ export class ActionStep extends Component {
 
         return (
             <div>
-                <Radio.Group buttonStyle="solid" onChange={handleChange} value={this.state.type}>
-                    <Radio.Button value="autocapture">Autocapture</Radio.Button>
+                <Radio.Group
+                    buttonStyle="solid"
+                    onChange={handleChange}
+                    value={
+                        step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
+                            ? step.event
+                            : 'event'
+                    }
+                >
+                    <Radio.Button value="$autocapture">Autocapture</Radio.Button>
                     <Radio.Button value="event">Custom event</Radio.Button>
-                    <Radio.Button value="pageview">Page view</Radio.Button>
+                    <Radio.Button value="$pageview">Page view</Radio.Button>
                 </Radio.Group>
             </div>
         )
@@ -202,7 +209,7 @@ export class ActionStep extends Component {
             )
         }
         return (
-            <div className="selector-config">
+            <div>
                 <span>
                     <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
                         Select element on site <ExportOutlined />
@@ -236,33 +243,21 @@ export class ActionStep extends Component {
         )
     }
     URLMatching = ({ step }) => {
+        const handleURLMatchChange = (e) => {
+            this.sendStep({ ...step, url_matching: e.target.value })
+        }
         return (
-            <div className="btn-group" style={{ margin: '0 0 0 8px' }}>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'contains' })}
-                    type="button"
-                    className={
-                        'btn btn-sm ' +
-                        (!step.url_matching || step.url_matching === 'contains' ? 'btn-secondary' : 'btn-light')
-                    }
-                >
-                    contains
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'regex' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'regex' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches regex
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'exact' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches exactly
-                </button>
-            </div>
+            <Radio.Group
+                buttonStyle="solid"
+                onChange={handleURLMatchChange}
+                value={step.url_matching || 'contains'}
+                size="small"
+                style={{ paddingBottom: 16 }}
+            >
+                <Radio.Button value="contains">contains</Radio.Button>
+                <Radio.Button value="regex">matches regex</Radio.Button>
+                <Radio.Button value="exact">matches exactly</Radio.Button>
+            </Radio.Group>
         )
     }
     render() {

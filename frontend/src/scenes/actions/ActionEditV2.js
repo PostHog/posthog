@@ -7,8 +7,8 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStepV2'
-import { Col, Input, Row } from 'antd'
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button, Col, Input, Row } from 'antd'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -168,15 +168,16 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </p>
                 )}
                 <div>
-                    <button
+                    <Button
                         disabled={!edited}
                         data-attr="save-action-button"
-                        className={
-                            edited ? 'btn-success btn btn-sm float-right' : 'btn-secondary btn btn-sm float-right'
-                        }
+                        className="float-right"
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={saveAction}
                     >
                         Save action
-                    </button>
+                    </Button>
                 </div>
             </form>
         </div>
