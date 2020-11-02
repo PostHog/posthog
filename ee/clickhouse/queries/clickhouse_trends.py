@@ -392,7 +392,7 @@ class ClickhouseTrends(BaseQuery):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
-                action_query, action_params = format_action_filter(action)
+                action_query, action_params = format_action_filter(action, avoid_loop=True)
                 params = {**params, **action_params}
                 content_sql = VOLUME_ACTIONS_SQL.format(
                     interval=interval_annotation,

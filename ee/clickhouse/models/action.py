@@ -40,8 +40,11 @@ def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop:
             params = {**params, **prop_params}
 
         or_queries.append(" AND ".join(conditions))
-    or_separator = "OR"
-    formatted_query = or_separator.join(or_queries)
+    or_separator = "OR" if avoid_loop else ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND "
+    if avoid_loop:
+        formatted_query = or_separator.join(or_queries)
+    else:
+        formatted_query = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s".format(or_separator.join(or_queries))
 
     return formatted_query, params
 
