@@ -15,6 +15,16 @@ style files without adding already imported styles. */
     font-weight: 400;
 }
 
+.text-small {
+    @extend .text-default;
+    font-size: 12px;
+}
+
+.text-extra-small {
+    @extend .text-default;
+    font-size: 10px;
+}
+
 .page-title {
     font-size: 28px;
     line-height: 34px;
@@ -138,4 +148,30 @@ style files without adding already imported styles. */
 // Card styles
 .card-elevated {
     @extend .mixin-elevated;
+}
+
+// Form & input styles
+.input-set {
+    padding-bottom: $default_spacing;
+    color: $text_default;
+
+    label {
+        font-weight: bold;
+        @extend .text-default;
+    }
+
+    .caption {
+        color: $text_muted;
+        @extend .text-small;
+    }
+
+    &.errored {
+        .caption {
+            color: $danger;
+        }
+        .ant-input-password,
+        input[type='text'] {
+            border-color: $danger !important;
+        }
+    }
 }

@@ -17,7 +17,6 @@
 @import 'node_modules/bootstrap/scss/_reboot';
 @import 'node_modules/bootstrap/scss/_buttons';
 @import 'node_modules/bootstrap/scss/_button-group';
-@import 'node_modules/bootstrap/scss/_input-group';
 @import 'node_modules/bootstrap/scss/_badge';
 @import 'node_modules/bootstrap/scss/_grid';
 @import 'node_modules/bootstrap/scss/_dropdown';
@@ -308,30 +307,6 @@ label.disabled {
     .selected {
         color: #35416b;
         font-weight: bold;
-    }
-}
-
-.ph-input-group {
-    padding-bottom: 16px;
-    color: #000000;
-
-    label {
-        font-weight: bold;
-        font-size: 16px;
-    }
-
-    .caption {
-        color: #666666;
-        font-size: 10px;
-    }
-
-    &.errored {
-        .caption {
-            color: $red;
-        }
-        .ant-input-password {
-            border-color: $red;
-        }
     }
 }
 

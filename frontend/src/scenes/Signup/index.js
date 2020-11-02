@@ -80,7 +80,7 @@ function Signup() {
                     }}
                 >
                     <form onSubmit={handleSubmit}>
-                        <div className="ph-input-group">
+                        <div className="input-set">
                             <label>First Name</label>
                             <Input
                                 placeholder="Jane"
@@ -93,7 +93,7 @@ function Signup() {
                             />
                         </div>
 
-                        <div className="ph-input-group">
+                        <div className="input-set">
                             <label>Company or Project</label>
                             <Input
                                 placeholder="Hogflix Movies"
@@ -104,7 +104,7 @@ function Signup() {
                             />
                         </div>
 
-                        <div className="ph-input-group">
+                        <div className="input-set">
                             <label>Email</label>
                             <Input
                                 placeholder="jane@hogflix.io"
@@ -117,11 +117,7 @@ function Signup() {
                             />
                         </div>
 
-                        <div
-                            className={`ph-input-group ${
-                                state.submitted && !formState.password.valid ? 'errored' : ''
-                            }`}
-                        >
+                        <div className={`input-set ${state.submitted && !formState.password.valid ? 'errored' : ''}`}>
                             <label>Password</label>
                             <Input.Password
                                 value={formState.password.value}
