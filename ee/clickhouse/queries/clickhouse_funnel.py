@@ -47,7 +47,7 @@ class ClickhouseFunnel(Funnel):
                 return ""
 
             self.params.update(action_params)
-            content_sql = "uuid IN {actions_query} {filters}".format(actions_query=action_query, filters=filters,)
+            content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
             self.params["events"].append(entity.id)
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
@@ -70,7 +70,6 @@ class ClickhouseFunnel(Funnel):
             "events": [],  # purely a speed optimization, don't need this for filtering
             **prop_filter_params,
         }
-        self.events: List[str] = []
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
             team_id=self._team.id,

@@ -3,14 +3,13 @@ from typing import Dict, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.sql.actions import ELEMENT_ACTION_FILTER, EVENT_ACTION_FILTER, EVENT_NO_PROP_FILTER
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Action, Filter
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop: bool = False) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -19,14 +18,17 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
 
     or_queries = []
     for index, step in enumerate(steps):
+        conditions = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            query, element_params, index = filter_element(step, "{}{}".format(index, prepend), index)
+            el_conditions, element_params = filter_element(step, "{}{}".format(index, prepend))
             params = {**params, **element_params}
+            conditions += el_conditions
         # filter event
         else:
-            query, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
+            event_conditions, event_params, index = filter_event(step, "{}{}".format(index, prepend), index)
             params = {**params, **event_params}
+            conditions += event_conditions
 
         if step.properties:
             from ee.clickhouse.models.property import parse_prop_clauses
@@ -34,11 +36,11 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
             prop_query, prop_params = parse_prop_clauses(
                 "uuid", Filter(data={"properties": step.properties}).properties, action.team
             )
-            query += prop_query
+            conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
 
-        or_queries.append(query)
-    or_separator = "OR uuid IN"
+        or_queries.append(" AND ".join(conditions))
+    or_separator = "OR"
     formatted_query = or_separator.join(or_queries)
 
     return formatted_query, params
@@ -46,28 +48,22 @@ def format_action_filter(action: Action, prepend: str = "", index=0) -> Tuple[st
 
 def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[str, Dict, int]:
     params = {}
-    event_filter = ""
-    efilter = ""
-    property_filter = ""
-    if step.url and step.event:
+    conditions = []
+
+    if step.url:
         if step.url_matching == ActionStep.EXACT:
-            operation = "trim(BOTH '\"' FROM value) = %(prop_val_{})s".format(index)
+            conditions.append("JSONExtractString(properties, '$current_url')= %(prop_val_{})s".format(index))
             params.update({"prop_val_{}".format(index): step.url})
         elif step.url_matching == ActionStep.REGEX:
-            operation = "match(trim(BOTH '\"' FROM value), %({}_prop_val_{})s)".format(prepend, index)
+            conditions.append("match(JSONExtractString(properties, '$current_url'), %(prop_val_{})s)".format(index))
             params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
-            operation = "trim(BOTH '\"' FROM value) LIKE %({}_prop_val_{idx})s ".format(prepend, idx=index)
+            conditions.append("JSONExtractString(properties, '$current_url') LIKE %(prop_val_{})s".format(index))
             params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
-        property_filter = "AND key = '$current_url' AND {operation}".format(operation=operation)
-        efilter = "AND event = '{}'".format(step.event)
 
-        event_filter = EVENT_ACTION_FILTER.format(event_filter=efilter, property_filter=property_filter)
-    elif step.event:
-        efilter = "AND event = '{}'".format(step.event)
-        event_filter = EVENT_NO_PROP_FILTER.format(event_filter=efilter)
+    conditions.append("event = '{}'".format(step.event))
 
-    return event_filter, params, index + 1
+    return conditions, params, index + 1
 
 
 def _create_regex(selector: Selector) -> str:
@@ -87,43 +83,29 @@ def _create_regex(selector: Selector) -> str:
     return regex
 
 
-def filter_element(step: ActionStep, prepend: str = "", index=0) -> Tuple[str, Dict, int]:
-    event_filter, params, index = filter_event(step, prepend, index) if step.url else ("", {}, index + 1)
-
+def filter_element(step: ActionStep, prepend: str = "") -> Tuple[str, Dict, int]:
     filters = model_to_dict(step)
+    params = {}
+    conditions = []
 
     if filters.get("selector"):
         selector = Selector(filters["selector"], escape_slashes=False)
         params["{}selector_regex".format(prepend)] = _create_regex(selector)
+        conditions.append("match(elements_chain, %({}selector_regex)s)".format(prepend))
 
     if filters.get("tag_name"):
         params["{}tag_name_regex".format(prepend)] = r"(^|;){}(\.|$|;|:)".format(filters["tag_name"])
+        conditions.append("match(elements_chain, %({}tag_name_regex)s)".format(prepend))
 
     attributes: Dict[str, str] = {}
     for key in ["href", "text"]:
         if filters.get(key):
             attributes[key] = re.escape(filters[key])
 
-    attributes_regex = False
     if len(attributes.keys()) > 0:
-        attributes_regex = True
         params["{}attributes_regex".format(prepend)] = ".*?({}).*?".format(
             ".*?".join(['{}="{}"'.format(key, value) for key, value in attributes.items()])
         )
+        conditions.append("match(elements_chain, %({}attributes_regex)s)".format(prepend))
 
-    return (
-        ELEMENT_ACTION_FILTER.format(
-            selector_regex="AND match(elements_chain, %({}selector_regex)s)".format(prepend)
-            if filters.get("selector")
-            else "",
-            attributes_regex="AND match(elements_chain, %({}attributes_regex)s)".format(prepend)
-            if attributes_regex
-            else "",
-            tag_name_regex="AND match(elements_chain, %({}tag_name_regex)s)".format(prepend)
-            if filters.get("tag_name")
-            else "",
-            event_filter="AND uuid IN {}".format(event_filter) if event_filter else "",
-        ),
-        params,
-        index + 1,
-    )
+    return (conditions, params)
