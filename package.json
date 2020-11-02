@@ -128,7 +128,7 @@
         "*.{js,ts,tsx,json,yml,css,scss}": "prettier --check",
         "*.{js,ts,tsx}": "eslint",
         "*.{py,pyi}": [
-            "flake8 --select=E9,F63,F7,F82,F401",
+            "flake8 --select=E9,F63,F7,F82",
             "black",
             "isort"
         ]
