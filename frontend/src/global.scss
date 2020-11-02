@@ -87,6 +87,10 @@ style files without adding already imported styles. */
     padding-top: $default_spacing;
 }
 
+.full-width {
+    width: 100%;
+}
+
 // Color styles
 .bg-primary {
     background-color: $primary;
@@ -139,10 +143,6 @@ style files without adding already imported styles. */
 // Table styles
 .table-bordered td {
     border: 1px solid $border;
-}
-
-.table-full-width {
-    width: 100%;
 }
 
 // Card styles

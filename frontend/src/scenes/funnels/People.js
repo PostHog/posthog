@@ -17,7 +17,7 @@ export function People() {
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
             )}
             {peopleSorted && peopleSorted.length > 0 && (
-                <table className="table-bordered table-full-width">
+                <table className="table-bordered full-width">
                     <tbody>
                         <tr>
                             <th />

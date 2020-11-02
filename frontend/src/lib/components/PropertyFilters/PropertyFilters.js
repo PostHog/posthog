@@ -85,7 +85,7 @@ export function PropertyFilters({
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <div className="column" style={{ marginBottom: '15px' }}>
+        <div className="mb">
             {filters &&
                 filters.map((item, index) => {
                     return (

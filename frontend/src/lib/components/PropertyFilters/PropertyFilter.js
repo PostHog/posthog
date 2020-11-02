@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { Select, Tabs } from 'antd'
+import { Col, Row, Select, Tabs } from 'antd'
 import { operatorMap, isOperatorFlag } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -22,130 +22,135 @@ function PropertyPaneContents({
 }) {
     return (
         <>
-            <div className={displayOperatorAndValue ? 'col-4 pl-0' : 'col p-0'}>
-                <Select
-                    className={rrwebBlockClass}
-                    showSearch
-                    autoFocus={!propkey}
-                    defaultOpen={!propkey}
-                    placeholder="Property key"
-                    data-attr="property-filter-dropdown"
-                    labelInValue
-                    value={
-                        type === 'cohort'
-                            ? { value: '' }
-                            : {
-                                  value: propkey,
-                                  label:
-                                      keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
-                              }
-                    }
-                    filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-                    onChange={(_, newKey) =>
-                        setThisFilter(
-                            newKey.value.replace(/^(event_|person_|element_)/gi, ''),
-                            undefined,
-                            operator,
-                            newKey.type
-                        )
-                    }
-                    style={{ width: '100%' }}
-                    virtual={false}
-                >
-                    {eventProperties.length > 0 && (
-                        <Select.OptGroup key="event properties" label="Event properties">
-                            {eventProperties.map((item, index) => (
-                                <Select.Option
-                                    key={'event_' + item.value}
-                                    value={'event_' + item.value}
-                                    type="event"
-                                    data-attr={'prop-filter-event-' + index}
-                                >
-                                    <PropertyKeyInfo value={item.value} />
-                                </Select.Option>
-                            ))}
-                        </Select.OptGroup>
-                    )}
-                    {personProperties && (
-                        <Select.OptGroup key="user properties" label="User properties">
-                            {personProperties.map((item, index) => (
-                                <Select.Option
-                                    key={'person_' + item.value}
-                                    value={'person_' + item.value}
-                                    type="person"
-                                    data-attr={'prop-filter-person-' + index}
-                                >
-                                    <PropertyKeyInfo value={item.value} />
-                                </Select.Option>
-                            ))}
-                        </Select.OptGroup>
-                    )}
-                    {eventProperties.length > 0 && (
-                        <Select.OptGroup key="elements" label="Elements">
-                            {['tag_name', 'text', 'href', 'selector'].map((item, index) => (
-                                <Select.Option
-                                    key={'element_' + item}
-                                    value={'element_' + item}
-                                    type="element"
-                                    data-attr={'prop-filter-element-' + index}
-                                >
-                                    <PropertyKeyInfo value={item} type="element" />
-                                </Select.Option>
-                            ))}
-                        </Select.OptGroup>
-                    )}
-                </Select>
-            </div>
-            {displayOperatorAndValue && (
-                <div className={isOperatorFlag(operator) ? 'col-8 p-0' : 'col-4 pl-0'}>
+            <Row gutter={8} className="full-width">
+                <Col flex={1}>
                     <Select
-                        style={{ width: '100%' }}
-                        defaultActiveFirstOption
-                        labelInValue
-                        value={{
-                            value: operator || '=',
-                            label: operatorMap[operator || 'exact'],
-                        }}
+                        className={rrwebBlockClass}
+                        showSearch
+                        autoFocus={!propkey}
+                        defaultOpen={!propkey}
                         placeholder="Property key"
-                        onChange={(_, newOperator) => {
-                            let newValue = value
-                            if (isOperatorFlag(newOperator.value)) {
-                                // change value to induce reload
-                                newValue = newOperator.value
-                                onComplete()
-                            } else {
-                                // clear value if switching from nonparametric (flag) to parametric
-                                if (isOperatorFlag(operator)) newValue = undefined
-                            }
-                            setThisFilter(propkey, newValue, newOperator.value, type)
-                        }}
+                        data-attr="property-filter-dropdown"
+                        labelInValue
+                        value={
+                            type === 'cohort'
+                                ? { value: '' }
+                                : {
+                                      value: propkey,
+                                      label:
+                                          keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label ||
+                                          propkey,
+                                  }
+                        }
+                        filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+                        onChange={(_, newKey) =>
+                            setThisFilter(
+                                newKey.value.replace(/^(event_|person_|element_)/gi, ''),
+                                undefined,
+                                operator,
+                                newKey.type
+                            )
+                        }
+                        style={{ width: '100%' }}
+                        virtual={false}
                     >
-                        {Object.keys(operatorMap).map((operator) => (
-                            <Select.Option key={operator} value={operator}>
-                                {operatorMap[operator || 'exact']}
-                            </Select.Option>
-                        ))}
+                        {eventProperties.length > 0 && (
+                            <Select.OptGroup key="event properties" label="Event properties">
+                                {eventProperties.map((item, index) => (
+                                    <Select.Option
+                                        key={'event_' + item.value}
+                                        value={'event_' + item.value}
+                                        type="event"
+                                        data-attr={'prop-filter-event-' + index}
+                                    >
+                                        <PropertyKeyInfo value={item.value} />
+                                    </Select.Option>
+                                ))}
+                            </Select.OptGroup>
+                        )}
+                        {personProperties && (
+                            <Select.OptGroup key="user properties" label="User properties">
+                                {personProperties.map((item, index) => (
+                                    <Select.Option
+                                        key={'person_' + item.value}
+                                        value={'person_' + item.value}
+                                        type="person"
+                                        data-attr={'prop-filter-person-' + index}
+                                    >
+                                        <PropertyKeyInfo value={item.value} />
+                                    </Select.Option>
+                                ))}
+                            </Select.OptGroup>
+                        )}
+                        {eventProperties.length > 0 && (
+                            <Select.OptGroup key="elements" label="Elements">
+                                {['tag_name', 'text', 'href', 'selector'].map((item, index) => (
+                                    <Select.Option
+                                        key={'element_' + item}
+                                        value={'element_' + item}
+                                        type="element"
+                                        data-attr={'prop-filter-element-' + index}
+                                    >
+                                        <PropertyKeyInfo value={item} type="element" />
+                                    </Select.Option>
+                                ))}
+                            </Select.OptGroup>
+                        )}
                     </Select>
-                </div>
-            )}
-            {displayOperatorAndValue && !isOperatorFlag(operator) && (
-                <div className="col-4 p-0">
-                    <PropertyValue
-                        type={type}
-                        key={propkey}
-                        propertyKey={propkey}
-                        operator={operator}
-                        value={value}
-                        onSet={(value) => {
-                            onComplete()
-                            setThisFilter(propkey, value, operator, type)
-                        }}
-                    />
-                    {(operator === 'gt' || operator === 'lt') && isNaN(value) && (
-                        <p className="text-danger">Value needs to be a number. Try "equals" or "contains" instead.</p>
-                    )}
-                </div>
-            )}
+                </Col>
+                {displayOperatorAndValue && (
+                    <Col flex={1}>
+                        <Select
+                            style={{ width: '100%' }}
+                            defaultActiveFirstOption
+                            labelInValue
+                            value={{
+                                value: operator || '=',
+                                label: operatorMap[operator || 'exact'],
+                            }}
+                            placeholder="Property key"
+                            onChange={(_, newOperator) => {
+                                let newValue = value
+                                if (isOperatorFlag(newOperator.value)) {
+                                    // change value to induce reload
+                                    newValue = newOperator.value
+                                    onComplete()
+                                } else {
+                                    // clear value if switching from nonparametric (flag) to parametric
+                                    if (isOperatorFlag(operator)) newValue = undefined
+                                }
+                                setThisFilter(propkey, newValue, newOperator.value, type)
+                            }}
+                        >
+                            {Object.keys(operatorMap).map((operator) => (
+                                <Select.Option key={operator} value={operator}>
+                                    {operatorMap[operator || 'exact']}
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Col>
+                )}
+                {displayOperatorAndValue && !isOperatorFlag(operator) && (
+                    <Col flex={1}>
+                        <PropertyValue
+                            type={type}
+                            key={propkey}
+                            propertyKey={propkey}
+                            operator={operator}
+                            value={value}
+                            onSet={(value) => {
+                                onComplete()
+                                setThisFilter(propkey, value, operator, type)
+                            }}
+                        />
+                        {(operator === 'gt' || operator === 'lt') && isNaN(value) && (
+                            <p className="text-danger">
+                                Value needs to be a number. Try "equals" or "contains" instead.
+                            </p>
+                        )}
+                    </Col>
+                )}
+            </Row>
         </>
     )
 }

@@ -87,7 +87,7 @@ export function RetentionTable() {
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
-                                    <table className="table-bordered table-full-width">
+                                    <table className="table-bordered full-width">
                                         <tbody>
                                             <tr>
                                                 <th />
