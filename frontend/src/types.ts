@@ -245,4 +245,5 @@ export interface PluginErrorType {
     time: string
     stack?: string
     name?: string
+    event?: Record<string, any>
 }

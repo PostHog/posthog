@@ -4,6 +4,23 @@ import React from 'react'
 import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'
 
+function CodeBlock({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <code
+            style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                display: 'block',
+                marginTop: 15,
+                fontSize: 10,
+                maxWidth: 400,
+            }}
+        >
+            {children}
+        </code>
+    )
+}
+
 export function PluginError({ error, reset }: { error: PluginErrorType; reset?: () => void }): JSX.Element | null {
     if (!error) {
         return null
@@ -22,20 +39,8 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
                         {error.name ? <strong>{error.name}: </strong> : ''}
                         {error.message}
                     </div>
-                    {error.stack ? (
-                        <code
-                            style={{
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word',
-                                display: 'block',
-                                marginTop: 15,
-                                fontSize: 10,
-                                maxWidth: 400,
-                            }}
-                        >
-                            {error.stack}
-                        </code>
-                    ) : null}
+                    {error.stack ? <CodeBlock>{error.stack}</CodeBlock> : null}
+                    {error.event ? <CodeBlock>{JSON.stringify(error.event, null, 2)}</CodeBlock> : null}
                 </>
             }
             trigger="click"
