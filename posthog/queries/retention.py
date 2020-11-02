@@ -42,8 +42,6 @@ class Retention(BaseQuery):
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
 
-        labels_format = "%b %-d"
-        hourly_format = ", %-I %p"
         resultset = Event.objects.query_retention(filter, team)
 
         result = [
@@ -53,9 +51,7 @@ class Retention(BaseQuery):
                     for day in range(total_intervals - first_day)
                 ],
                 "label": "{} {}".format(period, first_day),
-                "date": (date_from + _determineTimedelta(first_day, period)[0]).strftime(
-                    labels_format + (hourly_format if period == "Hour" else "")
-                ),
+                "date": (date_from + _determineTimedelta(first_day, period)[0]),
             }
             for first_day in range(total_intervals)
         ]

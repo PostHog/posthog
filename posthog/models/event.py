@@ -255,8 +255,8 @@ class EventManager(models.QuerySet):
         def _determineTrunc(subject: str, period: str) -> Tuple[Union[TruncHour, TruncDay, TruncWeek, TruncMonth], str]:
             if period == "Hour":
                 fields = """
-                FLOOR(DATE_PART('hour', first_date - %s)) AS first_date,
-                FLOOR(DATE_PART('hour', timestamp - first_date)) AS date,
+                FLOOR(DATE_PART('day', first_date - %s) * 24 + DATE_PART('hour', first_date - %s)) AS first_date,
+                FLOOR(DATE_PART('day', timestamp - first_date) * 24 + DATE_PART('hour', timestamp - first_date)) AS date,
                 """
                 return TruncHour(subject), fields
             elif period == "Day":
@@ -294,13 +294,15 @@ class EventManager(models.QuerySet):
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp > first_date
+            WHERE timestamp >= first_date
             GROUP BY date, first_date
         """
 
         full_query = full_query.format(events_query=events_query, first_date_query=first_date_query, fields=fields)
 
-        start_params = (filter.date_from, filter.date_from) if period == "Month" else (filter.date_from,)
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(

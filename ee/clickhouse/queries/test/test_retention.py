@@ -1,4 +1,7 @@
+from datetime import datetime
 from uuid import uuid4
+
+import pytz
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
@@ -26,7 +29,7 @@ def _create_action(**kwargs):
 class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create, _create_action)):  # type: ignore
 
     # period filtering for clickhouse only because start of week is different
-    def test_retention_period(self):
+    def test_retention_period_weekly(self):
         Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
         )
@@ -65,5 +68,14 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         self.assertEqual(
-            self.pluck(result, "date"), ["Jun 7", "Jun 14", "Jun 21", "Jun 28", "Jul 5", "Jul 12", "Jul 19"],
+            self.pluck(result, "date"),
+            [
+                datetime(2020, 6, 7, 0, tzinfo=pytz.UTC),
+                datetime(2020, 6, 14, 0, tzinfo=pytz.UTC),
+                datetime(2020, 6, 21, 0, tzinfo=pytz.UTC),
+                datetime(2020, 6, 28, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 5, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 12, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 19, 0, tzinfo=pytz.UTC),
+            ],
         )
