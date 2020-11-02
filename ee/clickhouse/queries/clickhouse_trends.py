@@ -139,7 +139,7 @@ class ClickhouseTrends(BaseQuery):
         action_params: Dict = {}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
+            action_query, action_params = format_action_filter(action, avoid_loop=True)
 
         null_sql = NULL_BREAKDOWN_SQL.format(
             interval=interval_annotation,
@@ -164,7 +164,7 @@ class ClickhouseTrends(BaseQuery):
                 conditions = BREAKDOWN_CONDITIONS_SQL.format(
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
+                    actions_query="AND {}".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                     filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
@@ -182,7 +182,7 @@ class ClickhouseTrends(BaseQuery):
                     cohort_queries=cohort_queries,
                     parsed_date_from=parsed_date_from,
                     parsed_date_to=parsed_date_to,
-                    actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
+                    actions_query="AND {}".format(action_query) if action_query else "",
                     event_filter="AND event = %(event)s" if not action_query else "",
                     filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
                 )
@@ -207,7 +207,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_filter = BREAKDOWN_PERSON_PROP_JOIN_SQL.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
-                actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
+                actions_query="AND {}".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
@@ -233,7 +233,7 @@ class ClickhouseTrends(BaseQuery):
             breakdown_filter = BREAKDOWN_PROP_JOIN_SQL.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
-                actions_query="AND uuid IN ({})".format(action_query) if action_query else "",
+                actions_query="AND {}".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
                 filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
             )

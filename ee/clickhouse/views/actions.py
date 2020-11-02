@@ -97,8 +97,8 @@ class ClickhouseActions(ActionViewSet):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
-                action_query, params = format_action_filter(action)
-                entity_filter = "AND uuid IN ({})".format(action_query)
+                action_query, params = format_action_filter(action, avoid_loop=True)
+                entity_filter = "AND {}".format(action_query)
 
             except Action.DoesNotExist:
                 raise ValueError("This action does not exist")
