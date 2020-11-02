@@ -29,14 +29,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             loadRetention: async () => {
                 const params: Record<string, any> = {}
                 params['properties'] = values.properties
-                console.log(values.selectedDate.toISOString())
                 if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
                 const urlParams = toParams(params)
-                const res = await api.get(`api/insight/retention/?${urlParams}`)
-                console.log(res)
-                return res
+                return await api.get(`api/insight/retention/?${urlParams}`)
             },
         },
         people: {
