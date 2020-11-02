@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 import requests
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
