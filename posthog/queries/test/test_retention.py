@@ -11,7 +11,7 @@ from posthog.queries.retention import Retention
 
 
 # parameterize tests to reuse in EE
-def retention_test_factory(retention, event_factory, person_factory):
+def retention_test_factory(retention, event_factory, person_factory, action_factory):
     class TestRetention(BaseTest):
         def test_retention_default(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -243,12 +243,12 @@ def retention_test_factory(retention, event_factory, person_factory):
                 i += 1
 
         def _create_signup_actions(self, user_and_timestamps):
-            sign_up_action = Action.objects.create(team=self.team, name="sign up")
-            ActionStep.objects.create(action=sign_up_action, event="sign up")
+
             for distinct_id, timestamp in user_and_timestamps:
                 event_factory(
                     team=self.team, event="sign up", distinct_id=distinct_id, timestamp=timestamp,
                 )
+            sign_up_action = action_factory(team=self.team, name="sign up")
             return sign_up_action
 
         def _date(self, day, hour=5, month=0):
@@ -260,7 +260,17 @@ def retention_test_factory(retention, event_factory, person_factory):
     return TestRetention
 
 
-class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create)):  # type: ignore
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name)
+    action.calculate_events()
+    print(action)
+    return action
+
+
+class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
     def test_retention_period(self):
         Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
