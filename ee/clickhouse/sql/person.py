@@ -30,10 +30,6 @@ DROP_MAT_PERSONS_PROP_TABLE_SQL = """
 DROP TABLE persons_properties_view
 """
 
-DROP_PERSONS_PROP_UP_TO_DATE_VIEW_SQL = """
-DROP VIEW persons_properties_up_to_date_view
-"""
-
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -165,13 +161,6 @@ created_at
 from persons_with_array_props_view
 ARRAY JOIN array_property_keys, array_property_values
 """
-
-PERSONS_PROP_UP_TO_DATE_VIEW = """
-CREATE VIEW persons_properties_up_to_date_view
-AS
-SELECT * FROM persons_properties_view WHERE (id, created_at) IN (SELECT id, maxMerge(updated_at) as latest FROM persons_up_to_date GROUP BY id)
-"""
-
 
 GET_PERSON_SQL = """
 SELECT * FROM persons_up_to_date_view WHERE team_id = %(team_id)s
@@ -336,14 +325,6 @@ WHERE team_id = %(team_id)s {filters}
 GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s 
 """
-
-GET_PERSON_TOP_PROPERTIES = """
-SELECT key, count(1) as count FROM 
-persons_properties_up_to_date_view 
-WHERE team_id = %(team_id)s
-GROUP BY key ORDER BY count DESC LIMIT %(limit)s
-"""
-
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id WHERE person_id IN

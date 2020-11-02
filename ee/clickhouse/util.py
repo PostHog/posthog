@@ -23,12 +23,10 @@ from ee.clickhouse.sql.person import (
     DROP_PERSON_MATERIALIZED_SQL,
     DROP_PERSON_TABLE_SQL,
     DROP_PERSON_VIEW_SQL,
-    DROP_PERSONS_PROP_UP_TO_DATE_VIEW_SQL,
     DROP_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL,
     MAT_PERSONS_PROP_TABLE_SQL,
     MAT_PERSONS_WITH_PROPS_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
-    PERSONS_PROP_UP_TO_DATE_VIEW,
     PERSONS_TABLE_SQL,
     PERSONS_UP_TO_DATE_MATERIALIZED_VIEW,
     PERSONS_UP_TO_DATE_VIEW,
@@ -60,7 +58,6 @@ class ClickhouseTestMixin:
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
 
-        sync_execute(DROP_PERSONS_PROP_UP_TO_DATE_VIEW_SQL)
         sync_execute(DROP_MAT_PERSONS_PROP_TABLE_SQL)
         sync_execute(DROP_MAT_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL)
         sync_execute(DROP_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL)
@@ -74,7 +71,6 @@ class ClickhouseTestMixin:
         sync_execute(PERSONS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_PERSONS_WITH_PROPS_TABLE_SQL)
         sync_execute(MAT_PERSONS_PROP_TABLE_SQL)
-        sync_execute(PERSONS_PROP_UP_TO_DATE_VIEW)
 
     def _destroy_session_recording_tables(self):
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
