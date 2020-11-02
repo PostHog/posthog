@@ -71,7 +71,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         feature_flag = FeatureFlag.objects.create(
             filters=filter.to_dict(), created_by=self.user, name="test", key="test", team=self.team
         )
-        self.assertTrue(feature_flag.distinct_id_matches("some_other_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("some_id"))
         self.assertFalse(feature_flag.distinct_id_matches("no_match"))
 
     def test_prop_cohort_multiple_groups(self):
