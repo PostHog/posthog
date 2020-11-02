@@ -50,12 +50,13 @@ function _App(): JSX.Element {
             return
         }
 
-        // If user is in no organization, redirect to organization creation
-        if (
-            !currentOrganizationLoading &&
-            !currentOrganization?.name &&
-            !location.pathname.startsWith('/organization/create')
-        ) {
+        // If user is in no organization, redirect to org creation, otherwise redirect away from org creation
+        if (location.pathname.startsWith('/organization/create')) {
+            if (currentOrganization?.name) {
+                replace('/')
+                return
+            }
+        } else if (!currentOrganizationLoading && !currentOrganization?.name) {
             replace('/organization/create')
             return
         }

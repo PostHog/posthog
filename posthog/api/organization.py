@@ -46,9 +46,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
         organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
 
-    def get_membership_level(self) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=self.instance, user=self.context["request"].user
+            organization=organization, user=self.context["request"].user
         ).first()
         return membership.level if membership is not None else None
 

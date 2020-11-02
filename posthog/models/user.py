@@ -136,7 +136,6 @@ class User(AbstractUser):
         if self.current_team is None and self.organization is not None:
             self.current_team = self.organization.teams.first()
             self.save()
-        assert self.current_team is not None, "Null current team is not supported yet!"
         return self.current_team
 
     def join(
