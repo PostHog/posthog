@@ -1,5 +1,5 @@
 import { Col, Card, Button, Switch, Popconfirm, Skeleton } from 'antd'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
 import { ellipsis, someParentMatchesSelector } from 'lib/utils'
@@ -20,6 +20,7 @@ interface PluginCardProps {
 
 export function PluginCard({ name, description, url, pluginConfig, pluginId, error }: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
+    const { loading } = useValues(pluginsLogic)
 
     const canConfigure = pluginId && !pluginConfig?.global
     const handleClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>): void => {
@@ -99,7 +100,12 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                     <div>
                         {canConfigure && <Button type="primary">Configure</Button>}
                         {!pluginId && (
-                            <Button type="primary" onClick={() => installPlugin(url)} icon={<PlusOutlined />}>
+                            <Button
+                                type="primary"
+                                loading={loading}
+                                onClick={() => installPlugin(url)}
+                                icon={<PlusOutlined />}
+                            >
                                 Install
                             </Button>
                         )}

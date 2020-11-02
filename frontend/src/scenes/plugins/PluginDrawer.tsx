@@ -11,7 +11,7 @@ import { Drawer } from 'lib/components/Drawer'
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { editingPlugin, pluginsLoading } = useValues(pluginsLogic)
+    const { editingPlugin, loading } = useValues(pluginsLogic)
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
@@ -57,7 +57,7 @@ export function PluginDrawer(): JSX.Element {
                             <Button onClick={() => editPlugin(null)} style={{ marginRight: 16 }}>
                                 Cancel
                             </Button>
-                            <Button type="primary" loading={pluginsLoading} onClick={() => form.submit()}>
+                            <Button type="primary" loading={loading} onClick={() => form.submit()}>
                                 Save
                             </Button>
                         </div>
