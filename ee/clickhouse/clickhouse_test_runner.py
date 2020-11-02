@@ -1,5 +1,5 @@
 from django.test.runner import DiscoverRunner
-from infi.clickhouse_orm import Database  # type: ignore
+from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
 from posthog.settings import (
