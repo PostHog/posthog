@@ -244,7 +244,7 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
 
 
 @shared_task(name="process_event", ignore_result=True)
-def process_event_deprecated(*args, **kwargs) -> None:
+def process_event_deprecated(*args, **kwargs) -> None:  # type: ignore
     process_event(*args, **kwargs)
 
 
