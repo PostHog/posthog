@@ -42,7 +42,7 @@ class ClickhouseFunnel(Funnel):
             action = Action.objects.get(pk=entity.id)
             for action_step in action.steps.all():
                 self.params["events"].append(action_step.event)
-            action_query, action_params = format_action_filter(action, "step_{}".format(index), avoid_loop=True)
+            action_query, action_params = format_action_filter(action, "step_{}".format(index))
             if action_query == "":
                 return ""
 

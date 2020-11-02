@@ -97,7 +97,7 @@ class ClickhouseActions(ActionViewSet):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
-                action_query, params = format_action_filter(action, avoid_loop=True)
+                action_query, params = format_action_filter(action)
                 entity_filter = "AND {}".format(action_query)
 
             except Action.DoesNotExist:

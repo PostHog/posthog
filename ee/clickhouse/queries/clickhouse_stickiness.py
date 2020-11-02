@@ -50,7 +50,7 @@ class ClickhouseStickiness(BaseQuery):
         params = {**params, **prop_filter_params}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action, avoid_loop=True)
+            action_query, action_params = format_action_filter(action)
             if action_query == "":
                 return None
 

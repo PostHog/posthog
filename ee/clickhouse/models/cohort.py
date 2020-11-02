@@ -12,7 +12,7 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     for group_idx, group in enumerate(cohort.groups):
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
-            action_filter_query, action_params = format_action_filter(action, avoid_loop=True)
+            action_filter_query, action_params = format_action_filter(action)
             extract_person = "SELECT distinct_id FROM events WHERE {query}".format(query=action_filter_query)
             params = {**params, **action_params}
             filters.append("(" + extract_person + ")")

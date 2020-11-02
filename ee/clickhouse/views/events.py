@@ -49,7 +49,7 @@ class ClickhouseEvents(EventViewSet):
             action = Action.objects.get(pk=request.GET["action_id"])
             if action.steps.count() == 0:
                 return Response({"next": False, "results": []})
-            action_query, params = format_action_filter(action, avoid_loop=True)
+            action_query, params = format_action_filter(action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 

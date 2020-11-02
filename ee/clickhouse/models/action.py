@@ -9,7 +9,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -40,14 +40,13 @@ def format_action_filter(action: Action, prepend: str = "", index=0, avoid_loop:
             params = {**params, **prop_params}
 
         or_queries.append(" AND ".join(conditions))
-    or_separator = ") OR (" if avoid_loop else ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND "
-    if avoid_loop:
-        formatted_query = '({})'.format(or_separator.join(or_queries))
-    else:
+    or_separator = ") OR (" if not use_loop else ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND "
+    if use_loop:
         formatted_query = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s".format(
             or_separator.join(or_queries)
         )
-
+    else:
+        formatted_query = '({})'.format(or_separator.join(or_queries))
     return formatted_query, params
 
 
@@ -57,13 +56,13 @@ def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[L
 
     if step.url:
         if step.url_matching == ActionStep.EXACT:
-            conditions.append("JSONExtractString(properties, '$current_url')= %(prop_val_{})s".format(index))
-            params.update({"prop_val_{}".format(index): step.url})
+            conditions.append("JSONExtractString(properties, '$current_url') = %({}_prop_val_{})s".format(prepend, index))
+            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         elif step.url_matching == ActionStep.REGEX:
-            conditions.append("match(JSONExtractString(properties, '$current_url'), %(prop_val_{})s)".format(index))
+            conditions.append("match(JSONExtractString(properties, '$current_url'), %({}_prop_val_{})s)".format(prepend, index))
             params.update({"{}_prop_val_{}".format(prepend, index): step.url})
         else:
-            conditions.append("JSONExtractString(properties, '$current_url') LIKE %(prop_val_{})s".format(index))
+            conditions.append("JSONExtractString(properties, '$current_url') LIKE %({}_prop_val_{})s".format(prepend, index))
             params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
 
     conditions.append("event = '{}'".format(step.event))

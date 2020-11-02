@@ -23,7 +23,7 @@ def _create_event(**kwargs) -> Event:
 
 
 def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(action, "", 0, avoid_loop=True)
+    formatted_query, params = format_action_filter(action, "", 0)
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
 
@@ -86,7 +86,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
         query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(' AND '.join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(str(result[0][0]), event_target.pk)
 
@@ -117,7 +117,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123",)
         query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(' AND '.join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
@@ -150,6 +150,6 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
         query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(' AND '.join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
