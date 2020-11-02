@@ -3,6 +3,8 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_retention import retention_test_factory
@@ -13,7 +15,16 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create)):  # type: ignore
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    event_name = kwargs.pop("event_name")
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=event_name)
+    return action
+
+
+class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create, _create_action)):  # type: ignore
 
     # period filtering for clickhouse only because start of week is different
     def test_retention_period(self):
