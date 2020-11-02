@@ -266,7 +266,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
     action.calculate_events()
-    print(action)
     return action
 
 

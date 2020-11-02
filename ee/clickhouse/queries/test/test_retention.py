@@ -18,9 +18,8 @@ def _create_event(**kwargs):
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    event_name = kwargs.pop("event_name")
     action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
+    ActionStep.objects.create(action=action, event=name)
     return action
 
 
@@ -52,7 +51,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             ]
         )
 
-        filter = Filter(data={"date_from": self._date(0, hour=0), "period": "Week"})
+        filter = Filter(data={"date_to": self._date(10, month=1, hour=0), "period": "Week"})
 
         result = ClickhouseRetention().run(filter, self.team, total_intervals=7)
 
@@ -66,14 +65,5 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         self.assertEqual(
-            self.pluck(result, "date"),
-            [
-                "Sun. 7 June",
-                "Sun. 14 June",
-                "Sun. 21 June",
-                "Sun. 28 June",
-                "Sun. 5 July",
-                "Sun. 12 July",
-                "Sun. 19 July",
-            ],
+            self.pluck(result, "date"), ["Jun 7", "Jun 14", "Jun 21", "Jun 28", "Jul 5", "Jul 12", "Jul 19"],
         )
