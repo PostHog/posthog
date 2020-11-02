@@ -17,17 +17,10 @@
 @import 'node_modules/bootstrap/scss/_reboot';
 @import 'node_modules/bootstrap/scss/_buttons';
 @import 'node_modules/bootstrap/scss/_button-group';
-@import 'node_modules/bootstrap/scss/_badge';
 @import 'node_modules/bootstrap/scss/_dropdown';
 
 .layout-container {
     max-width: 100vw;
-}
-
-.badge .close {
-    text-shadow: none;
-    margin: -6px 0 -8px 8px;
-    font-size: 1.3rem;
 }
 
 .card {

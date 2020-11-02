@@ -1,13 +1,13 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
-import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
+import { CloseButton } from 'lib/components/CloseButton'
 
 const MATHS = {
     total: {

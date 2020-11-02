@@ -1,5 +1,6 @@
 import React from 'react'
-import { CloseButton, fromParams } from 'lib/utils'
+import { fromParams } from 'lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
 import { Button, Card, Input } from 'antd'

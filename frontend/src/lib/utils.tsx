@@ -90,14 +90,6 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function CloseButton(props: Record<string, any>): JSX.Element {
-    return (
-        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
-            <span aria-hidden="true">&times;</span>
-        </span>
-    )
-}
-
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,

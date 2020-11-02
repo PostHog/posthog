@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { CloseButton } from '../../lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
 import { Select, Card } from 'antd'
 

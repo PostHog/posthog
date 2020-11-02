@@ -6,7 +6,8 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatPropertyLabel } from 'lib/utils'
+import { formatPropertyLabel } from 'lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import '../../../scenes/actions/Actions.scss'
 
 const FilterRow = React.memo(function FilterRow({
