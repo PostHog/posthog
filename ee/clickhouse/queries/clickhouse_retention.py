@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
@@ -32,13 +31,11 @@ class ClickhouseRetention(BaseQuery):
         filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
 
         if period == "Hour":
-            date_to: datetime = filter.date_to if filter.date_to else now()
-            date_from: datetime.datetime = date_to - tdelta  # type: ignore
+            date_to = filter.date_to if filter.date_to else now()
+            date_from = date_to - tdelta
         else:
-            date_to: datetime = (filter.date_to if filter.date_to else now()).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            date_from: datetime.datetime = date_to - tdelta  # type: ignore
+            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = date_to - tdelta
 
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
@@ -117,7 +114,7 @@ class ClickhouseRetention(BaseQuery):
         elif period == "Day":
             return timedelta(days=total_intervals), PERIOD_TRUNC_DAY, timedelta(days=1)
         elif period == "Month":
-            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH, timedelta(months=1)
+            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH, relativedelta(months=1)
         else:
             raise ValueError(f"Period {period} is unsupported.")
 
