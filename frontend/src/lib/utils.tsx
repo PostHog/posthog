@@ -537,11 +537,11 @@ export function sampleSingle<T>(items: T[]): T[] {
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(/https?:\/\/(www\.|)github.com\/([^\/]+)\/([^\/]+)\/?$/)
+    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
     if (!match) {
         throw new Error('Must be in the format: https://github.com/user/repo')
     }
-    const [, , user, repo] = match
+    const [, user, repo] = match
     return { user, repo }
 }
 
