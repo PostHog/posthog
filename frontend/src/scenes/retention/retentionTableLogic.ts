@@ -103,13 +103,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
-            () => [selectors.properties],
-            (properties) => {
-                if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
-                }
+            () => [selectors.filters, selectors.properties],
+            (filters, properties) => {
+                return cleanRetentionParams(filters, properties)
             },
         ],
         startEntity: [
@@ -139,7 +135,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         afterMount: actions.loadRetention,
     }),
     actionToUrl: ({ values }) => ({
-        setFilters: () => ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }],
+        setFilters: () => ['/insights', values.propertiesForUrl],
     }),
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams: Record<string, any>) => {
