@@ -1,6 +1,8 @@
 import json
 import os
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict
+
+from sentry_sdk import capture_exception
 
 from .reload import reload_plugins_on_workers
 from .utils import download_plugin_github_zip, load_json_file, load_json_zip_bytes
@@ -12,9 +14,13 @@ from .utils import download_plugin_github_zip, load_json_file, load_json_zip_byt
 # - Will only download the same plugin/tag once.
 # - Syncs globally enabled plugin config from posthog.json into the pluginconfig model.
 def sync_plugin_config():
-    changes = [sync_posthog_json_plugins(), sync_global_plugin_config()]
-    if any(changes):
-        reload_plugins_on_workers()
+    try:
+        changes = [sync_posthog_json_plugins(), sync_global_plugin_config()]
+        if any(changes):
+            reload_plugins_on_workers()
+    except Exception as e:
+        print(e)
+        capture_exception(e)
 
 
 def sync_posthog_json_plugins(raise_errors=False, filename="posthog.json"):
