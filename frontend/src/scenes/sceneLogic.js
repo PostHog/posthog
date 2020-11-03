@@ -190,7 +190,7 @@ export const sceneLogic = kea({
                             actions.setScene('4xx', {})
                             message = 'Showing error page.'
                         }
-                        console.error("App assets regenerated.", message)
+                        console.error('App assets regenerated.', message)
                     } else {
                         throw error
                     }
