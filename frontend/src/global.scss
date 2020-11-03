@@ -78,6 +78,14 @@ style files without adding already imported styles. */
     margin-top: $default_spacing;
 }
 
+.mr {
+    margin-right: $default_spacing;
+}
+
+.ml {
+    margin-left: $default_spacing;
+}
+
 .pa {
     // Padding all
     padding: $default_spacing;

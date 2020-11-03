@@ -1,9 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
-import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Button, Tooltip, Dropdown as AntDropdown, Menu, Col, Row } from 'antd'
+import { Button, Tooltip, Dropdown, Menu, Col, Row } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
@@ -141,7 +140,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     }
     return (
         <div>
-            <Row gutter={8} className="mt mb">
+            <Row gutter={8} className="mt">
                 <Col>
                     <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick} size="small">
                         {name || 'Select action'}
@@ -173,26 +172,26 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
             )}
             <div style={{ paddingTop: 6 }}>
                 <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6 }}>&#8627;</span>
-                <div
-                    className="btn btn-sm btn-light ml-2"
+                <Button
+                    size="small"
                     onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                     data-attr={'show-prop-filter-' + index}
                 >
                     {determineFilterLabel(entityFilterVisible, filter)}
-                </div>
+                </Button>
                 <CloseButton
-                    className="ml-2"
                     onClick={onClose}
                     style={{
                         float: 'none',
                         position: 'absolute',
                         marginTop: 3,
+                        marginLeft: 4,
                     }}
                 />
             </div>
 
             {entityFilterVisible && (
-                <div className="ml-3">
+                <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
@@ -218,18 +217,14 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
 }
 
 function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
-    // TODO: Reintroduce tooltips (buggy screen flickering)
-    /*const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
+    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
-    }`*/
+    }`
 
     const overlay = () => {
         return (
-            <Menu
-                className="dropdown-with-tooltip"
-                onClick={({ item }) => onMathSelect(index, item.props['data-value'])}
-            >
-                {MATH_ENTRIES.map(([key, { name, onProperty }]) => {
+            <Menu onClick={({ item }) => onMathSelect(index, item.props['data-value'])}>
+                {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
                     const disabled = onProperty && !areEventPropertiesNumericalAvailable
                     return (
                         <Menu.Item
@@ -238,7 +233,22 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
                             data-attr={`math-${key}-${index}`}
                             disabled={disabled}
                         >
-                            {name}
+                            <Tooltip
+                                title={
+                                    onProperty ? (
+                                        <>
+                                            {description}
+                                            <br />
+                                            {numericalNotice}
+                                        </>
+                                    ) : (
+                                        description
+                                    )
+                                }
+                                placement="right"
+                            >
+                                {name}
+                            </Tooltip>
                         </Menu.Item>
                     )
                 })}
@@ -247,11 +257,11 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
     }
 
     return (
-        <AntDropdown overlay={overlay}>
+        <Dropdown overlay={overlay}>
             <Button size="small">
                 {MATHS[math || 'total']?.name} <DownOutlined />
             </Button>
-        </AntDropdown>
+        </Dropdown>
     )
 }
 
@@ -260,35 +270,40 @@ function MathPropertySelector(props) {
         ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
     )
 
+    const overlay = () => {
+        return (
+            <Menu onClick={({ item }) => props.onMathPropertySelect(props.index, item.props['data-value'])}>
+                {applicableProperties.map(({ value, label }) => {
+                    return (
+                        <Menu.Item
+                            key={`math-property-${value}-${props.index}`}
+                            data-attr={`math-property-${value}-${props.index}`}
+                            data-value={value}
+                        >
+                            <Tooltip
+                                title={
+                                    <>
+                                        Calculate {MATHS[props.math].name.toLowerCase()} from property{' '}
+                                        <code>{label}</code>. Note that only {props.name} occurences where{' '}
+                                        <code>{label}</code> is set and a number will be taken into account.
+                                    </>
+                                }
+                                placement="right"
+                            >
+                                {label}
+                            </Tooltip>
+                        </Menu.Item>
+                    )
+                })}
+            </Menu>
+        )
+    }
+
     return (
-        <Dropdown
-            title={props.mathProperty || 'Select property'}
-            titleEmpty="No applicable properties"
-            buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-property-selector-${props.index}`}
-        >
-            {applicableProperties.map(({ value, label }) => (
-                <Tooltip
-                    placement="right"
-                    title={
-                        <>
-                            Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>. Note
-                            that only {props.name} occurences where <code>{label}</code> is set and a number will be
-                            taken into account.
-                        </>
-                    }
-                    key={`math-property-${value}-${props.index}`}
-                >
-                    <a
-                        href="#"
-                        className="dropdown-item"
-                        onClick={() => props.onMathPropertySelect(props.index, value)}
-                        data-attr={`math-property-${value}-${props.index}`}
-                    >
-                        {label}
-                    </a>
-                </Tooltip>
-            ))}
+        <Dropdown overlay={overlay}>
+            <Button size="small" data-attr={`math-property-selector-${props.index}`} style={{ marginTop: 8 }}>
+                {props.mathProperty || 'Select property'} <DownOutlined />
+            </Button>
         </Dropdown>
     )
 }
