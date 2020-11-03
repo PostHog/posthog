@@ -3,6 +3,7 @@
     "website": "https://www.posthog.com",
     "repository": "https://github.com/posthog/posthog",
     "logo": "https://posthog.com/images/98771d009c04ff64fc4ba3b31cc46fe8/posthog-icon-color.svg",
+    "stack": "container",
     "environments": {
         "review": {
             "scripts": {
@@ -14,7 +15,6 @@
                     "generator": "secret"
                 }
             },
-            "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
                 "web": {
                     "quantity": 1
@@ -32,7 +32,6 @@
             "buildpacks": [{ "url": "heroku/python" }]
         }
     },
-    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
     "addons": [
         "heroku-postgresql",
         {

@@ -1,0 +1,11 @@
+build:
+    docker:
+        web: Dockerfile.web
+        worker: Dockerfile.worker
+release:
+    image: web
+    command:
+        - ./bin/docker-migrate
+run:
+    web: gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:$PORT --log-file -
+    worker: ./bin/docker-worker
