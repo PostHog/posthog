@@ -167,7 +167,7 @@ def get_event(request):
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],
-                event=event,
+                data=event,
                 team_id=team.id,
                 now=now.isoformat(),
                 sent_at=sent_at,
