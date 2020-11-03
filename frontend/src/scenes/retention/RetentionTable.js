@@ -24,11 +24,13 @@ export function RetentionTable() {
             title: 'Date',
             key: 'date',
             render: (row) => moment(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            align: 'center',
         },
         {
             title: 'Users',
             key: 'users',
             render: (row) => row.values[0]['count'],
+            align: 'center',
         },
     ]
 
