@@ -31,7 +31,7 @@ export function ActionsTable() {
                 )
             },
         },
-        {
+        actions[0]?.count !== null && {
             title: 'Volume',
             render: function RenderVolume(_, action) {
                 return <span>{action.count}</span>
