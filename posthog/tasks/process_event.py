@@ -243,11 +243,6 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
-@shared_task(name="process_event", ignore_result=True)
-def process_event_deprecated(*args, **kwargs) -> None:  # type: ignore
-    process_event(*args, **kwargs)
-
-
 @shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
