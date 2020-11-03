@@ -61,7 +61,7 @@ def create_event(
     try:
         celery.current_app.send_task(
             "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
-            ({"event": event, "properties": properties, "distinct_id": distinct_id}, team.pk, site_url),
+            ({"event": event, "properties": properties, "distinct_id": distinct_id, "timestamp": timestamp, "elements_list": elements}, team.pk, site_url),
         )
     except:
         pass
