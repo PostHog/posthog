@@ -317,7 +317,7 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SEC
 if TEST or DEBUG:
     DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://localhost:5432/posthog")
 else:
-    DATABASE_URL = os.environ.get("DATABASE_URL", "")
+    DATABASE_URL = os.environ.get("DATABASE_CONNECTION_POOL_URL", None) or os.environ.get("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
