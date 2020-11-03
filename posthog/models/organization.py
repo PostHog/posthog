@@ -168,7 +168,10 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         # reset current_organization if it's the removed organization
         instance.user.current_organization = None
         save_user = True
-    if instance.user.current_project is not None and instance.user.current_project.organization == instance.organization:
+    if (
+        instance.user.current_project is not None
+        and instance.user.current_project.organization == instance.organization
+    ):
         # reset current_project if it belongs to the removed organization
         instance.user.current_project = None
         save_user = True

@@ -41,7 +41,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         annotation = Annotation.objects.create(
-            organization=request.user.organization, team=request.user.project, created_by=request.user, **validated_data,
+            organization=request.user.organization,
+            team=request.user.project,
+            created_by=request.user,
+            **validated_data,
         )
         return annotation
 

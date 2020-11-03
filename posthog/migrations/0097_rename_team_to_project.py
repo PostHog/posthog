@@ -6,18 +6,10 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('ee', '0002_hook'),
-        ('posthog', '0096_plugins'),
+        ("posthog", "0096_plugins"),
     ]
 
     operations = [
-        migrations.RenameModel(
-            old_name='Team',
-            new_name='Project',
-        ),
-        migrations.RenameField(
-            model_name='user',
-            old_name='current_team',
-            new_name='current_project',
-        ),
+        migrations.RenameModel(old_name="Team", new_name="Project",),
+        migrations.RenameField(model_name="user", old_name="current_team", new_name="current_project",),
     ]

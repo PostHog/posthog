@@ -47,7 +47,11 @@ function _App(): JSX.Element {
         }
 
         // redirect to ingestion if not completed
-        if (currentProject && !currentProject.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (
+            currentProject &&
+            !currentProject.completed_snippet_onboarding &&
+            !location.pathname.startsWith('/ingestion')
+        ) {
             replace('/ingestion')
             return
         }
