@@ -34,7 +34,7 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
             </Button>
             <Modal
                 title="Inviting Teammate"
-                okText="Create Invite"
+                okText="Create Invite Link"
                 cancelText="Cancel"
                 onOk={() => {
                     setErrorMessage(null)
@@ -52,7 +52,13 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 onCancel={closeModal}
                 visible={isVisible}
             >
-                <p>Create an invite for a teammate with a specific email address.</p>
+                <p>
+                    Create an invite link for a teammate with a specific email address.
+                    <br />
+                    Remember to send the link to the teammate.
+                    <br />
+                    <i>Invites emailed by PostHog coming soon.</i>
+                </p>
                 <Input
                     data-attr="invite-email-input"
                     addonBefore="Email address"

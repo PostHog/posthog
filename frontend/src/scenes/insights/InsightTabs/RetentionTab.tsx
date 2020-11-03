@@ -53,35 +53,37 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
-            {window.posthog?.isFeatureEnabled('ch-retention-endpoint') && (
-                <>
-                    <hr />
-                    <h4 className="secondary">Start Day</h4>
-                    <div>
-                        <DatePicker
-                            className="mb-2"
-                            value={selectedDate}
-                            onChange={(date): void => setFilters({ selectedDate: date })}
-                            allowClear={false}
-                        />
-                    </div>
-                    <hr />
-                    <h4 className="secondary">Period</h4>
-                    <div>
-                        <Select
-                            value={dateOptions[period]}
-                            onChange={(value): void => setFilters({ period: value })}
-                            dropdownMatchSelectWidth={false}
-                        >
-                            {Object.entries(dateOptions).map(([key, value]) => (
-                                <Select.Option key={key} value={key}>
-                                    {value}
-                                </Select.Option>
-                            ))}
-                        </Select>
-                    </div>
-                </>
-            )}
+
+            <>
+                <hr />
+                <h4 className="secondary">Current Date</h4>
+                <div>
+                    <DatePicker
+                        showTime={filters.period === 'h'}
+                        use12Hours
+                        format={filters.period === 'h' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
+                        className="mb-2"
+                        value={selectedDate}
+                        onChange={(date): void => setFilters({ selectedDate: date })}
+                        allowClear={false}
+                    />
+                </div>
+                <hr />
+                <h4 className="secondary">Period</h4>
+                <div>
+                    <Select
+                        value={dateOptions[period]}
+                        onChange={(value): void => setFilters({ period: value })}
+                        dropdownMatchSelectWidth={false}
+                    >
+                        {Object.entries(dateOptions).map(([key, value]) => (
+                            <Select.Option key={key} value={key}>
+                                {value}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </div>
+            </>
         </div>
     )
 }

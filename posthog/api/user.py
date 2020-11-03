@@ -20,6 +20,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from posthog.models import User
+from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 
 
@@ -41,6 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     team = serializers.SerializerMethodField(read_only=True)
     organization = serializers.SerializerMethodField(read_only=True)
     organizations = serializers.SerializerMethodField(read_only=True)
+    plugin_access = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
@@ -93,6 +95,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_organizations(self, user: User) -> List[dict]:
         return [row for row in user.organizations.order_by("-created_at").values("name", "id")]  # type: ignore
+
+    def get_plugin_access(self, user: User) -> Dict[str, bool]:
+        return {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()}
 
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):

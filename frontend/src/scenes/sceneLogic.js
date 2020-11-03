@@ -32,6 +32,7 @@ export const scenes = {
     signup: () => import(/* webpackChunkName: 'signup' */ './Signup'),
     ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
+    plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog.urls too) */
@@ -39,6 +40,7 @@ export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
+    '/plugins': '/project/plugins',
 }
 
 export const routes = {
@@ -59,6 +61,7 @@ export const routes = {
     '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
     '/project/settings': 'projectSettings',
+    '/project/plugins': 'plugins',
     '/organization/settings': 'organizationSettings',
     '/organization/members': 'organizationMembers',
     '/organization/invites': 'organizationInvites',

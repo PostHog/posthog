@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations  # type: ignore
+from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
 from ee.clickhouse.sql.person import (

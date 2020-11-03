@@ -14,6 +14,7 @@ from django.template.loader import render_to_string
 from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
+from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.models import Partial
 from social_django.strategy import DjangoStrategy
@@ -132,7 +133,7 @@ def signup_to_organization_view(request, invite_id):
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
                 "company_name": organization.name,
-                "organization_id": organization.id,
+                "organization_id": str(organization.id),
                 "is_organization_first_user": False,
             },
         )
@@ -197,8 +198,9 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
             return HttpResponse(processed, status=401)
 
         try:
-            user = strategy.create_user(email=user_email, name=user_name)
+            user = strategy.create_user(email=user_email, first_name=user_name, password=None)
         except Exception as e:
+            capture_exception(e)
             processed = render_to_string(
                 "auth_error.html",
                 {

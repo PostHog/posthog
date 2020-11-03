@@ -1,8 +1,9 @@
 import datetime
 from datetime import timedelta
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 
 from posthog.models import Event, Filter, Team
 from posthog.queries.base import BaseQuery
@@ -10,34 +11,37 @@ from posthog.queries.base import BaseQuery
 
 class Retention(BaseQuery):
     def calculate_retention(self, filter: Filter, team: Team, total_intervals=11):
-        def _determineTimedelta(total_intervals: int, period: str) -> Union[timedelta, relativedelta]:
+        def _determineTimedelta(
+            total_intervals: int, period: str
+        ) -> Tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
             if period == "Hour":
-                return timedelta(hours=total_intervals)
+                return timedelta(hours=total_intervals), timedelta(hours=1)
             elif period == "Week":
-                return timedelta(weeks=total_intervals)
+                return timedelta(weeks=total_intervals), timedelta(weeks=1)
             elif period == "Month":
-                return relativedelta(months=total_intervals)
+                return relativedelta(months=total_intervals), relativedelta(months=1)
             elif period == "Day":
-                return timedelta(days=total_intervals)
+                return timedelta(days=total_intervals), timedelta(days=1)
             else:
                 raise ValueError(f"Period {period} is unsupported.")
 
         period = filter.period or "Day"
 
-        if period == "Hour":
-            date_from: datetime.datetime = filter.date_from  # type: ignore
-            filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
-        else:
-            filter._date_from = (
-                (filter.date_from.replace(hour=0, minute=0, second=0, microsecond=0)).isoformat()
-                if filter.date_from
-                else filter._date_from
-            )
-            date_from: datetime.datetime = filter.date_from  # type: ignore
-            filter._date_to = (date_from + _determineTimedelta(total_intervals, period)).isoformat()
+        tdelta, t1 = _determineTimedelta(total_intervals, period)
 
-        labels_format = "%a. %-d %B"
-        hourly_format = "%-H:%M %p"
+        filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
+
+        if period == "Hour":
+            date_to = filter.date_to if filter.date_to else now()
+            date_from = date_to - tdelta
+        else:
+
+            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = date_to - tdelta
+
+        filter._date_from = date_from.isoformat()
+        filter._date_to = date_to.isoformat()
+
         resultset = Event.objects.query_retention(filter, team)
 
         result = [
@@ -47,9 +51,7 @@ class Retention(BaseQuery):
                     for day in range(total_intervals - first_day)
                 ],
                 "label": "{} {}".format(period, first_day),
-                "date": (date_from + _determineTimedelta(first_day, period)).strftime(
-                    labels_format + (hourly_format if period == "Hour" else "")
-                ),
+                "date": (date_from + _determineTimedelta(first_day, period)[0]),
             }
             for first_day in range(total_intervals)
         ]

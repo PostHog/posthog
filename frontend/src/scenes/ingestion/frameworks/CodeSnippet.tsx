@@ -74,16 +74,18 @@ export interface CodeSnippetProps {
     language?: Language
     wrap?: boolean
     actions?: Action[]
+    style?: React.CSSProperties
 }
 
 export function CodeSnippet({
     children,
     language = Language.Text,
     wrap = false,
+    style = {},
     actions,
 }: CodeSnippetProps): JSX.Element {
     return (
-        <div className="code-container">
+        <div className="code-container" style={style}>
             <div className="action-icon-container">
                 {actions &&
                     actions.map(({ Icon, callback, popconfirmProps }, index) =>

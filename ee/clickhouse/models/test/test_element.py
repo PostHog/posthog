@@ -61,3 +61,21 @@ class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(elements[1].attr_class, ["btn", "btn-primary"])
         self.assertEqual(elements[3].attr_id, "nested")
+
+    def test_broken_class_names(self):
+        elements = chain_to_elements("a........small")
+        self.assertEqual(elements[0].tag_name, "a")
+        self.assertEqual(elements[0].attr_class, ["small"])
+
+        elements_string = elements_to_string(
+            elements=[
+                Element(
+                    tag_name="a", href="/a-url", attr_class=['small"', "xy:z"], attributes={"attr_class": 'xyz small"'}
+                )
+            ]
+        )
+
+        elements = chain_to_elements(elements_string)
+        self.assertEqual(elements[0].tag_name, "a")
+        self.assertEqual(elements[0].href, "/a-url")
+        self.assertEqual(elements[0].attr_class, ["small", "xy:z"])

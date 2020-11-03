@@ -52,6 +52,12 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
         def test_simple(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
             event_factory(
+                team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": 1}
+            )  # test for type incompatibility
+            event_factory(
+                team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": {"bla": "bla"}}
+            )  # test for type incompatibility
+            event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -64,6 +70,9 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
         def test_numerical(self):
             event1 = event_factory(team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5})
             event2 = event_factory(team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},)
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": "rubbish"},
+            )
             filter = Filter(data={"properties": {"$a_number__gt": 5}})
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
@@ -89,7 +98,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.assertEqual(events[0]["id"], event2.pk)
 
         def test_regex(self):
-            event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event1 = event_factory(team=self.team, distinct_id="test", event="$pageview")
             event2 = event_factory(
                 team=self.team,
                 event="$pageview",
@@ -99,6 +108,11 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             filter = Filter(data={"properties": {"$current_url__regex": "\.com$"}})
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
+
+            filter = Filter(data={"properties": {"$current_url__not_regex": "\.eee$"}})
+            events = filter_events(filter, self.team, order_by="timestamp")
+            self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(events[1]["id"], event2.pk)
 
         def test_is_not(self):
             event1 = event_factory(team=self.team, distinct_id="test", event="$pageview")
@@ -254,6 +268,15 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
             self.assertEqual(len(events), 1)
+
+        def test_true_false(self):
+            event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2 = event_factory(
+                team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
+            )
+            filter = Filter(data={"properties": {"is_first": "true"}})
+            events = filter_events(filter, self.team)
+            self.assertEqual(events[0]["id"], event2.pk)
 
         def test_json_object(self):
             person1 = person_factory(
