@@ -17,7 +17,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
         _event = Event(
             id=0, team=team, event=event["event"], properties=event["properties"], distinct_id=event["distinct_id"]
         )
-        actions = [action for action in Action.objects.filter(team=team).all() if action.post_to_slack]
+        actions = [action for action in Action.objects.filter(team=team, post_to_slack=True).all()]
 
         if not site_url:
             site_url = settings.SITE_URL
