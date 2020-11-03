@@ -50,7 +50,7 @@ class ClickhouseEvents(EventViewSet):
             if action.steps.count() == 0:
                 return Response({"next": False, "results": []})
             action_query, params = format_action_filter(action)
-            prop_filters += " AND uuid IN {}".format(action_query)
+            prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":

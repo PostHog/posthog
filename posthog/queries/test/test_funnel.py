@@ -191,7 +191,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # should not add a count
             without_property = person_factory(distinct_ids=["without_property"], team_id=self.team.pk)
             self._signup_event(distinct_id="without_property")
-            self._pay_event(distinct_id="without_property", properties={"$browser": "Safari"})
+            self._pay_event(distinct_id="without_property")
 
             # will add to first step
             half_property = person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
