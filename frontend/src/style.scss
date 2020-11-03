@@ -3,20 +3,12 @@
 :root {
     // make antd sidebar just a tad bit darker
     .bg-dark {
-        background-color: #2d2d2d !important;
+        background-color: hsla(210, 10%, 19%, 1) !important;
     }
 }
 
 .layout-container {
     max-width: 100vw;
-}
-
-.right-align {
-    float: right;
-    .fi {
-        font-size: 20px;
-        margin-right: 12px;
-    }
 }
 
 @keyframes rotation {
@@ -90,6 +82,7 @@ pre.code {
     text-overflow: ellipsis;
     max-width: 0;
 }
+
 .paths {
     height: 720px;
     svg {
@@ -97,6 +90,7 @@ pre.code {
         width: 100%;
     }
 }
+
 .secondary {
     font-size: 13px;
     letter-spacing: 1px;
@@ -106,6 +100,7 @@ pre.code {
     border: 0;
     background: none;
 }
+
 hr {
     border: 1px solid rgba(0, 0, 0, 0.1);
 }
