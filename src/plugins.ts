@@ -1,9 +1,9 @@
 import * as path from 'path'
 import * as fs from 'fs'
-import AdmZip from 'adm-zip'
 import { createVm, prepareForRun } from './vm'
 import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginEvent } from './types'
 import { clearError, processError } from './error'
+import { getFileFromArchive } from './utils'
 
 const plugins: Record<string, Plugin> = {}
 const pluginsPerTeam: Record<string, PluginConfig[]> = {}
@@ -128,25 +128,18 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin) {
             await processError(server, plugin, null, error)
         }
     } else if (plugin.archive) {
-        const zip = new AdmZip(plugin.archive)
-        const zipEntries = zip.getEntries() // an array of ZipEntry records
-        const root = zipEntries[0].entryName
-
         let config: Record<string, any> = {}
-        const json = zip.getEntry(`${root}plugin.json`)
+        const json = await getFileFromArchive(plugin.archive, 'plugin.json')
         if (json) {
             try {
-                config = JSON.parse(json.getData().toString())
+                config = JSON.parse(json)
             } catch (error) {
                 await processError(server, plugin, null, `Can not load plugin.json for plugin "${plugin.name}"`)
             }
         }
 
-        const indexEntry = zip.getEntry(`${root}${config['main'] || 'index.js'}`)
-        const indexJs = indexEntry ? indexEntry.getData().toString() : null
-
-        const libEntry = zip.getEntry(`${root}${config['lib'] || 'lib.js'}`)
-        const libJs = libEntry ? libEntry.getData().toString() : null
+        const indexJs = await getFileFromArchive(plugin.archive, config['main'] || 'index.js')
+        const libJs = await getFileFromArchive(plugin.archive, config['lib'] || 'lib.js')
 
         if (indexJs) {
             try {
