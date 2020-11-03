@@ -1,6 +1,8 @@
 from unittest.mock import call, patch
 from uuid import uuid4
 
+from django.utils.timezone import now
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
@@ -23,8 +25,9 @@ class TestSendToSlackClickhouse(ClickhouseTestMixin, BaseTest):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
         _create_action(team=self.team, name="user paid", post_to_slack=True)
 
+        _now = now()
         event = create_event(
-            event_uuid=uuid4(), team=self.team, distinct_id="test", event="user paid", site_url="http://testserver"
+            event_uuid=uuid4(), team=self.team, distinct_id="test", event="user paid", site_url="http://testserver", timestamp=_now
         )
         self.assertEqual(patch_post_to_slack.call_count, 1)
         patch_post_to_slack.assert_has_calls(
@@ -32,7 +35,13 @@ class TestSendToSlackClickhouse(ClickhouseTestMixin, BaseTest):
                 call(
                     "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
                     (
-                        {"event": "user paid", "properties": {}, "distinct_id": "test"},
+                        {
+                            "event": "user paid", 
+                            "properties": {}, 
+                            "distinct_id": "test",
+                            "timestamp": _now,
+                            'elements_list': None
+                        },
                         self.team.pk,
                         "http://testserver",
                     ),
