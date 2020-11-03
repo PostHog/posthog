@@ -241,19 +241,35 @@ class EventManager(models.QuerySet):
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
-        def _determineTrunc(subject: str, period: str) -> Union[TruncHour, TruncDay, TruncWeek, TruncMonth]:
+        def _determineTrunc(subject: str, period: str) -> Tuple[Union[TruncHour, TruncDay, TruncWeek, TruncMonth], str]:
             if period == "Hour":
-                return TruncHour(subject)
+                fields = """
+                FLOOR(DATE_PART('day', first_date - %s) * 24 + DATE_PART('hour', first_date - %s)) AS first_date,
+                FLOOR(DATE_PART('day', timestamp - first_date) * 24 + DATE_PART('hour', timestamp - first_date)) AS date,
+                """
+                return TruncHour(subject), fields
             elif period == "Day":
-                return TruncDay(subject)
+                fields = """
+                FLOOR(DATE_PART('day', first_date - %s)) AS first_date,
+                FLOOR(DATE_PART('day', timestamp - first_date)) AS date,
+                """
+                return TruncDay(subject), fields
             elif period == "Week":
-                return TruncWeek(subject)
+                fields = """
+                FLOOR(DATE_PART('day', first_date - %s) / 7) AS first_date,
+                FLOOR(DATE_PART('day', timestamp - first_date) / 7) AS date,
+                """
+                return TruncWeek(subject), fields
             elif period == "Month":
-                return TruncMonth(subject)
+                fields = """
+                FLOOR((DATE_PART('year', first_date) - DATE_PART('year', %s)) * 12 + DATE_PART('month', first_date) - DATE_PART('month', %s)) AS first_date,
+                FLOOR((DATE_PART('year', timestamp) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', timestamp) - DATE_PART('month', first_date)) AS date,
+                """
+                return TruncMonth(subject), fields
             else:
                 raise ValueError(f"Period {period} is unsupported.")
 
-        trunc = _determineTrunc("timestamp", period)
+        trunc, fields = _determineTrunc("timestamp", period)
         first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
 
         events_query, events_query_params = filtered_events.query.sql_with_params()
@@ -261,28 +277,25 @@ class EventManager(models.QuerySet):
 
         full_query = """
             SELECT
-                FLOOR(DATE_PART('{period}s', first_date - %s) {calculation}) AS first_date,
-                FLOOR(DATE_PART('{period}s', timestamp - first_date) {calculation}) AS date,
+                {fields}
                 COUNT(DISTINCT "events"."person_id"),
                 array_agg(DISTINCT "events"."person_id") as people
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp > first_date
+            WHERE timestamp >= first_date
             GROUP BY date, first_date
         """
 
-        full_query = full_query.format(
-            events_query=events_query,
-            first_date_query=first_date_query,
-            event_date_query=trunc,
-            period="Day" if period == "Week" else period,
-            calculation="/ 7" if period == "Week" else "",
+        full_query = full_query.format(events_query=events_query, first_date_query=first_date_query, fields=fields)
+
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
         )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query, (filter.date_from,) + events_query_params + first_date_params,
+                full_query, start_params + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
