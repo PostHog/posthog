@@ -11,6 +11,8 @@ import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { RetentionTable } from 'scenes/retention/RetentionTable'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+import { Paths } from 'scenes/paths/Paths'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 import {
     EllipsisOutlined,
     EditOutlined,
@@ -93,6 +95,18 @@ const typeMap = {
             ).url
         },
     },
+    PathsViz: {
+        className: 'paths',
+        element: Paths,
+        viewTest: 'View graph',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.PATHS, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
 }
 
 export function DashboardItem({
@@ -137,6 +151,7 @@ export function DashboardItem({
     const determineLogic = () => {
         if (className === 'funnel') return funnelVizLogic(logicProps)
         else if (className === 'retention') return retentionTableLogic(logicProps)
+        else if (className === 'paths') return pathsLogic(logicProps)
         else return trendsLogic(logicProps)
     }
 
