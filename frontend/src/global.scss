@@ -232,3 +232,9 @@ style files without adding already imported styles. */
 .ant-btn-sm {
     font-size: 12px !important;
 }
+
+.info-indicator {
+    color: $primary !important;
+    cursor: pointer;
+    margin-left: 5px;
+}

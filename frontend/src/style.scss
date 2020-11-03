@@ -1,9 +1,5 @@
 /* DEPRECATED in favor of global.scss */
 
-@import 'node_modules/bootstrap/scss/_functions';
-@import 'node_modules/bootstrap/scss/_variables';
-@import 'node_modules/bootstrap/scss/_mixins';
-
 :root {
     // make antd sidebar just a tad bit darker
     .bg-dark {
@@ -130,12 +126,6 @@ button.no-style {
 
 label.disabled {
     color: #888;
-}
-
-.info {
-    color: $blue;
-    cursor: pointer;
-    margin-left: 5px;
 }
 
 .ant-modal-mask {

@@ -185,7 +185,7 @@ function _Insights() {
                                             placement="right"
                                             title="These consist of funnels by you and the rest of the team"
                                         >
-                                            <InfoCircleOutlined className="info" style={{ color: '#007bff' }} />
+                                            <InfoCircleOutlined className="info-indicator" />
                                         </Tooltip>
                                     </Row>
                                 }
