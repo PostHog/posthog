@@ -180,20 +180,20 @@ export const sceneLogic = kea({
                     importedScene = await scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
-                        console.error('Error loading webpack chunk!')
-
+                        let message
                         if (scene !== null) {
-                            // we were on another page (not the first loaded scene)
-                            console.error('Reloading!')
+                            // We were on another page (not the first loaded scene)
                             window.location.reload()
+                            message = 'Reloading this page.'
                         } else {
-                            // first scene, show an error page
-                            console.error("Redirecting to the 'Network Error' page!")
+                            // First scene, show an error page
                             actions.setScene('4xx', {})
-                            return
+                            message = 'Showing error page.'
                         }
+                        console.error("App assets regenerated.", message)
+                    } else {
+                        throw error
                     }
-                    throw error
                 }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene
