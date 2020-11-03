@@ -202,7 +202,7 @@ function _Insights() {
                     */}
                         <Card
                             title={
-                                <div className="float-right pt-1 pb-1">
+                                <div className="float-right">
                                     {showIntervalFilter[activeView] && (
                                         <IntervalFilter filters={allFilters} view={activeView} />
                                     )}

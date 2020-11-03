@@ -113,7 +113,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     return (
         <div className="events" data-attr="events-table">
             {!isPersonPage && <PageHeader title="Sessions By Day" />}
-            <Space className="mb-2">
+            <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}

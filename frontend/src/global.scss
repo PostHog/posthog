@@ -78,6 +78,14 @@ style files without adding already imported styles. */
     margin-top: $default_spacing;
 }
 
+.mb-05 {
+    margin-bottom: $default_spacing * 0.5;
+}
+
+.mt-05 {
+    margin-top: $default_spacing * 0.5;
+}
+
 .mr {
     margin-right: $default_spacing;
 }
@@ -117,6 +125,18 @@ style files without adding already imported styles. */
 
 .float-left {
     float: left;
+}
+
+.main-app-content {
+    padding: $default_spacing $default_spacing * 3;
+
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding: $default_spacing $default_spacing * 2 !important;
+    }
+
+    @media (max-width: 480px) {
+        padding: $default_spacing $default_spacing !important;
+    }
 }
 
 // Color styles

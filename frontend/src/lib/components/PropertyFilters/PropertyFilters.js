@@ -32,7 +32,7 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-2 mb-2">
+        <Row align="middle" className="mt-05 mb-05">
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}

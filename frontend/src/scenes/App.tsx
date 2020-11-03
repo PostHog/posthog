@@ -84,7 +84,7 @@ function _App(): JSX.Element {
                     style={{ minHeight: '100vh' }}
                 >
                     <TopContent />
-                    <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
+                    <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&
                         !currentTeam.ingested_event &&

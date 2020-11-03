@@ -51,7 +51,7 @@ export function RetentionTab(): JSX.Element {
                     <h4 className="secondary">Start Day</h4>
                     <div>
                         <DatePicker
-                            className="mb-2"
+                            className="mb-05"
                             value={selectedDate}
                             onChange={(date): void => setFilters({ selectedDate: date })}
                             allowClear={false}

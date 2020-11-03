@@ -11,10 +11,6 @@
     }
 }
 
-// bootstrap components
-@import 'node_modules/bootstrap/scss/_root';
-@import 'node_modules/bootstrap/scss/utilities';
-
 .layout-container {
     max-width: 100vw;
 }
@@ -55,10 +51,6 @@
             display: block;
         }
     }
-}
-
-.content {
-    padding: 0 45px;
 }
 
 .code-container {
@@ -161,21 +153,6 @@ label.disabled {
 
 .ant-select-arrow .anticon {
     vertical-align: top !important;
-}
-
-// less content padding in low resolutions
-.ant-layout .ant-layout-content.pl-5.pr-5.pt-3.pb-5,
-.ant-layout .content.py-3.layout-top-content {
-    @media (min-width: 480px) and (max-width: 639px) {
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        padding-bottom: 2rem !important;
-    }
-    @media (max-width: 479px) {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        padding-bottom: 1rem !important;
-    }
 }
 
 .property-key-info {

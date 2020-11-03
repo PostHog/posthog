@@ -262,7 +262,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                             </Menu>
                         }
                     >
-                        <Button>
+                        <Button style={{ marginLeft: 8, marginRight: 8 }}>
                             {annotationScopeToName.get(scope)} <DownOutlined />
                         </Button>
                     </Dropdown>{' '}
@@ -293,7 +293,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 <div>
                     Date:
                     <DatePicker
-                        className="mb-2 mt-2 ml-2"
+                        style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
                         getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
                         value={selectedDate}
                         onChange={(date): void => setDate(date)}
