@@ -125,7 +125,7 @@ function DatePickerDropdown(props) {
     }, [calendarOpen])
 
     return (
-        <div className="dropdown" ref={dropdownRef}>
+        <div ref={dropdownRef}>
             <a
                 style={{
                     margin: '0 1rem',
