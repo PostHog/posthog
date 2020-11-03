@@ -173,17 +173,16 @@ def get_event(request):
             task_name += "_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
 
-        process_event_ee.delay(
-            distinct_id=distinct_id,
-            ip=get_ip_address(request),
-            site_url=request.build_absolute_uri("/")[:-1],
-            data=event,
-            team_id=team.id,
-            now=now,
-            sent_at=sent_at,
-        )
-
         if check_ee_enabled():
+            process_event_ee.delay(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
             # log the event to kafka write ahead log for processing
             log_event(
                 distinct_id=distinct_id,
