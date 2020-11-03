@@ -52,7 +52,7 @@ export function CommandPalette(): JSX.Element | null {
 
     return !user || !isPaletteShown ? null : (
         <div className="palette__overlay">
-            <div className="palette__box card bg-dark" ref={boxRef}>
+            <div className="palette__box" ref={boxRef}>
                 {(!activeFlow || activeFlow.instruction) && <CommandInput />}
                 {!commandSearchResults.length && !activeFlow ? null : <CommandResults executeResult={executeResult} />}
             </div>
