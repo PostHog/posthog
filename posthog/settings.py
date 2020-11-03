@@ -248,9 +248,6 @@ else:
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
 
-# Max size of a POST body (for event ingestion)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20971520  # 20 MB
-
 ROOT_URLCONF = "posthog.urls"
 
 TEMPLATES = [
