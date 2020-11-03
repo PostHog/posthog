@@ -78,7 +78,7 @@ def _capture_ee(
 
 if check_ee_enabled():
 
-    @shared_task(name="process_event_ee", ignore_result=True)
+    @shared_task(name="ee.clickhouse.process_event.process_event_ee", ignore_result=True)
     def process_event_ee(
         distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
     ) -> None:
@@ -117,10 +117,15 @@ if check_ee_enabled():
 
 else:
 
-    @shared_task(name="process_event_ee", ignore_result=True)
+    @shared_task(name="ee.clickhouse.process_event.process_event_ee", ignore_result=True)
     def process_event_ee(*args, **kwargs) -> None:
         # Noop if ee is not enabled
         return
+
+
+@shared_task(name="process_event_ee", ignore_result=True)
+def process_event_ee_deprecated(*args, **kwargs) -> None:
+    process_event_ee(*args, **kwargs)
 
 
 def log_event(

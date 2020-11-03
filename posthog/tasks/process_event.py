@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, SessionRecordingEvent, Team, User
+from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -244,6 +244,11 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
 
 
 @shared_task(name="process_event", ignore_result=True)
+def process_event_deprecated(*args, **kwargs) -> None:  # type: ignore
+    process_event(*args, **kwargs)
+
+
+@shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
