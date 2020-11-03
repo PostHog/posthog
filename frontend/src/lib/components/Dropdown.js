@@ -1,16 +1,8 @@
 import React, { useState } from 'react'
 import { DownOutlined } from '@ant-design/icons'
+import { Button } from 'antd'
 
-export function Dropdown({
-    className,
-    style,
-    'data-attr': dataAttr,
-    buttonStyle,
-    children,
-    buttonClassName,
-    title,
-    titleEmpty,
-}) {
+export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle, children, title, titleEmpty }) {
     const [menuOpen, setMenuOpen] = useState(false)
 
     const isEmpty = !(children && (!Array.isArray(children) || children.length))
@@ -29,7 +21,7 @@ export function Dropdown({
 
     return (
         <div
-            className={'dropdown ' + className}
+            className={className}
             style={{
                 display: 'inline',
                 marginTop: -6,
@@ -37,10 +29,10 @@ export function Dropdown({
             }}
             data-attr={dataAttr}
         >
-            <a className={'cursor-pointer ' + buttonClassName} style={{ ...buttonStyle }} onClick={open} href="#">
+            <Button style={{ ...buttonStyle }} onClick={open}>
                 {isEmpty && titleEmpty ? titleEmpty : title}
-                {!isEmpty && <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />}
-            </a>
+                {!isEmpty && <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />}
+            </Button>
             {!isEmpty && (
                 <div
                     className={'dropdown-menu ' + (menuOpen && 'show')}

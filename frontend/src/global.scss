@@ -65,6 +65,10 @@ style files without adding already imported styles. */
     text-align: center;
 }
 
+.text-muted {
+    color: $text_muted;
+}
+
 // Spacing & layout
 .mb {
     margin-bottom: $default_spacing;
@@ -195,4 +199,8 @@ style files without adding already imported styles. */
 // Button styles
 .btn-close {
     color: $text_muted;
+}
+
+.ant-btn-sm {
+    font-size: 12px !important;
 }

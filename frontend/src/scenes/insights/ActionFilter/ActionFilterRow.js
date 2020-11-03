@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Tooltip } from 'antd'
+import { Button, Tooltip, Dropdown as AntDropdown, Menu, Col, Row } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
@@ -140,30 +140,27 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div className="mt-2" style={{ paddingBottom: 16 }}>
-            <button
-                data-attr={'trend-element-subject-' + index}
-                ref={node}
-                className="filter-action btn btn-sm btn-light"
-                type="button"
-                onClick={onClick}
-                style={{
-                    fontWeight: 500,
-                }}
-            >
-                {name || 'Select action'}
-                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
-            </button>
-            {!hideMathSelector && (
-                <MathSelector
-                    math={math}
-                    index={index}
-                    onMathSelect={onMathSelect}
-                    areEventPropertiesNumericalAvailable={
-                        eventPropertiesNumerical && eventPropertiesNumerical.length > 0
-                    }
-                />
-            )}
+        <div>
+            <Row gutter={8} className="mt mb">
+                <Col>
+                    <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick} size="small">
+                        {name || 'Select action'}
+                        <DownOutlined style={{ fontSize: 10 }} />
+                    </Button>
+                </Col>
+                <Col>
+                    {!hideMathSelector && (
+                        <MathSelector
+                            math={math}
+                            index={index}
+                            onMathSelect={onMathSelect}
+                            areEventPropertiesNumericalAvailable={
+                                eventPropertiesNumerical && eventPropertiesNumerical.length > 0
+                            }
+                        />
+                    )}
+                </Col>
+            </Row>
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
                     name={name}
@@ -221,54 +218,40 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
 }
 
 function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
-    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
+    // TODO: Reintroduce tooltips (buggy screen flickering)
+    /*const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
-    }`
+    }`*/
+
+    const overlay = () => {
+        return (
+            <Menu
+                className="dropdown-with-tooltip"
+                onClick={({ item }) => onMathSelect(index, item.props['data-value'])}
+            >
+                {MATH_ENTRIES.map(([key, { name, onProperty }]) => {
+                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
+                    return (
+                        <Menu.Item
+                            key={`math-${key}`}
+                            data-value={key}
+                            data-attr={`math-${key}-${index}`}
+                            disabled={disabled}
+                        >
+                            {name}
+                        </Menu.Item>
+                    )
+                })}
+            </Menu>
+        )
+    }
 
     return (
-        <Dropdown
-            title={MATHS[math || 'total']?.name}
-            buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-selector-${index}`}
-        >
-            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
-                const disabled = onProperty && !areEventPropertiesNumericalAvailable
-                return (
-                    <Tooltip
-                        placement="right"
-                        title={
-                            onProperty ? (
-                                <>
-                                    {description}
-                                    <br />
-                                    {numericalNotice}
-                                </>
-                            ) : (
-                                description
-                            )
-                        }
-                        key={`math-${key}`}
-                    >
-                        <div>
-                            <button
-                                className="dropdown-item"
-                                disabled={disabled}
-                                onClick={
-                                    disabled
-                                        ? undefined
-                                        : () => {
-                                              onMathSelect(index, key)
-                                          }
-                                }
-                                data-attr={`math-${key}-${index}`}
-                            >
-                                {name}
-                            </button>
-                        </div>
-                    </Tooltip>
-                )
-            })}
-        </Dropdown>
+        <AntDropdown overlay={overlay}>
+            <Button size="small">
+                {MATHS[math || 'total']?.name} <DownOutlined />
+            </Button>
+        </AntDropdown>
     )
 }
 

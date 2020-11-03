@@ -6,7 +6,7 @@ import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions } from 'scenes/retention/retentionTableLogic'
-import { DatePicker, Select } from 'antd'
+import { Button, DatePicker, Select } from 'antd'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
@@ -27,18 +27,10 @@ export function RetentionTab(): JSX.Element {
     return (
         <div data-attr="retention-tab">
             <h4 className="secondary">Target Event</h4>
-            <button
-                ref={node}
-                className="filter-action btn btn-sm btn-light"
-                type="button"
-                onClick={(): void => setOpen(!open)}
-                style={{
-                    fontWeight: 500,
-                }}
-            >
+            <Button ref={node} data-attr="retention-action" onClick={(): void => setOpen(!open)}>
                 {startEntity?.name || 'Select action'}
-                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
-            </button>
+                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+            </Button>
             {open && (
                 <ActionFilterDropdown
                     logic={entityLogic}
