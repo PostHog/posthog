@@ -494,7 +494,7 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: ProjectOutlined,
+                        icon: TeamOutlined,
                         display: 'Go to Organization Members',
                         synonyms: ['teammates'],
                         executor: () => {
