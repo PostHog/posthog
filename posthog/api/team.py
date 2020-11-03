@@ -1,4 +1,5 @@
-from typing import Any, Dict, Union, cast
+from posthog.plugins.reload import reload_plugins_on_workers
+from typing import Any, Dict, cast
 
 import posthoganalytics
 from django.conf import settings
@@ -75,7 +76,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "opt_out_capture",
         )
 
-    def create(self, validated_data: Dict[str, Any]) -> Team:
+    def create(self, validated_data: Dict[Any, Any]) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         with transaction.atomic():
@@ -84,6 +85,11 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.current_team = team
             request.user.save()
         return team
+
+    def update(self, instance: Team, validated_data: Dict[Any, Any]):
+        super().update(instance, validated_data)
+        if validated_data.get("plugins_opt_in") is not None:
+            reload_plugins_on_workers()
 
 
 class TeamViewSet(viewsets.ModelViewSet):

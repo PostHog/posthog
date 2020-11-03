@@ -20,7 +20,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from posthog.models import User
-from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
+from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
 from posthog.version import VERSION
 
 
