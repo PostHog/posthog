@@ -186,7 +186,7 @@ def get_event(request):
             ],
         )
 
-        if check_ee_enabled():
+        if check_ee_enabled() and settings.LOG_TO_WAL:
             # log the event to kafka write ahead log for processing
             log_event(
                 distinct_id=distinct_id,
