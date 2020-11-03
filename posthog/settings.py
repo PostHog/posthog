@@ -138,6 +138,9 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 
+LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
+
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
