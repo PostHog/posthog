@@ -9,6 +9,8 @@ import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
 import { ActionsTable } from 'scenes/insights/ActionsTable'
 import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
+import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import {
     EllipsisOutlined,
     EditOutlined,
@@ -22,6 +24,7 @@ import {
     CopyOutlined,
     DeliveredProcedureOutlined,
     ReloadOutlined,
+    QuestionCircleOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -77,6 +80,19 @@ const typeMap = {
             ).url
         },
     },
+    RetentionTable: {
+        className: 'retention',
+        element: RetentionTable,
+        icon: QuestionCircleOutlined,
+        viewTest: 'View table',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.Retention, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
 }
 
 export function DashboardItem({
@@ -117,8 +133,15 @@ export function DashboardItem({
         cachedResults: item.result,
         funnelId: item.funnel || item.filters.funnel_id,
     }
-    const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
-    const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+
+    const determineLogic = () => {
+        if (className === 'funnel') return funnelVizLogic(logicProps)
+        else if (className === 'retention') return retentionTableLogic(logicProps)
+        else return trendsLogic(logicProps)
+    }
+
+    const { loadResults } = useActions(determineLogic())
+    const { resultsLoading } = useValues(determineLogic())
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
