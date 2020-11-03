@@ -7,6 +7,23 @@ style files without adding already imported styles. */
 @import 'node_modules/react-datepicker/dist/react-datepicker';
 @import './vars';
 
+:root {
+    --primary: #{$primary};
+    --success: #{$success};
+    --danger: #{$danger};
+    --warning: #{$warning};
+    // Used for graph series
+    --blue: #{$blue_500};
+    --purple: #{purple_500};
+    --salmon: #ff906e;
+    --yellow: #ffc035;
+    --green: #{$success};
+    --indigo: #{$purple_700};
+    --cyan: #17a2b8;
+    --pink: #e83e8c;
+    --white: #f4f6ff;
+}
+
 // Text styles
 .text-default {
     color: $text_default;

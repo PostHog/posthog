@@ -18,7 +18,7 @@ export function EventElements({ event }) {
                         margin: 0,
                         padding: 0,
                         borderRadius: 0,
-                        backgroundColor: index === elements.length - 1 ? 'var(--blue)' : undefined,
+                        backgroundColor: index === elements.length - 1 ? 'var(--primary)' : undefined,
                     }}
                 >
                     {indent(index)}

@@ -18,7 +18,7 @@ export function LatestVersion() {
             {latestVersion ? (
                 <span>
                     {isApp ? (
-                        <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--green)' }}>
+                        <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--success)' }}>
                             New features
                         </Button>
                     ) : (
@@ -27,7 +27,7 @@ export function LatestVersion() {
                                 <Button
                                     onClick={() => setChangelogOpen(true)}
                                     type="link"
-                                    style={{ color: 'var(--green)' }}
+                                    style={{ color: 'var(--success)' }}
                                 >
                                     <span className="hide-when-small">
                                         <CheckOutlined /> PostHog up-to-date
