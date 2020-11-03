@@ -41,15 +41,12 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
 
         if len(conditions) > 0:
             or_queries.append(" AND ".join(conditions))
-    or_separator = (
-        ") OR (" if not use_loop else ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND "
-    )
     if use_loop:
         formatted_query = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s".format(
-            or_separator.join(or_queries)
+            ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND ".join(or_queries)
         )
     else:
-        formatted_query = "({})".format(or_separator.join(or_queries))
+        formatted_query = "({})".format(") OR (".join(or_queries))
     return formatted_query, params
 
 
