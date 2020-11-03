@@ -298,7 +298,13 @@ export const commandPaletteLogic = kea<
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.isPaletteShown, selectors.regexpCommandPairs, selectors.input, selectors.activeFlow, selectors.isSqueak],
+            (selectors) => [
+                selectors.isPaletteShown,
+                selectors.regexpCommandPairs,
+                selectors.input,
+                selectors.activeFlow,
+                selectors.isSqueak,
+            ],
             (
                 isPaletteShown: boolean,
                 regexpCommandPairs: RegExpCommandPairs,
@@ -561,15 +567,16 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
-                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? [])
-                        .map((url: string) => ({
+                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
+                        (url: string) => ({
                             icon: LinkOutlined,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
                                 open(url)
                             },
-                        }))
+                        })
+                    )
                     if (isURL(argument))
                         results.push({
                             icon: LinkOutlined,
