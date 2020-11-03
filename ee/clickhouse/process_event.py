@@ -123,11 +123,6 @@ else:
         return
 
 
-@shared_task(name="process_event_ee", ignore_result=True)
-def process_event_ee_deprecated(*args, **kwargs) -> None:
-    process_event_ee(*args, **kwargs)
-
-
 def log_event(
     distinct_id: str,
     ip: str,
