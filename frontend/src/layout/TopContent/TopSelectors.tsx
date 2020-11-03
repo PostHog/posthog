@@ -1,6 +1,6 @@
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { Alert, Dropdown, Input, Menu, Modal } from 'antd'
+import { Alert, Button, Dropdown, Input, Menu, Modal } from 'antd'
 import {
     ProjectOutlined,
     SmileOutlined,
@@ -45,10 +45,9 @@ export function User(): JSX.Element {
                 </Menu>
             }
         >
-            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light btn-top" title="Me">
-                <SmileOutlined size={1} style={{ marginRight: '0.5rem' }} />
+            <Button data-attr="user-options-dropdown" size="small" icon={<SmileOutlined />} style={{ fontWeight: 500 }}>
                 {user ? user.name || user.email : <i>loading</i>}
-            </div>
+            </Button>
         </Dropdown>
     )
 }
@@ -269,15 +268,14 @@ export function Projects(): JSX.Element {
                     </Menu>
                 }
             >
-                <div
+                <Button
                     data-attr="user-project-dropdown"
-                    className="btn btn-sm btn-light btn-top"
-                    style={{ marginRight: '0.75rem' }}
-                    title="Current Projects"
+                    size="small"
+                    style={{ marginRight: '0.75rem', fontWeight: 500 }}
+                    icon={<ProjectOutlined />}
                 >
-                    <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
                     {!user ? <i>loading</i> : user.team ? user.team.name : <i>none yet</i>}
-                </div>
+                </Button>
             </Dropdown>
         </>
     )

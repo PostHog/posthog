@@ -5,7 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { ExportOutlined } from '@ant-design/icons'
-import { Card, Checkbox, Input, Radio } from 'antd'
+import { Button, Card, Checkbox, Input, Radio } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -218,11 +218,7 @@ export class ActionStep extends Component {
             <div>
                 {!isEditor && (
                     <span>
-                        <AppEditorLink
-                            actionId={actionId}
-                            style={{ margin: '1rem 0' }}
-                            className="btn btn-sm btn-light"
-                        >
+                        <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
                             Select element on site <ExportOutlined />
                         </AppEditorLink>
                         <a
@@ -305,15 +301,14 @@ export class ActionStep extends Component {
                         }}
                     >
                         {isEditor && [
-                            <button
+                            <Button
                                 key="inspect-button"
-                                type="button"
-                                className="btn btn-sm btn-secondary"
+                                size="small"
                                 style={{ margin: '10px 0px 10px 12px' }}
                                 onClick={() => this.start()}
                             >
                                 Inspect element
-                            </button>,
+                            </Button>,
                             this.state.inspecting && (
                                 <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
                                     Hover over and click on an element you want to create an action for

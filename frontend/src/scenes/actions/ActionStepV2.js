@@ -211,7 +211,7 @@ export class ActionStep extends Component {
         return (
             <div>
                 <span>
-                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
+                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
                         Select element on site <ExportOutlined />
                     </AppEditorLink>
                     <a

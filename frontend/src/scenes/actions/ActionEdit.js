@@ -24,15 +24,13 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
     if (actionLoading || !action) return <Loading />
 
     const addGroup = (
-        <button
-            type="button"
-            className="btn btn-outline-success btn-sm"
+        <Button
             onClick={() => {
                 setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
             }}
         >
             Add another match group
-        </button>
+        </Button>
     )
 
     return (

@@ -30,9 +30,9 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
     }
 
     const addGroup = (
-        <button type="button" className="btn btn-outline-success btn-sm" onClick={newAction}>
+        <Button onClick={newAction} size="small">
             Add another match group
-        </button>
+        </Button>
     )
 
     return (
