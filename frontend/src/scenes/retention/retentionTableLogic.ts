@@ -23,7 +23,20 @@ function cleanRetentionParams(filters, properties): any {
     }
 }
 
+function cleanFilters(filters): any {
+    return {
+        startEntity: filters.startEntity || {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+        },
+        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
+        period: filters.period || 'd',
+    }
+}
+
 export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
+    key: (props) => {
+        return props.dashboardItemId || 'some_retention'
+    },
     loaders: ({ values }) => ({
         retention: {
             __default: {},
@@ -70,7 +83,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     reducers: ({ props }) => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
-            props.filters ? props.filters.properties || [] : [],
+            props.filters
+                ? props.filters.properties || []
+                : (state) => router.selectors.searchParams(state).properties || [],
             {
                 setProperties: (_, { properties }) => properties,
             },
@@ -79,18 +94,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             props.filters
                 ? {
                       startEntity: props.filters.target || {
-                          events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                          events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
                       selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
                       period: props.filters.period || 'd',
                   }
-                : {
-                      startEntity: {
-                          events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
-                      },
-                      selectedDate: moment().startOf('hour'),
-                      period: 'd',
-                  },
+                : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -146,43 +155,23 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         afterMount: actions.loadRetention,
     }),
     actionToUrl: ({ values }) => ({
-        setFilters: () => ['/insights', values.propertiesForUrl],
-        setProperties: () => ['/insights', values.propertiesForUrl],
+        setFilters: () => {
+            return ['/insights', values.propertiesForUrl]
+        },
+        setProperties: () => {
+            return ['/insights', values.propertiesForUrl]
+        },
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
-                try {
-                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                    if (router.values.location.pathname !== values.initialPathname) {
-                        return
-                    }
-                } catch (error) {
-                    // since this is a catch-all route, this code might run during or after the logic was unmounted
-                    // if we have an error accessing the filter value, the logic is gone and we should return
-                    return
+                const cleanSearchParams = cleanFilters(searchParams)
+
+                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                    actions.setFilters(cleanSearchParams)
                 }
-                const paramsToCheck = {
-                    selectedDate: searchParams.selectedDate,
-                    startEntity: searchParams.startEntity,
-                    period: searchParams.period,
-                    properties: searchParams.properties,
-                }
-                const _filters = {
-                    selectedDate: values.filters.selectedDate.toISOString(),
-                    startEntity: values.filters.startEntity,
-                    period: values.filters.period,
-                    properties: values.properties,
-                }
-                if (!objectsEqual(paramsToCheck, _filters)) {
+                if (!objectsEqual(searchParams.properties, values.properties)) {
                     actions.setProperties(searchParams.properties || [])
-                    actions.setFilters({
-                        selectedDate: searchParams.selectedDate
-                            ? moment(searchParams.selectedDate)
-                            : values.filters.selectedDate,
-                        startEntity: searchParams.startEntity || values.filters.startEntity,
-                        period: searchParams.period || values.filters.period,
-                    })
                 }
             }
         },

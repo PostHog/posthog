@@ -76,9 +76,11 @@ function NoData() {
     )
 }
 
-export function Paths() {
+export function Paths({ dashboardItemId = null, filters = null }) {
     const canvas = useRef(null)
-    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(pathsLogic)
+    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(
+        pathsLogic({ dashboardItemId, filters })
+    )
 
     const [modalVisible, setModalVisible] = useState(false)
     const [event, setEvent] = useState(null)
