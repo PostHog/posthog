@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
-from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
+from posthog.models import Action, ActionStep, DashboardItem, Filter, Project
 from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
 from posthog.utils import generate_cache_key
@@ -67,7 +67,7 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
     dashboard_items.update(refreshing=True)
-    result = Trends().run(filter, Team(pk=team_id))
+    result = Trends().run(filter, Project(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
@@ -75,6 +75,6 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
 def _calculate_funnel(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
     dashboard_items.update(refreshing=True)
-    result = Funnel(filter=filter, team=Team(pk=team_id)).run()
+    result = Funnel(filter=filter, team=Project(pk=team_id)).run()
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

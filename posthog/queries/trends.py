@@ -34,7 +34,7 @@ from posthog.models import (
     Event,
     Filter,
     Person,
-    Team,
+    Project,
 )
 from posthog.utils import append_data
 
@@ -296,5 +296,5 @@ class Trends(BaseQuery):
 
         return entities_list
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_trends(filter, team.pk)

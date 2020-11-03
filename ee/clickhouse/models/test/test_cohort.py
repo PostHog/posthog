@@ -12,7 +12,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.models.utils import UUIDT
 
 
@@ -92,7 +92,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
-        team2 = Team.objects.create()
+        team2 = Project.objects.create()
 
         _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
 

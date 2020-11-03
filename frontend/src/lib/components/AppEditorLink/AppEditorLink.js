@@ -8,12 +8,12 @@ import { Modal, Button } from 'antd'
 
 export function AppEditorLink({ actionId, style, className, children }) {
     const [modalOpen, setModalOpen] = useState(false)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(teamLogic)
 
     return (
         <>
             <a
-                href={appEditorUrl(actionId, currentTeam?.appUrls?.[0])}
+                href={appEditorUrl(actionId, currentProject?.appUrls?.[0])}
                 style={style}
                 className={className}
                 onClick={(e) => {

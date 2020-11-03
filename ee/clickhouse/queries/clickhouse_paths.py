@@ -9,7 +9,7 @@ from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from ee.clickhouse.sql.paths.path import PATHS_QUERY_FINAL
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.queries.base import BaseQuery
 from posthog.utils import relative_date_parse
 
@@ -37,7 +37,7 @@ class ClickhousePaths(BaseQuery):
                 path_type = "event"
         return event, path_type, start_comparator
 
-    def calculate_paths(self, filter: Filter, team: Team):
+    def calculate_paths(self, filter: Filter, team: Project):
 
         # format default dates
         if not filter._date_from:
@@ -97,5 +97,5 @@ class ClickhousePaths(BaseQuery):
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
         return resp
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_paths(filter=filter, team=team)

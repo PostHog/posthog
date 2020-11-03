@@ -234,7 +234,7 @@ export function Projects(): JSX.Element {
                                         <a
                                             href="#"
                                             onClick={() => {
-                                                api.update('api/user', { user: { current_team_id: team.id } }).then(
+                                                api.update('api/user', { user: { current_project_id: team.id } }).then(
                                                     () => {
                                                         location.reload()
                                                     }
@@ -276,7 +276,7 @@ export function Projects(): JSX.Element {
                     title="Current Projects"
                 >
                     <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
-                    {!user ? <i>loading</i> : user.team ? user.team.name : <i>none yet</i>}
+                    {!user ? <i>loading</i> : user.project ? user.project.name : <i>none yet</i>}
                 </div>
             </Dropdown>
         </>

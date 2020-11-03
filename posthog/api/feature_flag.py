@@ -42,7 +42,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        validated_data["team"] = request.user.team
+        validated_data["team"] = request.user.project
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
@@ -65,4 +65,4 @@ class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team).order_by("-created_at")
+        return queryset.filter(team=self.request.user.project).order_by("-created_at")

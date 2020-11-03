@@ -31,7 +31,7 @@ const darkerScenes: Record<string, boolean> = {
 export const App = hot(_App)
 function _App(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
@@ -47,7 +47,7 @@ function _App(): JSX.Element {
         }
 
         // redirect to ingestion if not completed
-        if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (currentProject && !currentProject.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
             replace('/ingestion')
             return
         }
@@ -86,8 +86,8 @@ function _App(): JSX.Element {
                     <TopContent />
                     <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
                         <BillingToolbar />
-                        {currentTeam &&
-                        !currentTeam.ingested_event &&
+                        {currentProject &&
+                        !currentProject.ingested_event &&
                         !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
                             <SendEventsOverlay />
                         ) : (

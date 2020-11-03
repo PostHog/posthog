@@ -66,7 +66,7 @@ class Person(models.Model):
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Project", on_delete=models.CASCADE)
     properties: JSONField = JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
@@ -77,6 +77,6 @@ class PersonDistinctId(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Project", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=400)

@@ -14,16 +14,16 @@ from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnel(Funnel):
     _filter: Filter
-    _team: Team
+    _team: Project
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(self, filter: Filter, team: Project) -> None:
         self._filter = filter
         self._team = team
 

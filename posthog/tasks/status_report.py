@@ -5,7 +5,7 @@ import posthoganalytics
 from django.db import connection
 from psycopg2 import sql
 
-from posthog.models import Event, Team, User
+from posthog.models import Event, Project, User
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id, get_previous_week
 from posthog.version import VERSION
@@ -26,7 +26,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         for user in User.objects.filter(last_login__gte=period_start)
     ]
     report["teams"] = {}
-    for team in Team.objects.all():
+    for team in Project.objects.all():
         team_report: Dict[str, Any] = {}
         events_considered_total = Event.objects.filter(team_id=team.id)
         events_considered_new_in_period = events_considered_total.filter(

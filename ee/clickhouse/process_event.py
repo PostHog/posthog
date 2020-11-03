@@ -13,7 +13,7 @@ from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, handle_timestamp, store_names_and_properties
 
@@ -47,7 +47,7 @@ def _capture_ee(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
+    team = Project.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
         pk=team_id
     )
 

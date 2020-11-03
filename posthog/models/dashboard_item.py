@@ -8,7 +8,7 @@ class DashboardItem(models.Model):
     )
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Project", on_delete=models.CASCADE)
     filters: JSONField = JSONField(default=dict)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     type: models.CharField = models.CharField(max_length=400, null=True, blank=True)

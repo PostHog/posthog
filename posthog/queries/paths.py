@@ -7,7 +7,7 @@ from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
-from posthog.models import Event, Filter, Team
+from posthog.models import Event, Filter, Project
 from posthog.utils import relative_date_parse, request_to_date_query
 
 from .base import BaseQuery
@@ -75,7 +75,7 @@ class Paths(BaseQuery):
         )
         return sessions_sql
 
-    def calculate_paths(self, filter: Filter, team: Team):
+    def calculate_paths(self, filter: Filter, team: Project):
         date_query = request_to_date_query({"date_from": filter._date_from, "date_to": filter._date_to}, exact=False)
         resp = []
         event, path_type, event_filter, start_comparator = self._determine_path_type(
@@ -170,5 +170,5 @@ class Paths(BaseQuery):
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
         return resp
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_paths(filter=filter, team=team)

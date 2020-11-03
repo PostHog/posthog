@@ -15,7 +15,7 @@ class Command(BaseCommand):
             print("The argument --team_id is required")
             exit(1)
 
-        for team in Team.objects.filter(pk__in=options["team_id"]):
+        for team in Project.objects.filter(pk__in=options["team_id"]):
             self._merge_team(team)
 
     def _merge_team(self, team):

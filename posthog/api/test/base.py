@@ -3,7 +3,7 @@ from typing import Dict, Optional
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, Project, User
 from posthog.models.organization import OrganizationMembership
 
 
@@ -21,7 +21,7 @@ class TestMixin:
     def setUp(self):
         super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
-        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
+        self.team: Project = Project.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
             self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
             self.organization_membership = self.user.organization_memberships.get()
@@ -79,7 +79,7 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
     def setUp(self):
         super().setUp()
         self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
-        self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
+        self.team: Project = Project.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
         if self.CONFIG_USER_EMAIL:
             self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
             self.organization_membership = self.user.organization_memberships.get()

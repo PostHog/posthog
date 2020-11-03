@@ -6,7 +6,7 @@ from django.db.models import Count, QuerySet, functions
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, Entity, Event, Filter, Team
+from posthog.models import Action, Entity, Event, Filter, Project
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
@@ -75,7 +75,7 @@ class Stickiness(BaseQuery):
             "count": sum(data),
         }
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         response = []
 
         if not filter.date_from:

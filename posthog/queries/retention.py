@@ -5,12 +5,12 @@ from typing import Any, Dict, List, Tuple, Union
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from posthog.models import Event, Filter, Team
+from posthog.models import Event, Filter, Project
 from posthog.queries.base import BaseQuery
 
 
 class Retention(BaseQuery):
-    def calculate_retention(self, filter: Filter, team: Team, total_intervals=11):
+    def calculate_retention(self, filter: Filter, team: Project, total_intervals=11):
         def _determineTimedelta(
             total_intervals: int, period: str
         ) -> Tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
@@ -58,5 +58,5 @@ class Retention(BaseQuery):
 
         return result
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_retention(filter=filter, team=team, total_intervals=kwargs.get("total_intervals", 11),)

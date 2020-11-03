@@ -12,7 +12,7 @@ from posthog.models import Event, Person
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
 class ClickhousePerson(PersonViewSet):
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
+        team = request.user.project
         person = Person.objects.get(team=team, pk=pk)
         # TODO: Probably won't need this after a while
 

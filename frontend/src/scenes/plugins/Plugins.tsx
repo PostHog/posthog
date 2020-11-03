@@ -32,7 +32,7 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
+            {user.project.plugins_opt_in ? <OptOutPlugins /> : null}
             <h1 className="page-header">
                 Plugins{' '}
                 <Tag color="orange" style={{ verticalAlign: 'top' }}>
@@ -40,7 +40,7 @@ function _Plugins(): JSX.Element {
                 </Tag>
             </h1>
 
-            {user.team.plugins_opt_in ? (
+            {user.project.plugins_opt_in ? (
                 <>
                     <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
                         <TabPane tab="Installed" key="installed">

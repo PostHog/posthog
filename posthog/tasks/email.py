@@ -4,7 +4,7 @@ from typing import Optional
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Event, PersonDistinctId, Team
+from posthog.models import Event, PersonDistinctId, Project
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
@@ -20,7 +20,7 @@ def send_weekly_email_reports() -> None:
         logger.info("Skipping send_weekly_email_report because email is not properly configured")
         return
 
-    for team in Team.objects.all():
+    for team in Project.objects.all():
         _send_weekly_email_report_for_team.delay(team_id=team.pk,)
 
 
@@ -36,7 +36,7 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
 
     campaign_key: str = f"weekly_report_for_team_{team_id}_on_{period_start.strftime('%Y-%m-%d')}"
 
-    team = Team.objects.get(pk=team_id)
+    team = Project.objects.get(pk=team_id)
 
     event_data_set = Event.objects.filter(team=team, timestamp__gte=period_start, timestamp__lte=period_end,)
 

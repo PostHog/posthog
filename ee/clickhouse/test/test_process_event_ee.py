@@ -18,7 +18,7 @@ from posthog.models.element import Element
 from posthog.models.event import Event
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingEvent
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.tasks.process_event import process_event
 from posthog.tasks.test.test_process_event import test_process_event_factory
 

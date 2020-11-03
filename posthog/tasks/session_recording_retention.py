@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.timezone import now
 
-from posthog.models import SessionRecordingEvent, Team
+from posthog.models import SessionRecordingEvent, Project
 
 RETENTION_PERIOD = timedelta(days=7)
 SESSION_CUTOFF = timedelta(minutes=30)
@@ -16,7 +16,7 @@ SESSION_CUTOFF = timedelta(minutes=30)
 
 def session_recording_retention_scheduler() -> None:
     time_threshold = now() - RETENTION_PERIOD
-    for team in Team.objects.all().filter(session_recording_opt_in=True):
+    for team in Project.objects.all().filter(session_recording_opt_in=True):
         session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold)
 
 

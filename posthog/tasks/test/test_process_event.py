@@ -1,14 +1,13 @@
 from datetime import timedelta
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List, Union
 from unittest.mock import patch
 from uuid import UUID
 
 from django.conf import settings
-from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest, TransactionBaseTest
+from posthog.api.test.base import BaseTest
 from posthog.models import (
     Action,
     ActionStep,
@@ -17,7 +16,7 @@ from posthog.models import (
     Event,
     Person,
     SessionRecordingEvent,
-    Team,
+    Project,
     User,
 )
 from posthog.tasks.process_event import process_event as _process_event
@@ -670,7 +669,7 @@ def test_process_event_factory(
             self.assertEqual(person.properties["email"], "someone@gmail.com")
 
         def test_distinct_team_leakage(self) -> None:
-            team2 = Team.objects.create()
+            team2 = Project.objects.create()
             Person.objects.create(team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
             Person.objects.create(team=self.team, distinct_ids=["1", "2"])
 

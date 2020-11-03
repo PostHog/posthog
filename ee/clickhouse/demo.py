@@ -10,12 +10,12 @@ from django.utils.timezone import now
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import update_person_is_identified, update_person_properties
-from posthog.models import Team
+from posthog.models import Project
 from posthog.models.element import Element
 from posthog.models.person import Person
 
 
-def create_anonymous_users_ch(team: Team, base_url: str) -> None:
+def create_anonymous_users_ch(team: Project, base_url: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
         demo_data = json.load(demo_data_file)
 

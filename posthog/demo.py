@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List
 
 from dateutil.relativedelta import relativedelta
-from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -20,7 +19,7 @@ from posthog.models import (
     Funnel,
     Person,
     PersonDistinctId,
-    Team,
+    Project,
 )
 from posthog.models.utils import UUIDT
 from posthog.utils import render_template
@@ -29,7 +28,7 @@ ORGANIZATION_NAME = "HogFlix"
 TEAM_NAME = "HogFlix Demo App"
 
 
-def _create_anonymous_users(team: Team, base_url: str) -> None:
+def _create_anonymous_users(team: Project, base_url: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
         demo_data = json.load(demo_data_file)
 
@@ -162,7 +161,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
     Event.objects.bulk_create(events)
 
 
-def _create_funnel(team: Team, base_url: str) -> None:
+def _create_funnel(team: Project, base_url: str) -> None:
     homepage = Action.objects.create(team=team, name="HogFlix homepage view")
     ActionStep.objects.create(action=homepage, event="$pageview", url=base_url, url_matching="exact")
 
@@ -193,7 +192,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
     )
 
 
-def _recalculate(team: Team) -> None:
+def _recalculate(team: Project) -> None:
     actions = Action.objects.filter(team=team)
     for action in actions:
         action.calculate_events()
@@ -204,14 +203,14 @@ def demo(request):
     organization = user.organization
     try:
         team = organization.teams.get(name=TEAM_NAME)
-    except Team.DoesNotExist:
-        team = Team.objects.create_with_data(
+    except Project.DoesNotExist:
+        team = Project.objects.create_with_data(
             organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
         )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         _recalculate(team=team)
-    user.current_team = team
+    user.current_project = team
     user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")

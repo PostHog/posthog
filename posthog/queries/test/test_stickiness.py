@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Action, ActionStep, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Event, Filter, Person, Project
 from posthog.queries.stickiness import Stickiness
 
 

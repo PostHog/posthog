@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import tag
 from rest_framework import status
 
-from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
+from posthog.models import Dashboard, Organization, OrganizationMembership, Project, User
 
 from .base import APIBaseTest
 
@@ -58,7 +58,7 @@ class TestSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team
+        team: Project = user.project
         organization: Organization = user.organization
         self.assertEqual(
             response.data,
@@ -129,7 +129,7 @@ class TestSignup(APIBaseTest):
 
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
-        team_count: int = Team.objects.count()
+        team_count: int = Project.objects.count()
 
         required_attributes = [
             "first_name",
@@ -159,11 +159,11 @@ class TestSignup(APIBaseTest):
             )
 
         self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Project.objects.count(), team_count)
 
     def test_cant_sign_up_with_short_password(self):
         count: int = User.objects.count()
-        team_count: int = Team.objects.count()
+        team_count: int = Project.objects.count()
 
         response = self.client.post(
             "/api/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
@@ -180,7 +180,7 @@ class TestSignup(APIBaseTest):
         )
 
         self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Project.objects.count(), team_count)
 
     @patch("posthog.models.team.posthoganalytics.feature_enabled")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
@@ -206,7 +206,7 @@ class TestSignup(APIBaseTest):
         )
 
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
-        self.assertEqual(dashboard.team, user.team)
+        self.assertEqual(dashboard.team, user.project)
         self.assertEqual(dashboard.items.count(), 7)
         self.assertEqual(dashboard.name, "My App Dashboard")
         self.assertEqual(

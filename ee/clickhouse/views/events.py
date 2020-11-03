@@ -15,13 +15,13 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
 from posthog.api.event import EventViewSet
-from posthog.models import Filter, Person, Team
+from posthog.models import Filter, Person, Project
 from posthog.models.action import Action
 from posthog.utils import convert_property_value
 
 
 class ClickhouseEvents(EventViewSet):
-    def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
+    def _get_people(self, query_result: List[Dict], team: Project) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
@@ -36,7 +36,7 @@ class ClickhouseEvents(EventViewSet):
         if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
             return super().list(request)
 
-        team = request.user.team
+        team = request.user.project
         filter = Filter(request=request)
         if request.GET.get("after"):
             filter._date_from = request.GET["after"]
@@ -90,7 +90,7 @@ class ClickhouseEvents(EventViewSet):
             return super().retrieve(request, pk)
 
         # TODO: implement getting elements
-        team = request.user.team
+        team = request.user.project
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
@@ -103,7 +103,7 @@ class ClickhouseEvents(EventViewSet):
             return Response(super().get_values(request))
 
         key = request.GET.get("key")
-        team = request.user.team
+        team = request.user.project
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
@@ -116,7 +116,7 @@ class ClickhouseEvents(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.request.user.team
+        team = self.request.user.project
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )

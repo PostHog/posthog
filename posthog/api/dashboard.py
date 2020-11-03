@@ -42,7 +42,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = request.user.team
+        team = request.user.project
         use_template: str = validated_data.pop("use_template", None)
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
@@ -117,7 +117,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
             else:
                 raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")
 
-        return queryset.filter(team=self.request.user.team)
+        return queryset.filter(team=self.request.user.project)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -157,7 +157,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
 
         request = self.context["request"]
-        team = request.user.team
+        team = request.user.project
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -206,7 +206,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         else:
             queryset = queryset.order_by("order")
 
-        return queryset.filter(team=self.request.user.team)
+        return queryset.filter(team=self.request.user.project)
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -223,7 +223,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):
-        team = request.user.team
+        team = request.user.project
 
         for data in request.data["items"]:
             self.queryset.filter(team=team, pk=data["id"]).update(layouts=data["layouts"])

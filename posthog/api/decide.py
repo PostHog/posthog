@@ -8,8 +8,8 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models import FeatureFlag, Team
-from posthog.utils import base64_to_json, cors_response, load_data_from_request
+from posthog.models import FeatureFlag, Project
+from posthog.utils import cors_response, load_data_from_request
 
 
 def _get_token(data, request):
@@ -24,7 +24,7 @@ def _get_token(data, request):
     return None
 
 
-def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
+def on_permitted_domain(team: Project, request: HttpRequest) -> bool:
     permitted_domains = ["127.0.0.1", "localhost"]
 
     for url in team.app_urls:
@@ -38,7 +38,7 @@ def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
 
 
 def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
-    team = request.user.team
+    team = request.user.project
     if team and on_permitted_domain(team, request):
         response: Dict[str, Any] = {"isAuthenticated": True}
         editor_params = {}
@@ -56,7 +56,7 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
 
 
 # May raise exception if request body is malformed
-def get_team_from_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
+def get_from_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Project, None]:
     data = data_from_request["data"]
     if not data:
         return None
@@ -70,12 +70,12 @@ def get_team_from_token(request: HttpRequest, data_from_request: Dict[str, Any])
         is_personal_api_key = True
 
     if token:
-        return Team.objects.get_team_from_token(token, is_personal_api_key)
+        return Project.objects.get_from_token(token, is_personal_api_key)
 
     return None
 
 
-def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:
+def feature_flags(request: HttpRequest, team: Project, data: Dict[str, Any]) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
@@ -125,7 +125,7 @@ def get_decide(request: HttpRequest):
                 ),
             )
 
-        team = get_team_from_token(request, data_from_request)
+        team = get_from_token(request, data_from_request)
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             response["sessionRecording"] = team.session_recording_opt_in and on_permitted_domain(team, request)

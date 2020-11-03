@@ -15,13 +15,13 @@ from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 
 def create_event(
     event_uuid: uuid.UUID,
     event: str,
-    team: Team,
+    team: Project,
     distinct_id: str,
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},

@@ -13,13 +13,13 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.queries.base import BaseQuery
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseStickiness(BaseQuery):
-    def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _serialize_entity(self, entity: Entity, filter: Filter, team: Project) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -38,7 +38,7 @@ class ClickhouseStickiness(BaseQuery):
 
         return [serialized]
 
-    def _format_stickiness_query(self, entity: Entity, filter: Filter, team: Team) -> Optional[Dict[str, Any]]:
+    def _format_stickiness_query(self, entity: Entity, filter: Filter, team: Project) -> Optional[Dict[str, Any]]:
         if not filter.date_to or not filter.date_from:
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
@@ -92,7 +92,7 @@ class ClickhouseStickiness(BaseQuery):
             "count": sum(data),
         }
 
-    def _calculate_stickiness(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _calculate_stickiness(self, filter: Filter, team: Project) -> List[Dict[str, Any]]:
         if not filter._date_from:
             filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
@@ -108,5 +108,5 @@ class ClickhouseStickiness(BaseQuery):
 
         return result
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self._calculate_stickiness(filter, team)

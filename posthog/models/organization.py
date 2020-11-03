@@ -23,16 +23,16 @@ class OrganizationManager(models.Manager):
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
     ) -> Tuple["Organization", "OrganizationMembership", Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
-        from .team import Team  # Avoiding circular import
+        from .project import Project  # Avoiding circular import
 
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
             organization_membership = OrganizationMembership.objects.create(
                 organization=organization, user=user, level=OrganizationMembership.Level.ADMIN
             )
-            team = Team.objects.create(organization=organization, **(team_fields or {}))
+            team = Project.objects.create(organization=organization, **(team_fields or {}))
             user.current_organization = organization
-            user.current_team = team
+            user.current_project = team
             user.save()
         return organization, organization_membership, team
 
@@ -151,7 +151,7 @@ class OrganizationInvite(UUIDModel):
         self.organization.members.add(user)
         if user.current_organization is None:
             user.current_organization = self.organization
-            user.current_team = user.current_organization.teams.first()
+            user.current_project = user.current_organization.teams.first()
             user.save()
         self.delete()
 
@@ -168,9 +168,9 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         # reset current_organization if it's the removed organization
         instance.user.current_organization = None
         save_user = True
-    if instance.user.current_team is not None and instance.user.current_team.organization == instance.organization:
-        # reset current_team if it belongs to the removed organization
-        instance.user.current_team = None
+    if instance.user.current_project is not None and instance.user.current_project.organization == instance.organization:
+        # reset current_project if it belongs to the removed organization
+        instance.user.current_project = None
         save_user = True
     if save_user:
         instance.user.save()

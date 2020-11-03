@@ -13,7 +13,7 @@ export function IPCapture() {
                 onChange={(checked) => {
                     userUpdateRequest({ team: { anonymize_ips: checked } })
                 }}
-                defaultChecked={user.team.anonymize_ips}
+                defaultChecked={user.project.anonymize_ips}
             />
             <label
                 style={{

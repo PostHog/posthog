@@ -94,7 +94,7 @@ class Command(BaseCommand):
             print("Please specify the --team id")
             return
 
-        team = Team.objects.get(pk=team_id[0])
+        team = Project.objects.get(pk=team_id[0])
 
         with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
             demo_data = json.load(demo_data_file)

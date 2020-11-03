@@ -3,7 +3,7 @@ import json
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from posthog.models import Element, ElementGroup, Event, Team
+from posthog.models import Element, ElementGroup, Event, Project
 
 from .base import BaseTest
 
@@ -27,7 +27,7 @@ class TestElement(BaseTest):
         group = ElementGroup.objects.create(
             team=self.team, elements=[Element(tag_name="a", href="https://posthog.com/about", text="click here")],
         )
-        team2 = Team.objects.create()
+        team2 = Project.objects.create()
         ElementGroup.objects.create(team=team2, elements=[Element(tag_name="bla")])
         response = self.client.get("/api/element/values/?key=tag_name").json()
         self.assertEqual(response[0]["name"], "a")

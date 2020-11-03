@@ -11,7 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.celery import app as celery_app
 from posthog.ee import check_ee_enabled
-from posthog.models import Team
+from posthog.models import Project
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
@@ -113,7 +113,7 @@ def get_event(request):
             ),
         )
 
-    team = Team.objects.get_team_from_token(token, is_personal_api_key)
+    team = Project.objects.get_from_token(token, is_personal_api_key)
     if team is None:
         return cors_response(
             request,

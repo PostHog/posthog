@@ -7,11 +7,11 @@ from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL, 
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 
 def parse_prop_clauses(
-    key: str, filters: List[Property], team: Team, prepend: str = "", json_extract: bool = False
+    key: str, filters: List[Property], team: Project, prepend: str = "", json_extract: bool = False
 ) -> Tuple[str, Dict]:
     final = ""
     params: Dict[str, Any] = {}
@@ -126,7 +126,7 @@ def prop_filter_json_extract(
         )
 
 
-def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+def get_property_values_for_key(key: str, team: Project, value: Optional[str] = None):
     if value:
         return sync_execute(
             SELECT_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},

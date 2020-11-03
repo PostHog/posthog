@@ -10,7 +10,7 @@ from django.utils import timezone
 from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Action, Entity, Event, Filter, Person, Team
+from posthog.models import Action, Entity, Event, Filter, Person, Project
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
 
@@ -18,9 +18,9 @@ from posthog.queries.base import BaseQuery
 class Funnel(BaseQuery):
 
     _filter: Filter
-    _team: Team
+    _team: Project
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(self, filter: Filter, team: Project) -> None:
         self._filter = filter
         self._team = team
 

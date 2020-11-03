@@ -11,11 +11,11 @@ from posthog.models import (
     FeatureFlag,
     Funnel,
     Person,
-    Team,
+    Project,
     User,
 )
 
-admin.site.register(Team)
+admin.site.register(Project)
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(FeatureFlag)

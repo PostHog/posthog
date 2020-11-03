@@ -23,8 +23,8 @@ from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.models.organization import Organization
 
-from .api import api_not_found, capture, dashboard, decide, router, team, user
-from .models import OrganizationInvite, Team, User
+from .api import api_not_found, capture, dashboard, decide, router, project, user
+from .models import OrganizationInvite, Project, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
 
@@ -56,10 +56,10 @@ def login_view(request):
 
 
 class TeamInviteSurrogate:
-    """This reimplements parts of OrganizationInvite that enable compatibility with the old Team.signup_token."""
+    """This reimplements parts of OrganizationInvite that enable compatibility with the old Project.signup_token."""
 
     def __init__(self, signup_token: str):
-        team = Team.objects.select_related("organization").get(signup_token=signup_token)
+        team = Project.objects.select_related("organization").get(signup_token=signup_token)
         self.organization = team.organization
 
     def validate(*args, **kwargs) -> bool:
@@ -69,7 +69,7 @@ class TeamInviteSurrogate:
         self.organization.members.add(user)
         if user.current_organization is None:
             user.current_organization = self.organization
-            user.current_team = user.current_organization.teams.first()
+            user.current_project = user.current_organization.teams.first()
             user.save()
 
 
@@ -85,7 +85,7 @@ def signup_to_organization_view(request, invite_id):
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
             invite = TeamInviteSurrogate(invite_id)
-        except Team.DoesNotExist:
+        except Project.DoesNotExist:
             return redirect("/")
 
     organization = cast(Organization, invite.organization)
@@ -187,7 +187,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
         except (OrganizationInvite.DoesNotExist, ValidationError):
             try:
                 invite = TeamInviteSurrogate(invite_id)
-            except Team.DoesNotExist:
+            except Project.DoesNotExist:
                 processed = render_to_string("auth_error.html", {"message": "Invalid invite link!"},)
                 return HttpResponse(processed, status=401)
 
@@ -282,7 +282,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", team.TeamSignupViewset.as_view()),
+    opt_slash_path("api/signup", project.TeamSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

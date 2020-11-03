@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from posthog.api.test.base import BaseTest
 from posthog.models import Cohort, Element, Event, Filter, Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 
 class TestFilter(BaseTest):
@@ -192,7 +192,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
 
             # test for leakage
-            team2 = Team.objects.create()
+            team2 = Project.objects.create()
             person_team2 = person_factory(
                 team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
             )
@@ -308,7 +308,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
     return TestPropertiesToQ
 
 
-def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None):
+def _filter_events(filter: Filter, team: Project, person_query: Optional[bool] = False, order_by: Optional[str] = None):
     events = Event.objects
 
     if person_query:

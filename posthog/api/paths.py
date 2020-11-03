@@ -16,7 +16,7 @@ class PathsViewSet(viewsets.ViewSet):
         return Response(rows)
 
     def get_elements(self, request: request.Request):
-        team = request.user.team
+        team = request.user.project
         all_events = Event.objects.filter(team=team, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 
@@ -39,7 +39,7 @@ class PathsViewSet(viewsets.ViewSet):
         return Response(resp)
 
     def get_list(self, request):
-        team = request.user.team
+        team = request.user.project
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")

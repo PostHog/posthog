@@ -27,7 +27,7 @@ from .element import Element
 from .element_group import ElementGroup
 from .filter import Filter
 from .person import Person, PersonDistinctId
-from .team import Team
+from .project import Project
 from .utils import namedtuplefetchall
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
@@ -465,7 +465,7 @@ class Event(models.Model):
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     objects: EventManager = EventManager.as_manager()  # type: ignore
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey(Project, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
     properties: JSONField = JSONField(default=dict)

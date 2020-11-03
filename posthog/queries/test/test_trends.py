@@ -3,7 +3,7 @@ import json
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Project
 from posthog.queries.trends import Trends
 
 
@@ -15,7 +15,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
-            secondTeam = Team.objects.create(api_token="token456")
+            secondTeam = Project.objects.create(api_token="token456")
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [

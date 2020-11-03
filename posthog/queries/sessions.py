@@ -10,7 +10,7 @@ from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models import ElementGroup, Event, Filter, Team
+from posthog.models import ElementGroup, Event, Filter, Project
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
@@ -19,7 +19,7 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
 class Sessions(BaseQuery):
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         events = (
             Event.objects.filter(team=team)
             .filter(filter.properties_to_Q(team_id=team.pk))
@@ -54,7 +54,7 @@ class Sessions(BaseQuery):
         return calculated
 
     def calculate_sessions(
-        self, events: QuerySet, filter: Filter, team: Team, limit: int, offset: int
+        self, events: QuerySet, filter: Filter, team: Project, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
 
         # format date filter for session view
@@ -117,7 +117,7 @@ class Sessions(BaseQuery):
         return result
 
     def _session_list(
-        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: Filter, limit: int, offset: int
+        self, base_query: str, params: Tuple[Any, ...], team: Project, filter: Filter, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
 
         session_list = """
@@ -282,7 +282,7 @@ class Sessions(BaseQuery):
         result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
         return result
 
-    def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
+    def _prefetch_elements(self, hash_ids: List[str], team: Project) -> QuerySet:
         groups = ElementGroup.objects.none()
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")

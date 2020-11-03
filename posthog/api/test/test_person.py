@@ -3,7 +3,7 @@ import json
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Cohort, Event, Organization, Person, Team
+from posthog.models import Cohort, Event, Organization, Person, Project
 from posthog.tasks.process_event import process_event
 
 from .base import APIBaseTest
@@ -147,7 +147,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             # Completely different organization
             another_org: Organization = Organization.objects.create()
-            another_team: Team = Team.objects.create(organization=another_org)
+            another_team: Project = Project.objects.create(organization=another_org)
             person_factory(
                 team=another_team, distinct_ids=["distinct_id", "x_another_one"],
             )

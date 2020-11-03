@@ -1,23 +1,14 @@
-from datetime import datetime
-from json import dumps as jdumps
-from unittest.mock import call, patch
+from unittest.mock import patch
 
-from freezegun import freeze_time
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import (
     Action,
     ActionStep,
-    Cohort,
     Element,
-    Entity,
     Event,
-    Filter,
-    Person,
-    Team,
 )
 
-from .base import BaseTest, TransactionBaseTest
+from .base import BaseTest
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")

@@ -21,7 +21,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 
 class ClickhouseActionSerializer(ActionSerializer):
@@ -45,7 +45,7 @@ class ClickhouseActions(ActionViewSet):
             result = super().get_people(request)
             return Response(result)
 
-        team = request.user.team
+        team = request.user.project
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 
@@ -107,7 +107,7 @@ class ClickhouseActions(ActionViewSet):
 
         return entity_filter, params
 
-    def _calculate_stickiness_entity_people(self, team: Team, entity: Entity, filter: Filter, stickiness_day: int):
+    def _calculate_stickiness_entity_people(self, team: Project, entity: Entity, filter: Filter, stickiness_day: int):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
@@ -137,7 +137,7 @@ class ClickhouseActions(ActionViewSet):
 
         return serialized_people
 
-    def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
+    def _calculate_entity_people(self, team: Project, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)

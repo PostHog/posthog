@@ -12,7 +12,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.queries.base import BaseQuery
 
 PERIOD_TRUNC_HOUR = "toStartOfHour"
@@ -22,7 +22,7 @@ PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
 class ClickhouseRetention(BaseQuery):
-    def calculate_retention(self, filter: Filter, team: Team, total_intervals: int) -> List[Dict[str, Any]]:
+    def calculate_retention(self, filter: Filter, team: Project, total_intervals: int) -> List[Dict[str, Any]]:
 
         period = filter.period or "Day"
 
@@ -114,6 +114,6 @@ class ClickhouseRetention(BaseQuery):
         else:
             raise ValueError(f"Period {period} is unsupported.")
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         total_intervals = kwargs.get("total_intervals", 11)
         return self.calculate_retention(filter, team, total_intervals)

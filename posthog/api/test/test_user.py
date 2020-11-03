@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from posthog.models import Team, User
+from posthog.models import Project, User
 
 from .base import BaseTest
 
@@ -39,7 +39,7 @@ class TestUser(BaseTest):
         self.assertEqual(response["team"]["anonymize_ips"], False)
         self.assertEqual(response["team"]["session_recording_opt_in"], True)
 
-        team = Team.objects.get(id=self.team.id)
+        team = Project.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)

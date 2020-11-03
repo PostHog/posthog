@@ -20,7 +20,7 @@ from . import (
     person,
     personal_api_key,
     plugin,
-    team,
+    project,
 )
 
 
@@ -50,7 +50,7 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"plugin", plugin.PluginViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
-teams_router = router.register(r"projects", team.TeamViewSet)
+teams_router = router.register(r"projects", project.ProjectViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
     r"members",

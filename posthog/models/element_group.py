@@ -6,7 +6,7 @@ from django.db import models, transaction
 from django.forms.models import model_to_dict
 
 from .element import Element
-from .team import Team
+from .project import Project
 
 
 def hash_elements(elements: List) -> str:
@@ -43,7 +43,7 @@ class ElementGroup(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "hash"], name="unique hash for each team")]
 
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey(Project, on_delete=models.CASCADE)
     hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     objects = ElementGroupManager()

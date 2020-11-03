@@ -20,7 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 export const Setup = hot(_Setup)
 function _Setup() {
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -29,7 +29,7 @@ function _Setup() {
 
     return (
         <div>
-            <h1 className="page-header">Project Settings – {user.team.name}</h1>
+            <h1 className="page-header">Project Settings – {user.project.name}</h1>
             <Divider />
             <h2 id="snippet">Website Event Autocapture</h2>
             To integrate PostHog into your webiste and get event autocapture with no additional work, include the
@@ -63,7 +63,7 @@ function _Setup() {
                     },
                 ]}
             >
-                {currentTeam?.api_token}
+                {currentProject?.api_token}
             </CodeSnippet>
             Write-only means it can only create new events. It can't read events or any of your other data stored with
             PostHog, so it's safe to use in public apps.

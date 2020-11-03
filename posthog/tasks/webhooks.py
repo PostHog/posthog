@@ -6,7 +6,7 @@ from celery import Task
 from django.conf import settings
 
 from posthog.celery import app
-from posthog.models import Action, Event, Team
+from posthog.models import Action, Event, Project
 
 
 def get_user_details(event: Event, site_url: str) -> Tuple[str, str]:
@@ -94,7 +94,7 @@ def get_formatted_message(action: Action, event: Event, site_url: str,) -> Tuple
     return message_text, message_markdown
 
 
-def determine_webhook_type(team: Team) -> str:
+def determine_webhook_type(team: Project) -> str:
     if "slack.com" in team.slack_incoming_webhook:
         return "slack"
     return "teams"

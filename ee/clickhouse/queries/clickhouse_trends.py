@@ -35,13 +35,13 @@ from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(BaseQuery):
-    def _calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _calculate_trends(self, filter: Filter, team: Project) -> List[Dict[str, Any]]:
 
         # format default dates
         if not filter._date_from:
@@ -67,10 +67,10 @@ class ClickhouseTrends(BaseQuery):
 
         return result
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         return self._calculate_trends(filter, team)
 
-    def _serialize_entity(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _serialize_entity(self, entity: Entity, filter: Filter, team: Project) -> List[Dict[str, Any]]:
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team)
         else:
@@ -107,7 +107,7 @@ class ClickhouseTrends(BaseQuery):
 
         return serialized_data
 
-    def _serialize_breakdown(self, entity: Entity, filter: Filter, team: Team):
+    def _serialize_breakdown(self, entity: Entity, filter: Filter, team: Project):
         if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
             result = []
             filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
@@ -125,7 +125,7 @@ class ClickhouseTrends(BaseQuery):
             result = self._format_breakdown_query(entity, filter, team)
         return result
 
-    def _format_breakdown_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _format_breakdown_query(self, entity: Entity, filter: Filter, team: Project) -> List[Dict[str, Any]]:
         params = {"team_id": team.pk}
         interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
@@ -278,7 +278,7 @@ class ClickhouseTrends(BaseQuery):
 
         return parsed_results
 
-    def _get_top_elements(self, query: str, filter: Filter, team: Team) -> List:
+    def _get_top_elements(self, query: str, filter: Filter, team: Project) -> List:
         element_params = {"key": filter.breakdown, "limit": 20, "team_id": team.pk}
 
         try:
@@ -289,7 +289,7 @@ class ClickhouseTrends(BaseQuery):
 
         return top_elements_array
 
-    def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Team) -> Tuple[str, List, Dict]:
+    def _format_breakdown_cohort_join_query(self, breakdown: List[Any], team: Project) -> Tuple[str, List, Dict]:
         cohorts = Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in breakdown if b != "all"])
         cohort_queries, params = self._parse_breakdown_cohorts(cohorts)
         ids = [cohort.pk for cohort in cohorts]
@@ -379,7 +379,7 @@ class ClickhouseTrends(BaseQuery):
 
         return aggregate_operation, join_condition, params
 
-    def _format_normal_query(self, entity: Entity, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def _format_normal_query(self, entity: Entity, filter: Filter, team: Project) -> List[Dict[str, Any]]:
 
         interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)

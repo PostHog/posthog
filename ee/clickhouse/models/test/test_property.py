@@ -9,7 +9,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 
 def _create_event(**kwargs) -> Event:

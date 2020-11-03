@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.models import Event, Filter, Person, Team
+from posthog.models import Event, Filter, Person, Project
 from posthog.utils import convert_property_value
 
 from .base import CursorPagination as BaseCursorPagination
@@ -68,7 +68,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Project) -> QuerySet:
         if request.GET.get("id"):
             ids = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=ids)
@@ -107,7 +107,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
+        team = request.user.project
         person = Person.objects.get(team=team, pk=pk)
         events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
         events.delete()
@@ -116,7 +116,7 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        team = self.request.user.team
+        team = self.request.user.project
         queryset = queryset.filter(team=team)
         return self._filter_request(self.request, queryset, team)
 

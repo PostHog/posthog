@@ -11,12 +11,12 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.test.test_filter_model import property_to_Q_test_factory
 
 
 def _filter_events(
-    filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None,
+    filter: Filter, team: Project, person_query: Optional[bool] = False, order_by: Optional[str] = None,
 ):
     prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
     params = {"team_id": team.pk, **prop_filter_params}

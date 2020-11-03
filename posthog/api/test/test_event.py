@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Person, Team
+from posthog.models import Action, ActionStep, Element, Event, Person, Project
 
 from .base import BaseTest, TransactionBaseTest
 
@@ -216,7 +216,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
             )
             event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
-            team2 = Team.objects.create()
+            team2 = Project.objects.create()
             event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
             response = self.client.get("/api/event/values/?key=random_prop").json()
 

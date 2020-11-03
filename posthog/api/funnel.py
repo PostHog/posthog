@@ -34,7 +34,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context["request"]
-        funnel = Funnel.objects.create(team=request.user.team, created_by=request.user, **validated_data)
+        funnel = Funnel.objects.create(team=request.user.project, created_by=request.user, **validated_data)
         return funnel
 
 
@@ -46,7 +46,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team)
+        return queryset.filter(team=self.request.user.project)
 
     def retrieve(self, request, pk=None):
         data = self._retrieve(request, pk)

@@ -18,7 +18,7 @@ from posthog.models import (
     Filter,
     Person,
     PersonDistinctId,
-    Team,
+    Project,
 )
 from posthog.queries.session_recording import SessionRecording
 from posthog.queries.sessions import Sessions
@@ -102,7 +102,7 @@ class EventViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
 
-        team = self.request.user.team
+        team = self.request.user.project
         queryset = queryset.add_person_id(team.pk)  # type: ignore
 
         if self.action == "list" or self.action == "sessions" or self.action == "actions":  # type: ignore
@@ -112,7 +112,7 @@ class EventViewSet(viewsets.ModelViewSet):
         order_by = ["-timestamp"] if not order_by else list(json.loads(order_by))
         return queryset.filter(team=team).order_by(*order_by)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Project) -> QuerySet:
         for key, value in request.GET.items():
             if key == "event":
                 queryset = queryset.filter(event=request.GET["event"])
@@ -148,7 +148,7 @@ class EventViewSet(viewsets.ModelViewSet):
         }
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:
-        team = self.request.user.team
+        team = self.request.user.project
         distinct_ids = []
         hash_ids = []
         for event in events:
@@ -257,7 +257,7 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             where = ""
 
-        params.append(request.user.team.pk)
+        params.append(request.user.project.pk)
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(
@@ -287,7 +287,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        team = self.request.user.team
+        team = self.request.user.project
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
@@ -308,7 +308,7 @@ class EventViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        team = self.request.user.team
+        team = self.request.user.project
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )

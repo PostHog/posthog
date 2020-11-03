@@ -156,16 +156,16 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
-    from posthog.models import Team
+    from posthog.models import Project
 
     template = get_template(template_name)
 
     # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
-    team: Optional[Team] = None
+    team: Optional[Project] = None
     try:
-        team = request.user.team
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.first()
+        team = request.user.project
+    except (Project.DoesNotExist, AttributeError):
+        team = Project.objects.first()
 
     if os.environ.get("OPT_OUT_CAPTURE"):
         # Prioritise instance-level config

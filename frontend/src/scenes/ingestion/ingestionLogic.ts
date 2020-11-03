@@ -124,7 +124,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                 userLogic.actions.setUser({
                     ...user,
                     team: {
-                        ...user.team,
+                        ...user.project,
                         completed_snippet_onboarding: true,
                     },
                 })

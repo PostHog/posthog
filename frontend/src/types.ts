@@ -8,12 +8,12 @@ export interface UserType {
     opt_out_capture: null
     posthog_version: string
     organization: OrganizationType
-    team: TeamType
+    team: ProjectType
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
-    teams: TeamType[]
+    teams: ProjectType[]
     current_organization_id: string
-    current_team_id: number
+    current_project_id: number
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
@@ -21,7 +21,7 @@ export interface UserType {
 
 export interface UserUpdateType {
     user?: Omit<Partial<UserType>, 'team'>
-    team?: Partial<TeamType>
+    team?: Partial<ProjectType>
 }
 
 export interface PluginAccess {
@@ -48,10 +48,10 @@ export interface OrganizationType {
     available_features: string[]
     billing_plan: string
     billing: OrganizationBilling
-    teams: TeamType[]
+    teams: ProjectType[]
 }
 
-export interface TeamType {
+export interface ProjectType {
     id: number
     name: string
     anonymize_ips: boolean

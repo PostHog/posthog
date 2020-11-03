@@ -17,7 +17,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
 from posthog.auth import authenticate_secondarily
-from posthog.models import Event, Team, User
+from posthog.models import Project, User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 
@@ -33,8 +33,8 @@ class UserSerializer(serializers.ModelSerializer):
 def user(request):
     organization = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team = request.user.team
-    teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
+    team = request.user.project
+    teams = list(request.user.projects.order_by("-created_at").values("name", "id"))
     user = cast(User, request.user)
 
     if request.method == "PATCH":
@@ -57,7 +57,7 @@ def user(request):
         if "user" in data:
             try:
                 user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
-                user.current_team = user.organization.teams.first()
+                user.current_project = user.organization.teams.first()
             except KeyError:
                 pass
             except ObjectDoesNotExist:
@@ -67,7 +67,7 @@ def user(request):
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
             try:
-                user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
+                user.current_project = user.organization.teams.get(id=int(data["user"]["current_project_id"]))
             except (KeyError, TypeError):
                 pass
             except ValueError:
@@ -141,7 +141,7 @@ def user(request):
 
 @authenticate_secondarily
 def redirect_to_site(request):
-    team = request.user.team
+    team = request.user.project
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
     use_new_toolbar = request.user.toolbar_mode != "disabled"
 

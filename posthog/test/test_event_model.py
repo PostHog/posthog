@@ -1,8 +1,8 @@
 from unittest.mock import call, patch
 
 from posthog.api.test.base import BaseTest
-from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Person, Team
-from posthog.models.event import Selector, SelectorPart
+from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Person, Project
+from posthog.models.event import Selector
 
 
 def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
@@ -40,7 +40,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             # make sure other teams' data doesn't get mixed in
-            team2 = Team.objects.create()
+            team2 = Project.objects.create()
             event3 = _create_event(
                 event="$autocapture",
                 team=team2,
@@ -316,7 +316,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="user signed up", distinct_id="anonymous_user", team=self.team
             )
 
-            team2 = Team.objects.create()
+            team2 = Project.objects.create()
             person2 = _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
             events = _get_events_for_action(action_watch_movie)
@@ -363,7 +363,7 @@ class TestElementGroup(BaseTest):
         self.assertEqual(group1.hash, group2.hash)
 
         # Test no team leakage
-        team2 = Team.objects.create()
+        team2 = Project.objects.create()
         group3 = ElementGroup.objects.create(team=team2, elements=elements)
         group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
         self.assertNotEqual(group2, group3)

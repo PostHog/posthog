@@ -20,7 +20,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
         userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
-        currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
+        currentProjectUpdateRequest: (teamId: number) => ({ teamId }),
         currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
         completedOnboarding: true,
         logout: true,
@@ -45,7 +45,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             () => [selectors.user],
             (user): EventProperty[] =>
                 user?.team
-                    ? user.team.event_properties.map(
+                    ? user.project.event_properties.map(
                           (property: string) => ({ value: property, label: property } as EventProperty)
                       )
                     : [],
@@ -54,7 +54,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             () => [selectors.user],
             (user): EventProperty[] =>
                 user?.team
-                    ? user.team.event_properties_numerical.map(
+                    ? user.project.event_properties_numerical.map(
                           (property: string) => ({ value: property, label: property } as EventProperty)
                       )
                     : [],
@@ -74,7 +74,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
                 if (user?.team)
-                    user.team.event_names.forEach((name: string) => {
+                    user.project.event_names.forEach((name: string) => {
                         const format = { label: name, value: name } as EventProperty
                         if (posthogEvents.includes(name)) return data[1].options.push(format)
                         data[0].options.push(format)
@@ -86,7 +86,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
 
     listeners: ({ actions }) => ({
         setUser: ({ user }) => {
-            if (user && !user.team) router.actions.push('/organization/members')
+            if (user && !user.project) router.actions.push('/organization/members')
         },
         loadUser: async ({ resetOnFailure }) => {
             try {
@@ -111,7 +111,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
 
                         posthog.register({
                             posthog_version: user.posthog_version,
-                            has_slack_webhook: !!user.team.slack_incoming_webhook,
+                            has_slack_webhook: !!user.project.slack_incoming_webhook,
                         })
                     }
                 }

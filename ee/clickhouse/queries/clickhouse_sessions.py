@@ -16,7 +16,7 @@ from ee.clickhouse.sql.sessions.distribution import DIST_SQL
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models import Filter, Person, Team
+from posthog.models import Filter, Person, Project
 from posthog.queries.base import BaseQuery, determine_compared_filter
 from posthog.utils import append_data, friendly_time, relative_date_parse
 
@@ -24,7 +24,7 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 # TODO: handle date and defaults
 class ClickhouseSessions(BaseQuery):
-    def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
+    def calculate_list(self, filter: Filter, team: Project, limit: int, offset: int):
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
 
         if not filter._date_from:
@@ -81,7 +81,7 @@ class ClickhouseSessions(BaseQuery):
 
         return final
 
-    def _add_person_properties(self, team=Team, sessions=List[Tuple]):
+    def _add_person_properties(self, team: Project, sessions: List[Any]):
         distinct_id_hash = {}
         for session in sessions:
             distinct_id_hash[session["distinct_id"]] = True
@@ -101,7 +101,7 @@ class ClickhouseSessions(BaseQuery):
             if distinct_to_person.get(session["distinct_id"], None):
                 session["properties"] = distinct_to_person[session["distinct_id"]].properties
 
-    def calculate_avg(self, filter: Filter, team: Team):
+    def calculate_avg(self, filter: Filter, team: Project):
 
         # format default dates
         if not filter._date_from:
@@ -168,7 +168,7 @@ class ClickhouseSessions(BaseQuery):
         time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
         return time_series_data
 
-    def calculate_dist(self, filter: Filter, team: Team):
+    def calculate_dist(self, filter: Filter, team: Project):
 
         # format default dates
         if not filter._date_from:
@@ -208,7 +208,7 @@ class ClickhouseSessions(BaseQuery):
 
         return res
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Project, *args, **kwargs) -> List[Dict[str, Any]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
         offset = kwargs.get("offset", 0)
 

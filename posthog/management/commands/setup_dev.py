@@ -28,7 +28,7 @@ class Command(BaseCommand):
                 },
             )
             user.current_organization = organization
-            user.current_team = team
+            user.current_project = team
             user.save()
             heroku_app_name = os.getenv("HEROKU_APP_NAME")
             base_url = (

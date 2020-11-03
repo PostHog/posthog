@@ -8,7 +8,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
 
-from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
+from posthog.models import Element, Event, Person, SessionRecordingEvent, Project
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -63,12 +63,12 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.merge_people([old_person])
 
 
-def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+def store_names_and_properties(team: Project, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
     if not team.ingested_event:
         # First event for the team captured
-        for user in Team.objects.get(pk=team.pk).users.all():
+        for user in Project.objects.get(pk=team.pk).users.all():
             posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
 
         team.ingested_event = True
@@ -114,7 +114,7 @@ def _capture(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only(
+    team = Project.objects.only(
         "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
     ).get(pk=team_id)
 

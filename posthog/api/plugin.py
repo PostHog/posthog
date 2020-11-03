@@ -120,7 +120,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins_via_api():
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        validated_data["team"] = request.user.team
+        validated_data["team"] = request.user.project
         plugin_config = super().create(validated_data)
         reload_plugins_on_workers()
         return plugin_config
@@ -139,12 +139,12 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if can_configure_plugins_via_api():
-            return queryset.filter(team_id=self.request.user.team.pk)
+            return queryset.filter(team_id=self.request.user.project.pk)
         return queryset.none()
 
     # we don't use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
-        plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
+        plugin_config = PluginConfig.objects.get(team=request.user.project, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
@@ -155,7 +155,7 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
             return Response([])
 
         response = []
-        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)  # type: ignore
+        plugin_configs = PluginConfig.objects.filter(team_id=None, enabled=True)
         for plugin_config in plugin_configs:
             plugin = PluginConfigSerializer(plugin_config).data
             plugin["config"] = None

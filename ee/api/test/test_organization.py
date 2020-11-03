@@ -1,10 +1,7 @@
-from unittest.mock import patch
-
-from django.test.utils import tag
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.team import Team
+from posthog.models.project import Project
 
 from .base import APILicensedTest
 
@@ -25,11 +22,11 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_delete_second_managed_organization(self):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
-        self.assertTrue(Team.objects.filter(id=team.id).exists())
+        self.assertTrue(Project.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Organization.objects.filter(id=organization.id).exists())
-        self.assertFalse(Team.objects.filter(id=team.id).exists())
+        self.assertFalse(Project.objects.filter(id=team.id).exists())
 
     def test_no_delete_last_organization(self):
         org_id = self.organization.id
@@ -52,11 +49,11 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
-        self.assertTrue(Team.objects.filter(id=team.id).exists())
+        self.assertTrue(Project.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
-        self.assertTrue(Team.objects.filter(id=team.id).exists())
+        self.assertTrue(Project.objects.filter(id=team.id).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
         # as member only

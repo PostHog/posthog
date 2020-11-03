@@ -12,12 +12,12 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.email import EmailMessage, _send_email
-from posthog.models import Event, MessagingRecord, Organization, Person, Team, User
+from posthog.models import Event, MessagingRecord, Organization, Person, Project, User
 from posthog.tasks.email import send_weekly_email_reports
 
 
 class TestEmail(TestCase):
-    def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
+    def create_person(self, team: Project, base_distinct_id: str = "") -> Person:
         person = Person.objects.create(team=team)
         person.add_distinct_id(base_distinct_id)
         return person
@@ -26,7 +26,7 @@ class TestEmail(TestCase):
     def setUp(self):
         super().setUp()
         self.organization = Organization.objects.create()
-        self.team = Team.objects.create(organization=self.organization, name="The Bakery")
+        self.team = Project.objects.create(organization=self.organization, name="The Bakery")
         self.user = User.objects.create(email="test@posthog.com")
         self.user2 = User.objects.create(email="test2@posthog.com")
         self.user_red_herring = User.objects.create(email="test+redherring@posthog.com")
