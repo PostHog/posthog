@@ -86,7 +86,7 @@ const typeMap = {
         className: 'retention',
         element: RetentionTable,
         icon: QuestionCircleOutlined,
-        viewTest: 'View table',
+        viewText: 'View table',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
@@ -98,7 +98,8 @@ const typeMap = {
     PathsViz: {
         className: 'paths',
         element: Paths,
-        viewTest: 'View graph',
+        icon: QuestionCircleOutlined,
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
