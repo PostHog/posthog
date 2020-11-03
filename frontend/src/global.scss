@@ -87,6 +87,14 @@ style files without adding already imported styles. */
     padding-top: $default_spacing;
 }
 
+.pr {
+    padding-right: $default_spacing;
+}
+
+.pl {
+    padding-left: $default_spacing;
+}
+
 .full-width {
     width: 100%;
 }

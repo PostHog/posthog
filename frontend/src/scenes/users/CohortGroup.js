@@ -1,27 +1,10 @@
 import React, { useState } from 'react'
 import { CloseButton } from 'lib/components/CloseButton'
 import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
-import { Select, Card } from 'antd'
+import { Select, Card, Radio } from 'antd'
 
 import { actionsModel } from '~/models/actionsModel'
 import { useValues } from 'kea'
-
-function DayChoice({ days, name, group, onChange }) {
-    return (
-        <button
-            onClick={() =>
-                onChange({
-                    action_id: group.action_id,
-                    days,
-                })
-            }
-            type="button"
-            className={'btn btn-sm ' + (group.days == days ? 'btn-secondary' : 'btn-light')}
-        >
-            {name}
-        </button>
-    )
-}
 
 export function CohortGroup({ onChange, onRemove, group, index }) {
     const { actionsGrouped } = useValues(actionsModel)
@@ -30,45 +13,46 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
         <Card title={false} style={{ margin: 0 }} className="card-elevated">
             {index > 0 && <CloseButton className="float-right" onClick={onRemove} />}
             <div style={{ height: 32 }}>
-                User has
-                {selected == 'action' && ' done '}
-                <div className="btn-group" style={{ margin: '0 8px' }}>
-                    <button
-                        onClick={() => {
-                            setSelected('action')
+                <span style={{ paddingRight: selected !== 'action' ? 40 : 0 }}>User has</span>
+                {selected === 'action' && ' done '}
+                <span style={{ paddingRight: 8 }}>
+                    <Radio.Group
+                        buttonStyle="solid"
+                        onChange={(e) => {
+                            setSelected(e.target.value)
                             onChange({})
                         }}
-                        type="button"
-                        data-attr="cohort-group-action"
-                        className={'btn btn-sm ' + (selected == 'action' ? 'btn-secondary' : 'btn-light')}
+                        size="small"
+                        value={selected}
                     >
-                        action
-                    </button>
-                    <button
-                        onClick={() => {
-                            setSelected('property')
-                            onChange({})
-                        }}
-                        type="button"
-                        data-attr="cohort-group-property"
-                        className={'btn btn-sm ' + (selected == 'property' ? 'btn-secondary' : 'btn-light')}
-                    >
-                        property
-                    </button>
-                </div>
+                        <Radio.Button value="action">action</Radio.Button>
+                        <Radio.Button value="property">property</Radio.Button>
+                    </Radio.Group>
+                </span>
                 {selected == 'action' && (
                     <span>
                         in the last
-                        <div className="btn-group" style={{ margin: '0 8px' }}>
-                            <DayChoice days={1} name="day" group={group} onChange={onChange} />
-                            <DayChoice days={7} name="7 days" group={group} onChange={onChange} />
-                            <DayChoice days={30} name="month" group={group} onChange={onChange} />
-                        </div>
+                        <Radio.Group
+                            buttonStyle="solid"
+                            onChange={(e) =>
+                                onChange({
+                                    action_id: group.action_id,
+                                    days: e.target.value,
+                                })
+                            }
+                            size="small"
+                            value={group.days}
+                            style={{ paddingLeft: 8 }}
+                        >
+                            <Radio.Button value="1">day</Radio.Button>
+                            <Radio.Button value="7">7 days</Radio.Button>
+                            <Radio.Button value="30">month</Radio.Button>
+                        </Radio.Group>
                     </span>
                 )}
             </div>
             {selected && (
-                <div style={{ marginLeft: '2rem', minHeight: 38 }}>
+                <div style={{ minHeight: 38 }}>
                     {selected == 'property' && (
                         <PropertyFilters
                             endpoint="person"
