@@ -60,7 +60,7 @@ def is_json(val):
 
 def is_int(value: Optional[Union[str, int]]) -> bool:
     try:
-        int(value)
+        int(value) # type: ignore
     except (ValueError, TypeError):
         return False
     else:
