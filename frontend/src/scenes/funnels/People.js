@@ -12,7 +12,7 @@ export function People() {
 
     return (
         <Card title="Per user" className="funnel-people">
-            {peopleLoading && <Loading />}
+            {peopleLoading && <Loading style={{ minHeight: 50 }} />}
             {!peopleSorted && !peopleLoading && (
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
             )}

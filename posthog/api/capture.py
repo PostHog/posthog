@@ -1,21 +1,21 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 from dateutil import parser
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.celery import app as celery_app
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
-from posthog.tasks.process_event import process_event
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import log_event, process_event_ee
+    from ee.clickhouse.process_event import log_event
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -163,29 +163,32 @@ def get_event(request):
             )
 
         if check_ee_enabled():
-            process_event_ee.delay(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
+            task_name = "ee.clickhouse.process_event.process_event_ee"
+        else:
+            task_name = "posthog.tasks.process_event.process_event"
+        celery_queue = settings.CELERY_DEFAULT_QUEUE
+
+        if team.plugins_opt_in:
+            task_name += "_with_plugins"
+            celery_queue = settings.PLUGINS_CELERY_QUEUE
+
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[
+                distinct_id,
+                get_ip_address(request),
+                request.build_absolute_uri("/")[:-1],
+                event,
+                team.id,
+                now.isoformat(),
+                sent_at,
+            ],
+        )
+
+        if check_ee_enabled():
             # log the event to kafka write ahead log for processing
             log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
-
-        # Selectively block certain teams from having events published to Postgres on Posthog Cloud
-        if not getattr(settings, "MULTI_TENANCY", False) or team.id not in [536, 572, 700]:
-            process_event.delay(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],

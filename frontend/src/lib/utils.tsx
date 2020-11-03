@@ -58,9 +58,9 @@ export function percentage(division: number): string {
         : ''
 }
 
-export function Loading(): JSX.Element {
+export function Loading(props: Record<string, any>): JSX.Element {
     return (
-        <div className="loading-overlay">
+        <div className="loading-overlay" style={props.style}>
             <Spin />
         </div>
     )
@@ -525,4 +525,20 @@ export function identifierToHuman(input: string, capitalize: boolean = true): st
             return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
         })
         .join(' ')
+}
+
+export function parseGithubRepoURL(url: string): Record<string, string> {
+    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
+    if (!match) {
+        throw new Error('Must be in the format: https://github.com/user/repo')
+    }
+    const [, user, repo] = match
+    return { user, repo }
+}
+
+export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
+    if (element.matches(selector)) {
+        return true
+    }
+    return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
 }

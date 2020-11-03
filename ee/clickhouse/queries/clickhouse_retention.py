@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
+from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -26,14 +26,19 @@ class ClickhouseRetention(BaseQuery):
 
         period = filter.period or "Day"
 
-        tdelta, trunc_func = self._determineTimedelta(total_intervals, period)
+        tdelta, trunc_func, t1 = self._determineTimedelta(total_intervals, period)
 
-        if filter.date_from:
-            date_from = filter.date_from
-            date_to = date_from + tdelta
-        else:
-            date_to = timezone.now()
+        filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
+
+        if period == "Hour":
+            date_to = filter.date_to if filter.date_to else now()
             date_from = date_to - tdelta
+        else:
+            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = date_to - tdelta
+
+        filter._date_from = date_from.isoformat()
+        filter._date_to = date_to.isoformat()
 
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
@@ -81,8 +86,6 @@ class ClickhouseRetention(BaseQuery):
         if period == "Week":
             date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
 
-        labels_format = "%a. %-d %B"
-        hourly_format = "%-H:%M %p"
         parsed = [
             {
                 "values": [
@@ -90,24 +93,24 @@ class ClickhouseRetention(BaseQuery):
                     for day in range(total_intervals - first_day)
                 ],
                 "label": "{} {}".format(period, first_day),
-                "date": (date_from + self._determineTimedelta(first_day, period)[0]).strftime(
-                    labels_format + (hourly_format if period == "Hour" else "")
-                ),
+                "date": (date_from + self._determineTimedelta(first_day, period)[0]),
             }
             for first_day in range(total_intervals)
         ]
 
         return parsed
 
-    def _determineTimedelta(self, total_intervals: int, period: str) -> Tuple[Union[timedelta, relativedelta], str]:
+    def _determineTimedelta(
+        self, total_intervals: int, period: str
+    ) -> Tuple[Union[timedelta, relativedelta], str, Union[timedelta, relativedelta]]:
         if period == "Hour":
-            return timedelta(hours=total_intervals), PERIOD_TRUNC_HOUR
+            return timedelta(hours=total_intervals), PERIOD_TRUNC_HOUR, timedelta(hours=1)
         elif period == "Week":
-            return timedelta(weeks=total_intervals), PERIOD_TRUNC_WEEK
+            return timedelta(weeks=total_intervals), PERIOD_TRUNC_WEEK, timedelta(weeks=1)
         elif period == "Day":
-            return timedelta(days=total_intervals), PERIOD_TRUNC_DAY
+            return timedelta(days=total_intervals), PERIOD_TRUNC_DAY, timedelta(days=1)
         elif period == "Month":
-            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH
+            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH, relativedelta(months=1)
         else:
             raise ValueError(f"Period {period} is unsupported.")
 

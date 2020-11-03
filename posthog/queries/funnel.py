@@ -7,13 +7,12 @@ from typing import Any, Dict, List, Optional
 from django.db import connection
 from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
-from psycopg2 import sql  # type: ignore
+from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
-from posthog.utils import relative_date_parse
 
 
 class Funnel(BaseQuery):
@@ -75,7 +74,7 @@ class Funnel(BaseQuery):
             annotations["step_{}".format(index)] = query
         return annotations
 
-    def _serialize_step(self, step: Entity, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = Action.objects.get(team=self._team.pk, pk=step.id).name
         else:
@@ -85,7 +84,7 @@ class Funnel(BaseQuery):
             "name": name,
             "order": step.order,
             "people": people if people else [],
-            "count": len(people) if people else 0,
+            "count": count,
             "type": step.type,
         }
 
@@ -184,7 +183,9 @@ class Funnel(BaseQuery):
                 if getattr(person, "step_{}".format(index)):
                     person_score[person.uuid] += 1
                     relevant_people.append(person.uuid)
-            steps.append(self._serialize_step(funnel_step, relevant_people))
+            steps.append(
+                self._serialize_step(funnel_step, len(relevant_people) if relevant_people else 0, relevant_people)
+            )
 
         if len(steps) > 0:
             for index, _ in enumerate(steps):

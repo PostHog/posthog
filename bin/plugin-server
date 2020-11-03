@@ -1,0 +1,4 @@
+#!/bin/bash
+KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
+CONF=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
+cd plugins && yarn --frozen-lockfile --silent && yarn --silent start --config "$CONF"

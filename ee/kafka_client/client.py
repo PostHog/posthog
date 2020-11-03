@@ -2,10 +2,10 @@ import io
 import json
 from typing import Any, Callable, Dict, Optional
 
-import kafka_helper  # type: ignore
+import kafka_helper
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
-from kafka import KafkaProducer as KP  # type: ignore
+from kafka import KafkaProducer as KP
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.settings import KAFKA_ENABLED

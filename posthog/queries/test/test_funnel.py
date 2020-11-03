@@ -83,8 +83,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 )
                 self._signup_event(distinct_id="stopped_after_signup2")
 
-            # with self.assertNumQueries(1):
-            result = funnel.run()
+            with self.assertNumQueries(1):
+                result = funnel.run()
             self.assertEqual(result[0]["count"], 0)
 
         def test_funnel_with_single_step(self):
@@ -97,12 +97,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             person2_stopped_after_signup = person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
             self._signup_event(distinct_id="stopped_after_signup2")
 
-            # with self.assertNumQueries(1):
-            result = funnel.run()
+            with self.assertNumQueries(1):
+                result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 2)
             # check ordering of people in first step
-            self.assertEqual(
+            self.assertCountEqual(
                 result[0]["people"], [person1_stopped_after_signup.uuid, person2_stopped_after_signup.uuid],
             )
 
@@ -138,7 +138,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
             # check ordering of people in first step
-            self.assertEqual(
+            self.assertCountEqual(
                 result[0]["people"],
                 [
                     person_stopped_after_movie.uuid,
@@ -156,12 +156,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # make sure it's O(n)
             person_wrong_order = person_factory(distinct_ids=["badalgo"], team_id=self.team.pk)
             self._signup_event(distinct_id="badalgo")
-            # with self.assertNumQueries(3):
-            funnel.run()
+            with self.assertNumQueries(3):
+                funnel.run()
 
             self._pay_event(distinct_id="badalgo")
-            # with self.assertNumQueries(3):
-            funnel.run()
+            with self.assertNumQueries(3):
+                funnel.run()
 
         def test_funnel_no_events(self):
             funnel = self._basic_funnel()

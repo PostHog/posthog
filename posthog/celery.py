@@ -1,13 +1,14 @@
 import os
 import time
 
-import redis
-import statsd  # type: ignore
+import statsd
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -26,9 +27,6 @@ app.autodiscover_tasks()
 # Make sure Redis doesn't add too many connections
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
-
-# Connect to our Redis instance to store the heartbeat
-redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
@@ -74,16 +72,16 @@ def setup_periodic_tasks(sender, **kwargs):
         )
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_heartbeat():
-    redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
+    get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@app.task
+@app.task(ignore_result=True)
 def redis_celery_queue_depth():
     try:
         g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        llen = redis_instance.llen("celery")
+        llen = get_client().llen("celery")
         g.send("queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
@@ -91,7 +89,7 @@ def redis_celery_queue_depth():
         return
 
 
-@app.task
+@app.task(ignore_result=True)
 def update_event_partitions():
     with connection.cursor() as cursor:
         cursor.execute(
@@ -99,7 +97,7 @@ def update_event_partitions():
         )
 
 
-@app.task
+@app.task(ignore_result=True)
 def clean_stale_partials():
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
@@ -107,35 +105,35 @@ def clean_stale_partials():
     Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
 
 
-@app.task
+@app.task(ignore_result=True)
 def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
 
 
-@app.task
+@app.task(ignore_result=True)
 def run_session_recording_retention():
     from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
 
     session_recording_retention_scheduler()
 
 
-@app.task
+@app.task(ignore_result=True)
 def calculate_event_action_mappings():
     from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
     calculate_actions_from_last_calculation()
 
 
-@app.task
+@app.task(ignore_result=True)
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
 
 
-@app.task
+@app.task(ignore_result=True)
 def check_cached_items():
     from posthog.tasks.update_cache import update_cached_items
 
@@ -149,7 +147,7 @@ def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     update_cache_item(key, cache_type, payload)
 
 
-@app.task
+@app.task(ignore_result=True)
 def send_weekly_email_report():
     if settings.EMAIL_REPORTS_ENABLED:
         from posthog.tasks.email import send_weekly_email_reports
@@ -157,6 +155,6 @@ def send_weekly_email_report():
         send_weekly_email_reports()
 
 
-@app.task(bind=True)
+@app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))
