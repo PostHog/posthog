@@ -180,17 +180,15 @@ export const sceneLogic = kea({
                     importedScene = await scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
-                        let message
                         if (scene !== null) {
                             // We were on another page (not the first loaded scene)
+                            console.error('App assets regenerated. Reloading this page.')
                             window.location.reload()
-                            message = 'Reloading this page.'
                         } else {
                             // First scene, show an error page
+                            console.error('App assets regenerated. Showing error page.')
                             actions.setScene('4xx', {})
-                            message = 'Showing error page.'
                         }
-                        console.error('App assets regenerated.', message)
                     } else {
                         throw error
                     }
