@@ -1,13 +1,14 @@
-from posthog.models.event import Event
-from ee.tasks.webhooks_ee import post_event_to_webhook_ee
 from unittest.mock import patch
-from dateutil.parser import isoparse
 
+import pytz
+from dateutil.parser import isoparse
 from django.utils.timezone import now
+
+from ee.tasks.webhooks_ee import post_event_to_webhook_ee
 from posthog.api.test.base import BaseTest
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-import pytz
+from posthog.models.event import Event
 
 
 def _create_action(**kwargs):
@@ -22,7 +23,7 @@ def _create_action(**kwargs):
 class TestWebhooksEE(BaseTest):
     @patch("requests.post")
     @patch("celery.current_app.send_task")
-    def test_post_event_to_webhook_ee(self, requests_post, patch_post_to_slack):
+    def test_post_event_to_webhook_ee(self, requests_post, _):
 
         self.team.slack_incoming_webhook = "http://slack.com/hook"
         self.team.save()
