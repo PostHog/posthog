@@ -29,7 +29,7 @@ function _Setup() {
     useAnchor(location.hash)
 
     return (
-        <div>
+        <div style={{ marginBottom: 128 }}>
             <PageHeader title={`Project Settings – ${user.team.name}`} />
             <Card>
                 <h2 id="snippet" className="subtitle">
@@ -43,7 +43,9 @@ function _Setup() {
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 <JSSnippet />
                 <Divider />
-                <h2 id="custom-events">Send Custom Events</h2>
+                <h2 id="custom-events" className="subtitle">
+                    Send Custom Events
+                </h2>
                 To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
@@ -73,7 +75,9 @@ function _Setup() {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 id="urls">Permitted Domains/URLs</h2>
+                <h2 id="urls" className="subtitle">
+                    Permitted Domains/URLs
+                </h2>
                 <p>
                     These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
                     also where you'll be able to create Actions.
@@ -84,7 +88,10 @@ function _Setup() {
                     Slack / Microsoft Teams Integration
                 </h2>
                 <WebhookIntegration />
-                <h2 id="datacapture">Data Capture Configuration</h2>
+                <Divider />
+                <h2 id="datacapture" className="subtitle">
+                    Data Capture Configuration
+                </h2>
                 <IPCapture />
                 <Divider />
                 <h2 className="subtitle">PostHog Toolbar</h2>
@@ -92,16 +99,17 @@ function _Setup() {
                 <Divider />
                 {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
                     <>
-                        <h2 id="sessionrecording">
-                            Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
+                        <h2 id="sessionrecording" className="subtitle">
+                            Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
                         </h2>
                         <p>
                             Watch sessions replays to see how users interact with your app and find out what can be
                             improved.
                         </p>
                         <OptInSessionRecording />
+                        <br />
                         <p>
-                            This is a new feature of posthog. Please{' '}
+                            This is a new feature of PostHog. Please{' '}
                             <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
                                 share feedback
                             </a>{' '}

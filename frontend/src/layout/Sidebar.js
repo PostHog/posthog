@@ -41,11 +41,8 @@ const itemStyle = { display: 'flex', alignItems: 'center' }
 
 function Logo() {
     return (
-        <div
-            className="row logo-row d-flex align-items-center justify-content-center"
-            style={{ margin: 16, height: 42, whiteSpace: 'nowrap', width: 168, overflow: 'hidden' }}
-        >
-            <img className="logo posthog-logo" src={whiteLogo} style={{ maxHeight: '100%' }} />
+        <div className="sidebar-logo">
+            <img src={whiteLogo} style={{ maxHeight: '100%' }} />
         </div>
     )
 }

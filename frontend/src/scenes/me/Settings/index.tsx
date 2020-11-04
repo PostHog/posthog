@@ -17,7 +17,7 @@ function _MySettings(): JSX.Element {
     useAnchor(location.hash)
 
     return (
-        <div>
+        <div style={{ marginBottom: 128 }}>
             <PageHeader title="My Settings" />
             <Card>
                 <h2 id="password" className="subtitle">
