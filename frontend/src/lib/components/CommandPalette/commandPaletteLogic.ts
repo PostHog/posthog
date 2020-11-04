@@ -40,6 +40,7 @@ import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import posthog from 'posthog-js'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -197,10 +198,10 @@ export const commandPaletteLogic = kea<
 
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog?.capture('palette shown', { isMobile: isMobile() })
+            posthog.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog?.capture('palette shown', { isMobile: isMobile() })
+            if (values.isPaletteShown) posthog.capture('palette shown', { isMobile: isMobile() })
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
@@ -218,7 +219,7 @@ export const commandPaletteLogic = kea<
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()
-            window.posthog?.capture('palette command executed', cleanedResult)
+            posthog.capture('palette command executed', cleanedResult)
         },
         deregisterScope: ({ scope }) => {
             for (const command of Object.values(values.commandRegistrations)) {
@@ -671,7 +672,7 @@ export const commandPaletteLogic = kea<
                                         executor: !argument?.length
                                             ? undefined
                                             : () => {
-                                                  window.posthog?.capture('palette feedback', { message: argument })
+                                                  posthog.capture('palette feedback', { message: argument })
                                                   return {
                                                       resolver: {
                                                           icon: CheckOutlined,
