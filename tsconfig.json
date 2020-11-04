@@ -1,18 +1,18 @@
 {
     "compilerOptions": {
-        "module": "commonjs",
+        "module": "ESNext",
+        "target": "ESNext",
         "declaration": true,
         "removeComments": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
-        "target": "ES2015",
         "esModuleInterop": true,
-        "noEmit": true,
         "sourceMap": true,
-        "baseUrl": "./src",
+        "baseUrl": "./",
+        "outDir": "./dist",
         "types": ["node"],
         "resolveJsonModule": true,
         "strict": true
     },
-    "exclude": ["node_modules"]
+    "exclude": ["node_modules", "dist", "bin"]
 }
