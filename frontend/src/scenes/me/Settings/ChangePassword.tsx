@@ -9,21 +9,25 @@ import FormItem from 'antd/lib/form/FormItem'
 
 export function ChangePassword(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { loadUser } = useActions(userLogic)
+    const { userUpdateSuccess } = useActions(userLogic)
 
     const [currentPassword, setCurrentPassword] = useState('')
     const [newPassword, setNewPassword] = useState('')
+    const [newPasswordRepeat, setNewPasswordRepeat] = useState('')
 
     async function submit(): Promise<void> {
         try {
-            await api.update('api/user/@me/change_password', {
-                currentPassword,
-                newPassword,
-            })
-            loadUser()
-            toast.success('Password changed')
+            userUpdateSuccess(await api.update('api/user/@me/change_password', {
+                current_password: currentPassword,
+                new_password: newPassword,
+                new_password_repeat: newPasswordRepeat,
+            }))
+            toast.success('Password changed!')
+            setCurrentPassword('')
+            setNewPassword('')
+            setNewPasswordRepeat('')
         } catch (response) {
-            toast.error(response.error)
+            toast.error(response.detail)
         }
     }
 
@@ -75,6 +79,26 @@ export function ChangePassword(): JSX.Element {
                         setNewPassword(event.target.value)
                     }}
                     value={newPassword}
+                    style={{ maxWidth: 400 }}
+                    autoComplete="new-password"
+                />
+            </FormItem>
+            <FormItem
+                label="Repeat New Password"
+                rules={[
+                    {
+                        required: true,
+                        message: 'Please input new password twice!',
+                    },
+                ]}
+            >
+                <Input.Password
+                    name="newPasswordRepeat"
+                    required
+                    onChange={(event) => {
+                        setNewPasswordRepeat(event.target.value)
+                    }}
+                    value={newPasswordRepeat}
                     style={{ maxWidth: 400 }}
                     autoComplete="new-password"
                 />

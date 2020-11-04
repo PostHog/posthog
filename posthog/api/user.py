@@ -181,24 +181,28 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
 
     @action(methods=["PATCH"], detail=True)
     def change_password(self, request: request.Request, id: str) -> response.Response:
-        old_password = request.data.get("oldPassword")
-        new_password = request.data.get("newPassword")
+        current_password = request.data.get("current_password")
+        new_password = request.data.get("new_password")
+        new_password_repeat = request.data.get("new_password_repeat")
+        
         user = cast(User, self.get_object())
         if user.has_usable_password():
-            if not old_password:
-                raise exceptions.ValidationError("Missing old_password.")
-            if not user.check_password(old_password):
-                raise exceptions.ValidationError("Incorrect old password.")
+            if not current_password:
+                raise exceptions.ValidationError("Missing current password!")
+            if not user.check_password(current_password):
+                raise exceptions.ValidationError("Incorrect current password!")
         if not new_password:
-            raise exceptions.ValidationError("Missing new_password.")
+            raise exceptions.ValidationError("Missing new password!")
+        if new_password != new_password_repeat:
+            raise exceptions.ValidationError("New password and repeated new password don't match!")
         try:
             validate_password(new_password, user)
         except ValidationError as e:
-            raise exceptions.ValidationError("\n".join(e.args[0]))
+            raise exceptions.ValidationError(str(e))
         user.set_password(new_password)
         user.save()
         update_session_auth_hash(cast(WSGIRequest, request), user)
-        return Response()
+        return Response(UserSerializer(user).data)
 
     @action(methods=["POST"], detail=True)
     def test_slack_webhook(self, request: request.Request, id: str) -> response.Response:

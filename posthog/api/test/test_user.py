@@ -59,7 +59,7 @@ class TestUserChangePassword(BaseTest):
         response = self.send_request({})
         self.assertEqual(response.status_code, 400)
 
-    def test_change_password_invalid_old_password(self):
+    def test_change_password_invalid_current_password(self):
         response = self.send_request({"oldPassword": "12345", "newPassword": "12345"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
