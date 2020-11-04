@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import statsd
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -69,6 +70,8 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 @csrf_exempt
 def get_event(request):
+    timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
+    timer.start()
     now = timezone.now()
     try:
         data_from_request = load_data_from_request(request)
@@ -204,5 +207,5 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
             )
-
+    timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))
