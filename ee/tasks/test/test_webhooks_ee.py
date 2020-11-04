@@ -10,6 +10,7 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 import pytz
 
+
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
@@ -35,7 +36,13 @@ class TestWebhooksEE(BaseTest):
         else:
             timestamp = _now.astimezone(pytz.utc)
 
-        event = {"event": "user paid", "properties": {}, "distinct_id": "test", "timestamp": timestamp, "elements_list": {}}
+        event = {
+            "event": "user paid",
+            "properties": {},
+            "distinct_id": "test",
+            "timestamp": timestamp,
+            "elements_list": {},
+        }
         site_url = "http://testserver"
         post_event_to_webhook_ee(event, self.team.pk, site_url)
 

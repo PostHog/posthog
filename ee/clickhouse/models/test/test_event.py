@@ -26,7 +26,12 @@ class TestSendToSlackClickhouse(BaseTest):
 
         _now = now()
         event = create_event(
-            event_uuid=uuid4(), team=self.team, distinct_id="test", event="user paid", site_url="http://testserver", timestamp=_now
+            event_uuid=uuid4(),
+            team=self.team,
+            distinct_id="test",
+            event="user paid",
+            site_url="http://testserver",
+            timestamp=_now,
         )
         self.assertEqual(patch_post_to_slack.call_count, 1)
         patch_post_to_slack.assert_has_calls(
@@ -35,11 +40,11 @@ class TestSendToSlackClickhouse(BaseTest):
                     "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
                     (
                         {
-                            "event": "user paid", 
-                            "properties": {}, 
+                            "event": "user paid",
+                            "properties": {},
                             "distinct_id": "test",
                             "timestamp": _now,
-                            'elements_list': None
+                            "elements_list": None,
                         },
                         self.team.pk,
                         "http://testserver",
