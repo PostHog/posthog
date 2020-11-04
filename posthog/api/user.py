@@ -50,7 +50,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "current_organization_id",
             "current_team_id",
-            "first_name",
+            "name",
             "email",
             "distinct_id",
             "email_opt_in",

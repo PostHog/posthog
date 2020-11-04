@@ -282,7 +282,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             person1 = person_factory(
                 team_id=self.team.pk,
                 distinct_ids=["person1"],
-                properties={"name": {"first_name": "Mary", "last_name": "Smith"}},
+                properties={"name": {"name": "Mary", "last_name": "Smith"}},
             )
             event1 = event_factory(
                 team=self.team,
@@ -295,7 +295,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                     "properties": [
                         {
                             "key": "name",
-                            "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                            "value": json.dumps({"name": "Mary", "last_name": "Smith"}),
                             "type": "person",
                         }
                     ]
@@ -346,7 +346,7 @@ class TestDateFilterQ(BaseTest):
                 "properties": [
                     {
                         "key": "name",
-                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                        "value": json.dumps({"name": "Mary", "last_name": "Smith"}),
                         "type": "person",
                     }
                 ],
@@ -362,7 +362,7 @@ class TestDateFilterQ(BaseTest):
                 "properties": [
                     {
                         "key": "name",
-                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                        "value": json.dumps({"name": "Mary", "last_name": "Smith"}),
                         "type": "person",
                     }
                 ],

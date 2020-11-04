@@ -42,7 +42,7 @@ function _Cohorts() {
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, cohort) {
-                return cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'
+                return cohort.created_by ? cohort.created_by.name || cohort.created_by.email : '-'
             },
         },
         {

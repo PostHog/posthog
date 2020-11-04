@@ -30,13 +30,13 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
-    user_first_name = serializers.CharField(source="user.first_name", read_only=True)
+    user_name = serializers.CharField(source="user.name", read_only=True)
     user_email = serializers.CharField(source="user.email", read_only=True)
     membership_id = serializers.CharField(source="id", read_only=True)
 
     class Meta:
         model = OrganizationMembership
-        fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+        fields = ["membership_id", "user_id", "user_name", "user_email", "level", "joined_at", "updated_at"]
 
 
 class OrganizationMemberViewSet(

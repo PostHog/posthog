@@ -58,7 +58,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
         },
         {
             title: 'Created By',
-            dataIndex: 'created_by_first_name',
+            dataIndex: 'created_by_name',
             key: 'created_by',
             render: (createdByFirstName: string, invite: Record<string, any>) =>
                 `${createdByFirstName} (${invite.created_by_email})`,

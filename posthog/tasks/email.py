@@ -105,6 +105,6 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
 
     for user in team.organization.members.all():
         # TODO: Skip "unsubscribed" users
-        message.add_recipient(email=user.email, name=user.first_name)
+        message.add_recipient(email=user.email, name=user.name)
 
     message.send()

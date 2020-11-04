@@ -71,7 +71,7 @@ export function ActionsTable() {
             title: 'Created by',
             render: function RenderCreatedBy(_, action) {
                 if (!action.created_by) return 'Unknown'
-                return action.created_by.first_name || action.created_by.email
+                return action.created_by.name || action.created_by.email
             },
         },
         {

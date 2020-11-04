@@ -15,8 +15,8 @@ class TestMixin:
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
 
-    def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
-        return User.objects.create_and_join(self.organization, self.team, email, password, first_name, **kwargs)
+    def _create_user(self, email: str, password: Optional[str] = None, name: str = "", **kwargs) -> User:
+        return User.objects.create_and_join(self.organization, self.team, email, password, name, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore

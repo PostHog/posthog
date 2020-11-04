@@ -1,4 +1,5 @@
 from typing import Any, Dict, cast
+from django.db.models import Model
 
 import posthoganalytics
 from django.conf import settings
@@ -86,7 +87,7 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.save()
         return team
 
-    def update(self, instance: Team, validated_data: Dict[Any, Any]):
+    def update(self, instance: Model, validated_data: Dict[Any, Any]):
         super().update(instance, validated_data)
         if validated_data.get("plugins_opt_in") is not None:
             reload_plugins_on_workers()
@@ -139,7 +140,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 
 
 class TeamSignupSerializer(serializers.Serializer):
-    first_name: serializers.Field = serializers.CharField(max_length=128)
+    name: serializers.Field = serializers.CharField(max_length=128)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField()
     company_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
@@ -153,7 +154,7 @@ class TeamSignupSerializer(serializers.Serializer):
         is_first_user: bool = not User.objects.exists()
         realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 
-        company_name = validated_data.pop("company_name", validated_data["first_name"])
+        company_name = validated_data.pop("company_name", validated_data["name"])
         self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
         user = self._user
         login(

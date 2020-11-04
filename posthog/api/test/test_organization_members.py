@@ -53,7 +53,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {
                 "membership_id": str(updated_membership.id),
                 "user_id": user.id,
-                "user_first_name": user.first_name,
+                "user_name": user.name,
                 "user_email": user.email,
                 "level": OrganizationMembership.Level.ADMIN.value,
             },

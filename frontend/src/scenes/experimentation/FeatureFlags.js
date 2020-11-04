@@ -34,7 +34,7 @@ function _FeatureFlags() {
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, featureFlag) {
-                return featureFlag.created_by.first_name || featureFlag.created_by.email
+                return featureFlag.created_by.name || featureFlag.created_by.email
             },
         },
         {

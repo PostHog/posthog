@@ -25,7 +25,7 @@ function _Members({ user }: MembersProps): JSX.Element {
             function handleClick(): void {
                 confirm({
                     title: `${
-                        member.user_id == user.id ? 'Leave' : `Remove ${member.user_first_name} from`
+                        member.user_id == user.id ? 'Leave' : `Remove ${member.user_name} from`
                     } organization ${user.organization.name}?`,
                     icon: <ExclamationCircleOutlined />,
                     okText: 'Delete',
@@ -55,8 +55,8 @@ function _Members({ user }: MembersProps): JSX.Element {
     const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Name',
-            dataIndex: 'user_first_name',
-            key: 'user_first_name',
+            dataIndex: 'user_name',
+            key: 'user_name',
             render: (firstName: string, member: Record<string, any>) =>
                 member.user_id == user.id ? `${firstName} (me)` : firstName,
         },

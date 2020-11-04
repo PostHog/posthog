@@ -42,7 +42,7 @@ function Signup() {
             return
         }
         const payload = {
-            first_name: formState.firstName.value,
+            name: formState.firstName.value,
             company_name: formState.companyName.value || undefined,
             email: formState.email.value,
             password: formState.password.value,

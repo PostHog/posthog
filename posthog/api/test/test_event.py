@@ -210,7 +210,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 distinct_id="bla",
                 event="random event",
                 team=self.team,
-                properties={"random_prop": {"first_name": "Mary", "last_name": "Smith"}},
+                properties={"random_prop": {"name": "Mary", "last_name": "Smith"}},
             )
             event_factory(
                 distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
@@ -222,7 +222,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             keys = [resp["name"].replace(" ", "") for resp in response]
             self.assertCountEqual(
-                keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}']
+                keys, ["asdf", "qwerty", "565", "false", "true", '{"name":"Mary","last_name":"Smith"}']
             )
             self.assertEqual(len(response), 6)
 

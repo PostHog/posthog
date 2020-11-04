@@ -12,7 +12,7 @@ from posthog.permissions import OrganizationAdminWritePermissions, OrganizationM
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
-    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True,)
+    created_by_name = serializers.CharField(source="created_by.name", read_only=True,)
     # Listing target_email explicitly here as it's nullable in ORM but actually required
     target_email = serializers.CharField(required=True)
 
@@ -23,7 +23,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "created_by_id",
             "created_by_email",
-            "created_by_first_name",
+            "created_by_name",
             "created_at",
             "updated_at",
         ]
@@ -31,7 +31,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "id",
             "created_by_id",
             "created_by_email",
-            "created_by_first_name",
+            "created_by_name",
             "created_at",
             "updated_at",
         ]

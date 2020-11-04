@@ -17,7 +17,7 @@ export const membersLogic = kea<membersLogicType>({
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Removed <b>{member.user_first_name}</b> from organization.
+                            <CheckCircleOutlined /> Removed <b>{member.user_name}</b> from organization.
                         </h1>
                     </div>
                 )

@@ -148,7 +148,7 @@ export function AnnotationMarker({
                                                 {data.created_by === 'local'
                                                     ? name || email
                                                     : data.created_by &&
-                                                      (data.created_by.first_name || data.created_by.email)}
+                                                      (data.created_by.name || data.created_by.email)}
                                             </b>
                                             <i style={{ color: 'gray', marginRight: 6 }}>
                                                 {humanFriendlyDetailedTime(data.created_at)}

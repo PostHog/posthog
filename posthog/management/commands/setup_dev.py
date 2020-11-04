@@ -17,7 +17,7 @@ class Command(BaseCommand):
                 company_name=ORGANIZATION_NAME,
                 email="test@posthog.com",
                 password="pass",
-                first_name="Jane Doe",
+                name="Jane Doe",
                 is_staff=True,
                 team_fields={
                     "name": TEAM_NAME,

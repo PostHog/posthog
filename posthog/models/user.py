@@ -32,7 +32,7 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
+    def create_user(self, email: str, password: Optional[str], name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
@@ -40,7 +40,7 @@ class UserManager(BaseUserManager):
         if is_email_restricted_from_signup(email):
             raise ValueError("Can't sign up with this email!")
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user = self.model(email=email, name=name, **extra_fields)
         if password is not None:
             user.set_password(password)
         user.save()
@@ -51,7 +51,7 @@ class UserManager(BaseUserManager):
         company_name: str,
         email: str,
         password: Optional[str],
-        first_name: str = "",
+        name: str = "",
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
         **user_fields,
@@ -61,7 +61,7 @@ class UserManager(BaseUserManager):
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", company_name)
             organization = Organization.objects.create(**organization_fields)
-            user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
+            user = self.create_user(email=email, password=password, name=name, **user_fields)
             team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
                 organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
@@ -74,12 +74,12 @@ class UserManager(BaseUserManager):
         team: Optional[Team],
         email: str,
         password: Optional[str],
-        first_name: str = "",
+        name: str = "",
         level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
         **extra_fields,
     ) -> "User":
         with transaction.atomic():
-            user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
+            user = self.create_user(email=email, password=password, name=name, **extra_fields)
             membership = user.join(organization=organization, team=team or organization.teams.first(), level=level)
             return user
 
@@ -168,4 +168,4 @@ class User(AbstractUser):
                     self.current_team = self.current_organization.teams.first()
                 self.save()
 
-    __repr__ = sane_repr("email", "first_name", "distinct_id")
+    __repr__ = sane_repr("email", "name", "distinct_id")

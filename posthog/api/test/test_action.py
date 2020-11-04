@@ -83,7 +83,7 @@ class TestCreateAction(BaseTest):
                 "created_by": {
                     "id": 1,
                     "distinct_id": "BLKJzxHq4z2d8P1icfpg5wo4eIHaSrMtnotkwdtD8Ok",
-                    "first_name": "person",
+                    "name": "person",
                     "email": "person@email.com",
                 },
             },

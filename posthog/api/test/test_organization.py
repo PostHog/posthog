@@ -49,7 +49,7 @@ class TestSignup(APIBaseTest):
         response = self.client.post(
             "/api/signup/",
             {
-                "first_name": "John",
+                "name": "John",
                 "email": "hedgehog@posthog.com",
                 "password": "notsecure",
                 "company_name": "Hedgehogs United, LLC",
@@ -63,11 +63,11 @@ class TestSignup(APIBaseTest):
         organization: Organization = user.organization
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com"},
+            {"id": user.pk, "distinct_id": user.distinct_id, "name": "John", "email": "hedgehog@posthog.com"},
         )
 
         # Assert that the user was properly created
-        self.assertEqual(user.first_name, "John")
+        self.assertEqual(user.name, "John")
         self.assertEqual(user.email, "hedgehog@posthog.com")
         self.assertEqual(user.email_opt_in, False)
 
@@ -98,7 +98,7 @@ class TestSignup(APIBaseTest):
     @patch("posthog.api.team.posthoganalytics.capture")
     def test_sign_up_minimum_attrs(self, mock_capture):
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+            "/api/signup/", {"name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -107,11 +107,11 @@ class TestSignup(APIBaseTest):
         print(response.data)
         self.assertDictEqual(
             cast(dict, response.data),
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
+            {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog2@posthog.com",},
         )
 
         # Assert that the user was properly created
-        self.assertEqual(user.first_name, "Jane")
+        self.assertEqual(user.name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(user.email_opt_in, True)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
@@ -134,14 +134,14 @@ class TestSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         required_attributes = [
-            "first_name",
+            "name",
             "email",
             "password",
         ]
 
         for attribute in required_attributes:
             body = {
-                "first_name": "Jane",
+                "name": "Jane",
                 "email": "invalid@posthog.com",
                 "password": "notsecure",
             }
@@ -168,7 +168,7 @@ class TestSignup(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
+            "/api/signup/", {"name": "Jane", "email": "failed@posthog.com", "password": "123"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -194,7 +194,7 @@ class TestSignup(APIBaseTest):
         mock_feature_enabled.return_value = True
 
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure"},
+            "/api/signup/", {"name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -204,7 +204,7 @@ class TestSignup(APIBaseTest):
 
         self.assertEqual(
             response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog75@posthog.com"},
+            {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog75@posthog.com"},
         )
 
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore

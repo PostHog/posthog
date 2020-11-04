@@ -93,10 +93,10 @@ def signup_to_organization_view(request, invite_id):
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
-        first_name = request.POST.get("name")
+        name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
         valid_inputs = (
-            is_input_valid("name", first_name)
+            is_input_valid("name", name)
             and is_input_valid("email", email)
             and is_input_valid("password", password)
         )
@@ -112,7 +112,7 @@ def signup_to_organization_view(request, invite_id):
                 request=request,
                 context={
                     "email": email,
-                    "name": first_name,
+                    "name": name,
                     "already_exists": already_exists,
                     "custom_error": custom_error,
                     "invalid_input": not valid_inputs,
@@ -121,7 +121,7 @@ def signup_to_organization_view(request, invite_id):
                 },
             )
         user = User.objects.create_and_join(
-            organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in
+            organization, None, email, password, name=name, email_opt_in=email_opt_in
         )
         invite.use(user, prevalidated=True)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -176,7 +176,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
         if not company_name or email_opt_in is None:
             return redirect(finish_social_signup)
         _, _, user = User.objects.bootstrap(
-            company_name=company_name, first_name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
+            company_name=company_name, name=user_name, email=user_email, email_opt_in=email_opt_in, password=None
         )
     else:
         from_invite = True
@@ -198,7 +198,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, user=None, *a
             return HttpResponse(processed, status=401)
 
         try:
-            user = strategy.create_user(email=user_email, first_name=user_name, password=None)
+            user = strategy.create_user(email=user_email, name=user_name, password=None)
         except Exception as e:
             capture_exception(e)
             processed = render_to_string(
