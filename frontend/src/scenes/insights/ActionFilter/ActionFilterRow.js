@@ -142,7 +142,12 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         <div>
             <Row gutter={8} className="mt">
                 <Col>
-                    <Button data-attr={'trend-element-subject-' + index} ref={node} onClick={onClick}>
+                    <Button
+                        data-attr={'trend-element-subject-' + index}
+                        ref={node}
+                        onClick={onClick}
+                        className="ant-btn-md"
+                    >
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
@@ -171,9 +176,9 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 />
             )}
             <div style={{ paddingTop: 6 }}>
-                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6 }}>&#8627;</span>
+                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                 <Button
-                    size="small"
+                    className="ant-btn-md"
                     onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                     data-attr={'show-prop-filter-' + index}
                 >
@@ -258,7 +263,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 
     return (
         <Dropdown overlay={overlay}>
-            <Button>
+            <Button className="ant-btn-md">
                 {MATHS[math || 'total']?.name} <DownOutlined />
             </Button>
         </Dropdown>

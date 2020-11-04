@@ -13,6 +13,7 @@ style files without adding already imported styles. */
     --danger: #{$danger};
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
+    --bg-mid: #{$bg_mid};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{purple_500};
@@ -253,6 +254,13 @@ style files without adding already imported styles. */
 
 .ant-btn-sm {
     font-size: 12px !important;
+}
+
+.ant-btn-md {
+    // Size between `small` & `default`
+    font-size: 13px !important;
+    height: 28px !important;
+    padding: 0px 10px !important;
 }
 
 .info-indicator {

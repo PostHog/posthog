@@ -65,7 +65,7 @@ export function FunnelTab(): JSX.Element {
                 <Row justify="space-between">
                     <Row justify="start">
                         <Button
-                            className="mr-1"
+                            style={{ marginRight: 4 }}
                             type="primary"
                             htmlType="submit"
                             disabled={isStepsEmpty}

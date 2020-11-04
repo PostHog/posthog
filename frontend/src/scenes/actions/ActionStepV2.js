@@ -317,9 +317,9 @@ export class ActionStep extends Component {
 
                             {step.event && (
                                 <div className="property-filters">
-                                    <div className="section-title">Filters</div>
+                                    <h3 className="l3">Filters</h3>
                                     {(!step.properties || step.properties.length === 0) && (
-                                        <div className="empty-state">This match group has no additional filters.</div>
+                                        <div className="text-muted">This match group has no additional filters.</div>
                                     )}
                                     <PropertyFilters
                                         propertyFilters={step.properties}

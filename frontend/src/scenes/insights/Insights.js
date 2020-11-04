@@ -239,6 +239,7 @@ function _Insights() {
                                     />
                                 </div>
                             }
+                            headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                         >
                             <div>
                                 {

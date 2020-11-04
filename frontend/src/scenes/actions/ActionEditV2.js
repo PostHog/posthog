@@ -60,8 +60,8 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </div>
                 )}
 
-                <div className="match-group-section card" style={{ overflow: 'visible' }}>
-                    <h3>Match groups</h3>
+                <div className="match-group-section" style={{ overflow: 'visible' }}>
+                    <h2 className="subtitle">Match groups</h2>
                     <div>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">

@@ -31,7 +31,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
                         hideMathSelector={hideMathSelector}
                     />
                 ))}
-            <div style={!featureFlags['actions-ux-201012'] ? {} : { paddingTop: '0.5rem' }}>
+            <div className="mt">
                 <Button
                     type="primary"
                     onClick={() => addFilter()}
