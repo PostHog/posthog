@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
 
