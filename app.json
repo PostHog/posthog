@@ -21,6 +21,9 @@
                 },
                 "worker": {
                     "quantity": 1
+                },
+                "plugins": {
+                    "quantity": 1
                 }
             }
         },
@@ -47,6 +50,9 @@
             "quantity": 1
         },
         "worker": {
+            "quantity": 1
+        },
+        "plugins": {
             "quantity": 1
         }
     },
