@@ -64,7 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
             "team",
             "organization",
             "organizations",
-            "plugin_access"
+            "plugin_access",
         ]
         read_only_fields = ["id", "email", "distinct_id"]
 
