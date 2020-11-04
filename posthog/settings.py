@@ -138,6 +138,9 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 
+LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
+
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -184,9 +187,9 @@ SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_HOST = os.environ.get("STATSD_HOST", "")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
 # Application definition
 
@@ -247,6 +250,9 @@ else:
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
+
+# Max size of a POST body (for event ingestion)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20971520  # 20 MB
 
 ROOT_URLCONF = "posthog.urls"
 

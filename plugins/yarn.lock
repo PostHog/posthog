@@ -958,10 +958,10 @@ posthog-js-lite@^0.0.5:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
 
-posthog-plugin-server@0.0.6:
-  version "0.0.6"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.0.6.tgz#1cc6ca6807a4c0c59311080f9f3022c2d78e6e28"
-  integrity sha512-wNrasi2+Va7HJq2Af7BqDKb5BntGt7gXPCBICVjjU/TXyitBLgwaL60m0lMFS+WAFXpviyzkRhgZmPlimIkecg==
+posthog-plugin-server@0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.1.0.tgz#8a7e6ddd7861184ded59f29ca511fab9a40d704a"
+  integrity sha512-emzcz3Nx1BTdCu9W156gre/2rR0CARTRD31mvbCunzGl1zdQCl8xuDhbNtLo9376mYqFuXJ0UkDVkLGWVcWpsQ==
   dependencies:
     "@types/adm-zip" "^0.4.33"
     "@types/ioredis" "^4.17.6"

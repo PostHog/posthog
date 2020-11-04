@@ -7,9 +7,8 @@ from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
-from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, SessionRecordingEvent, Team, User
+from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -220,7 +219,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
                 # otherwise we can't get a diff to add to now
                 return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
             except TypeError as e:
-                capture_exception(e)
+                pass
         return parser.isoparse(data["timestamp"])
     now_datetime = parser.parse(now)
     if data.get("offset"):
@@ -243,7 +242,7 @@ def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, tea
         _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
 
-@shared_task(name="process_event", ignore_result=True)
+@shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
