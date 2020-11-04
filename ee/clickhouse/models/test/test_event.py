@@ -4,7 +4,6 @@ from uuid import uuid4
 from django.utils.timezone import now
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -19,7 +18,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestSendToSlackClickhouse(ClickhouseTestMixin, BaseTest):
+class TestSendToSlackClickhouse(BaseTest):
     @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
