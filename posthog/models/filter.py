@@ -120,9 +120,7 @@ class Filter(PropertyMixin):
     def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
         if target_entity_data:
             data = json.loads(target_entity_data)
-            return Entity(
-                
-                {"id": data["id"], "type": data["type"]})
+            return Entity({"id": data["id"], "type": data["type"]})
         return None
 
     def to_dict(self) -> Dict[str, Any]:
