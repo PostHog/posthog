@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+import requests
 from rest_framework import (
     exceptions,
     generics,
@@ -16,7 +17,9 @@ from rest_framework import (
     status,
     viewsets,
 )
+from rest_framework.utils import model_meta
 from rest_framework.decorators import action
+from rest_framework.serializers import raise_errors_on_nested_writes
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -87,12 +90,30 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.save()
         return team
 
-    def update(self, instance: Model, validated_data: Dict[Any, Any]):
-        instance = super().update(instance, validated_data)
-        if validated_data.get("plugins_opt_in") is not None:
-            reload_plugins_on_workers()
-        return instance
 
+    def update(self, instance, validated_data):
+        raise_errors_on_nested_writes('update', self, validated_data)
+        info = model_meta.get_field_info(instance)
+        m2m_fields = []
+        for attr, value in validated_data.items():
+            if attr == 'plugins_opt_in':
+                reload_plugins_on_workers()
+            elif attr == 'incoming_webhook':
+                try:
+                    test_response = requests.post(attr, verify=False, json={"text": "Greetings from PostHog!"})
+                    if not test_response.ok:
+                        raise exceptions.ValidationError(f"Webhook test error: {test_response.text}")
+                except:
+                    raise exceptions.ValidationError("Invalid webhook URL.")
+            if attr in info.relations and info.relations[attr].to_many:
+                m2m_fields.append((attr, value))
+            else:
+                setattr(instance, attr, value)
+        instance.save()
+        for attr, value in m2m_fields:
+            field = getattr(instance, attr)
+            field.set(value)
+        return instance
 
 class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer

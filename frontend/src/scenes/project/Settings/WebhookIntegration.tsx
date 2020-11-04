@@ -1,11 +1,11 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
-import api from 'lib/api'
 import { Input, Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
 import { UserType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { toast } from 'react-toastify'
 
 const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: "slack.com",
@@ -13,7 +13,8 @@ const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: "office.com"
 }
 
-function resolveWebhookService(webhookUrl: string): string {
+function resolveWebhookService(webhookUrl: string | null): string | null {
+    if (!webhookUrl) return null
     for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
         if (webhookUrl.includes(domain)) return service
     }
@@ -28,7 +29,8 @@ function adjustDiscordWebhook(webhookUrl: string): string {
 const logic = kea<logicType<UserType>>({
     actions: () => ({
         setEditedWebhook: (webhook: string) => ({ webhook }),
-        saveWebhook: (webhook: string) => ({ webhook }),
+        saveWebhook: true,
+        saveWebhookSuccess: true,
         testAndSaveWebhook: true,
         setError: (error: string) => ({ error }),
     }),
@@ -42,14 +44,12 @@ const logic = kea<logicType<UserType>>({
             '',
             {
                 setEditedWebhook: (_, { webhook }) => webhook,
-                saveWebhook: (_, { webhook }) => webhook,
             },
         ],
         isSaving: [
             false,
             {
                 saveWebhook: () => true,
-                testAndSaveWebhook: () => true,
                 setError: () => false,
                 [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => false,
                 [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false
@@ -59,47 +59,34 @@ const logic = kea<logicType<UserType>>({
             false,
             {
                 saveWebhook: () => false,
-                testAndSaveWebhook: () => false,
                 [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => true,
                 setEditedWebhook: () => false,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                saveWebhook: () => null,
-                testAndSaveWebhook: () => null,
-                setError: (_, { error }) => error,
-                setEditedWebhook: () => null,
             },
         ],
     }),
 
     listeners: ({ actions, values }) => ({
-        testAndSaveWebhook: async () => {
-            let { editedWebhook } = values
-            if (editedWebhook) {
-                if (editedWebhook.includes('discord.com')) editedWebhook = adjustDiscordWebhook(editedWebhook)
-                actions.setEditedWebhook(editedWebhook)
-                try {
-                    await api.create('api/user/@me/test_webhook', { webhook: editedWebhook })
-                    actions.saveWebhook(editedWebhook)
-                } catch (error) {
-                    actions.setError(error.detail)
-                }
-            } else {
-                actions.saveWebhook(editedWebhook)
-            }
-        },
         saveWebhook: async () => {
-            await teamLogic.actions.updateCurrentTeam({ incoming_webhook: values.editedWebhook }, 'webhook')
+            let { editedWebhook } = values
+            if (editedWebhook?.includes('discord.com')) {
+                editedWebhook = adjustDiscordWebhook(editedWebhook)
+                actions.setEditedWebhook(editedWebhook)
+            }
+            await teamLogic.actions.updateCurrentTeam({ incoming_webhook: editedWebhook })
+            actions.saveWebhookSuccess()
+        },
+        saveWebhookSuccess: () => {
+            const service = resolveWebhookService(values.editedWebhook)
+            toast.success(service
+                ? `Webhook enabled. You should see a message on ${service}.`
+                : 'Disabled webhook integration.')
         },
     }),
 })
 
 export function WebhookIntegration(): JSX.Element {
-    const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
-    const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
+    const { isSaved, isSaving, editedWebhook } = useValues(logic)
+    const { saveWebhook, setEditedWebhook } = useActions(logic)
 
     return (
         <div>
@@ -121,26 +108,11 @@ export function WebhookIntegration(): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    testAndSaveWebhook()
+                    saveWebhook()
                 }}
             >
                 {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
             </Button>
-
-            {error && (
-                <span className="text-danger" style={{ marginLeft: 10 }}>
-                    Error: {error}
-                </span>
-            )}
-
-            {isSaved && (
-                <span className="text-success" style={{ marginLeft: 10 }}>
-                    Success:{' '}
-                    {editedWebhook
-                        ? `You should see a message on ${resolveWebhookService(editedWebhook)}.`
-                        : 'Disabled integration.'}
-                </span>
-            )}
         </div>
     )
 }

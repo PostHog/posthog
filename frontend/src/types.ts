@@ -62,7 +62,7 @@ export interface TeamType {
     event_properties: string[]
     event_properties_numerical: string[]
     opt_out_capture: boolean
-    incoming_webhook: string
+    incoming_webhook: string | null
     session_recording_opt_in: boolean
     plugins_opt_in: boolean
     ingested_event: boolean

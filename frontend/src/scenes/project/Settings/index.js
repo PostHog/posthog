@@ -77,6 +77,7 @@ function _Setup() {
             <Divider />
             <h2 id="webhook">Webhook Integration</h2>
             <WebhookIntegration />
+            <Divider/>
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />
             <Divider />
