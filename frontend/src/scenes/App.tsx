@@ -19,6 +19,20 @@ import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
+import posthog from 'posthog-js'
+import * as Sentry from '@sentry/browser'
+
+posthog.init((window as any).JS_POSTHOG_API_KEY || 'sTMFPsFhdP1Ssg', { api_host: (window as any).JS_POSTHOG_HOST })
+
+if ((window as any).SENTRY_DSN) {
+    Sentry.init({
+        dsn: (window as any).SENTRY_DSN,
+        ...(window.location.host.indexOf('app.posthog.com') > -1 && {
+            integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+        }),
+    })
+    Sentry.captureException(new Error('Good bye'))
+}
 
 const darkerScenes: Record<string, boolean> = {
     dashboard: true,

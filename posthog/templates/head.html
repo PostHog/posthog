@@ -4,8 +4,8 @@
 <link rel="icon" href="/static/favicon-192x192.png" sizes="192x192"/>
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
-    window.JS_POSTHOG_API_KEY = js_posthog_api_key;
-    window.JS_POSTHOG_HOST = js_posthog_host;
+    window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
+    window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
     </script>
 {% endif %}
 {% if sentry_dsn %}
