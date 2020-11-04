@@ -34,7 +34,7 @@ const logic = kea<logicType<UserType>>({
     }),
 
     defaults: () => (state: Record<string, any>) => ({
-        editedWebhook: userLogic.selectors.user(state, {})?.team?.slack_incoming_webhook,
+        editedWebhook: userLogic.selectors.user(state, {})?.team?.incoming_webhook,
     }),
 
     reducers: () => ({
@@ -82,7 +82,7 @@ const logic = kea<logicType<UserType>>({
                 if (editedWebhook.includes('discord.com')) editedWebhook = adjustDiscordWebhook(editedWebhook)
                 actions.setEditedWebhook(editedWebhook)
                 try {
-                    await api.create('api/user/@me/test_slack_webhook', { webhook: editedWebhook })
+                    await api.create('api/user/@me/test_webhook', { webhook: editedWebhook })
                     actions.saveWebhook(editedWebhook)
                 } catch (error) {
                     actions.setError(error.detail)
@@ -92,7 +92,7 @@ const logic = kea<logicType<UserType>>({
             }
         },
         saveWebhook: async () => {
-            await teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: values.editedWebhook }, 'webhook')
+            await teamLogic.actions.updateCurrentTeam({ incoming_webhook: values.editedWebhook }, 'webhook')
         },
     }),
 })

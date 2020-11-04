@@ -115,7 +115,7 @@ def _capture(
         ]
 
     team = Team.objects.only(
-        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
+        "incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
     ).get(pk=team_id)
 
     if not team.anonymize_ips and "$ip" not in properties:

@@ -53,7 +53,7 @@ def _capture_ee(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
+    team = Team.objects.only("incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
         pk=team_id
     )
 

@@ -506,7 +506,7 @@ class TestPreCalculation(BaseTest):
 class TestSendToSlack(BaseTest):
     @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
-        self.team.slack_incoming_webhook = "http://slack.com/hook"
+        self.team.incoming_webhook = "http://slack.com/hook"
         action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
         ActionStep.objects.create(action=action_user_paid, event="user paid")
 

@@ -83,12 +83,12 @@ class TestUserChangePassword(BaseTest):
 
 class TestUserSlackWebhook(BaseTest):
     TESTS_API = True
-    ENDPOINT: str = "/api/user/@me/test_slack_webhook/"
+    ENDPOINT: str = "/api/user/@me/test_webhook/"
 
     def send_request(self, payload):
         return self.client.post(self.ENDPOINT, payload, content_type="application/json")
 
-    def test_slack_webhook_no_webhook(self):
+    def test_webhook_no_webhook(self):
         response = self.send_request({})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
@@ -96,7 +96,7 @@ class TestUserSlackWebhook(BaseTest):
             {"detail": "Missing webhook URL.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
-    def test_slack_webhook_bad_url(self):
+    def test_webhook_bad_url(self):
         response = self.send_request({"webhook": "blabla"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
@@ -104,7 +104,7 @@ class TestUserSlackWebhook(BaseTest):
             {"detail": "Invalid webhook URL.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
-    def test_slack_webhook_bad_url_full(self):
+    def test_webhook_bad_url_full(self):
         response = self.send_request({"webhook": "http://localhost/bla"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(

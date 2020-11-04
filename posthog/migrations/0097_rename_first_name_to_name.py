@@ -19,4 +19,9 @@ class Migration(migrations.Migration):
             model_name='user',
             name='last_name',
         ),
+        migrations.RenameField(
+            model_name='team',
+            old_name='slack_incoming_webhook',
+            new_name='incoming_webhook',
+        ),
     ]
