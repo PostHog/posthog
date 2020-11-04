@@ -52,7 +52,7 @@ class InsightSerializer(serializers.ModelSerializer):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
-            created_by = validated_data.pop('created_by', request.user)
+            created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
