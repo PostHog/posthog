@@ -3,7 +3,7 @@ STICKINESS_ACTIONS_SQL = """
          SELECT person_distinct_id.person_id, countDistinct(toDate(timestamp)) as day_count
          FROM events
          LEFT JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-         WHERE team_id = %(team_id)s AND uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to}
+         WHERE team_id = %(team_id)s AND {actions_query} {filters} {parsed_date_from} {parsed_date_to}
          GROUP BY person_distinct_id.person_id
     ) GROUP BY day_count ORDER BY day_count
 """

@@ -3,27 +3,23 @@ import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
-export function CustomPlugin(): JSX.Element {
-    const { customPluginUrl, pluginError, loading } = useValues(pluginsLogic)
-    const { setCustomPluginUrl, installPlugin } = useActions(pluginsLogic)
+export function LocalPlugin(): JSX.Element {
+    const { localPluginUrl, pluginError, loading } = useValues(pluginsLogic)
+    const { setLocalPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
         <div style={{ marginTop: 32 }}>
             <Card>
-                <h3 className="l3">Install Custom Plugin</h3>
-                <p>
-                    To install a third-party or custom plugin, please paste the plugin's repository below.
-                    <br />
-                    <b className="text-warning">Warning: Only install plugins from trusted sources.</b>
-                </p>
+                <h3 className="l3">Install Local Plugin</h3>
+                <p>To install a local plugin from this computer/server, give its full path below.</p>
 
                 <Row style={{ width: '100%' }} gutter={16}>
                     <Col style={{ flex: 1 }}>
                         <Input
-                            value={customPluginUrl}
+                            value={localPluginUrl}
                             disabled={loading}
-                            onChange={(e) => setCustomPluginUrl(e.target.value)}
-                            placeholder="https://github.com/user/repo"
+                            onChange={(e) => setLocalPluginUrl(e.target.value)}
+                            placeholder="/var/posthog/plugins/helloworldplugin"
                         />
                     </Col>
                     <Col>
@@ -31,9 +27,9 @@ export function CustomPlugin(): JSX.Element {
                             disabled={loading}
                             loading={loading}
                             type="default"
-                            onClick={() => installPlugin(customPluginUrl, 'custom')}
+                            onClick={() => installPlugin(localPluginUrl, 'local')}
                         >
-                            Fetch and install
+                            Install
                         </Button>
                     </Col>
                 </Row>

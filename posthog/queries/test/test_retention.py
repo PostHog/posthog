@@ -11,7 +11,7 @@ from posthog.queries.retention import Retention
 
 
 # parameterize tests to reuse in EE
-def retention_test_factory(retention, event_factory, person_factory):
+def retention_test_factory(retention, event_factory, person_factory, action_factory):
     class TestRetention(BaseTest):
         def test_retention_default(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -70,13 +70,13 @@ def retention_test_factory(retention, event_factory, person_factory):
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().run(Filter(data={"date_from": self._date(0, hour=6)}), self.team)
+            result = retention().run(Filter(data={"date_to": self._date(10, hour=6)}), self.team)
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
@@ -119,7 +119,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 Filter(
                     data={
                         "properties": [{"key": "$some_property", "value": "value"}],
-                        "date_from": self._date(0, hour=0),
+                        "date_to": self._date(10, hour=0),
                     }
                 ),
                 self.team,
@@ -129,7 +129,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 self.pluck(result, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
@@ -175,7 +175,7 @@ def retention_test_factory(retention, event_factory, person_factory):
                 Filter(
                     data={
                         "properties": [{"key": "email", "value": "person1@test.com", "type": "person",}],
-                        "date_from": self._date(0, hour=0),
+                        "date_to": self._date(6, hour=0),
                     }
                 ),
                 self.team,
@@ -186,7 +186,7 @@ def retention_test_factory(retention, event_factory, person_factory):
             self.assertEqual(
                 self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
             self.assertEqual(
                 self.pluck(result, "values", "count"),
                 [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1],],
@@ -213,7 +213,7 @@ def retention_test_factory(retention, event_factory, person_factory):
 
             start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(data={"date_from": self._date(0, hour=0), "target_entity": start_entity,}),
+                Filter(data={"date_to": self._date(6, hour=0), "target_entity": start_entity,}),
                 self.team,
                 total_intervals=7,
             )
@@ -222,11 +222,171 @@ def retention_test_factory(retention, event_factory, person_factory):
             self.assertEqual(
                 self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
             )
-            self.assertEqual(result[0]["date"], "Wed. 10 June")
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
                 [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
+            )
+
+        def test_retention_period_monthly(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+            )
+            Person.objects.create(
+                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+            )
+
+            self._create_pageviews(
+                [
+                    ("person1", self._date(day=0, month=-5)),
+                    ("person2", self._date(day=0, month=-5)),
+                    ("person1", self._date(day=0, month=-4)),
+                    ("person2", self._date(day=0, month=-4)),
+                    ("person1", self._date(day=0, month=-3)),
+                    ("person2", self._date(day=0, month=-3)),
+                    ("person1", self._date(day=0, month=-1)),
+                    ("person1", self._date(day=0, month=0)),
+                    ("person2", self._date(day=0, month=0)),
+                    ("person2", self._date(day=0, month=1)),
+                    ("person1", self._date(day=0, month=3)),
+                    ("person2", self._date(day=0, month=5)),
+                ]
+            )
+
+            filter = Filter(data={"date_to": self._date(0, month=5, hour=0), "period": "Month"})
+
+            result = retention().run(filter, self.team, total_intervals=11)
+
+            self.assertEqual(
+                self.pluck(result, "label"),
+                [
+                    "Month 0",
+                    "Month 1",
+                    "Month 2",
+                    "Month 3",
+                    "Month 4",
+                    "Month 5",
+                    "Month 6",
+                    "Month 7",
+                    "Month 8",
+                    "Month 9",
+                    "Month 10",
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "date"),
+                [
+                    datetime(2020, 1, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 2, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 3, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 4, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 5, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 7, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 8, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 9, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 10, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 11, 10, 0, tzinfo=pytz.UTC),
+                ],
+            )
+
+        def test_retention_period_hourly(self):
+            Person.objects.create(
+                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+            )
+            Person.objects.create(
+                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+            )
+
+            self._create_pageviews(
+                [
+                    ("person1", self._date(day=0, hour=0)),
+                    ("person2", self._date(day=0, hour=0)),
+                    ("person1", self._date(day=0, hour=1)),
+                    ("person2", self._date(day=0, hour=1)),
+                    ("person1", self._date(day=0, hour=2)),
+                    ("person2", self._date(day=0, hour=2)),
+                    ("person1", self._date(day=0, hour=4)),
+                    ("person1", self._date(day=0, hour=5)),
+                    ("person2", self._date(day=0, hour=5)),
+                    ("person2", self._date(day=0, hour=6)),
+                    ("person1", self._date(day=0, hour=8)),
+                    ("person2", self._date(day=0, hour=10)),
+                ]
+            )
+
+            filter = Filter(data={"date_to": self._date(0, hour=10), "period": "Hour"})
+
+            result = retention().run(filter, self.team, total_intervals=11)
+
+            self.assertEqual(
+                self.pluck(result, "label"),
+                [
+                    "Hour 0",
+                    "Hour 1",
+                    "Hour 2",
+                    "Hour 3",
+                    "Hour 4",
+                    "Hour 5",
+                    "Hour 6",
+                    "Hour 7",
+                    "Hour 8",
+                    "Hour 9",
+                    "Hour 10",
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "date"),
+                [
+                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 1, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 2, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 3, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 4, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 5, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 6, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 7, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 8, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 9, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 10, tzinfo=pytz.UTC),
+                ],
             )
 
         def _create_pageviews(self, user_and_timestamps):
@@ -243,12 +403,12 @@ def retention_test_factory(retention, event_factory, person_factory):
                 i += 1
 
         def _create_signup_actions(self, user_and_timestamps):
-            sign_up_action = Action.objects.create(team=self.team, name="sign up")
-            ActionStep.objects.create(action=sign_up_action, event="sign up")
+
             for distinct_id, timestamp in user_and_timestamps:
                 event_factory(
                     team=self.team, event="sign up", distinct_id=distinct_id, timestamp=timestamp,
                 )
+            sign_up_action = action_factory(team=self.team, name="sign up")
             return sign_up_action
 
         def _date(self, day, hour=5, month=0):
@@ -260,8 +420,17 @@ def retention_test_factory(retention, event_factory, person_factory):
     return TestRetention
 
 
-class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create)):  # type: ignore
-    def test_retention_period(self):
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name)
+    action.calculate_events()
+    return action
+
+
+class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
+    def test_retention_period_weekly(self):
         Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
         )
@@ -288,7 +457,7 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
         )
 
         result = Retention().run(
-            Filter(data={"date_from": self._date(0, hour=0), "period": "Week"}), self.team, total_intervals=7,
+            Filter(data={"date_to": self._date(15, month=1, hour=0), "period": "Week"}), self.team, total_intervals=7,
         )
 
         self.assertEqual(
@@ -303,12 +472,12 @@ class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create
         self.assertEqual(
             self.pluck(result, "date"),
             [
-                "Wed. 10 June",
-                "Wed. 17 June",
-                "Wed. 24 June",
-                "Wed. 1 July",
-                "Wed. 8 July",
-                "Wed. 15 July",
-                "Wed. 22 July",
+                datetime(2020, 6, 13, 0, tzinfo=pytz.UTC),
+                datetime(2020, 6, 20, 0, tzinfo=pytz.UTC),
+                datetime(2020, 6, 27, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 4, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 11, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 18, 0, tzinfo=pytz.UTC),
+                datetime(2020, 7, 25, 0, tzinfo=pytz.UTC),
             ],
         )

@@ -1,10 +1,11 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
+import statsd
 from dateutil import parser
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
@@ -69,6 +70,8 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 @csrf_exempt
 def get_event(request):
+    timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
+    timer.start()
     now = timezone.now()
     try:
         data_from_request = load_data_from_request(request)
@@ -162,28 +165,38 @@ def get_event(request):
                 ),
             )
 
-        task_name = "process_event_ee" if check_ee_enabled() else "process_event"
-        celery_queue = settings.CELERY_DEFAULT_QUEUE
-
-        if team.plugins_opt_in:
-            task_name += "_with_plugins"
-            celery_queue = settings.PLUGINS_CELERY_QUEUE
-
-        celery_app.send_task(
-            name=task_name,
-            queue=celery_queue,
-            args=[
-                distinct_id,
-                get_ip_address(request),
-                request.build_absolute_uri("/")[:-1],
-                event,
-                team.id,
-                now.isoformat(),
-                sent_at,
-            ],
-        )
-
         if check_ee_enabled():
+            process_event_ee(
+                distinct_id=distinct_id,
+                ip=get_ip_address(request),
+                site_url=request.build_absolute_uri("/")[:-1],
+                data=event,
+                team_id=team.id,
+                now=now,
+                sent_at=sent_at,
+            )
+        else:
+            task_name = "posthog.tasks.process_event.process_event"
+            celery_queue = settings.CELERY_DEFAULT_QUEUE
+            if team.plugins_opt_in:
+                task_name += "_with_plugins"
+                celery_queue = settings.PLUGINS_CELERY_QUEUE
+
+            celery_app.send_task(
+                name=task_name,
+                queue=celery_queue,
+                args=[
+                    distinct_id,
+                    get_ip_address(request),
+                    request.build_absolute_uri("/")[:-1],
+                    event,
+                    team.id,
+                    now.isoformat(),
+                    sent_at,
+                ],
+            )
+
+        if check_ee_enabled() and settings.LOG_TO_WAL:
             # log the event to kafka write ahead log for processing
             log_event(
                 distinct_id=distinct_id,
@@ -194,5 +207,5 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
             )
-
+    timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

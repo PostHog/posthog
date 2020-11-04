@@ -10,30 +10,6 @@ DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
 DROP TABLE person_distinct_id
 """
 
-DROP_PERSON_MATERIALIZED_SQL = """
-DROP TABLE persons_up_to_date
-"""
-
-DROP_PERSON_VIEW_SQL = """
-DROP VIEW persons_up_to_date_view
-"""
-
-DROP_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL = """
-DROP TABLE persons_with_array_props_view
-"""
-
-DROP_MAT_PERSONS_WITH_ARRAY_PROPS_TABLE_SQL = """
-DROP TABLE persons_with_array_props_mv
-"""
-
-DROP_MAT_PERSONS_PROP_TABLE_SQL = """
-DROP TABLE persons_properties_view
-"""
-
-DROP_PERSONS_PROP_UP_TO_DATE_VIEW_SQL = """
-DROP VIEW persons_properties_up_to_date_view
-"""
-
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
@@ -80,102 +56,27 @@ FROM kafka_{table_name}
     table_name=PERSONS_TABLE
 )
 
-PERSONS_UP_TO_DATE_MATERIALIZED_VIEW = """
-CREATE MATERIALIZED VIEW persons_up_to_date
-ENGINE = AggregatingMergeTree() ORDER BY (
-    team_id,
-    updated_at,
-    id
-)
-POPULATE
-AS SELECT  
-id,
-argMaxState(team_id, created_at) team_id,
-argMaxState(is_identified, created_at) is_identified,
-argMaxState(properties, created_at) properties,
-minState(created_at) created_at_,
-maxState(created_at) updated_at
-FROM {table_name}
-GROUP BY id
+GET_LATEST_PERSON_SQL = """
+SELECT * FROM person JOIN (
+    SELECT id, max(created_at) as created_at FROM person WHERE team_id = %(team_id)s GROUP BY id
+) as person_max ON person.id = person_max.id AND person.created_at = person_max.created_at
+WHERE team_id = %(team_id)s
+{query}
+"""
+
+GET_LATEST_PERSON_ID_SQL = """
+(select id from (
+    {latest_person_sql}
+))
 """.format(
-    table_name=PERSONS_TABLE
+    latest_person_sql=GET_LATEST_PERSON_SQL
 )
-
-PERSONS_UP_TO_DATE_VIEW = """
-CREATE VIEW persons_up_to_date_view
-AS
-SELECT 
-id,
-minMerge(created_at_) as created_at,
-argMaxMerge(team_id) as team_id,
-argMaxMerge(properties) as properties,
-argMaxMerge(is_identified) as is_identified,
-maxMerge(updated_at) as updated_at
-FROM persons_up_to_date 
-GROUP BY id
-"""
-
-PERSONS_WITH_PROPS_TABLE_SQL = """
-CREATE TABLE persons_with_array_props_view
-(
-    id UUID,
-    created_at DateTime64,
-    team_id Int64,
-    properties VARCHAR,
-    is_identified Boolean,
-    array_property_keys Array(VARCHAR),
-    array_property_values Array(VARCHAR),
-    _timestamp UInt64,
-    _offset UInt64
-) ENGINE = {engine} 
-PARTITION BY toYYYYMM(created_at)
-ORDER BY (team_id, toDate(created_at), id)
-SAMPLE BY id 
-{storage_policy}
-""".format(
-    engine=table_engine("persons_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
-)
-
-MAT_PERSONS_WITH_PROPS_TABLE_SQL = """
-CREATE MATERIALIZED VIEW persons_with_array_props_mv
-TO persons_with_array_props_view
-AS SELECT
-id,
-created_at,
-team_id,
-properties,
-is_identified,
-arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
-arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
-_timestamp,
-_offset
-FROM person
-"""
-
-MAT_PERSONS_PROP_TABLE_SQL = """
-CREATE MATERIALIZED VIEW persons_properties_view
-ENGINE = MergeTree()
-ORDER BY (team_id, key, value, id)
-AS SELECT 
-id,
-team_id,
-array_property_keys as key,
-array_property_values as value,
-created_at
-from persons_with_array_props_view
-ARRAY JOIN array_property_keys, array_property_values
-"""
-
-PERSONS_PROP_UP_TO_DATE_VIEW = """
-CREATE VIEW persons_properties_up_to_date_view
-AS
-SELECT * FROM persons_properties_view WHERE (id, created_at) IN (SELECT id, maxMerge(updated_at) as latest FROM persons_up_to_date GROUP BY id)
-"""
-
 
 GET_PERSON_SQL = """
-SELECT * FROM persons_up_to_date_view WHERE team_id = %(team_id)s
-"""
+SELECT * FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL
+)
 
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
@@ -230,8 +131,10 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM persons_up_to_date_view as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
-"""
+SELECT p.* FROM ({latest_person_sql}) as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL
+)
 
 GET_PERSONS_BY_DISTINCT_IDS = """
 SELECT 
@@ -292,10 +195,6 @@ where distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-DELETE_PERSON_MATERIALIZED_BY_ID = """
-ALTER TABLE persons_up_to_date DELETE where id = %(id)s
-"""
-
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
 ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 """
@@ -327,23 +226,6 @@ SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_i
 ) as pdi ON person.id = pdi.person_id GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 200 OFFSET %(offset)s 
 """
-
-PEOPLE_BY_TEAM_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM persons_up_to_date_view INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s
-) as pdi ON persons_up_to_date_view.id = pdi.person_id 
-WHERE team_id = %(team_id)s {filters} 
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100 OFFSET %(offset)s 
-"""
-
-GET_PERSON_TOP_PROPERTIES = """
-SELECT key, count(1) as count FROM 
-persons_properties_up_to_date_view 
-WHERE team_id = %(team_id)s
-GROUP BY key ORDER BY count DESC LIMIT %(limit)s
-"""
-
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id FROM person_distinct_id WHERE person_id IN

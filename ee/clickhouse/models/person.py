@@ -14,7 +14,6 @@ from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
     DELETE_PERSON_EVENTS_BY_ID,
-    DELETE_PERSON_MATERIALIZED_BY_ID,
     GET_DISTINCT_IDS_SQL,
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
@@ -149,10 +148,6 @@ def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = F
 
     sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
-
-    # :KLUDGE: https://github.com/ClickHouse/ClickHouse/issues/16548
-    if not settings.TEST:
-        sync_execute(DELETE_PERSON_MATERIALIZED_BY_ID, {"id": person_id})
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

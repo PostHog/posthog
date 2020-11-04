@@ -73,6 +73,9 @@ services:
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
+        volumes:
+            - ./idl:/idl
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:

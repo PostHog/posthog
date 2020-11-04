@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from './PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
+import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -73,10 +74,14 @@ export function PluginDrawer(): JSX.Element {
                             </div>
                             <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                 {editingPlugin.description}
-                                <div>
-                                    <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
-                                        View plugin <ArrowRightOutlined />
-                                    </Link>
+                                <div style={{ marginTop: 5 }}>
+                                    {editingPlugin.url?.startsWith('file:') ? (
+                                        <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
+                                    ) : (
+                                        <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
+                                            View plugin <ArrowRightOutlined />
+                                        </Link>
+                                    )}
                                 </div>
                             </div>
                         </div>
