@@ -103,6 +103,7 @@ function CreateOrganizationModal({
 
 export function Organization(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -137,7 +138,7 @@ export function Organization(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        user,
+                                        currentOrganization,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple organizations',
@@ -217,6 +218,7 @@ function CreateProjectModal({
 
 export function Projects(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -252,7 +254,7 @@ export function Projects(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        user,
+                                        currentOrganization,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple projects',

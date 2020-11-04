@@ -2,7 +2,7 @@ import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { UserType } from '~/types'
+import { OrganizationType, UserType } from '~/types'
 import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
@@ -25,13 +25,13 @@ export function UpgradeModal(): JSX.Element {
 }
 
 export function guardPremiumFeature(
-    user: UserType | null,
+    organization: OrganizationType | null | undefined,
     showUpgradeModal: (featureName: string) => void,
     key: string,
     name: string,
     callback?: () => void
 ): boolean {
-    const featureAvailable = !!user?.organization.available_features.includes(key)
+    const featureAvailable = !!organization?.available_features.includes(key)
     if (featureAvailable) callback?.()
     else showUpgradeModal(name)
     return featureAvailable
