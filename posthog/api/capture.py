@@ -72,7 +72,6 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def get_event(request):
     timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
     timer.start()
-    request.timings.start('event_endpoint')
     now = timezone.now()
     try:
         data_from_request = load_data_from_request(request)
