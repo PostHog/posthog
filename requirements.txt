@@ -19,16 +19,17 @@ cryptography==3.2
 decorator==4.4.1
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==3.0.7
-django-cors-headers==3.2.1
-django-extensions==2.2.9
+Django==3.0.11
+django-cors-headers==3.5.0
+django-extensions==3.0.9
 django-filter==2.4.0
-django-loginas==0.3.8
+django-loginas==0.3.9
 django-redis==4.12.1
 django-statsd==2.5.2
-djangorestframework==3.11.0
+djangorestframework==3.12.1
 djangorestframework-csv==2.1.0
 drf-exceptions-hog==0.0.4
+drf-extensions==0.6.0
 fakeredis==1.4.3
 future==0.18.2
 gunicorn==20.0.4
@@ -89,4 +90,3 @@ Werkzeug==1.0.0
 whitenoise==5.0.1
 zipp==3.1.0
 pyyaml==5.3.1
-drf-extensions==0.6.0
