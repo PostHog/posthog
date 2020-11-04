@@ -16,12 +16,29 @@
         "prepublish": "npm run build"
     },
     "bin": {
-        "posthog-plugin-server": "./dist/index.js"
+        "posthog-plugin-server": "./bin/posthog-plugin-server"
     },
     "author": "Marius Andra <marius.andra@gmail.com>",
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
+        "adm-zip": "^0.4.16",
+        "celery-node": "^0.5.0",
+        "gunzip-maybe": "^1.4.2",
+        "tar-stream": "^2.1.4",
+        "pg": "^8.4.1",
+        "vm2": "^3.9.2",
+        "ioredis": "^4.19.0",
+        "node-fetch": "^2.6.1",
+        "node-schedule": "^1.3.2",
+        "posthog-js-lite": "^0.0.5",
+        "yargs": "^15.4.0"
+    },
+    "devDependencies": {
+        "@babel/cli": "^7.0.0",
+        "@babel/core": "^7.0.0",
+        "@babel/preset-env": "^7.0.0",
+        "@babel/preset-typescript": "^7.8.3",
         "@rollup/plugin-json": "^4.1.0",
         "@types/adm-zip": "^0.4.33",
         "@types/gunzip-maybe": "^1.4.0",
@@ -34,28 +51,6 @@
         "@types/yargs": "^15.0.9",
         "@typescript-eslint/eslint-plugin": "^3.6.1",
         "@typescript-eslint/parser": "^3.6.1",
-        "adm-zip": "^0.4.16",
-        "celery-node": "^0.5.0",
-        "gunzip-maybe": "^1.4.2",
-        "husky": ">=4",
-        "ioredis": "^4.19.0",
-        "lint-staged": ">=10",
-        "node-fetch": "^2.6.1",
-        "node-schedule": "^1.3.2",
-        "pg": "^8.4.1",
-        "posthog-js-lite": "^0.0.5",
-        "prettier": "^2.1.2",
-        "tar-stream": "^2.1.4",
-        "ts-node": "^9.0.0",
-        "typescript": "^4.0.3",
-        "vm2": "^3.9.2",
-        "yargs": "^15.4.0"
-    },
-    "devDependencies": {
-        "@babel/cli": "^7.0.0",
-        "@babel/core": "^7.0.0",
-        "@babel/preset-env": "^7.0.0",
-        "@babel/preset-typescript": "^7.8.3",
         "babel-core": "^7.0.0-bridge.0",
         "babel-eslint": "^10.1.0",
         "eslint": "^7.0.0",
@@ -66,13 +61,18 @@
         "eslint-plugin-promise": "^4.1.1",
         "eslint-plugin-react": "^7.20.0",
         "eslint-plugin-standard": "^4.0.0",
+        "husky": ">=4",
+        "lint-staged": ">=10",
+        "prettier": "^2.1.2",
         "rimraf": "^3.0.0",
         "rollup": "^2.22.1",
         "rollup-plugin-babel": "^4.4.0",
         "rollup-plugin-commonjs": "^10.1.0",
         "rollup-plugin-dts": "^1.4.9",
         "rollup-plugin-node-resolve": "^5.2.0",
-        "rollup-plugin-typescript2": "^0.27.1"
+        "rollup-plugin-typescript2": "^0.27.1",
+        "ts-node": "^9.0.0",
+        "typescript": "^4.0.3"
     },
     "husky": {
         "hooks": {
