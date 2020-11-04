@@ -32,7 +32,7 @@ def parse_prop_clauses(
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, prepend, prop_var="{}.properties".format(table_name)
+                prop, idx, prepend, prop_var="{}properties".format(table_name)
             )
             final += " {filter_query} AND {table_name}team_id = %(team_id)s".format(
                 table_name=table_name, filter_query=filter_query
