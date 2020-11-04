@@ -37,7 +37,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
         )
 
-        self._create_pageviews(
+        self._create_events(
             [
                 ("person1", self._date(0)),
                 ("person2", self._date(0)),
