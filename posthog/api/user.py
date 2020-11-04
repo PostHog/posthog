@@ -2,14 +2,14 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import Any, Dict, List, Optional, TypedDict, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
 import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Model
 from django.http import HttpResponsePermanentRedirect, HttpResponseRedirect
@@ -18,6 +18,8 @@ from rest_framework import exceptions, mixins, permissions, request, response, s
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
+from rest_framework.serializers import raise_errors_on_nested_writes
+from rest_framework.utils import model_meta
 
 from posthog.models import User
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api
@@ -100,6 +102,26 @@ class UserSerializer(serializers.ModelSerializer):
     def get_plugin_access(self, user: User) -> Dict[str, bool]:
         return {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()}
 
+    def update(self, instance: Model, validated_data: Any) -> Any:
+        instance = cast(User, instance)
+        raise_errors_on_nested_writes('update', self, validated_data)
+        info = model_meta.get_field_info(instance)
+        m2m_fields = []
+        for attr, value in validated_data.items():
+            if attr == 'current_organization_id':
+                instance.current_organization = instance.organizations.get(id=value)
+                instance.current_team = instance.organization.teams.first()
+            if attr == 'current_team_id':
+                instance.current_team = instance.organization.teams.get(id=value)
+            if attr in info.relations and info.relations[attr].to_many:
+                m2m_fields.append((attr, value))
+            else:
+                setattr(instance, attr, value)
+        instance.save()
+        for attr, value in m2m_fields:
+            field = getattr(instance, attr)
+            field.set(value)
+        return instance
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
@@ -203,50 +225,3 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         user.save()
         update_session_auth_hash(cast(WSGIRequest, request), user)
         return Response(UserSerializer(user).data)
-
-    @action(methods=["POST"], detail=True)
-    def test_slack_webhook(self, request: request.Request, id: str) -> response.Response:
-        webhook = request.data.get("webhook")
-        if not webhook:
-            raise exceptions.ValidationError("Missing webhook URL.")
-        message = {"text": "Greetings from PostHog!"}
-        try:
-            test_response = requests.post(webhook, verify=False, json=message)
-            if test_response.ok:
-                return Response({"message": "Greetings from PostHog!"})
-            else:
-                raise exceptions.ValidationError(f"Webhook test error: {test_response.text}")
-        except:
-            raise exceptions.ValidationError("Invalid webhook URL.")
-
-    @action(methods=["POST"], detail=True)
-    def switch_organization(self, request: request.Request, id: str) -> response.Response:
-        user = self.get_object()
-        try:
-            user.current_organization = user.organizations.get(id=request.data["organization_id"])
-            user.current_team = user.organization.teams.first()
-            user.save()
-        except KeyError:
-            raise exceptions.ValidationError("Missing organization ID.")
-        except ObjectDoesNotExist:
-            raise exceptions.NotFound()
-        else:
-            from .organization import OrganizationSerializer
-
-            return Response(OrganizationSerializer(user.current_organization).data)
-
-    @action(methods=["POST"], detail=True)
-    def switch_team(self, request: request.Request, id: str) -> response.Response:
-        user = self.get_object()
-        try:
-            user.current_team = user.organization.teams.get(id=int(request.data["team_id"]))
-        except ValueError:
-            raise exceptions.ValidationError("Team ID must be an integer.")
-        except KeyError:
-            raise exceptions.ValidationError("Missing team ID.")
-        except ObjectDoesNotExist:
-            raise exceptions.NotFound()
-        else:
-            from .team import TeamSerializer
-
-            return Response(TeamSerializer(user.current_team).data)

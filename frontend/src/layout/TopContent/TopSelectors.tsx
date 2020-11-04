@@ -120,9 +120,8 @@ export function Organization(): JSX.Element {
                                         <a
                                             href="#"
                                             onClick={() => {
-                                                api.update('api/user/@me', {
-                                                    user: { current_organization_id: organization.id },
-                                                }).then(() => {
+                                                api.update('api/user/@me', { current_organization_id: organization.id },
+                                                ).then(() => {
                                                     location.reload()
                                                 })
                                             }}
@@ -236,7 +235,7 @@ export function Projects(): JSX.Element {
                                         <a
                                             href="#"
                                             onClick={() => {
-                                                api.update('api/user/@me', { user: { current_team_id: team.id } }).then(
+                                                api.update('api/user/@me', { current_team_id: team.id } ).then(
                                                     () => {
                                                         location.reload()
                                                     }
