@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Card, Spin, Table, Tooltip } from 'antd'
+import { Button, Spin, Table, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
@@ -188,7 +188,7 @@ export function EventsTable({
                     Export
                 </Button>
             </Tooltip>
-            <Card>
+            <div>
                 <Table
                     dataSource={eventsFormatted}
                     loading={isLoading}
@@ -235,7 +235,7 @@ export function EventsTable({
                         {isLoadingNext ? <Spin /> : 'Load more events'}
                     </Button>
                 </div>
-            </Card>
+            </div>
             <div style={{ marginTop: '5rem' }} />
         </div>
     )

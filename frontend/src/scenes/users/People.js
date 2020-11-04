@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { Cohort } from './Cohort'
 import { PeopleTable } from './PeopleTable'
-import { Button, Tabs, Card, Input } from 'antd'
+import { Button, Tabs, Input } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -116,7 +116,7 @@ function _People() {
                 />
             </Tabs>
 
-            <Card>
+            <div>
                 <PeopleTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
 
                 <div style={{ margin: '3rem auto 10rem', width: 200 }}>
@@ -135,7 +135,7 @@ function _People() {
                         Next <RightOutlined style={{ verticalAlign: 'initial' }} />
                     </Button>
                 </div>
-            </Card>
+            </div>
         </div>
     )
 }

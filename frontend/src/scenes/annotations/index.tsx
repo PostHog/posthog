@@ -1,7 +1,7 @@
 import { hot } from 'react-hot-loader/root'
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown, Card } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin, Menu, Dropdown } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
@@ -105,7 +105,7 @@ function _Annotations(): JSX.Element {
                 caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
             />
 
-            <Card>
+            <div>
                 <div className="mb text-right">
                     <Button
                         type="primary"
@@ -152,7 +152,7 @@ function _Annotations(): JSX.Element {
                         </Button>
                     )}
                 </div>
-            </Card>
+            </div>
             <CreateAnnotationModal
                 visible={open}
                 onCancel={(): void => {

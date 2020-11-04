@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
-import { Table, Switch, Drawer, Button, Card } from 'antd'
+import { Table, Switch, Drawer, Button } from 'antd'
 import moment from 'moment'
 import { EditFeatureFlag } from './EditFeatureFlag'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
@@ -88,20 +88,18 @@ function _FeatureFlags() {
                     New Feature Flag
                 </Button>
             </div>
-            <Card>
-                <Table
-                    dataSource={featureFlags}
-                    columns={columns}
-                    loading={!featureFlags && featureFlagsLoading}
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                    onRow={(featureFlag) => ({
-                        onClick: () => setOpenFeatureFlag(featureFlag),
-                    })}
-                    size="small"
-                    rowClassName={'cursor-pointer ' + rrwebBlockClass}
-                    data-attr="feature-flag-table"
-                />
-            </Card>
+            <Table
+                dataSource={featureFlags}
+                columns={columns}
+                loading={!featureFlags && featureFlagsLoading}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                onRow={(featureFlag) => ({
+                    onClick: () => setOpenFeatureFlag(featureFlag),
+                })}
+                size="small"
+                rowClassName={'cursor-pointer ' + rrwebBlockClass}
+                data-attr="feature-flag-table"
+            />
             <Drawer
                 title={openFeatureFlag === 'new' ? 'New feature flag' : openFeatureFlag.name}
                 width={400}

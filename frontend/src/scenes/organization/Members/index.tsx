@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { Table, Modal, Card } from 'antd'
+import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
 import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
@@ -93,17 +93,15 @@ function _Members({ user }: MembersProps): JSX.Element {
                 title="Organization Members"
                 caption="View and manage all organization members here. Build an even better product together."
             />
-            <Card>
-                <CreateOrgInviteModalWithButton />
-                <Table
-                    dataSource={members}
-                    columns={columns}
-                    rowKey="membership_id"
-                    pagination={false}
-                    style={{ marginTop: '1rem' }}
-                    loading={membersLoading}
-                />
-            </Card>
+            <CreateOrgInviteModalWithButton />
+            <Table
+                dataSource={members}
+                columns={columns}
+                rowKey="membership_id"
+                pagination={false}
+                style={{ marginTop: '1rem' }}
+                loading={membersLoading}
+            />
         </>
     )
 }

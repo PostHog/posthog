@@ -116,6 +116,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     setSidebarCollapsed(sidebarCollapsed)
                     triggerResizeAfterADelay()
                 }}
+                style={{ backgroundColor: 'var(--bg-menu)' }}
             >
                 <Menu
                     className="h-100"

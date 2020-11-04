@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import moment from 'moment'
 import { DeleteWithUndo } from 'lib/utils'
-import { Tooltip, Table, Spin, Card } from 'antd'
+import { Tooltip, Table, Spin } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -97,7 +97,7 @@ function _Cohorts() {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            <Card>
+            <div>
                 <div className="mb text-right">
                     <LinkButton to={'/cohorts/new'} type="primary" data-attr="create-cohort" icon={<PlusOutlined />}>
                         New Cohort
@@ -112,7 +112,7 @@ function _Cohorts() {
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
                     dataSource={cohorts}
                 />
-            </Card>
+            </div>
         </div>
     )
 }

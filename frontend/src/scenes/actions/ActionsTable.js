@@ -1,7 +1,7 @@
 import React from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Table, Card } from 'antd'
+import { Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -171,7 +171,7 @@ export function ActionsTable() {
                     </div>
                 </div>
             )}
-            <Card>
+            <div>
                 <div className="mb text-right">
                     <NewActionButton />
                 </div>
@@ -188,7 +188,7 @@ export function ActionsTable() {
                             : {}
                     }
                 />
-            </Card>
+            </div>
         </div>
     )
 }
