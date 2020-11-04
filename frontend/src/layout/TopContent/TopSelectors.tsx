@@ -29,7 +29,7 @@ export function User(): JSX.Element {
                 <Menu>
                     <Menu.Item key="user-email">
                         <Link to="/me/settings" title="My Settings">
-                            <SettingOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                            <SettingOutlined style={{ marginRight: '0.5rem' }} />
                             {user ? user.email : <i>loading</i>}
                         </Link>
                     </Menu.Item>
@@ -38,14 +38,14 @@ export function User(): JSX.Element {
                     </Menu.Item>
                     <Menu.Item key="user-logout">
                         <a href="#" onClick={logout} data-attr="user-options-logout" style={{ color: red.primary }}>
-                            <LogoutOutlined color={red.primary} size={1} style={{ marginRight: '0.5rem' }} />
+                            <LogoutOutlined color={red.primary} style={{ marginRight: '0.5rem' }} />
                             Logout
                         </a>
                     </Menu.Item>
                 </Menu>
             }
         >
-            <Button data-attr="user-options-dropdown" size="small" icon={<SmileOutlined />} style={{ fontWeight: 500 }}>
+            <Button data-attr="user-options-dropdown" icon={<SmileOutlined />} style={{ fontWeight: 500 }}>
                 {user ? user.name || user.email : <i>loading</i>}
             </Button>
         </Dropdown>
@@ -261,7 +261,7 @@ export function Projects(): JSX.Element {
                                     )
                                 }}
                             >
-                                <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                <PlusOutlined style={{ marginRight: '0.5rem' }} />
                                 <i>New Project</i>
                             </a>
                         </Menu.Item>
@@ -270,7 +270,6 @@ export function Projects(): JSX.Element {
             >
                 <Button
                     data-attr="user-project-dropdown"
-                    size="small"
                     style={{ marginRight: '0.75rem', fontWeight: 500 }}
                     icon={<ProjectOutlined />}
                 >

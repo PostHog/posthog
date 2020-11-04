@@ -13,7 +13,6 @@ export function CommandPaletteButton(): JSX.Element {
         <Button
             data-attr="command-palette-toggle"
             className="hide-when-small"
-            size="small"
             onClick={showPalette}
             title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
             icon={<SearchOutlined />}

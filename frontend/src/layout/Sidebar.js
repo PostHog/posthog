@@ -111,7 +111,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
             <Layout.Sider
                 breakpoint="lg"
                 collapsedWidth="0"
-                className="bg-dark"
                 collapsed={sidebarCollapsed}
                 onCollapse={(sidebarCollapsed) => {
                     setSidebarCollapsed(sidebarCollapsed)
@@ -119,8 +118,9 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 }}
             >
                 <Menu
-                    className="h-100 bg-dark"
+                    className="h-100"
                     theme="dark"
+                    style={{ backgroundColor: 'var(--bg-menu)' }}
                     selectedKeys={[activeScene]}
                     openKeys={[openSubmenu]}
                     mode="inline"

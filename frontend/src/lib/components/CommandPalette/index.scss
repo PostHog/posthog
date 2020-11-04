@@ -22,7 +22,7 @@
     max-height: 60%;
     color: $text_light;
     border-radius: $radius;
-    background-color: $bg_charcoal;
+    background-color: $bg_menu;
     @extend .mixin-elevated;
 
     @media (max-width: 500px) {
@@ -85,7 +85,7 @@
 }
 
 .palette__result--focused {
-    background: darken($bg_charcoal, 10%);
+    background: darken($bg_menu, 10%);
     &::before,
     &::after {
         content: '';

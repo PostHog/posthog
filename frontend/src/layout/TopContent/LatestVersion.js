@@ -41,7 +41,7 @@ export function LatestVersion() {
                                 <Button
                                     type="link"
                                     onClick={() => setChangelogOpen(true)}
-                                    style={{ color: 'hsla(42, 90%, 37%, 1)' }}
+                                    style={{ color: 'var(--warning)' }}
                                 >
                                     <span className="hide-when-small">
                                         <BulbOutlined /> New version available
