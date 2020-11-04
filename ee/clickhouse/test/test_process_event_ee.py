@@ -1,8 +1,9 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
+from dateutil import parser
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -47,8 +48,22 @@ def get_elements(event_id: Union[int, UUID]) -> List[Element]:
     )
 
 
+def _process_event_ee(
+    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+) -> None:
+    return process_event_ee(
+        distinct_id=distinct_id,
+        ip=ip,
+        site_url=site_url,
+        data=data,
+        team_id=team_id,
+        now=parser.isoparse(now),
+        sent_at=parser.isoparse(sent_at) if sent_at else None,
+    )
+
+
 class ClickhouseProcessEvent(
     ClickhouseTestMixin,
-    test_process_event_factory(process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
+    test_process_event_factory(_process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
 ):
     pass

@@ -138,6 +138,7 @@ class Filter(PropertyMixin):
             BREAKDOWN_TYPE: self.breakdown_type,
             COMPARE: self.compare,
             INSIGHT: self.insight,
+            SESSION: self.session_type,
         }
         return {
             key: value
