@@ -1,8 +1,8 @@
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
-import statsd
 
+import statsd
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
