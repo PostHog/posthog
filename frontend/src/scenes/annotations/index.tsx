@@ -273,7 +273,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     <span>Change existing annotation text</span>
                     {!props.annotation?.deleted ? (
                         <DeleteOutlined
-                            className="button-border clickable"
+                            className="text-danger"
                             onClick={(): void => {
                                 props.onDelete()
                             }}

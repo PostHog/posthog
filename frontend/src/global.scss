@@ -162,6 +162,10 @@ style files without adding already imported styles. */
     background-color: $primary;
 }
 
+.text-danger {
+    color: $danger !important;
+}
+
 // Random general styles
 .cursor-pointer {
     cursor: pointer;
