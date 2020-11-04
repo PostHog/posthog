@@ -1,18 +1,13 @@
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Set
 
-import pandas as pd
-from dateutil.relativedelta import relativedelta
-from django.db import connection
-from django.db.models import F, Prefetch, Q, QuerySet
-from django.db.models.expressions import Window
-from django.db.models.functions import Lag
+from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers  # type: ignore
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
@@ -25,15 +20,9 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
+from posthog.queries.session_recording import SessionRecording
 from posthog.queries.sessions import Sessions
-from posthog.utils import (
-    append_data,
-    convert_property_value,
-    dict_from_cursor_fetchall,
-    friendly_time,
-    get_compare_period_dates,
-    request_to_date_query,
-)
+from posthog.utils import convert_property_value
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -216,7 +205,7 @@ class EventViewSet(viewsets.ModelViewSet):
             {
                 "next": next_url,
                 "results": EventSerializer(
-                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
+                    prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
         )
@@ -275,7 +264,7 @@ class EventViewSet(viewsets.ModelViewSet):
             """
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_event"."properties" -> %s) as "value"
                 FROM
@@ -311,3 +300,17 @@ class EventViewSet(viewsets.ModelViewSet):
                 result.update({OFFSET: offset})
                 result.update({DATE_FROM: date_from})
         return response.Response(result)
+
+    # ******************************************
+    # /event/session_recording
+    # params:
+    # - session_recording_id: (string) id of the session recording
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = self.request.user.team
+        snapshots = SessionRecording().run(
+            team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+        )
+
+        return response.Response({"result": snapshots})

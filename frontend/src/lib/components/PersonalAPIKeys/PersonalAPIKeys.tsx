@@ -23,7 +23,7 @@ function CreateKeyModal({
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
         setIsVisible(false)
-        if (inputRef.current) inputRef.current.state.value = ''
+        if (inputRef.current) inputRef.current.setValue('')
     }, [inputRef, setIsVisible])
 
     return (
@@ -35,7 +35,7 @@ function CreateKeyModal({
                 const label = inputRef.current?.state.value?.trim()
                 if (label) {
                     setErrorMessage(null)
-                    createKey(inputRef.current?.state.value.trim())
+                    createKey(label)
                     closeModal()
                 } else {
                     setErrorMessage('Your key needs a label!')
@@ -62,7 +62,11 @@ function CreateKeyModal({
 }
 
 function RowValue(value: string): JSX.Element {
-    return value ? <CopyToClipboardInline description="key value">{value}</CopyToClipboardInline> : <i>secret</i>
+    return value ? (
+        <CopyToClipboardInline description="personal API key value">{value}</CopyToClipboardInline>
+    ) : (
+        <i>secret</i>
+    )
 }
 
 function RowActionsCreator(
@@ -106,7 +110,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Last Used',
             dataIndex: 'last_used_at',
             key: 'lastUsedAt',
-            render: (lastUsedAt: string) => (lastUsedAt ? humanFriendlyDetailedTime(lastUsedAt) : 'never'),
+            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt),
         },
         {
             title: 'Created',
@@ -156,7 +160,7 @@ export function PersonalAPIKeys(): JSX.Element {
                     setIsCreateKeyModalVisible(true)
                 }}
             >
-                + Create a Personal API Key
+                + Create Personal API Key
             </Button>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable />

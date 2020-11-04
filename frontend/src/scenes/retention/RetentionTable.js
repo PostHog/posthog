@@ -4,23 +4,33 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import moment from 'moment'
 
 export function RetentionTable() {
-    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(retentionTableLogic)
+    const {
+        retention,
+        retentionLoading,
+        peopleLoading,
+        people,
+        loadingMore,
+        filters: { period },
+    } = useValues(retentionTableLogic)
     const { loadPeople, loadMore } = useActions(retentionTableLogic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
     let columns = [
         {
-            title: 'Cohort',
-            key: 'cohort',
-            render: (row) => row.date,
+            title: 'Date',
+            key: 'date',
+            render: (row) => moment(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            align: 'center',
         },
         {
             title: 'Users',
             key: 'users',
             render: (row) => row.values[0]['count'],
+            align: 'center',
         },
     ]
 
@@ -49,13 +59,17 @@ export function RetentionTable() {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
+                rowClassName={window.posthog?.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
+                            if (window.posthog?.isFeatureEnabled('ch-retention-endpoint')) {
+                                return
+                            }
+
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -150,7 +164,7 @@ export function RetentionTable() {
                             )}
                         </div>
                     ) : (
-                        <Spin></Spin>
+                        <Spin />
                     )}
                 </Modal>
             )}

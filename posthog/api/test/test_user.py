@@ -17,14 +17,14 @@ class TestUser(BaseTest):
     def test_create_user_when_restricted(self):
         with self.settings(RESTRICT_SIGNUPS="posthog.com,uk.posthog.com"):
             with self.assertRaisesMessage(ValueError, "Can't sign up with this email"):
-                User.objects.create_user(first_name="Tim Gmail", email="tim@gmail.com")
+                User.objects.create_user(first_name="Tim Gmail", email="tim@gmail.com", password=None)
 
-            user = User.objects.create_user(first_name="Tim PostHog", email="tim@uk.posthog.com")
+            user = User.objects.create_user(first_name="Tim PostHog", email="tim@uk.posthog.com", password=None)
             self.assertEqual(user.email, "tim@uk.posthog.com")
 
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
-            user = User.objects.create_user(first_name="Tim", email="tim@gmail.com")
+            user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
 
@@ -43,29 +43,6 @@ class TestUser(BaseTest):
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)
-
-    @patch("secrets.token_urlsafe")
-    def test_user_team_update_signup_token(self, patch_token):
-        patch_token.return_value = "abcde"
-
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.patch(
-            "/api/user", data={"team": {"signup_state": False}}, content_type="application/json",
-        ).json()
-
-        self.assertEqual(response["team"]["signup_token"], None)
-
-        team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.signup_token, None)
-
-        response = self.client.patch(
-            "/api/user/", data={"team": {"signup_state": True}}, content_type="application/json",
-        ).json()
-
-        self.assertEqual(response["team"]["signup_token"], "abcde")
-
-        team = Team.objects.get(id=self.team.id)
-        self.assertEqual(team.signup_token, "abcde")
 
 
 class TestUserChangePassword(BaseTest):

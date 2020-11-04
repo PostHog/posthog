@@ -4,215 +4,23 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import get_elements_by_elements_hashes
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.clickhouse_session_recording import add_session_recording_ids
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
-from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL, NULL_SQL
+from ee.clickhouse.sql.events import NULL_SQL
+from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
+from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
+from ee.clickhouse.sql.sessions.distribution import DIST_SQL
+from ee.clickhouse.sql.sessions.list import SESSION_SQL
+from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models.filter import Filter
-from posthog.models.team import Team
+from posthog.models import Filter, Person, Team
 from posthog.queries.base import BaseQuery, determine_compared_filter
-from posthog.utils import append_data, friendly_time
+from posthog.utils import append_data, friendly_time, relative_date_parse
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
-
-SESSIONS_NO_EVENTS_SQL = """
-SELECT
-    distinct_id,
-    uuid,
-    event,
-    properties,
-    elements_hash,
-    session_uuid,
-    session_duration_seconds,
-    timestamp,
-    session_end_ts
-FROM
-(
-    SELECT
-        distinct_id,
-        uuid,
-        event,
-        properties,
-        elements_hash,
-        if(is_new_session, uuid, NULL) AS session_uuid,
-        is_new_session,
-        is_end_session,
-        if(is_end_session AND is_new_session, 0, if(is_new_session AND (NOT is_end_session), dateDiff('second', toDateTime(timestamp), toDateTime(neighbor(timestamp, 1))), NULL)) AS session_duration_seconds,
-        timestamp,
-        if(is_end_session AND is_new_session, timestamp, if(is_new_session AND (NOT is_end_session), neighbor(timestamp, 1), NULL)) AS session_end_ts
-    FROM
-    (
-        SELECT
-            distinct_id,
-            uuid,
-            event,
-            properties,
-            elements_hash,
-            timestamp,
-            neighbor(distinct_id, -1) AS start_possible_neighbor,
-            neighbor(timestamp, -1) AS start_possible_prev_ts,
-            if((start_possible_neighbor != distinct_id) OR (dateDiff('minute', toDateTime(start_possible_prev_ts), toDateTime(timestamp)) > 30), 1, 0) AS is_new_session,
-            neighbor(distinct_id, 1) AS end_possible_neighbor,
-            neighbor(timestamp, 1) AS end_possible_prev_ts,
-            if((end_possible_neighbor != distinct_id) OR (dateDiff('minute', toDateTime(timestamp), toDateTime(end_possible_prev_ts)) > 30), 1, 0) AS is_end_session
-        FROM
-        (
-            SELECT
-                uuid,
-                event,
-                properties,
-                timestamp,
-                distinct_id,
-                elements_hash
-            FROM events
-            WHERE 
-                team_id = %(team_id)s
-                {date_from}
-                {date_to} 
-                {filters}
-            GROUP BY
-                uuid,
-                event,
-                properties,
-                timestamp,
-                distinct_id,
-                elements_hash
-            ORDER BY
-                distinct_id ASC,
-                timestamp ASC
-        )
-    )
-    WHERE (is_new_session AND (NOT is_end_session)) OR (is_end_session AND (NOT is_new_session)) OR (is_end_session AND is_new_session)
-)
-WHERE is_new_session
-{sessions_limit}
-"""
-
-SESSION_SQL = """
-    SELECT 
-        distinct_id, 
-        gid, 
-        dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
-        arrayReduce('min', groupArray(timestamp)) as start_time,
-        groupArray(uuid) uuids, 
-        groupArray(event) events, 
-        groupArray(properties) properties, 
-        groupArray(timestamp) timestamps, 
-        groupArray(elements_hash) elements_hash
-    FROM (
-        SELECT
-            distinct_id, 
-            event,
-            timestamp,
-            uuid,
-            properties,
-            elements_hash,
-            arraySum(arraySlice(gids, 1, idx)) AS gid
-        FROM (
-            SELECT 
-                groupArray(timestamp) as timestamps, 
-                groupArray(event) as events, 
-                groupArray(uuid) as uuids, 
-                groupArray(properties) as property_list, 
-                groupArray(elements_hash) as elements_hashes, 
-                groupArray(distinct_id) as distinct_ids, 
-                groupArray(new_session) AS gids
-            FROM (
-                SELECT 
-                    distinct_id,
-                    uuid,
-                    event,
-                    properties,
-                    elements_hash,
-                    timestamp, 
-                    neighbor(distinct_id, -1) as possible_neighbor,
-                    neighbor(timestamp, -1) as possible_prev, 
-                    if(possible_neighbor != distinct_id or dateDiff('minute', toDateTime(possible_prev), toDateTime(timestamp)) > 30, 1, 0) as new_session
-                FROM (
-                    SELECT 
-                        uuid,
-                        event,
-                        properties,
-                        timestamp, 
-                        distinct_id,
-                        elements_hash
-                    FROM    
-                        events 
-                    WHERE 
-                        team_id = %(team_id)s
-                        {date_from}
-                        {date_to} 
-                        {filters}
-                    GROUP BY 
-                        uuid,
-                        event,
-                        properties,
-                        timestamp, 
-                        distinct_id,
-                        elements_hash 
-                    ORDER BY 
-                        distinct_id, 
-                        timestamp
-                )
-            )
-        )
-        ARRAY JOIN
-            distinct_ids as distinct_id,
-            events as event,
-            timestamps as timestamp,
-            uuids as uuid,
-            property_list as properties,
-            elements_hashes as elements_hash,
-            arrayEnumerate(gids) AS idx 
-    ) 
-    GROUP BY 
-        distinct_id, 
-        gid
-    {sessions_limit}
-"""
-
-AVERAGE_PER_PERIOD_SQL = """
-    SELECT 
-        AVG(session_duration_seconds) as total, 
-        {interval}(timestamp) as day_start 
-    FROM 
-        ({sessions}) 
-    GROUP BY 
-        {interval}(timestamp)
-"""
-
-AVERAGE_SQL = """
-    SELECT 
-        SUM(total), 
-        day_start 
-    FROM 
-        ({null_sql} UNION ALL {sessions}) 
-    GROUP BY 
-        day_start 
-    ORDER BY 
-        day_start
-"""
-
-DIST_SQL = """
-    SELECT 
-        countIf(session_duration_seconds = 0)  as first,
-        countIf(session_duration_seconds > 0 and session_duration_seconds <= 3)  as second,
-        countIf(session_duration_seconds > 3 and session_duration_seconds <= 10)  as third,
-        countIf(session_duration_seconds > 10 and session_duration_seconds <= 30)  as fourth,
-        countIf(session_duration_seconds > 30 and session_duration_seconds <= 60)  as fifth,
-        countIf(session_duration_seconds > 60 and session_duration_seconds <= 180)  as sixth,
-        countIf(session_duration_seconds > 180 and session_duration_seconds <= 600)  as sevent,
-        countIf(session_duration_seconds > 600 and session_duration_seconds <= 1800)  as eighth,
-        countIf(session_duration_seconds > 1800 and session_duration_seconds <= 3600)  as ninth,
-        countIf(session_duration_seconds > 3600)  as tenth
-    FROM 
-        ({sessions})
-""".format(
-    sessions=SESSIONS_NO_EVENTS_SQL
-)
 
 # TODO: handle date and defaults
 class ClickhouseSessions(BaseQuery):
@@ -225,7 +33,7 @@ class ClickhouseSessions(BaseQuery):
             filter._date_to = filter.date_from + relativedelta(days=1)
 
         date_from, date_to = parse_timestamps(filter)
-        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset}
+        params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
@@ -235,8 +43,8 @@ class ClickhouseSessions(BaseQuery):
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
 
-        self._add_elements(team, result)
         self._add_person_properties(team, result)
+        add_session_recording_ids(team, result)
 
         return result
 
@@ -252,7 +60,7 @@ class ClickhouseSessions(BaseQuery):
                     result[7][i],  # timestamp
                     None,  # team_id,
                     result[0],  # distinct_id
-                    result[8][i],  # elements_hash
+                    result[8][i],  # elements_chain
                     None,  # properties keys
                     None,  # properties values
                 ]
@@ -264,6 +72,7 @@ class ClickhouseSessions(BaseQuery):
                     "global_session_id": result[1],
                     "length": result[2],
                     "start_time": result[3],
+                    "end_time": result[9],
                     "event_count": len(result[4]),
                     "events": list(events),
                     "properties": {},
@@ -271,31 +80,6 @@ class ClickhouseSessions(BaseQuery):
             )
 
         return final
-
-    def _add_elements(self, team=Team, sessions=List[Tuple]):
-        element_hash_dict = {}
-        for session in sessions:
-            for event in session["events"]:
-                if event.get("elements_hash"):
-                    element_hash_dict[event["elements_hash"]] = True
-
-        element_hashes = list(element_hash_dict.keys())
-
-        if len(element_hashes) == 0:
-            return
-
-        elements = get_elements_by_elements_hashes(element_hashes, team.pk)
-
-        grouped_elements: Dict[str, List[Dict[str, Any]]] = {}
-        for element in elements:
-            if not grouped_elements.get(element["elements_hash"], None):
-                grouped_elements[element["elements_hash"]] = []
-            grouped_elements[element["elements_hash"]].append(element)
-
-        for session in sessions:
-            for event in session["events"]:
-                if event["elements_hash"] and grouped_elements.get(event["elements_hash"], None):
-                    event["elements"] = grouped_elements[event["elements_hash"]]
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}
@@ -308,16 +92,23 @@ class ClickhouseSessions(BaseQuery):
 
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
-        distinct_to_person: Dict[str, Dict[str, Any]] = {}
+        distinct_to_person: Dict[str, Person] = {}
         for person in persons:
-            for distinct_id in person["distinct_ids"]:
+            for distinct_id in person.distinct_ids:
                 distinct_to_person[distinct_id] = person
 
         for session in sessions:
             if distinct_to_person.get(session["distinct_id"], None):
-                session["properties"] = distinct_to_person[session["distinct_id"]]["properties"]
+                session["properties"] = distinct_to_person[session["distinct_id"]].properties
 
     def calculate_avg(self, filter: Filter, team: Team):
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
+
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses("uuid", filter.properties, team)
@@ -378,6 +169,12 @@ class ClickhouseSessions(BaseQuery):
         return time_series_data
 
     def calculate_dist(self, filter: Filter, team: Team):
+
+        # format default dates
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 

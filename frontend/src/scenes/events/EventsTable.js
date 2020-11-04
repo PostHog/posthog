@@ -1,9 +1,8 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
-
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -14,6 +13,8 @@ import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 
 import { eventToName, toParams } from 'lib/utils'
+
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function EventsTable({
     fixedFilters,
@@ -36,6 +37,7 @@ export function EventsTable({
     const {
         location: { search },
     } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -96,7 +98,10 @@ export function EventsTable({
             render: function renderPerson({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
                 return showLinkToPerson ? (
-                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
+                    <Link
+                        to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
+                        className={'ph-no-capture ' + rrwebBlockClass}
+                    >
                         {event.person}
                     </Link>
                 ) : (
@@ -112,7 +117,12 @@ export function EventsTable({
                 let param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
                 if (filtersEnabled)
                     return (
-                        <FilterPropertyLink property={param} value={event.properties[param]} filters={{ properties }} />
+                        <FilterPropertyLink
+                            className={'ph-no-capture ' + rrwebBlockClass}
+                            property={param}
+                            value={event.properties[param]}
+                            filters={{ properties }}
+                        />
                     )
                 return <Property value={event.properties[param]} />
             },
@@ -151,7 +161,15 @@ export function EventsTable({
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">{isLiveActions ? 'Live Actions' : isPersonPage ? '' : 'Events'}</h1>
+            <h1 className="page-header">
+                {isLiveActions
+                    ? 'Live Actions'
+                    : isPersonPage
+                    ? ''
+                    : !featureFlags['actions-ux-201012']
+                    ? 'Events'
+                    : 'Raw Events Stream'}
+            </h1>
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
@@ -173,12 +191,12 @@ export function EventsTable({
                 loading={isLoading}
                 columns={columns}
                 size="small"
-                className="ph-no-capture"
+                className={rrwebBlockClass + ' ph-no-capture'}
                 locale={{
                     emptyText: (
                         <span>
                             You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                            <Link to="/setup">click here to set PostHog up on your app</Link>.
+                            <Link to="/project">click here to set PostHog up on your app</Link>.
                         </span>
                     ),
                 }}

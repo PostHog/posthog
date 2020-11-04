@@ -1,8 +1,9 @@
 import datetime
 import json
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -12,21 +13,20 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
+    DELETE_PERSON_EVENTS_BY_ID,
     GET_DISTINCT_IDS_SQL,
     GET_DISTINCT_IDS_SQL_BY_ID,
     GET_PERSON_BY_DISTINCT_ID,
     GET_PERSON_SQL,
-    GET_PERSONS_BY_DISTINCT_IDS,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
     PERSON_DISTINCT_ID_EXISTS_SQL,
-    PERSON_EXISTS_SQL,
     UPDATE_PERSON_ATTACHED_DISTINCT_ID,
     UPDATE_PERSON_IS_IDENTIFIED,
     UPDATE_PERSON_PROPERTIES,
 )
-from ee.kafka.client import ClickhouseProducer, KafkaProducer
-from ee.kafka.topics import KAFKA_OMNI_PERSON, KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
 from posthog.models.person import Person, PersonDistinctId
@@ -52,36 +52,6 @@ if settings.EE_AVAILABLE and check_ee_enabled():
         delete_person(instance.uuid)
 
 
-def emit_omni_person(
-    event_uuid: UUID,
-    team_id: int,
-    distinct_id: str,
-    uuid: Optional[UUID] = None,
-    properties: Optional[Dict] = {},
-    sync: bool = False,
-    is_identified: bool = False,
-    timestamp: Optional[datetime.datetime] = None,
-) -> UUID:
-    if not uuid:
-        uuid = UUIDT()
-
-    if not timestamp:
-        timestamp = now()
-
-    data = {
-        "event_uuid": str(event_uuid),
-        "uuid": str(uuid),
-        "distinct_id": distinct_id,
-        "team_id": team_id,
-        "properties": json.dumps(properties),
-        "is_identified": int(is_identified),
-        "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-    }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_OMNI_PERSON, data=data)
-    return uuid
-
-
 def create_person(
     team_id: int,
     uuid: Optional[str] = None,
@@ -102,7 +72,7 @@ def create_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
@@ -129,10 +99,6 @@ def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
     return bool(sync_execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][0])
 
 
-def person_exists(id: int) -> bool:
-    return bool(sync_execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
-
-
 def get_persons(team_id: int):
     result = sync_execute(GET_PERSON_SQL, {"team_id": team_id})
     return ClickhousePersonSerializer(result, many=True).data
@@ -150,17 +116,13 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
     return {}
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> List[Dict[str, Any]]:
-    result = sync_execute(
-        GET_PERSONS_BY_DISTINCT_IDS,
-        {"team_id": team_id, "distinct_ids": [distinct_id.__str__() for distinct_id in distinct_ids]},
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
+    return Person.objects.filter(
+        team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
     )
-    if len(result) > 0:
-        return list(ClickhousePersonSerializer(result, many=True).data)
-    return []
 
 
-def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> None:
+def merge_people(team_id: int, target: Dict, old_id: UUID, old_props: Dict) -> None:
     # merge the properties
     properties = {**old_props, **target["properties"]}
 
@@ -180,7 +142,10 @@ def merge_people(team_id: int, target: Dict, old_id: int, old_props: Dict) -> No
     delete_person(old_id)
 
 
-def delete_person(person_id):
+def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
+    if delete_events:
+        sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
+
     sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
 

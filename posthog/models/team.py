@@ -1,10 +1,12 @@
 from typing import Any, Dict, List, Optional
 
+import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
 from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .action import Action
 from .action_step import ActionStep
@@ -17,48 +19,56 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: Optional[List[Any]] = None, **kwargs) -> "Team":
-        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
-        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
+    def create_with_data(self, user=None, **kwargs) -> "Team":
         team = Team.objects.create(**kwargs)
-        if users:
-            team.users.set(users)
 
-        action = Action.objects.create(team=team, name="Pageviews")
-        ActionStep.objects.create(action=action, event="$pageview")
+        if not user or not posthoganalytics.feature_enabled("actions-ux-201012", user.distinct_id):
+            # Don't create default `Pageviews` action on actions-ux-201012 feature flag
+            action = Action.objects.create(team=team, name="Pageviews")
+            ActionStep.objects.create(action=action, event="$pageview")
 
-        dashboard = Dashboard.objects.create(
-            name="Default", pinned=True, team=team, share_token=generate_random_token()
-        )
+        # Create default dashboard
+        if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
+            # Create app template dashboard if feature flag is active
+            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team,)
+            create_dashboard_from_template("DEFAULT_APP", dashboard)
+        else:
+            # DEPRECATED: Will be retired in favor of dashboard_templates.py
+            dashboard = Dashboard.objects.create(
+                name="Default", pinned=True, team=team, share_token=generate_random_token()
+            )
 
-        DashboardItem.objects.create(
-            team=team,
-            dashboard=dashboard,
-            name="Pageviews this week",
-            type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
-            last_refresh=timezone.now(),
-        )
-        DashboardItem.objects.create(
-            team=team,
-            dashboard=dashboard,
-            name="Most popular browsers this week",
-            type="ActionsTable",
-            filters={
-                TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                "display": "ActionsTable",
-                "breakdown": "$browser",
-            },
-            last_refresh=timezone.now(),
-        )
-        DashboardItem.objects.create(
-            team=team,
-            dashboard=dashboard,
-            name="Daily Active Users",
-            type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]},
-            last_refresh=timezone.now(),
-        )
+            DashboardItem.objects.create(
+                team=team,
+                dashboard=dashboard,
+                name="Pageviews this week",
+                type=TRENDS_LINEAR,
+                filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
+                last_refresh=timezone.now(),
+            )
+            DashboardItem.objects.create(
+                team=team,
+                dashboard=dashboard,
+                name="Most popular browsers this week",
+                type="ActionsTable",
+                filters={
+                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
+                    "display": "ActionsTable",
+                    "breakdown": "$browser",
+                },
+                last_refresh=timezone.now(),
+            )
+            DashboardItem.objects.create(
+                team=team,
+                dashboard=dashboard,
+                name="Daily Active Users",
+                type=TRENDS_LINEAR,
+                filters={
+                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]
+                },
+                last_refresh=timezone.now(),
+            )
+
         return team
 
     def get_team_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
@@ -89,9 +99,11 @@ class Team(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team", null=True
     )
-    api_token: models.CharField = models.CharField(max_length=200, null=True, default=generate_random_token)
+    api_token: models.CharField = models.CharField(
+        max_length=200, null=True, unique=True, default=generate_random_token
+    )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
-    name: models.CharField = models.CharField(max_length=200, null=True, default="Default")
+    name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
@@ -102,6 +114,8 @@ class Team(models.Model):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
+    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously
@@ -109,10 +123,10 @@ class Team(models.Model):
 
     # DEPRECATED: with organizations, all users belonging to the organization get access to all its teams right away
     # This may be brought back into use with a more robust approach (and some constraint checks)
-    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
+    users: models.ManyToManyField = models.ManyToManyField(
+        "User", blank=True, related_name="teams_deprecated_relationship"
+    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-
-    session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

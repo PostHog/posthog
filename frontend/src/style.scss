@@ -88,6 +88,7 @@ $body-color: #37352f;
     box-shadow: 0px 0px 13px rgba(0, 0, 0, 0.1);
     border: 0;
     margin-bottom: 3rem;
+    overflow: hidden;
     .card-header {
         font-weight: 500;
         font-size: 15px;
@@ -121,9 +122,12 @@ $body-color: #37352f;
     background: #fff;
     text-align: center;
     min-height: 6rem;
-    > div {
-        height: calc(50% - 20px);
-    }
+    opacity: 0.7;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     &.over-table {
         display: block;
         background: rgba(0, 0, 0, 0.1);
@@ -139,10 +143,13 @@ $body-color: #37352f;
 
 .code-container {
     position: relative;
-    .copy-icon {
+    .action-icon-container {
         position: absolute;
         top: 1em;
         right: 1em;
+    }
+    .action-icon {
+        margin-left: 0.5em;
         padding: 2px;
         color: white;
         background-color: inherit;
@@ -306,15 +313,17 @@ label.disabled {
 }
 
 // less content padding in low resolutions
-.ant-layout .ant-layout-content.pl-5.pr-5.pt-3,
+.ant-layout .ant-layout-content.pl-5.pr-5.pt-3.pb-5,
 .ant-layout .content.py-3.layout-top-content {
     @media (min-width: 480px) and (max-width: 639px) {
         padding-left: 2rem !important;
         padding-right: 2rem !important;
+        padding-bottom: 2rem !important;
     }
     @media (max-width: 479px) {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
+        padding-bottom: 1rem !important;
     }
 }
 
@@ -455,6 +464,14 @@ label.disabled {
     background-color: #f0f0f0 !important;
 }
 
+.btn-sm {
+    line-height: 20px;
+}
+
+.btn-top {
+    font-weight: 500;
+}
+
 @media screen and (max-width: 480px) {
     h1.title {
         line-height: 1.1em;
@@ -473,5 +490,33 @@ label.disabled {
             margin-top: 0 !important;
             height: 200px;
         }
+    }
+}
+
+.match-condition-badge {
+    padding: 2px 8px;
+    border-radius: 2px;
+    color: white;
+    font-weight: bold;
+
+    &.mc-or {
+        background-color: #4263eb;
+    }
+
+    &.mc-and {
+        background-color: #f7a501;
+    }
+}
+
+.Papercups-toggleButtonContainer {
+    transition: bottom 0.5s ease-out;
+}
+
+.drawer-open {
+    .Papercups-toggleButtonContainer {
+        bottom: 60px !important;
+    }
+    #bottom-notice {
+        height: 0px !important;
     }
 }

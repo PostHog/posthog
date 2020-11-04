@@ -3,11 +3,41 @@ import api from 'lib/api'
 import moment from 'moment'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from 'types/scenes/sessions/sessionsTableLogicType'
-import { SessionType } from '~/types'
+import { PropertyFilter, SessionType } from '~/types'
+import { router } from 'kea-router'
+import { eventWithTime } from 'rrweb/typings/types'
 
 type Moment = moment.Moment
 
-export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType>>({
+type SessionRecordingId = string
+
+type Params = {
+    date?: string
+    properties?: any
+    sessionRecordingId?: SessionRecordingId
+}
+
+const buildURL = (selectedDateURLparam?: string, sessionRecordingId?: SessionRecordingId | null): [string, Params] => {
+    const today = moment().startOf('day').format('YYYY-MM-DD')
+    const params: Params = {}
+
+    const { properties } = router.values.searchParams // eslint-disable-line
+    if (selectedDateURLparam !== today) {
+        params.date = selectedDateURLparam
+    }
+    if (properties) {
+        params.properties = properties
+    }
+    if (sessionRecordingId) {
+        params.sessionRecordingId = sessionRecordingId
+    }
+
+    return [router.values.location.pathname, params]
+}
+
+export const sessionsTableLogic = kea<
+    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, eventWithTime, PropertyFilter>
+>({
     props: {} as {
         personIds?: string[]
     },
@@ -21,7 +51,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                     date_to: selectedDateURLparam,
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
+                    properties: values.properties,
                 })
+                await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
                 breakpoint()
                 if (response.offset) {
@@ -30,14 +62,26 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 return response.result
             },
         },
+        sessionPlayerData: {
+            loadSessionPlayer: async (sessionRecordingId: SessionRecordingId): Promise<eventWithTime[]> => {
+                const params = toParams({ session_recording_id: sessionRecordingId })
+                const response = await api.get(`api/event/session_recording?${params}`)
+                return response.result
+            },
+        },
     }),
     actions: () => ({
         setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
         fetchNextSessions: true,
         appendNewSessions: (sessions) => ({ sessions }),
-        dateChanged: (date: Moment | null) => ({ date }),
         previousDay: true,
         nextDay: true,
+        setFilters: (
+            properties: Array<PropertyFilter>,
+            selectedDate: Moment | null,
+            sessionRecordingId: SessionRecordingId | null
+        ) => ({ properties, selectedDate, sessionRecordingId }),
+        closeSessionPlayer: true,
     }),
     reducers: {
         sessions: {
@@ -52,10 +96,53 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
                 loadSessionsFailure: () => null,
             },
         ],
-        selectedDate: [null as null | Moment, { dateChanged: (_, { date }) => date }],
+        selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
+        properties: [
+            [] as PropertyFilter[],
+            {
+                setFilters: (_, { properties }) => properties,
+            },
+        ],
+        sessionRecordingId: [
+            null as SessionRecordingId | null,
+            {
+                setFilters: (_, { sessionRecordingId }) => sessionRecordingId,
+            },
+        ],
+        sessionPlayerData: [
+            null as null | eventWithTime[],
+            {
+                closeSessionPlayer: () => null,
+            },
+        ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
+        orderedSessionRecordingIds: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): SessionRecordingId[] =>
+                sessions.flatMap((session) => session.session_recording_ids),
+        ],
+        sessionRecordingNavigation: [
+            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
+            (
+                recordings: SessionRecordingId[],
+                recordingId: SessionRecordingId | null
+            ): { next?: SessionRecordingId; prev?: SessionRecordingId } => {
+                if (recordingId === null) {
+                    return {}
+                }
+                const index = recordings.indexOf(recordingId)
+                const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
+                if (index !== -1 && index < recordings.length - 1) {
+                    result.next = recordings[index + 1]
+                }
+                if (index > 0) {
+                    result.prev = recordings[index - 1]
+                }
+                return result
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async (_, breakpoint) => {
@@ -73,37 +160,51 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Moment, SessionType
             }
             actions.appendNewSessions(response.result)
         },
-        dateChanged: () => {
-            actions.loadSessions(true)
+        setFilters: () => {
             actions.setNextOffset(null)
+            actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.dateChanged(moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'), values.sessionRecordingId)
         },
         nextDay: () => {
-            actions.dateChanged(moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'), values.sessionRecordingId)
+        },
+        loadSessionPlayer: (sessionRecordingId) => {
+            actions.setFilters(values.properties, values.selectedDate, sessionRecordingId)
+        },
+        closeSessionPlayer: () => {
+            actions.setFilters(values.properties, values.selectedDate, null)
         },
     }),
     actionToUrl: ({ values }) => ({
-        dateChanged: () => {
-            const { selectedDateURLparam } = values
-            const today = moment().startOf('day').format('YYYY-MM-DD')
-            if (window && !window.location.href.includes('person')) {
-                return [`/sessions`, selectedDateURLparam === today ? {} : { date: selectedDateURLparam }]
-            }
-        },
+        setFilters: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, { date }: { date: string }) => {
-            const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
-                actions.dateChanged(newDate)
+        '/sessions': (_: any, params: Params) => {
+            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
+            actions.setFilters(params.properties || [], newDate, params.sessionRecordingId || null)
+
+            if (params.sessionRecordingId) {
+                actions.loadSessionPlayer(params.sessionRecordingId)
+            } else {
+                actions.closeSessionPlayer()
             }
         },
-        '/person/*': (_: any, { date }: { date: string }) => {
-            const newDate = date ? moment(date).startOf('day') : moment().startOf('day')
-            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
-                actions.dateChanged(newDate)
+        '/person/*': (_: any, params: Params) => {
+            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
+            if (
+                !values.selectedDate ||
+                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
+                params.sessionRecordingId !== values.sessionRecordingId
+            ) {
+                actions.setFilters(params.properties || [], newDate, params.sessionRecordingId || null)
+            }
+
+            if (params.sessionRecordingId) {
+                actions.loadSessionPlayer(params.sessionRecordingId)
+            } else {
+                actions.closeSessionPlayer()
             }
         },
     }),

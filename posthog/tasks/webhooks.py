@@ -64,7 +64,7 @@ def get_value_of_token(action: Action, event: Event, site_url: str, token_parts:
 
 def get_formatted_message(action: Action, event: Event, site_url: str,) -> Tuple[str, str]:
     message_format = action.slack_message_format
-    if message_format is None:
+    if not message_format:
         message_format = "[action.name] was triggered by [user.name]"
 
     try:
@@ -100,7 +100,7 @@ def determine_webhook_type(team: Team) -> str:
     return "teams"
 
 
-@app.task(bind=True, max_retries=3)
+@app.task(ignore_result=True, bind=True, max_retries=3)
 def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
         event = Event.objects.get(pk=event_id)

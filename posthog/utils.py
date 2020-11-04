@@ -8,21 +8,22 @@ import re
 import subprocess
 import time
 import uuid
-from datetime import date
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
-import lzstring  # type: ignore
+import lzstring
 import pytz
-import redis
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
+
+from posthog.redis import get_client
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -154,29 +155,30 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
-def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
+def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from posthog.models import Team
 
-    if context is None:
-        context = {}
     template = get_template(template_name)
+
+    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
+    team: Optional[Team] = None
     try:
-        context["opt_out_capture"] = request.user.team.opt_out_capture
+        team = request.user.team
     except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.all()
-        # if there's one team on the instance, and they've set opt_out
-        # we'll opt out anonymous users too
-        if team.count() == 1:
-            context["opt_out_capture"] = (team.first().opt_out_capture,)  # type: ignore
+        team = Team.objects.first()
 
     if os.environ.get("OPT_OUT_CAPTURE"):
+        # Prioritise instance-level config
         context["opt_out_capture"] = True
+    else:
+        context["opt_out_capture"] = team.opt_out_capture if team else False
 
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET",):
+    if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
         context["github_auth"] = True
-
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET",):
+    if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
         context["gitlab_auth"] = True
+    if settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY and settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+        context["google_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -185,6 +187,14 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context["debug"] = True
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
+
+    if settings.SELF_CAPTURE:
+        if team:
+            context["js_posthog_api_key"] = f"'{team.api_token}'"
+            context["js_posthog_host"] = "window.location.origin"
+    else:
+        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
+        context["js_posthog_host"] = "'https://app.posthog.com'"
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -274,10 +284,8 @@ def generate_cache_key(stringified: str) -> str:
 
 
 def get_redis_heartbeat() -> Union[str, int]:
-
-    if settings.REDIS_URL:
-        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-    else:
+    redis_instance = get_client()
+    if not redis_instance:
         return "offline"
 
     last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
@@ -358,3 +366,50 @@ def get_machine_id() -> str:
     # MAC addresses are 6 bits long, so overflow shouldn't happen
     # hashing here as we don't care about the actual address, just it being rather consistent
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
+
+
+def get_table_size(table_name):
+    from django.db import connection
+
+    query = (
+        f'SELECT pg_size_pretty(pg_total_relation_size(relid)) AS "size" '
+        f"FROM pg_catalog.pg_statio_user_tables "
+        f"WHERE relname = '{table_name}'"
+    )
+    cursor = connection.cursor()
+    cursor.execute(query)
+    return dict_from_cursor_fetchall(cursor)
+
+
+def get_table_approx_count(table_name):
+    from django.db import connection
+
+    query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
+    cursor = connection.cursor()
+    cursor.execute(query)
+    return dict_from_cursor_fetchall(cursor)
+
+
+def is_postgres_alive() -> bool:
+    from posthog.models import User
+
+    try:
+        User.objects.count()
+        return True
+    except DatabaseError:
+        return False
+
+
+def is_redis_alive() -> bool:
+    try:
+        return get_redis_heartbeat() != "offline"
+    except BaseException:
+        return False
+
+
+def get_redis_info() -> Mapping[str, Any]:
+    return get_client().info()
+
+
+def get_redis_queue_depth() -> int:
+    return get_client().llen("celery")

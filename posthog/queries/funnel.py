@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
@@ -6,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from django.db import connection
 from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
-from psycopg2 import sql  # type: ignore
+from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, Entity, Event, Filter, Person, Team
@@ -73,7 +74,7 @@ class Funnel(BaseQuery):
             annotations["step_{}".format(index)] = query
         return annotations
 
-    def _serialize_step(self, step: Entity, people: Optional[List[int]] = None) -> Dict[str, Any]:
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = Action.objects.get(team=self._team.pk, pk=step.id).name
         else:
@@ -83,7 +84,7 @@ class Funnel(BaseQuery):
             "name": name,
             "order": step.order,
             "people": people if people else [],
-            "count": len(people) if people else 0,
+            "count": count,
             "type": step.type,
         }
 
@@ -99,7 +100,7 @@ class Funnel(BaseQuery):
             """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         )
         PERSON_FIELDS = [
-            [sql.Identifier("posthog_person"), sql.Identifier("id")],
+            [sql.Identifier("posthog_person"), sql.Identifier("uuid")],
             [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
             [sql.Identifier("posthog_person"), sql.Identifier("team_id")],
             [sql.Identifier("posthog_person"), sql.Identifier("properties")],
@@ -180,9 +181,11 @@ class Funnel(BaseQuery):
                     average_time[index]["total_people"] += 1
 
                 if getattr(person, "step_{}".format(index)):
-                    person_score[person.id] += 1
-                    relevant_people.append(person.id)
-            steps.append(self._serialize_step(funnel_step, relevant_people))
+                    person_score[person.uuid] += 1
+                    relevant_people.append(person.uuid)
+            steps.append(
+                self._serialize_step(funnel_step, len(relevant_people) if relevant_people else 0, relevant_people)
+            )
 
         if len(steps) > 0:
             for index, _ in enumerate(steps):

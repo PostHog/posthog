@@ -80,7 +80,9 @@ export const cohortLogic = kea({
                 actions.setPollTimeout(setTimeout(() => actions.checkIsFinished(cohort), 1000))
             } else {
                 toast.update(values.toastId, {
-                    render: 'Cohort saved!',
+                    render: function RenderToast() {
+                        return <span data-attr="success-toast">Cohort saved!</span>
+                    },
                     autoClose: 5000,
                 })
                 props.onChange(cohort.id)

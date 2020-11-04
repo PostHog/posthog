@@ -14,8 +14,8 @@ jobs:
             # https://github.com/cypress-io/github-action/issues/48
             fail-fast: false
             matrix:
-                # run 3 copies of the current job in parallel
-                containers: [1, 2, 3, 4]
+                # run 7 copies of the current job in parallel
+                containers: [1, 2, 3, 4, 5, 6, 7]
         services:
             postgres:
                 image: postgres:12
@@ -43,7 +43,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v1
             - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+              uses: actions/setup-python@v2
               with:
                   python-version: 3.8
             - uses: actions/cache@v1
@@ -61,7 +61,7 @@ jobs:
                   python -m pip install psycopg2-binary --no-cache-dir --compile
             - uses: actions/setup-node@v1
               with:
-                  node-version: 12
+                  node-version: 14
             - name: Get yarn cache directory path
               id: yarn-dep-cache-dir-path
               run: echo "::set-output name=dir::$(yarn cache dir)"
@@ -76,6 +76,7 @@ jobs:
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
+                  yarn add cypress@5.3.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
@@ -96,14 +97,15 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
+                  SELF_CAPTURE: 1
               run: |
                   python manage.py collectstatic --noinput
-                  mkdir -p cypress/screenshots 
+                  mkdir -p cypress/screenshots
                   ./bin/docker-migrate
                   ./bin/docker-worker &
                   ./bin/docker-server &
             - name: Cypress run
-              uses: cypress-io/github-action@v1
+              uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.json
                   record: true

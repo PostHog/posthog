@@ -39,6 +39,10 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(len(response), 1)
 
         def test_sessions_avg_length(self):
+            # make sure out of range event doesn't get included
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                event_factory(team=self.team, event="bad action", distinct_id="1")
+
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
@@ -55,7 +59,9 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
-            response = sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
+            with freeze_time("2012-01-21T04:01:34.000Z"):
+                response = sessions().run(Filter(data={"session": "avg"}), self.team)
+
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
             # time series
             self.assertEqual(response[0]["data"][0], 240)
@@ -161,6 +167,15 @@ def sessions_test_factory(sessions, event_factory):
 
             self.assertEqual(compare_response[0]["data"][5], 120.0)
             self.assertEqual(compare_response[1]["data"][4], 240.0)
+
+        def test_sessions_count_buckets_default(self):
+            with freeze_time("2012-01-11T01:25:30.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+
+            with freeze_time("2012-01-21T01:25:30.000Z"):
+                response = sessions().run(Filter(data={"session": "dist"}), self.team)
+                for _, item in enumerate(response):
+                    self.assertEqual(item["count"], 0)
 
         def test_sessions_count_buckets(self):
 

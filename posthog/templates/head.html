@@ -2,6 +2,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="/static/favicon-32x32.png" sizes="32x32"/>
 <link rel="icon" href="/static/favicon-192x192.png" sizes="192x192"/>
+{% if not opt_out_capture and js_posthog_api_key %}
+    <script>
+    window.JS_POSTHOG_API_KEY = js_posthog_api_key;
+    window.JS_POSTHOG_HOST = js_posthog_host;
+    </script>
+{% endif %}
 {% if sentry_dsn %}
     <script>window.SENTRY_DSN = '{{sentry_dsn}}';</script>
 {% endif %}

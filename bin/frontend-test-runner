@@ -6,5 +6,5 @@ createdb posthog_e2e_test
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate
 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler &
 ./bin/start-frontend &
-CYPRESS_BASE_URL=http://localhost:8080 yarn run cypress open &
+CYPRESS_BASE_URL=http://localhost:8080 npx cypress open &
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080

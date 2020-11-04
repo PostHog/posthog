@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext } from 'kea'
 
-import App from './scenes/App'
+import { App } from 'scenes/App'
 import { initKea } from './initKea'
 import posthog from 'posthog-js'
 import * as Sentry from '@sentry/browser'

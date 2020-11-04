@@ -1,17 +1,27 @@
 import datetime
+import json
 from typing import Dict, Optional
 from uuid import UUID
 
+import statsd
 from celery import shared_task
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
+from django.db.utils import IntegrityError
 
-from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import emit_omni_person
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
+from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import check_ee_enabled
 from posthog.models.element import Element
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_timestamp, store_names_and_properties
+from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
+
+statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 def _capture_ee(
@@ -52,8 +62,13 @@ def _capture_ee(
 
     store_names_and_properties(team=team, event=event, properties=properties)
 
-    # determine/create elements
-    elements_hash = create_elements(event_uuid=event_uuid, elements=elements_list, team=team)
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        # Catch race condition where in between getting and creating,
+        # another request already created this user
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            pass
 
     # # determine create events
     create_event(
@@ -62,77 +77,62 @@ def _capture_ee(
         properties=properties,
         timestamp=timestamp,
         team=team,
-        elements_hash=elements_hash,
         distinct_id=distinct_id,
+        elements=elements_list,
     )
-    emit_omni_person(
-        event_uuid=event_uuid,
-        uuid=person_uuid,
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        properties=properties,
-    )
+
+
+def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datetime.datetime]) -> datetime.datetime:
+    if data.get("timestamp"):
+        if sent_at:
+            # sent_at - timestamp == now - x
+            # x = now + (timestamp - sent_at)
+            try:
+                # timestamp and sent_at must both be in the same format: either both with or both without timezones
+                # otherwise we can't get a diff to add to now
+                return now + (parser.isoparse(data["timestamp"]) - sent_at)
+            except TypeError as e:
+                pass
+        return parser.isoparse(data["timestamp"])
+    now_datetime = now
+    if data.get("offset"):
+        return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
+    return now_datetime
 
 
 if check_ee_enabled():
 
-    @shared_task
     def process_event_ee(
-        distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+        distinct_id: str,
+        ip: str,
+        site_url: str,
+        data: dict,
+        team_id: int,
+        now: datetime.datetime,
+        sent_at: Optional[datetime.datetime],
     ) -> None:
-        properties = data.get("properties", None)
+        timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
+        timer.start()
+        properties = data.get("properties", {})
+        if data.get("$set"):
+            properties["$set"] = data["$set"]
+
         person_uuid = UUIDT()
         event_uuid = UUIDT()
         ts = handle_timestamp(data, now, sent_at)
+        handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
 
-        if data["event"] == "$create_alias":
-            emit_omni_person(
-                event_uuid=event_uuid,
-                uuid=person_uuid,
+        if data["event"] == "$snapshot":
+            create_session_recording_event(
+                uuid=event_uuid,
                 team_id=team_id,
                 distinct_id=distinct_id,
+                session_id=properties["$session_id"],
+                snapshot_data=properties["$snapshot_data"],
                 timestamp=ts,
-                properties=properties,
             )
-            emit_omni_person(
-                event_uuid=event_uuid,
-                uuid=person_uuid,
-                team_id=team_id,
-                distinct_id=properties["alias"],
-                timestamp=ts,
-                properties=properties,
-            )
-        elif data["event"] == "$identify":
-            if properties and properties.get("$anon_distinct_id"):
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=distinct_id,
-                    timestamp=ts,
-                    properties=properties,
-                )
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=properties["$anon_distinct_id"],
-                    timestamp=ts,
-                    properties=properties,
-                )
-            if data.get("$set"):
-                emit_omni_person(
-                    event_uuid=event_uuid,
-                    uuid=person_uuid,
-                    team_id=team_id,
-                    distinct_id=distinct_id,
-                    timestamp=ts,
-                    properties=data["$set"],
-                    is_identified=True,
-                )
+            return
 
-        properties = data.get("properties", data.get("$set", {}))
         _capture_ee(
             event_uuid=event_uuid,
             person_uuid=person_uuid,
@@ -144,11 +144,41 @@ if check_ee_enabled():
             properties=properties,
             timestamp=ts,
         )
+        timer.stop("process_event_ee")
 
 
 else:
 
-    @shared_task
-    def process_event_ee(*args, **kwargs) -> None:
+    def process_event_ee(
+        distinct_id: str,
+        ip: str,
+        site_url: str,
+        data: dict,
+        team_id: int,
+        now: datetime.datetime,
+        sent_at: Optional[datetime.datetime],
+    ) -> None:
         # Noop if ee is not enabled
         return
+
+
+def log_event(
+    distinct_id: str,
+    ip: str,
+    site_url: str,
+    data: dict,
+    team_id: int,
+    now: datetime.datetime,
+    sent_at: Optional[datetime.datetime],
+) -> None:
+    data = {
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M:%S.%f") if sent_at else "",
+    }
+    p = KafkaProducer()
+    p.produce(topic=KAFKA_EVENTS_WAL, data=data)

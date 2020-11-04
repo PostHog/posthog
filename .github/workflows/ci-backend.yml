@@ -24,7 +24,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+              uses: actions/setup-python@v2
               with:
                   python-version: 3.8
 
@@ -42,9 +42,10 @@ jobs:
                   python -m pip install -r requirements/dev.txt
               if: steps.cache.outputs.cache-hit != 'true'
 
-            - name: Check formatting with black
+            - name: Check formatting
               run: |
-                  black -l 120 --check .
+                  black --check .
+                  isort --check-only .
 
             - name: Lint with flake8
               run: |
@@ -59,12 +60,15 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
               run: |
-                  mypy posthog ee
+                  mypy .
 
     django:
-        name: Django tests
+        name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
-
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ['3.7.8', '3.8.5', '3.9.0']
         services:
             postgres:
                 image: postgres:12
@@ -86,17 +90,17 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+            - name: Set up Python
+              uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: ${{ matrix.python-version }}
 
             - uses: actions/cache@v1
               with:
                   path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
-                      ${{ runner.os }}-pip-
+                      ${{ runner.os }}-pip-${{ matrix.python-version }}-
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -151,6 +155,13 @@ jobs:
                     POSTGRES_DB: postgres
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            clickhouse-server:
+                image: yandex/clickhouse-server
+                ports:
+                    - '8123:8123'
+                    - '9000:9000'
+                    - '9440:9440'
+                    - '9009:9009'
 
         steps:
             - name: Fetch posthog-production
@@ -198,18 +209,32 @@ jobs:
                   cd deploy
                   python manage.py makemigrations --check --dry-run
 
-            - name: Run tests
+            - name: Run posthog tests
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
               run: |
-                  source .env.template
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test posthog multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+                  python manage.py test posthog --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+
+            - name: Run cloud tests (posthog-production)
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+                  PRIMARY_DB: 'clickhouse'
+                  CLICKHOUSE_HOST: 'localhost'
+                  CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_SECURE: 'False'
+                  CLICKHOUSE_VERIFY: 'False'
+              run: |
+                  cd deploy
+                  python manage.py test multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
 
     foss:
         name: Django tests – posthog-foss
@@ -231,7 +256,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python 3.8
-              uses: actions/setup-python@v1
+              uses: actions/setup-python@v2
               with:
                   python-version: 3.8
 

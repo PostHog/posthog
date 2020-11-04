@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from django.utils import timezone
+from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,11 +12,11 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_stickiness import STICKINESS_PEOPLE_SQL
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from ee.clickhouse.util import CH_ACTION_ENDPOINT, endpoint_enabled
-from posthog.api.action import ActionViewSet
+from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -23,7 +24,20 @@ from posthog.models.filter import Filter
 from posthog.models.team import Team
 
 
+class ClickhouseActionSerializer(ActionSerializer):
+    is_calculating = serializers.SerializerMethodField()
+
+    def get_is_calculating(self, action: Action) -> bool:
+        return False
+
+
 class ClickhouseActions(ActionViewSet):
+    serializer_class = ClickhouseActionSerializer
+
+    # Don't calculate actions in Clickhouse as it's on the fly
+    def _calculate_action(self, action: Action) -> None:
+        pass
+
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
@@ -31,7 +45,7 @@ class ClickhouseActions(ActionViewSet):
             result = super().get_people(request)
             return Response(result)
 
-        team = request.user.team_set.get()
+        team = request.user.team
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 
@@ -70,7 +84,6 @@ class ClickhouseActions(ActionViewSet):
                 )
         else:
             next_url = None
-
         return Response(
             {
                 "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
@@ -84,7 +97,7 @@ class ClickhouseActions(ActionViewSet):
             try:
                 action = Action.objects.get(pk=entity.id)
                 action_query, params = format_action_filter(action)
-                entity_filter = "AND uuid IN ({})".format(action_query)
+                entity_filter = "AND {}".format(action_query)
 
             except Action.DoesNotExist:
                 raise ValueError("This action does not exist")
@@ -114,7 +127,12 @@ class ClickhouseActions(ActionViewSet):
             filters="{filters}".format(filters=prop_filters) if filter.properties else "",
         )
 
-        people = sync_execute(PEOPLE_SQL.format(content_sql=content_sql), params)
+        people = sync_execute(
+            PEOPLE_SQL.format(
+                content_sql=content_sql, query="", latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
+            ),
+            params,
+        )
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people
@@ -132,7 +150,12 @@ class ClickhouseActions(ActionViewSet):
             filters="{filters}".format(filters=prop_filters) if filter.properties else "",
             breakdown_filter="",
         )
-        people = sync_execute(PEOPLE_THROUGH_DISTINCT_SQL.format(content_sql=content_sql), params)
+        people = sync_execute(
+            PEOPLE_THROUGH_DISTINCT_SQL.format(
+                content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
+            ),
+            params,
+        )
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people

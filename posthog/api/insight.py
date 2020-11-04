@@ -253,7 +253,8 @@ class InsightViewSet(viewsets.ModelViewSet):
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
-        filter._date_from = "-11d"
+        if not filter.date_from:
+            filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
         return result
 

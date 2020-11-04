@@ -1,69 +1,134 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_cohort_table_name
-from ee.clickhouse.sql.cohort import COHORT_DISTINCT_ID_FILTER_SQL
+from ee.clickhouse.models.cohort import format_filter_query
+from ee.clickhouse.models.util import get_operator, is_int, is_json
 from ee.clickhouse.sql.events import EVENT_PROP_CLAUSE, SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 from posthog.models.team import Team
 
 
-def parse_prop_clauses(key: str, filters: List[Property], team: Team, prepend: str = "") -> Tuple[str, Dict]:
+def parse_prop_clauses(
+    key: str, filters: List[Property], team: Team, prepend: str = "", json_extract: bool = False
+) -> Tuple[str, Dict]:
     final = ""
-    params = {}
+    params: Dict[str, Any] = {}
     for idx, prop in enumerate(filters):
 
         if prop.type == "cohort":
             cohort = Cohort.objects.get(pk=prop.value)
-            clause = COHORT_DISTINCT_ID_FILTER_SQL.format(table_name=format_cohort_table_name(cohort))
-            final += "{cond} ({clause}) ".format(cond="AND distinct_id IN", clause=clause)
-
+            person_id_query, cohort_filter_params = format_filter_query(cohort)
+            params = {**params, **cohort_filter_params}
+            final += "AND distinct_id IN ({clause}) ".format(clause=person_id_query)
+        elif prop.type == "person":
+            filter_query, filter_params = prop_filter_json_extract(prop, idx, "{}person".format(prepend))
+            final += " AND distinct_id IN ({filter_query})".format(
+                filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query)
+            )
+            params.update(filter_params)
         else:
-            filter = "(ep.key = %(k{prepend}_{idx})s) AND (ep.value {operator} %(v{prepend}_{idx})s)".format(
-                idx=idx, operator=get_operator(prop.operator), prepend=prepend
-            )
-            clause = EVENT_PROP_CLAUSE.format(team_id=team.pk, filters=filter)
-            final += "{cond} ({clause}) ".format(cond="AND {key} IN".format(key=key), clause=clause)
-            params.update(
-                {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): _pad_value(prop.value)}
-            )
+            filter_query, filter_params = prop_filter_json_extract(prop, idx, prepend)
+            final += " {filter_query} AND team_id = %(team_id)s".format(filter_query=filter_query)
+            params.update(filter_params)
     return final, params
 
 
-def _pad_value(val: str):
-    if not val.startswith('"'):
-        val = '"' + val
-
-    if not val.endswith('"'):
-        val = val + '"'
-
-    return val
-
-
-# TODO: handle all operators
-def get_operator(operator: Optional[str]):
+def prop_filter_json_extract(
+    prop: Property, idx: int, prepend: str = "", prop_var: str = "properties"
+) -> Tuple[str, Dict[str, Any]]:
+    operator = prop.operator
     if operator == "is_not":
-        return "!="
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND NOT (JSONExtractString({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s)".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "icontains":
-        return "LIKE"
+        value = "%{}%".format(prop.value)
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
+        return (
+            "AND JSONExtractString({prop_var}, %(k{prepend}_{idx})s) LIKE %(v{prepend}_{idx})s".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "not_icontains":
-        return "NOT LIKE"
+        value = "%{}%".format(prop.value)
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
+        return (
+            "AND NOT (JSONExtractString({prop_var}, %(k{prepend}_{idx})s) LIKE %(v{prepend}_{idx})s)".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "regex":
-        return "="
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND match(JSONExtractString({prop_var}, %(k{prepend}_{idx})s), %(v{prepend}_{idx})s)".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "not_regex":
-        return "="
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND NOT match(JSONExtractString({prop_var}, %(k{prepend}_{idx})s), %(v{prepend}_{idx})s)".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
+    elif operator == "is_set":
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend, prop_var=prop_var),
+            params,
+        )
+    elif operator == "is_not_set":
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND (isNull(JSONExtractString({prop_var}, %(k{prepend}_{idx})s)) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "gt":
-        return ">"
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND toInt64OrNull(replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s), ' ', '')) > %(v{prepend}_{idx})s".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     elif operator == "lt":
-        return "<"
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            "AND toInt64OrNull(replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s), ' ', '')) < %(v{prepend}_{idx})s".format(
+                idx=idx, prepend=prepend, prop_var=prop_var
+            ),
+            params,
+        )
     else:
-        return "="
+        if is_int(prop.value):
+            clause = "AND JSONExtractInt({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s"
+        elif is_json(prop.value):
+            clause = "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')"
+        else:
+            clause = "AND JSONExtractString({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s"
+
+        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        return (
+            clause.format(idx=idx, prepend=prepend, prop_var=prop_var),
+            params,
+        )
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
     if value:
         return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)}
+            SELECT_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
     return sync_execute(SELECT_PROP_VALUES_SQL, {"team_id": team.pk, "key": key})

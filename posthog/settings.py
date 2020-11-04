@@ -10,17 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
-import ast
 import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 from urllib.parse import urlparse
 
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -51,7 +51,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
 
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)))
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -59,14 +59,20 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv  # type: bool
+SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
 
-# Canonical base URL (used for email links)
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
     JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
 else:
     JS_URL = os.environ.get("JS_URL", "")
+
+PLUGINS_INSTALL_VIA_API = get_bool_from_env("PLUGINS_INSTALL_VIA_API", True)
+PLUGINS_CONFIGURE_VIA_API = PLUGINS_INSTALL_VIA_API or get_bool_from_env("PLUGINS_CONFIGURE_VIA_API", True)
+
+PLUGINS_CELERY_QUEUE = os.environ.get("PLUGINS_CELERY_QUEUE", "posthog-plugins")
+PLUGINS_RELOAD_PUBSUB_CHANNEL = os.environ.get("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # This is set as a cross-domain cookie with a random value.
 # Its existence is used by the toolbar to see that we are logged in.
@@ -91,6 +97,7 @@ if not TEST:
             dsn=os.environ["SENTRY_DSN"],
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
             request_bodies="always",
+            send_default_pii=True,
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
@@ -130,6 +137,9 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
+
+LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
+
 
 _kafka_hosts = KAFKA_URL.split(",")
 
@@ -177,9 +187,9 @@ SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_HOST = os.environ.get("STATSD_HOST", "")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
 # Application definition
 
@@ -195,6 +205,7 @@ INSTALLED_APPS = [
     "loginas",
     "corsheaders",
     "social_django",
+    "django_filters",
 ]
 
 
@@ -220,7 +231,7 @@ EE_AVAILABLE = False
 
 # Append Enterprise Edition as an app if available
 try:
-    from ee.apps import EnterpriseConfig
+    from ee.apps import EnterpriseConfig  # noqa: F401
 except ImportError:
     pass
 else:
@@ -231,7 +242,7 @@ else:
 
 # Use django-extensions if it exists
 try:
-    import django_extensions
+    import django_extensions  # noqa: F401
 except ImportError:
     pass
 else:
@@ -239,6 +250,9 @@ else:
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
+
+# Max size of a POST body (for event ingestion)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20971520  # 20 MB
 
 ROOT_URLCONF = "posthog.urls"
 
@@ -268,6 +282,7 @@ SOCIAL_AUTH_USER_MODEL = "posthog.User"
 AUTHENTICATION_BACKENDS = (
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
+    "social_core.backends.google.GoogleOAuth2",
     "django.contrib.auth.backends.ModelBackend",
 )
 
@@ -276,7 +291,6 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    "social_core.pipeline.user.get_username",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.urls.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
@@ -286,9 +300,7 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "signup_token",
-]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY", "")
@@ -298,6 +310,9 @@ SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY", "")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET", "")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -348,10 +363,15 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Only listen to the default queue "celery", unless overridden via the cli
+# NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
+CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
+CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
+CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 # Password validation
@@ -401,7 +421,7 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "PAGE_SIZE": 100,
 }
@@ -447,7 +467,7 @@ if DEBUG and not TEST:
 
     # Load debug_toolbar if we can
     try:
-        import debug_toolbar
+        import debug_toolbar  # noqa: F401
     except ImportError:
         pass
     else:
@@ -475,4 +495,8 @@ DEBUG_TOOLBAR_CONFIG = {
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
-    from ee.settings import *
+    from ee.settings import *  # noqa: F401, F403
+
+
+# TODO: Temporary
+EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)

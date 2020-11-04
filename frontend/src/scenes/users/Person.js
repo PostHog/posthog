@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
 import { changeType } from 'lib/utils/changeType'
@@ -8,6 +10,8 @@ import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const { TabPane } = Tabs
 
@@ -16,19 +20,26 @@ export const Person = hot(_Person)
 function _Person({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
+    const { push } = router.actions
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
-        let url = ''
         if (distinctId) {
-            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
+            api.get(`api/person/?distinct_id=${distinctId}`).then((response) => {
+                if (response.results.length > 0) {
+                    setPerson(response.results[0])
+                } else {
+                    push('/404')
+                }
+            })
         } else {
-            url = `api/person/${id}`
+            api.get(`api/person/${id}`).then(setPerson)
         }
-        api.get(url).then(setPerson)
     }, [distinctId, id])
 
     function _handleChange(event) {
@@ -84,9 +95,9 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 danger
-                onClick={() => deletePersonData(person, () => history.push('/people'))}
+                onClick={() => deletePersonData(person, () => history.push('/people/persons'))}
             >
-                {isScreenSmall ? <DeleteOutlined></DeleteOutlined> : 'Delete all data on this person'}
+                {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
             <Button
                 className="float-right"
@@ -132,7 +143,7 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {window.posthog && window.posthog.isFeatureEnabled('session-recording-player') && (
+                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"

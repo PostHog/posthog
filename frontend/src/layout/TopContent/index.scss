@@ -1,0 +1,18 @@
+.layout-top-content {
+    display: flex;
+    justify-content: space-between;
+    .hide-when-small {
+        display: inline;
+    }
+    .show-when-small {
+        display: none;
+    }
+    @media (max-width: 600px) {
+        .hide-when-small {
+            display: none;
+        }
+        .show-when-small {
+            display: inline;
+        }
+    }
+}

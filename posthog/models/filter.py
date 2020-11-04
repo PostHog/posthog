@@ -65,7 +65,7 @@ class Filter(PropertyMixin):
     start_point: Optional[str] = None
     target_entity: Optional[Entity] = None
     _offset: Optional[str] = None
-    period: Optional[str] = None
+    period: str = "Day"
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -96,7 +96,7 @@ class Filter(PropertyMixin):
         self.start_point = data.get(START_POINT)
         self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
         self._offset = data.get(OFFSET)
-        self.period = data.get(PERIOD)
+        self.period = data.get(PERIOD) or "Day"
 
         if data.get(ACTIONS):
             self.entities.extend(
