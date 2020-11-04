@@ -25,8 +25,12 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                         size="small"
                         value={selected}
                     >
-                        <Radio.Button value="action">action</Radio.Button>
-                        <Radio.Button value="property">property</Radio.Button>
+                        <Radio.Button value="action" data-attr="cohort-group-action">
+                            action
+                        </Radio.Button>
+                        <Radio.Button value="property" data-attr="cohort-group-property">
+                            property
+                        </Radio.Button>
                     </Radio.Group>
                 </span>
                 {selected == 'action' && (

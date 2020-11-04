@@ -263,7 +263,7 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 
     return (
         <Dropdown overlay={overlay}>
-            <Button className="ant-btn-md">
+            <Button className="ant-btn-md" data-attr={`math-selector-${index}`}>
                 {MATHS[math || 'total']?.name} <DownOutlined />
             </Button>
         </Dropdown>
