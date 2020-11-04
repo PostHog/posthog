@@ -73,7 +73,14 @@ class TestEmail(TestCase):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(
-                str(e.exception), "Email settings not configured! Set at least the EMAIL_HOST environment variable.",
+                str(e.exception), "Email is not enabled in this instance.",
+            )
+
+        with self.settings(EMAIL_ENABLED=False):
+            with self.assertRaises(ImproperlyConfigured) as e:
+                EmailMessage("test_campaign", "Subject", "template")
+            self.assertEqual(
+                str(e.exception), "Email is not enabled in this instance.",
             )
 
     def test_cant_send_same_campaign_twice(self) -> None:

@@ -29,7 +29,7 @@ def is_email_available() -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
     """
-    return bool(settings.EMAIL_HOST)
+    return settings.EMAIL_ENABLED and settings.EMAIL_HOST
 
 
 @app.task(ignore_result=True, max_retries=3)
@@ -91,9 +91,7 @@ class EmailMessage:
         self, campaign_key: str, subject: str, template_name: str, template_context: Optional[Dict] = None,
     ):
         if not is_email_available():
-            raise exceptions.ImproperlyConfigured(
-                "Email settings not configured! Set at least the EMAIL_HOST environment variable.",
-            )
+            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
 
         self.campaign_key = campaign_key
         self.subject = subject
