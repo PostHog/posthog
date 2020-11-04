@@ -187,9 +187,9 @@ SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_HOST = os.environ.get("STATSD_HOST", "")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
 # Application definition
 
