@@ -3,9 +3,11 @@ import json
 from typing import Dict, Optional
 from uuid import UUID
 
+import statsd
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db.utils import IntegrityError
 
 from ee.clickhouse.models.event import create_event
@@ -107,6 +109,8 @@ if check_ee_enabled():
         now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
     ) -> None:
+        timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
+        timer.start()
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
@@ -138,6 +142,7 @@ if check_ee_enabled():
             properties=properties,
             timestamp=ts,
         )
+        timer.stop("process_event_ee")
 
 
 else:
