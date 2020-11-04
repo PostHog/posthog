@@ -20,15 +20,15 @@ export default [
         external,
         plugins: [
             // Allows node_modules resolution
-            resolve({ extensions, preferBuiltins: true }),
+            resolve({ extensions, preferBuiltins: true, mainFields: ['jsnext', 'module', 'main'] }),
             // Allow bundling cjs modules. Rollup doesn't understand cjs
             commonjs({
-                exclude: 'src/**',
+                include: 'node_modules/**',
             }),
             json(),
             // Compile TypeScript/JavaScript files
             typescript({
-                include: ['*.(t|j)s+(|x)', '**/*.(t|j)s+(|x)'],
+                include: ['*.ts', '**/*.ts'],
             }),
             babel({ extensions, include: ['src/**/*'] }),
         ],
