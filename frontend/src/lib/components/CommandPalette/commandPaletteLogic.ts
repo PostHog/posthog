@@ -36,10 +36,10 @@ import {
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
-import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -114,7 +114,7 @@ export const commandPaletteLogic = kea<
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
-        values: [appUrlsLogic, ['appUrls', 'suggestions']],
+        values: [teamLogic, ['currentTeam']],
     },
     actions: {
         hidePalette: true,
@@ -266,8 +266,7 @@ export const commandPaletteLogic = kea<
             (selectors) => [
                 selectors.rawCommandRegistrations,
                 dashboardsModel.selectors.dashboards,
-                appUrlsLogic({ actionId: null }).selectors.appUrls,
-                appUrlsLogic({ actionId: null }).selectors.suggestions,
+                teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
                 ...rawCommandRegistrations,
@@ -299,14 +298,21 @@ export const commandPaletteLogic = kea<
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.regexpCommandPairs, selectors.input, selectors.activeFlow, selectors.isSqueak],
+            (selectors) => [
+                selectors.isPaletteShown,
+                selectors.regexpCommandPairs,
+                selectors.input,
+                selectors.activeFlow,
+                selectors.isSqueak,
+            ],
             (
+                isPaletteShown: boolean,
                 regexpCommandPairs: RegExpCommandPairs,
                 argument: string,
                 activeFlow: CommandFlow | null,
                 isSqueak: boolean
             ) => {
-                if (isSqueak) return []
+                if (!isPaletteShown || isSqueak) return []
                 if (activeFlow) return resolveCommand(activeFlow, argument)
                 let directResults: CommandResult[] = []
                 let prefixedResults: CommandResult[] = []
@@ -336,24 +342,16 @@ export const commandPaletteLogic = kea<
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
                     : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
-                const finalResults = guaranteedResults.concat(fusedResults)
-                // put global scope last
-                return finalResults.sort((resultA, resultB) =>
-                    resultA.source.scope === resultB.source.scope
-                        ? 0
-                        : resultA.source.scope === GLOBAL_COMMAND_SCOPE
-                        ? 1
-                        : -1
-                )
+                return guaranteedResults.concat(fusedResults)
             },
         ],
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
                 const resultsGrouped: { [scope: string]: CommandResult[] } = {}
-                if (activeFlow) resultsGrouped[activeFlow.scope] = []
+                if (activeFlow) resultsGrouped[activeFlow.scope ?? '?'] = []
                 for (const result of commandSearchResults) {
-                    const scope: string = result.source.scope
+                    const scope: string = result.source.scope ?? '?'
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
@@ -569,16 +567,16 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
-                    const results: CommandResultTemplate[] = (appUrlsLogic.values.appUrls ?? [])
-                        .concat(appUrlsLogic.values.suggestedUrls ?? [])
-                        .map((url: string) => ({
+                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
+                        (url: string) => ({
                             icon: LinkOutlined,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
                                 open(url)
                             },
-                        }))
+                        })
+                    )
                     if (isURL(argument))
                         results.push({
                             icon: LinkOutlined,

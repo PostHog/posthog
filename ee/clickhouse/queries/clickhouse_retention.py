@@ -52,7 +52,7 @@ class ClickhouseRetention(BaseQuery):
         )
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=target_entity.id)
-            action_query, target_params = format_action_filter(action)
+            action_query, target_params = format_action_filter(action, use_loop=True)
             target_query = "AND e.uuid IN ({})".format(action_query)
         elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
             target_query = "AND e.event = %(target_event)s"

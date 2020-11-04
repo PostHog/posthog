@@ -81,7 +81,7 @@ function Signup() {
                 >
                     <form onSubmit={handleSubmit}>
                         <div className="input-set">
-                            <label>First Name</label>
+                            <label htmlFor="signupFirstName">First Name</label>
                             <Input
                                 placeholder="Jane"
                                 autoFocus
@@ -94,7 +94,7 @@ function Signup() {
                         </div>
 
                         <div className="input-set">
-                            <label>Company or Project</label>
+                            <label htmlFor="signupCompanyName">Company or Project</label>
                             <Input
                                 placeholder="Hogflix Movies"
                                 value={formState.companyName.value}
@@ -105,7 +105,7 @@ function Signup() {
                         </div>
 
                         <div className="input-set">
-                            <label>Email</label>
+                            <label htmlFor="signupEmail">Email</label>
                             <Input
                                 placeholder="jane@hogflix.io"
                                 type="email"
@@ -118,7 +118,7 @@ function Signup() {
                         </div>
 
                         <div className={`input-set ${state.submitted && !formState.password.valid ? 'errored' : ''}`}>
-                            <label>Password</label>
+                            <label htmlFor="signupPassword">Password</label>
                             <Input.Password
                                 value={formState.password.value}
                                 onChange={(e) => updateForm('password', e.target)}
