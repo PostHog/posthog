@@ -4,7 +4,6 @@ from typing import List
 from rest_framework import request, response
 
 from ee.clickhouse.models.person import delete_person
-from ee.clickhouse.util import CH_PERSON_ENDPOINT, endpoint_enabled
 from posthog.api.person import PersonViewSet
 from posthog.models import Event, Person
 
