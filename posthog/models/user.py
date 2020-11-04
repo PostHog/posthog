@@ -96,6 +96,9 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
+    first_name = None  # type: ignore
+    last_name = None  # type: ignore
+    name = models.CharField(_('first name'), max_length=30, blank=True)
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
