@@ -169,7 +169,7 @@ def get_event(request):
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
                 team_id=team.id,
-                now=now.isoformat(),
+                now=now,
                 sent_at=sent_at,
             )
         else:

@@ -78,7 +78,7 @@ def _capture_ee(
     )
 
 
-def handle_timestamp(data: dict, now: str, sent_at: Optional[datetime.datetime]) -> datetime.datetime:
+def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datetime.datetime]) -> datetime.datetime:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
@@ -86,11 +86,11 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[datetime.datetime])
             try:
                 # timestamp and sent_at must both be in the same format: either both with or both without timezones
                 # otherwise we can't get a diff to add to now
-                return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - sent_at)
+                return now + (parser.isoparse(data["timestamp"]) - sent_at)
             except TypeError as e:
                 pass
         return parser.isoparse(data["timestamp"])
-    now_datetime = parser.parse(now)
+    now_datetime = now
     if data.get("offset"):
         return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
     return now_datetime
@@ -104,7 +104,7 @@ if check_ee_enabled():
         site_url: str,
         data: dict,
         team_id: int,
-        now: str,
+        now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
     ) -> None:
         properties = data.get("properties", {})
@@ -148,7 +148,7 @@ else:
         site_url: str,
         data: dict,
         team_id: int,
-        now: str,
+        now: datetime.datetime,
         sent_at: Optional[datetime.datetime],
     ) -> None:
         # Noop if ee is not enabled
