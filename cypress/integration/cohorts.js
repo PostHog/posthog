@@ -12,7 +12,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"
-        cy.get('[data-attr="cohort-group-property"]').click()
+        cy.get('.ant-radio-group > :nth-child(2)').click()
         cy.get('[data-attr="new-prop-filter-cohort_0"]').click()
 
         // select the first property

@@ -10,7 +10,7 @@ describe('Actions', () => {
 
     it('Click on an action', () => {
         cy.get('[data-attr=action-link-0]').click()
-        cy.get('h1').should('contain', 'Edit action')
+        cy.get('h1').should('contain', 'Editing action')
     })
 
     it('Create action', () => {
