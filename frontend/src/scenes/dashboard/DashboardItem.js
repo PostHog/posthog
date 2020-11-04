@@ -96,7 +96,7 @@ const typeMap = {
         },
     },
     PathsViz: {
-        className: 'paths',
+        className: 'paths-viz',
         element: Paths,
         icon: QuestionCircleOutlined,
         viewText: 'View graph',
