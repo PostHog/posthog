@@ -1,8 +1,5 @@
 # Changelog
 
-<!--Always keep this note up here-->
-> If you're self-hosting and want to upgrade for a better experience with nicer features, remember to [update your PostHog instance](/docs/configuring-posthog/upgrading-posthog).
-
 ### 1.16.0 - Wednesday 4 November 2020
 
 - [Session Recording (Beta)](https://github.com/PostHog/posthog/issues/1846)
