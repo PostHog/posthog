@@ -105,8 +105,8 @@ class TestSignup(APIBaseTest):
         user: User = User.objects.order_by("-pk").get()
         organization: Organization = user.organization
         print(response.data)
-        self.assertEqual(
-            response.data,
+        self.assertDictEqual(
+            cast(dict, response.data),
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},
         )
 

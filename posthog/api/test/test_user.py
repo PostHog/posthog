@@ -64,7 +64,7 @@ class TestUserChangePassword(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"detail": "Incorrect old password", "attr": None, "code": "invalid_input", "type": "validation_error"},
+            {"detail": "Incorrect old password.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
     def test_change_password_invalid_new_password(self):
@@ -90,11 +90,10 @@ class TestUserSlackWebhook(BaseTest):
 
     def test_slack_webhook_no_webhook(self):
         response = self.send_request({})
-        print(response.json())
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"detail": "Missing webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+            {"detail": "Missing webhook URL.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
     def test_slack_webhook_bad_url(self):
@@ -102,7 +101,7 @@ class TestUserSlackWebhook(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"detail": "Invalid webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+            {"detail": "Invalid webhook URL.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
     def test_slack_webhook_bad_url_full(self):
@@ -110,7 +109,7 @@ class TestUserSlackWebhook(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json(),
-            {"detail": "Invalid webhook URL", "attr": None, "code": "invalid_input", "type": "validation_error"},
+            {"detail": "Invalid webhook URL.", "attr": None, "code": "invalid_input", "type": "validation_error"},
         )
 
 

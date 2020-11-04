@@ -1,4 +1,3 @@
-from posthog.plugins.reload import reload_plugins_on_workers
 from typing import Any, Dict, cast
 
 import posthoganalytics
@@ -22,6 +21,7 @@ from posthog.api.user import UserSerializer
 from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import OrganizationAdminWriteSpecialPutPermissions, OrganizationMemberPermissions
+from posthog.plugins.reload import reload_plugins_on_workers
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
