@@ -209,7 +209,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         try:
             test_response = requests.post(webhook, verify=False, json=message)
             if test_response.ok:
-                return Response()
+                return Response({"message": "Greetings from PostHog!"})
             else:
                 raise exceptions.ValidationError(f"Webhook test error: {test_response.text}")
         except:

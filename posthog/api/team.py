@@ -88,9 +88,10 @@ class TeamSerializer(serializers.ModelSerializer):
         return team
 
     def update(self, instance: Model, validated_data: Dict[Any, Any]):
-        super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
         if validated_data.get("plugins_opt_in") is not None:
             reload_plugins_on_workers()
+        return instance
 
 
 class TeamViewSet(viewsets.ModelViewSet):

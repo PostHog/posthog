@@ -128,7 +128,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
                         completed_snippet_onboarding: true,
                     },
                 })
-                teamLogic.actions.patchCurrentTeam({
+                teamLogic.actions.updateCurrentTeam({
                     completed_snippet_onboarding: true,
                 })
             }

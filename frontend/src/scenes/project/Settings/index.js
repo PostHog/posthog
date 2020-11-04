@@ -75,7 +75,7 @@ function _Setup() {
             </p>
             <EditAppUrls />
             <Divider />
-            <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
+            <h2 id="webhook">Webhook Integration</h2>
             <WebhookIntegration />
             <h2 id="datacapture">Data Capture Configuration</h2>
             <IPCapture />

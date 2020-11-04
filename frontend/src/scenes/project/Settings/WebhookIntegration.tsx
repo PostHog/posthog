@@ -5,6 +5,25 @@ import { Input, Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
 import { UserType } from '~/types'
+import { teamLogic } from 'scenes/teamLogic'
+
+const WEBHOOK_SERVICES: Record<string, string> = {
+    Slack: "slack.com",
+    Discord: "discord.com",
+    Teams: "office.com"
+}
+
+function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain)) return service
+    }
+    return 'your webhook service'
+}
+
+function adjustDiscordWebhook(webhookUrl: string): string {
+    // We need Discord webhook URLs to end with /slack for proper handling, this ensures that
+    return webhookUrl.replace(/\/*(?:posthog|slack)?$/, '/slack')
+}
 
 const logic = kea<logicType<UserType>>({
     actions: () => ({
@@ -32,10 +51,8 @@ const logic = kea<logicType<UserType>>({
                 saveWebhook: () => true,
                 testAndSaveWebhook: () => true,
                 setError: () => false,
-                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? false : state,
-                [userLogic.actionTypes.userUpdateFailure]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? false : state,
+                [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => false,
+                [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false
             },
         ],
         isSaved: [
@@ -43,8 +60,7 @@ const logic = kea<logicType<UserType>>({
             {
                 saveWebhook: () => false,
                 testAndSaveWebhook: () => false,
-                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? true : state,
+                [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => true,
                 setEditedWebhook: () => false,
             },
         ],
@@ -61,25 +77,22 @@ const logic = kea<logicType<UserType>>({
 
     listeners: ({ actions, values }) => ({
         testAndSaveWebhook: async () => {
-            const { editedWebhook } = values
+            let { editedWebhook } = values
             if (editedWebhook) {
+                if (editedWebhook.includes('discord.com')) editedWebhook = adjustDiscordWebhook(editedWebhook)
+                actions.setEditedWebhook(editedWebhook)
                 try {
-                    const response = await api.create('api/user/@me/test_slack_webhook', { webhook: editedWebhook })
-
-                    if (response.success) {
-                        actions.saveWebhook(editedWebhook)
-                    } else {
-                        actions.setError(response.error)
-                    }
+                    await api.create('api/user/@me/test_slack_webhook', { webhook: editedWebhook })
+                    actions.saveWebhook(editedWebhook)
                 } catch (error) {
-                    actions.setError(error.message)
+                    actions.setError(error.detail)
                 }
             } else {
                 actions.saveWebhook(editedWebhook)
             }
         },
         saveWebhook: async () => {
-            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'slack')
+            await teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: values.editedWebhook }, 'webhook')
         },
     }),
 })
@@ -91,6 +104,7 @@ export function WebhookIntegration(): JSX.Element {
     return (
         <div>
             <p>
+                Send notifications when selected Actions are performed by users.<br/>
                 Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>.
@@ -101,7 +115,7 @@ export function WebhookIntegration(): JSX.Element {
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder="integration disabled"
+                placeholder="integration disabled – enter URL to enable"
             />
             <Button
                 type="primary"
@@ -123,8 +137,8 @@ export function WebhookIntegration(): JSX.Element {
                 <span className="text-success" style={{ marginLeft: 10 }}>
                     Success:{' '}
                     {editedWebhook
-                        ? `you should see a message on ${editedWebhook.includes('slack.com') ? 'Slack' : 'Teams'}`
-                        : 'integration disabled'}
+                        ? `You should see a message on ${resolveWebhookService(editedWebhook)}.`
+                        : 'Disabled integration.'}
                 </span>
             )}
         </div>
