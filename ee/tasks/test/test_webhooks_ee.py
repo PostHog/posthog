@@ -1,7 +1,6 @@
 from unittest.mock import patch
 
 import pytz
-from dateutil.parser import isoparse
 from django.utils.timezone import now
 
 from ee.tasks.webhooks_ee import post_event_to_webhook_ee
@@ -32,16 +31,11 @@ class TestWebhooksEE(BaseTest):
 
         _now = now()
 
-        if isinstance(_now, str):
-            timestamp = isoparse(_now)
-        else:
-            timestamp = _now.astimezone(pytz.utc)
-
         event = {
             "event": "user paid",
             "properties": {},
             "distinct_id": "test",
-            "timestamp": timestamp,
+            "timestamp": _now,
             "elements_list": {},
         }
         site_url = "http://testserver"
