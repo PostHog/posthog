@@ -69,6 +69,7 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 @csrf_exempt
 def get_event(request):
+    request.timings.start('event_endpoint')
     now = timezone.now()
     try:
         data_from_request = load_data_from_request(request)
@@ -205,4 +206,5 @@ def get_event(request):
                 sent_at=sent_at,
             )
 
+    request.timings.stop('event_endpoint')
     return cors_response(request, JsonResponse({"status": 1}))
