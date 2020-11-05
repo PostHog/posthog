@@ -138,9 +138,9 @@ class OrganizationInvite(UUIDModel):
             assert user is not None, "Either user or email must be provided!"
             email = user.email
         if self.is_expired():
-            raise ValueError("Invite has expired.")
+            raise ValueError("This invite has expired. Please ask your admin for a new one.")
         if email != self.target_email:
-            raise ValueError("Invite intended for another email address.")
+            raise ValueError("This invite is intended for another email address.")
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
         if OrganizationMembership.objects.filter(

@@ -55,11 +55,9 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 visible={isVisible}
             >
                 <p>
-                    Create an invite for a teammate with a specific email address.
-                    <br />
                     {user?.are_invite_emails_available
-                        ? 'PostHog will then email it to the address.'
-                        : "Since this PostHog instance isn't configured for emailing invites, remember to share the link!"}
+                        ? "Your teammate will be able to join from the email they'll receive."
+                        : <>We'll create an invite link for your teammate. <b>Share it</b> with them so they're able to join you.</>}
                 </p>
                 <Input
                     data-attr="invite-email-input"
