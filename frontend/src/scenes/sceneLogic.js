@@ -15,7 +15,7 @@ export const scenes = {
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    people: () => import(/* webpackChunkName: 'people' */ './users/People'),
+    persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
@@ -35,7 +35,7 @@ export const scenes = {
     plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
 export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
@@ -55,9 +55,9 @@ export const routes = {
     '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
-    '/people/persons': 'people',
-    '/people/new_cohort': 'people',
-    '/people/cohorts': 'cohorts',
+    '/persons': 'persons',
+    '/cohorts/new': 'persons',
+    '/cohorts': 'cohorts',
     '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
     '/project/settings': 'projectSettings',

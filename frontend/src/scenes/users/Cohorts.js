@@ -9,6 +9,8 @@ import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { hot } from 'react-hot-loader/root'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PlusOutlined } from '@ant-design/icons'
 
 export const Cohorts = hot(_Cohorts)
 function _Cohorts() {
@@ -21,7 +23,7 @@ function _Cohorts() {
             key: 'name',
             render: function RenderName(_, cohort) {
                 return (
-                    <Link className={rrwebBlockClass} to={'/people/persons?cohort=' + cohort.id}>
+                    <Link className={rrwebBlockClass} to={'/persons?cohort=' + cohort.id}>
                         {cohort.name}
                     </Link>
                 )
@@ -91,20 +93,26 @@ function _Cohorts() {
 
     return (
         <div>
-            <h1 className="page-header">Cohorts</h1>
-            <LinkButton to={'/people/new_cohort'} type="primary" data-attr="create-cohort">
-                + New Cohort
-            </LinkButton>
-            <br />
-            <br />
-            <Table
-                size="small"
-                columns={columns}
-                loading={!cohorts && cohortsLoading}
-                rowKey={(cohort) => cohort.id}
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                dataSource={cohorts}
+            <PageHeader
+                title="Cohorts"
+                caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
+            <div>
+                <div className="mb text-right">
+                    <LinkButton to={'/cohorts/new'} type="primary" data-attr="create-cohort" icon={<PlusOutlined />}>
+                        New Cohort
+                    </LinkButton>
+                </div>
+
+                <Table
+                    size="small"
+                    columns={columns}
+                    loading={!cohorts && cohortsLoading}
+                    rowKey={(cohort) => cohort.id}
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    dataSource={cohorts}
+                />
+            </div>
         </div>
     )
 }

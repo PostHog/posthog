@@ -2,7 +2,7 @@ import React from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Table } from 'antd'
-import { QuestionCircleOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -12,6 +12,7 @@ import moment from 'moment'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
@@ -86,7 +87,7 @@ export function ActionsTable() {
                 return (
                     <span>
                         <Link to={'/action/' + action.id}>
-                            <i className="fi flaticon-edit" />
+                            <EditOutlined />
                         </Link>
                         <DeleteWithUndo
                             endpoint="action"
@@ -95,7 +96,7 @@ export function ActionsTable() {
                             style={{ marginLeft: 8 }}
                             callback={loadActions}
                         >
-                            <i className="fi flaticon-basket" />
+                            <DeleteOutlined />
                         </DeleteWithUndo>
                     </span>
                 )
@@ -103,12 +104,19 @@ export function ActionsTable() {
         },
     ]
 
-    return (
-        <div>
-            <h1 className="page-header">Actions</h1>
-            {!featureFlags['actions-ux-201012'] && (
-                <p style={{ maxWidth: 600 }}>
-                    <i>
+    const Caption = () => {
+        return (
+            <>
+                {featureFlags['actions-ux-201012'] && (
+                    <div>
+                        Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
+                        <a href="https://posthog.com/docs/features/actions" target="_blank">
+                            <QuestionCircleOutlined />
+                        </a>
+                    </div>
+                )}
+                {!featureFlags['actions-ux-201012'] && (
+                    <div>
                         Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of
                         one or more events that you have decided to put into a manually-labelled bucket. They're used in
                         Funnels, Live actions and Trends.
@@ -117,15 +125,17 @@ export function ActionsTable() {
                         <a href="https://posthog.com/docs/features/actions" target="_blank" rel="noopener noreferrer">
                             See documentation
                         </a>
-                    </i>
-                </p>
-            )}
+                    </div>
+                )}
+            </>
+        )
+    }
+
+    return (
+        <div>
+            <PageHeader title="Actions" caption={<Caption />} />
             {featureFlags['actions-ux-201012'] && (
                 <div>
-                    Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
-                    <a href="https://posthog.com/docs/features/actions" target="_blank">
-                        <QuestionCircleOutlined />
-                    </a>
                     <div className="tutorial-container">
                         <div className="t-element">
                             <div>
@@ -161,22 +171,24 @@ export function ActionsTable() {
                     </div>
                 </div>
             )}
-            <div style={{ margin: '32px 0' }}>
-                <NewActionButton />
+            <div>
+                <div className="mb text-right">
+                    <NewActionButton />
+                </div>
+                <Table
+                    size="small"
+                    columns={columns}
+                    loading={actionsLoading}
+                    rowKey={(action) => action.id}
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    dataSource={actions}
+                    locale={
+                        featureFlags['actions-ux-201012']
+                            ? { emptyText: 'The first step to standardized analytics is creating your first action.' }
+                            : {}
+                    }
+                />
             </div>
-            <Table
-                size="small"
-                columns={columns}
-                loading={actionsLoading}
-                rowKey={(action) => action.id}
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                dataSource={actions}
-                locale={
-                    featureFlags['actions-ux-201012']
-                        ? { emptyText: 'The first step to standardized analytics is creating your first action.' }
-                        : {}
-                }
-            />
         </div>
     )
 }
