@@ -115,7 +115,6 @@ function _Setup() {
                             </a>{' '}
                             with us!
                         </p>
-                        <Divider />
                     </>
                 )}
             </Card>
