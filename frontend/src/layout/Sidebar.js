@@ -20,6 +20,7 @@ import {
     ClockCircleOutlined,
     MessageOutlined,
     ProjectOutlined,
+    SettingOutlined,
     LockOutlined,
     WalletOutlined,
     ApiOutlined,
@@ -243,7 +244,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         key="project"
                         title={
                             <span style={itemStyle} data-attr="menu-item-project">
-                                <DeploymentUnitOutlined />
+                                <ProjectOutlined />
                                 <span className="sidebar-label">Project</span>
                             </span>
                         }
@@ -253,7 +254,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }}
                     >
                         <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
-                            <ProjectOutlined />
+                            <SettingOutlined />
                             <span className="sidebar-label">Settings</span>
                             <Link to={'/project/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
