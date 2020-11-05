@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.api.test.base import BaseTest
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, parse_url
 
-from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_TGZ, HELLO_WORLD_PLUGIN_GITHUB_ZIP, HELLO_WORLD_PLUGIN_NPM_TGZ
+from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP, HELLO_WORLD_PLUGIN_NPM_TGZ
 
 
 # This method will be used by the mock to replace requests.get
@@ -149,8 +149,3 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")
         self.assertEqual(plugin_json_tgz["url"], "https://github.com/PostHog/helloworldplugin")
         self.assertEqual(plugin_json_tgz["description"], "Greet the World and Foo a Bar, JS edition")
-
-        plugin_json_tgz = get_json_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_TGZ[1]), "plugin.json")
-        self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")
-        self.assertEqual(plugin_json_tgz["url"], "https://github.com/PostHog/helloworldplugin")
-        self.assertEqual(plugin_json_tgz["description"], "Greet the World and Foo a Bar")
