@@ -213,12 +213,6 @@ SELECT
 FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
-EVENT_PROP_CLAUSE = """
-SELECT event_id
-FROM events_properties_view AS ep
-WHERE {filters} AND team_id = %(team_id)s
-"""
-
 GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events order by toDate(timestamp), timestamp limit 1
 """

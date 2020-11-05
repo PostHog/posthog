@@ -12,6 +12,7 @@ import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const { TabPane } = Tabs
 
@@ -95,7 +96,7 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 danger
-                onClick={() => deletePersonData(person, () => history.push('/people/persons'))}
+                onClick={() => deletePersonData(person, () => history.push('/persons'))}
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
@@ -107,10 +108,7 @@ function _Person({ _: distinctId, id }) {
             >
                 Save updated data
             </Button>
-            <h1 className="page-header">
-                {'name' in person.properties ? person.properties.name.first : person.name}{' '}
-                {person.properties.name ? person.properties.name.last : ''}
-            </h1>
+            <PageHeader title={`Person ${person.properties.name?.first || person.name || person.properties.email}`} />
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{

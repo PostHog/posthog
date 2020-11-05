@@ -15,7 +15,6 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
-from ee.clickhouse.util import CH_ACTION_ENDPOINT, endpoint_enabled
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -40,10 +39,6 @@ class ClickhouseActions(ActionViewSet):
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        if not endpoint_enabled(CH_ACTION_ENDPOINT, request.user.distinct_id):
-            result = super().get_people(request)
-            return Response(result)
 
         team = request.user.team
         filter = Filter(request=request)
@@ -109,7 +104,7 @@ class ClickhouseActions(ActionViewSet):
 
     def _calculate_stickiness_entity_people(self, team: Team, entity: Entity, filter: Filter, stickiness_day: int):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
 
         params: Dict = {
@@ -139,7 +134,7 @@ class ClickhouseActions(ActionViewSet):
 
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
         params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 

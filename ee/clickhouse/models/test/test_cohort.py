@@ -10,6 +10,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -46,6 +47,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
+        _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
         _create_event(
             event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
         )
@@ -61,10 +63,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
-        query, params = parse_prop_clauses("uuid", filter.properties, self.team)
+        query, params = parse_prop_clauses(filter.properties, self.team)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
+
+        feature_flag = FeatureFlag.objects.create(
+            filters=filter.to_dict(), created_by=self.user, name="test", key="test", team=self.team
+        )
+        self.assertTrue(feature_flag.distinct_id_matches("some_id"))
+        self.assertFalse(feature_flag.distinct_id_matches("no_match"))
 
     def test_prop_cohort_multiple_groups(self):
 
@@ -86,7 +94,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
-        query, params = parse_prop_clauses("uuid", filter.properties, self.team)
+        query, params = parse_prop_clauses(filter.properties, self.team)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
@@ -110,7 +118,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
-        query, params = parse_prop_clauses("uuid", filter.properties, self.team)
+        query, params = parse_prop_clauses(filter.properties, self.team)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 0)

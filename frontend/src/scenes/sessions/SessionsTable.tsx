@@ -15,6 +15,7 @@ import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
 import { userLogic } from 'scenes/userLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -111,8 +112,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
-            <Space className="mb-2">
+            {!isPersonPage && <PageHeader title="Sessions By Day" />}
+            <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}
