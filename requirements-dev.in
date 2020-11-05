@@ -1,5 +1,4 @@
-# To compile, run:
-#    pip-compile requirements/dev.in
+# pip-compile requirements-dev.in
 
 flake8
 flake8-bugbear
