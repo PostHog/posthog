@@ -150,6 +150,7 @@ export function DeleteWithUndo(
             href="#"
             onClick={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 deleteWithUndo(props)
             }}
             className={className}
