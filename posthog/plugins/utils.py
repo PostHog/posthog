@@ -110,7 +110,7 @@ def get_json_from_zip_archive(archive: bytes, filename: str):
 
 
 def get_json_from_tgz_archive(archive: bytes, filename: str):
-    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
         else:
