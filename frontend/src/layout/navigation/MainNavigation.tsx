@@ -81,6 +81,7 @@ function _MainNavigation(): JSX.Element {
                         identifier="insights"
                         to="/insights?insight=TRENDS"
                     />
+                    <div className="divider" />
                     <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
                 </div>
             </Layout.Sider>

@@ -81,16 +81,15 @@ function _App(): JSX.Element {
         <>
             <UpgradeModal />
             <Layout>
-                {featureFlags['navigation-1775'] &&
-                    (featureFlags['navigation-1775'] ? (
-                        <MainNavigation />
-                    ) : (
-                        <Sidebar
-                            user={user}
-                            sidebarCollapsed={sidebarCollapsed}
-                            setSidebarCollapsed={setSidebarCollapsed}
-                        />
-                    ))}
+                {featureFlags['navigation-1775'] ? (
+                    <MainNavigation />
+                ) : (
+                    <Sidebar
+                        user={user}
+                        sidebarCollapsed={sidebarCollapsed}
+                        setSidebarCollapsed={setSidebarCollapsed}
+                    />
+                )}
                 <Layout
                     className={`${darkerScenes[scene] && 'bg-mid'}${
                         !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''

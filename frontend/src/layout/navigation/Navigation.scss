@@ -78,6 +78,13 @@ $top_nav_height: 50px;
         }
     }
 
+    .divider {
+        width: 80%;
+        height: 1px;
+        background-color: lighten($bg_menu, 20%);
+        margin: 0 auto;
+    }
+
     // Styles for default navigation bar (80px)
     &:not(.ant-layout-sider-below) {
         .nav-logo {
@@ -143,6 +150,7 @@ $top_nav_height: 50px;
 
     div {
         justify-content: center;
+        align-items: center;
         display: flex;
         padding: 0 8px;
     }
@@ -161,10 +169,24 @@ $top_nav_height: 50px;
     .whoami {
         flex-direction: column;
         font-weight: bold;
+        align-items: flex-start;
         span:last-of-type {
             font-size: 12px;
             color: $text_muted;
         }
+    }
+
+    .pp {
+        border-radius: 50%;
+        width: 32px;
+        height: 32px;
+        background-color: $purple_300;
+        color: #5f1903;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 18px;
     }
 }
 
