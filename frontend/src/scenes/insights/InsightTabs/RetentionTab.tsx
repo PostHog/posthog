@@ -6,7 +6,7 @@ import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions, retentionOptions } from 'scenes/retention/retentionTableLogic'
-import { DatePicker, Select } from 'antd'
+import { Button, DatePicker, Select } from 'antd'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
@@ -55,18 +55,10 @@ export function RetentionTab(): JSX.Element {
             </div>
             <hr />
             <h4 className="secondary">{retentionType === 'retention_first_time' ? 'First Event' : 'Target Event'}</h4>
-            <button
-                ref={node}
-                className="filter-action btn btn-sm btn-light"
-                type="button"
-                onClick={(): void => setOpen(!open)}
-                style={{
-                    fontWeight: 500,
-                }}
-            >
+            <Button ref={node} data-attr="retention-action" onClick={(): void => setOpen(!open)}>
                 {startEntity?.name || 'Select action'}
-                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
-            </button>
+                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+            </Button>
             {open && (
                 <ActionFilterDropdown
                     logic={entityLogic}
@@ -111,7 +103,6 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
-
             <>
                 <hr />
                 <h4 className="secondary">Current Date</h4>
@@ -120,7 +111,7 @@ export function RetentionTab(): JSX.Element {
                         showTime={filters.period === 'h'}
                         use12Hours
                         format={filters.period === 'h' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
-                        className="mb-2"
+                        className="mb-05"
                         value={selectedDate}
                         onChange={(date): void => setFilters({ selectedDate: date })}
                         allowClear={false}

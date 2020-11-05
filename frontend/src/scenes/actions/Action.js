@@ -11,6 +11,7 @@ import { kea } from 'kea'
 import { Spin } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 let actionLogic = kea({
     key: (props) => props.id || 'new',
@@ -86,14 +87,10 @@ function _Action({ id }) {
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
     const { isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
-            {!featureFlags['actions-ux-201012'] && <h1>{id ? 'Edit action' : 'New Action'}</h1>}
-            {featureFlags['actions-ux-201012'] && (
-                <h1 className="page-header">{id ? 'Editing action' : 'Creating action'}</h1>
-            )}
+            <PageHeader title={id ? 'Editing action' : 'Creating action'} />
 
             <EditComponent
                 apiURL=""
@@ -108,7 +105,7 @@ function _Action({ id }) {
             />
             {id && !isComplete && (
                 <div style={{ marginBottom: '10rem' }}>
-                    <h1 className="page-header">Events</h1>
+                    <h2 className="subtitle">Events</h2>
                     <Spin style={{ marginRight: 12 }} />
                     Calculating action, please hold on.
                 </div>

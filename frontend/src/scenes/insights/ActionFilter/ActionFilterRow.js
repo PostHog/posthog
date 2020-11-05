@@ -1,13 +1,12 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
-import { CloseButton } from '~/lib/utils'
-import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Tooltip } from 'antd'
+import { Button, Tooltip, Dropdown, Menu, Col, Row } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
+import { CloseButton } from 'lib/components/CloseButton'
 
 const MATHS = {
     total: {
@@ -140,30 +139,32 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div className="mt-2" style={{ paddingBottom: 16 }}>
-            <button
-                data-attr={'trend-element-subject-' + index}
-                ref={node}
-                className="filter-action btn btn-sm btn-light"
-                type="button"
-                onClick={onClick}
-                style={{
-                    fontWeight: 500,
-                }}
-            >
-                {name || 'Select action'}
-                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
-            </button>
-            {!hideMathSelector && (
-                <MathSelector
-                    math={math}
-                    index={index}
-                    onMathSelect={onMathSelect}
-                    areEventPropertiesNumericalAvailable={
-                        eventPropertiesNumerical && eventPropertiesNumerical.length > 0
-                    }
-                />
-            )}
+        <div>
+            <Row gutter={8} className="mt">
+                <Col>
+                    <Button
+                        data-attr={'trend-element-subject-' + index}
+                        ref={node}
+                        onClick={onClick}
+                        className="ant-btn-md"
+                    >
+                        {name || 'Select action'}
+                        <DownOutlined style={{ fontSize: 10 }} />
+                    </Button>
+                </Col>
+                <Col>
+                    {!hideMathSelector && (
+                        <MathSelector
+                            math={math}
+                            index={index}
+                            onMathSelect={onMathSelect}
+                            areEventPropertiesNumericalAvailable={
+                                eventPropertiesNumerical && eventPropertiesNumerical.length > 0
+                            }
+                        />
+                    )}
+                </Col>
+            </Row>
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
                     name={name}
@@ -175,27 +176,27 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 />
             )}
             <div style={{ paddingTop: 6 }}>
-                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6 }}>&#8627;</span>
-                <div
-                    className="btn btn-sm btn-light ml-2"
+                <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
+                <Button
+                    className="ant-btn-md"
                     onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                     data-attr={'show-prop-filter-' + index}
                 >
                     {determineFilterLabel(entityFilterVisible, filter)}
-                </div>
+                </Button>
                 <CloseButton
-                    className="ml-2"
                     onClick={onClose}
                     style={{
                         float: 'none',
                         position: 'absolute',
                         marginTop: 3,
+                        marginLeft: 4,
                     }}
                 />
             </div>
 
             {entityFilterVisible && (
-                <div className="ml-3">
+                <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
@@ -225,49 +226,46 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
 
-    return (
-        <Dropdown
-            title={MATHS[math || 'total']?.name}
-            buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-selector-${index}`}
-        >
-            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
-                const disabled = onProperty && !areEventPropertiesNumericalAvailable
-                return (
-                    <Tooltip
-                        placement="right"
-                        title={
-                            onProperty ? (
-                                <>
-                                    {description}
-                                    <br />
-                                    {numericalNotice}
-                                </>
-                            ) : (
-                                description
-                            )
-                        }
-                        key={`math-${key}`}
-                    >
-                        <div>
-                            <button
-                                className="dropdown-item"
-                                disabled={disabled}
-                                onClick={
-                                    disabled
-                                        ? undefined
-                                        : () => {
-                                              onMathSelect(index, key)
-                                          }
+    const overlay = () => {
+        return (
+            <Menu onClick={({ item }) => onMathSelect(index, item.props['data-value'])}>
+                {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
+                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
+                    return (
+                        <Menu.Item
+                            key={`math-${key}`}
+                            data-value={key}
+                            data-attr={`math-${key}-${index}`}
+                            disabled={disabled}
+                        >
+                            <Tooltip
+                                title={
+                                    onProperty ? (
+                                        <>
+                                            {description}
+                                            <br />
+                                            {numericalNotice}
+                                        </>
+                                    ) : (
+                                        description
+                                    )
                                 }
-                                data-attr={`math-${key}-${index}`}
+                                placement="right"
                             >
                                 {name}
-                            </button>
-                        </div>
-                    </Tooltip>
-                )
-            })}
+                            </Tooltip>
+                        </Menu.Item>
+                    )
+                })}
+            </Menu>
+        )
+    }
+
+    return (
+        <Dropdown overlay={overlay}>
+            <Button className="ant-btn-md" data-attr={`math-selector-${index}`}>
+                {MATHS[math || 'total']?.name} <DownOutlined />
+            </Button>
         </Dropdown>
     )
 }
@@ -277,35 +275,40 @@ function MathPropertySelector(props) {
         ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
     )
 
+    const overlay = () => {
+        return (
+            <Menu onClick={({ item }) => props.onMathPropertySelect(props.index, item.props['data-value'])}>
+                {applicableProperties.map(({ value, label }) => {
+                    return (
+                        <Menu.Item
+                            key={`math-property-${value}-${props.index}`}
+                            data-attr={`math-property-${value}-${props.index}`}
+                            data-value={value}
+                        >
+                            <Tooltip
+                                title={
+                                    <>
+                                        Calculate {MATHS[props.math].name.toLowerCase()} from property{' '}
+                                        <code>{label}</code>. Note that only {props.name} occurences where{' '}
+                                        <code>{label}</code> is set and a number will be taken into account.
+                                    </>
+                                }
+                                placement="right"
+                            >
+                                {label}
+                            </Tooltip>
+                        </Menu.Item>
+                    )
+                })}
+            </Menu>
+        )
+    }
+
     return (
-        <Dropdown
-            title={props.mathProperty || 'Select property'}
-            titleEmpty="No applicable properties"
-            buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-property-selector-${props.index}`}
-        >
-            {applicableProperties.map(({ value, label }) => (
-                <Tooltip
-                    placement="right"
-                    title={
-                        <>
-                            Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>. Note
-                            that only {props.name} occurences where <code>{label}</code> is set and a number will be
-                            taken into account.
-                        </>
-                    }
-                    key={`math-property-${value}-${props.index}`}
-                >
-                    <a
-                        href="#"
-                        className="dropdown-item"
-                        onClick={() => props.onMathPropertySelect(props.index, value)}
-                        data-attr={`math-property-${value}-${props.index}`}
-                    >
-                        {label}
-                    </a>
-                </Tooltip>
-            ))}
+        <Dropdown overlay={overlay}>
+            <Button data-attr={`math-property-selector-${props.index}`} style={{ marginTop: 8 }}>
+                {props.mathProperty || 'Select property'} <DownOutlined />
+            </Button>
         </Dropdown>
     )
 }

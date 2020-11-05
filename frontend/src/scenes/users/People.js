@@ -4,10 +4,10 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { Cohort } from './Cohort'
 import { PeopleTable } from './PeopleTable'
-
-import { Button, Tabs } from 'antd'
+import { Button, Tabs, Input } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const { TabPane } = Tabs
 const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
@@ -64,7 +64,7 @@ function _People() {
     }, [cohortId])
 
     useEffect(() => {
-        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people/persons', { category, cohort: cohortId })
+        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/persons', { category, cohort: cohortId })
     }, [categoryRaw])
 
     const exampleEmail =
@@ -72,10 +72,10 @@ function _People() {
 
     return (
         <div>
-            <h1 className="page-header">Persons</h1>
+            <PageHeader title="Persons" />
             <Cohort
                 onChange={(cohortId) => {
-                    push('/people/persons', { category, cohort: cohortId })
+                    push('/persons', { category, cohort: cohortId })
                 }}
             />
             <Button
@@ -86,23 +86,22 @@ function _People() {
             >
                 Export
             </Button>
-            <input
-                className="form-control"
-                name="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.keyCode === 13 && fetchPeople()}
-                placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
-                style={{ maxWidth: 400 }}
-            />
-            <br />
+            <div className="mb">
+                <Input
+                    data-attr="persons-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchPeople()}
+                    placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
+                    style={{ maxWidth: 400 }}
+                />
+            </div>
             <Tabs
                 defaultActiveKey={category}
                 onChange={(category) => {
-                    push('/people/persons', { category, cohort: cohortId })
+                    push('/persons', { category, cohort: cohortId })
                     fetchPeople(undefined, undefined, category)
                 }}
-                type="card"
             >
                 <TabPane tab={<span data-attr="people-types-tab">All</span>} key="all" data-attr="people-types-tab" />
                 <TabPane
@@ -116,23 +115,26 @@ function _People() {
                     data-attr="people-types-tab"
                 />
             </Tabs>
-            <PeopleTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
 
-            <div style={{ margin: '3rem auto 10rem', width: 200 }}>
-                <Button
-                    type="link"
-                    disabled={!tabHasPagination('previous')}
-                    onClick={() => fetchPeople(pagination[category].previous, true)}
-                >
-                    <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
-                </Button>
-                <Button
-                    type="link"
-                    disabled={!tabHasPagination('next')}
-                    onClick={() => fetchPeople(pagination[category].next, true)}
-                >
-                    Next <RightOutlined style={{ verticalAlign: 'initial' }} />
-                </Button>
+            <div>
+                <PeopleTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
+
+                <div style={{ margin: '3rem auto 10rem', width: 200 }}>
+                    <Button
+                        type="link"
+                        disabled={!tabHasPagination('previous')}
+                        onClick={() => fetchPeople(pagination[category].previous, true)}
+                    >
+                        <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
+                    </Button>
+                    <Button
+                        type="link"
+                        disabled={!tabHasPagination('next')}
+                        onClick={() => fetchPeople(pagination[category].next, true)}
+                    >
+                        Next <RightOutlined style={{ verticalAlign: 'initial' }} />
+                    </Button>
+                </div>
             </div>
         </div>
     )

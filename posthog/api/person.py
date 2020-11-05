@@ -162,7 +162,10 @@ class PersonViewSet(viewsets.ModelViewSet):
 
         people = self.get_queryset()
         people = (
-            people.annotate(keys=JsonKeys("properties")).values("keys").annotate(count=Count("id")).order_by("-count")
+            people.annotate(keys=JsonKeys("properties"))
+            .values("keys")
+            .annotate(count=Count("id"))
+            .order_by("-count", "keys")
         )
         return [{"name": event["keys"], "count": event["count"]} for event in people]
 

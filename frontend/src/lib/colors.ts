@@ -1,17 +1,5 @@
-const lightColors = [
-    'blue',
-    'orange',
-    'green',
-    'red',
-    'purple',
-    'gray',
-    'indigo',
-    'pink',
-    'yellow',
-    'teal',
-    'cyan',
-    'gray-dark',
-]
+const lightColors = ['blue', 'purple', 'green', 'salmon', 'yellow', 'indigo', 'cyan', 'pink']
+
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
 export const darkWhites = [
