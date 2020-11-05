@@ -2,7 +2,6 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
-import celery
 import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
@@ -14,6 +13,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INS
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
+from ee.tasks.webhooks_ee import post_event_to_webhook_ee
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -60,19 +60,16 @@ def create_event(
 
     if team.slack_incoming_webhook:
         try:
-            celery.current_app.send_task(
-                "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
-                (
-                    {
-                        "event": event,
-                        "properties": properties,
-                        "distinct_id": distinct_id,
-                        "timestamp": timestamp,
-                        "elements_list": elements,
-                    },
-                    team.pk,
-                    site_url,
-                ),
+            post_event_to_webhook_ee.delay(
+                event={
+                    "event": event,
+                    "properties": properties,
+                    "distinct_id": distinct_id,
+                    "timestamp": timestamp,
+                    "elements_list": elements,
+                },
+                team_id=team.pk,
+                site_url=site_url
             )
         except:
             pass
