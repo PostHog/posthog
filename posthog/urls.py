@@ -74,7 +74,7 @@ class TeamInviteSurrogate:
 
 
 def signup_to_organization_view(request, invite_id):
-    if request.user.is_authenticated or not invite_id:
+    if not invite_id:
         return redirect("/")
     if not User.objects.exists():
         return redirect("/preflight")
@@ -89,7 +89,27 @@ def signup_to_organization_view(request, invite_id):
             return redirect("/")
 
     organization = cast(Organization, invite.organization)
-
+    if request.user.is_authenticated:
+        user = cast(User, request.user)
+        try:
+            invite.use(user)
+        except ValueError as e:
+            return render_template(
+                "signup_to_organization.html",
+                request=request,
+                context={
+                    "email": user.email,
+                    "name": user.first_name,
+                    "custom_error": str(e),
+                    "organization": organization,
+                    "invite_id": invite_id,
+                },
+            )
+        else:
+            posthoganalytics.capture(
+                user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
+            )
+            return redirect('/')
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
