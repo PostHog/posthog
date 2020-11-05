@@ -52,7 +52,7 @@ class PluginSerializer(serializers.ModelSerializer):
             validated_data["description"] = json.get("description", "")
             validated_data["config_schema"] = json.get("config", {})
         else:
-            parsed_url = parse_url(validated_data["url"], get_latest=True)
+            parsed_url = parse_url(validated_data["url"], get_latest_if_none=True)
             if parsed_url:
                 validated_data["url"] = parsed_url["root_url"]
                 validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
