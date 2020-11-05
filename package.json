@@ -50,7 +50,7 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "^1.5.2",
+        "posthog-js": "^1.6.0",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-string": "^6.13.1",
@@ -65,7 +65,7 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb": "^0.9.7",
+        "rrweb": "^0.9.9",
         "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
         "zxcvbn": "^4.4.2"
