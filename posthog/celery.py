@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.ee import check_ee_enabled
 from posthog.redis import get_client
 
-if settings.EE_AVAILABLE:
+if check_ee_enabled() and settings.EE_AVAILABLE:
     from ee.clickhouse.client import sync_execute
 
 # set the default Django settings module for the 'celery' program.
