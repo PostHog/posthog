@@ -37,12 +37,12 @@ export const pluginsLogic = kea<
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
-                    const { editingPlugin } = values
+                    const { plugins, editingPlugin } = values
                     if (!editingPlugin) {
-                        return values.plugins
+                        return plugins
                     }
                     await api.delete(`api/plugin/${editingPlugin.id}`)
-                    const { [editingPlugin.id]: _discard, ...rest } = values.plugins // eslint-disable-line
+                    const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
             },
