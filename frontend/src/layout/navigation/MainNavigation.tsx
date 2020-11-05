@@ -1,14 +1,14 @@
 import React from 'react'
-import { Menu, Layout } from 'antd'
-import { RiseOutlined, FundOutlined } from '@ant-design/icons'
+import { Layout } from 'antd'
+import { FundOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
-import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
+import { IconDashboard, IconPerson } from './icons'
 
 function Logo(): JSX.Element {
     return (
@@ -26,6 +26,21 @@ const sceneOverride = {
     featureFlags: 'experiments',
 }
 
+const MenuItem = ({ title, icon, identifier }): JSX.Element => {
+    const { scene, loadingScene } = useValues(sceneLogic)
+    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+
+    return (
+        <div
+            className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
+            data-attr={`menu-item-${identifier}`}
+        >
+            {icon}
+            <span className="menu-title">{title}</span>
+        </div>
+    )
+}
+
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element {
     const collapseSidebar = (): void => {
@@ -33,11 +48,8 @@ function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element
             setSidebarCollapsed(true)
         }
     }
-    const { scene, loadingScene } = useValues(sceneLogic)
 
     useEscapeKey(collapseSidebar, [sidebarCollapsed])
-
-    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
 
     return (
         <>
@@ -57,36 +69,12 @@ function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element
                 }}
                 style={{ backgroundColor: 'var(--bg-menu)' }}
             >
-                <Menu theme="dark" selectedKeys={[activeScene]} mode="vertical" className="navigation-main">
+                <div className="navigation-main">
                     <Logo />
-
-                    <Menu.Item key="dashboards" data-attr="menu-item-dashboards" title="" style={{}}>
-                        <FundOutlined />
-                        <p>Dashboards</p>
-                        <Link to="/dashboard" onClick={collapseSidebar} />
-                    </Menu.Item>
-                    <Menu.Item key="funnels" data-attr="menu-item-funnels" title="">
-                        <RiseOutlined />
-                        <p>Funnels</p>
-                        <Link to={'/insights?insight=FUNNELS'} onClick={collapseSidebar} />
-                    </Menu.Item>
-                    <Menu.Item key="insights" data-attr="menu-item-insights" title="">
-                        <RiseOutlined />
-                        <p>Insights</p>
-                        <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
-                    </Menu.Item>
-                    <Menu.Item key="retention" data-attr="menu-item-retention" title="">
-                        <RiseOutlined />
-                        <p>Retention</p>
-                        <Link to={'/insights?insight=RETENTION'} onClick={collapseSidebar} />
-                    </Menu.Item>
-                    <Menu.Divider />
-                    <Menu.Item key="feature-flags" data-attr="menu-item-feature-flags" title="">
-                        <RiseOutlined />
-                        <p>Feature Flags</p>
-                        <Link to={'/feature_flags'} onClick={collapseSidebar} />
-                    </Menu.Item>
-                </Menu>
+                    <MenuItem title="Insights" icon={<IconDashboard />} identifier="insights" />
+                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" />
+                    <MenuItem title="Dashboards" icon={<FundOutlined />} identifier="dashboards" />
+                </div>
             </Layout.Sider>
         </>
     )
