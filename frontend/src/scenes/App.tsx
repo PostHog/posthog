@@ -39,7 +39,7 @@ function _App(): JSX.Element {
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991) // used for legacy navigation [Sidebar.js]
     const { featureFlags } = useValues(featureFlagLogic)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
@@ -83,7 +83,7 @@ function _App(): JSX.Element {
             <Layout>
                 {featureFlags['navigation-1775'] &&
                     (featureFlags['navigation-1775'] ? (
-                        <MainNavigation sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+                        <MainNavigation />
                     ) : (
                         <Sidebar
                             user={user}
@@ -92,7 +92,9 @@ function _App(): JSX.Element {
                         />
                     ))}
                 <Layout
-                    className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
+                    className={`${darkerScenes[scene] && 'bg-mid'}${
+                        !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
+                    }`}
                     style={{ minHeight: '100vh' }}
                 >
                     {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}

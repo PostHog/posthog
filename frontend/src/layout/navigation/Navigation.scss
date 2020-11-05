@@ -1,7 +1,24 @@
 @import '~/vars';
 
+@media (max-width: 991px) {
+    .navigation-mobile-overlay {
+        opacity: 0;
+        &.open {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            min-height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 1031;
+            opacity: 100;
+        }
+        transition: opacity 0.3s;
+    }
+}
+
 .navigation-main {
-    // General navigation bar styles
+    // General navigation bar styles (defaults to wide 180px)
     background-color: $bg_menu !important;
 
     .navigation-inner {
@@ -59,8 +76,8 @@
         }
     }
 
-    // Styles for collapsed navigation bar (80px)
-    &.ant-layout-sider-collapsed {
+    // Styles for default navigation bar (80px)
+    &:not(.ant-layout-sider-below) {
         .nav-logo {
             padding: 8px 16px;
 
@@ -97,6 +114,13 @@
             }
         }
     }
+
+    // Styles for hidden nav bar (mobile; closed)
+    &.ant-layout-sider-zero-width {
+        .navigation-inner {
+            position: inherit;
+        }
+    }
 }
 
 .navigation-top {
@@ -108,5 +132,14 @@
     @extend .mixin-elevated;
     position: fixed;
     top: 0;
-    z-index: 31415;
+    z-index: 1000;
+
+    div {
+        justify-content: center;
+        display: flex;
+    }
+
+    .middle {
+        flex-grow: 1;
+    }
 }

@@ -1,7 +1,7 @@
 import React from 'react'
 import { Layout } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { triggerResizeAfterADelay } from 'lib/utils'
@@ -11,6 +11,7 @@ import smLogo from 'public/icon-white.svg'
 import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import { IconDashboard, IconPerson } from './icons'
+import { navigationLogic } from './navigationLogic'
 
 // to show the right page in the sidebar
 const sceneOverride = {
@@ -38,29 +39,30 @@ const MenuItem = ({ title, icon, identifier, to }): JSX.Element => {
 }
 
 export const MainNavigation = hot(_MainNavigation)
-function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element {
-    const collapseSidebar = (): void => {
-        if (!sidebarCollapsed && window.innerWidth <= 991) {
-            setSidebarCollapsed(true)
+function _MainNavigation(): JSX.Element {
+    const { menuCollapsed } = useValues(navigationLogic)
+    const { setMenuCollapsed } = useActions(navigationLogic)
+
+    const collapseMenu = (): void => {
+        if (!menuCollapsed && window.innerWidth <= 991) {
+            setMenuCollapsed(true)
         }
     }
 
-    useEscapeKey(collapseSidebar, [sidebarCollapsed])
+    useEscapeKey(collapseMenu, [menuCollapsed])
 
     return (
         <>
-            <div
-                className={`sidebar-responsive-overlay${!sidebarCollapsed ? ' open' : ''}`}
-                onClick={collapseSidebar}
-            />
+            <div className={`navigation-mobile-overlay${!menuCollapsed ? ' open' : ''}`} onClick={collapseMenu} />
 
             <Layout.Sider
-                breakpoint="xxl"
-                collapsedWidth={80}
-                width={180}
-                collapsed={sidebarCollapsed}
-                onCollapse={(sidebarCollapsed) => {
-                    setSidebarCollapsed(sidebarCollapsed)
+                breakpoint="lg"
+                collapsedWidth={0}
+                width={80}
+                collapsed={menuCollapsed}
+                trigger={null}
+                onCollapse={(collapsed) => {
+                    setMenuCollapsed(collapsed)
                     triggerResizeAfterADelay()
                 }}
                 className="navigation-main"
