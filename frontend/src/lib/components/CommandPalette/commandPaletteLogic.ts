@@ -463,17 +463,17 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: UserOutlined,
-                        display: 'Go to People',
+                        display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/people/persons')
+                            push('/persons')
                         },
                     },
                     {
                         icon: UsergroupAddOutlined,
                         display: 'Go to Cohorts',
                         executor: () => {
-                            push('/people/cohorts')
+                            push('/cohorts')
                         },
                     },
                     {

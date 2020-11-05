@@ -4,6 +4,7 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import './RetentionTable.scss'
 import moment from 'moment'
 
 export function RetentionTable() {
@@ -96,7 +97,7 @@ export function RetentionTable() {
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
-                                    <table className="table table-bordered table-fixed">
+                                    <table className="table-bordered full-width">
                                         <tbody>
                                             <tr>
                                                 <th />
