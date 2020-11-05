@@ -109,7 +109,7 @@ def signup_to_organization_view(request, invite_id):
             posthoganalytics.capture(
                 user.distinct_id, "user joined from invite", properties={"organization_id": organization.id},
             )
-            return redirect('/')
+            return redirect("/")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
