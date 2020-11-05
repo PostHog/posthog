@@ -7,6 +7,11 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import moment, { Moment } from 'moment'
 import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 
+export const retentionOptions = {
+    retention_recurring: 'Recurring',
+    retention_first_time: 'First Time',
+}
+
 export const dateOptions = {
     h: 'Hour',
     d: 'Day',
@@ -33,6 +38,15 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
+                if (values.retentionType) params['retention_type'] = values.retentionType
+                if (values.returningEntity) {
+                    params['actions'] = Array.isArray(values.filters.returningEntity.actions)
+                        ? values.filters.returningEntity.actions
+                        : []
+                    params['events'] = Array.isArray(values.filters.returningEntity.events)
+                        ? values.filters.returningEntity.events
+                        : []
+                }
                 const urlParams = toParams(params)
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
@@ -80,8 +94,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 startEntity: {
                     events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                 },
+                returningEntity: {
+                    events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                    actions: [],
+                },
                 selectedDate: moment().startOf('hour'),
                 period: 'd',
+                retentionType: 'retention_recurring',
             },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
@@ -121,6 +140,16 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
+        returningEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters.returningEntity).reduce(function (r, k) {
+                    return r.concat(filters.returningEntity[k])
+                }, [])
+
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
+            },
+        ],
         selectedDate: [
             () => [selectors.filters],
             (filters) => {
@@ -131,6 +160,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             () => [selectors.filters],
             (filters) => {
                 return filters.period
+            },
+        ],
+        retentionType: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.retentionType
             },
         ],
     }),
@@ -156,13 +191,17 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 const paramsToCheck = {
                     selectedDate: searchParams.selectedDate,
                     startEntity: searchParams.startEntity,
+                    returningEntity: searchParams.returningEntity,
                     period: searchParams.period,
+                    retentionType: searchParams.retentionType,
                     properties: searchParams.properties,
                 }
                 const _filters = {
                     selectedDate: values.filters.selectedDate.toISOString(),
                     startEntity: values.filters.startEntity,
+                    returningEntity: values.filters.returningEntity,
                     period: values.filters.period,
+                    retentionType: searchParams.retentionType,
                     properties: values.properties,
                 }
 
@@ -173,7 +212,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                             ? moment(searchParams.selectedDate)
                             : values.filters.selectedDate,
                         startEntity: searchParams.startEntity || values.filters.startEntity,
+                        returningEntity: searchParams.returningEntity || values.filters.returningEntity,
                         period: searchParams.period || values.filters.period,
+                        retentionType: searchParams.retentionType || values.retentionType,
                     })
                 }
             }

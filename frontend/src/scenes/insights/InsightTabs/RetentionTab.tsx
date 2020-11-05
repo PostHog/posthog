@@ -5,13 +5,16 @@ import { ActionFilterDropdown } from '../ActionFilter/ActionFilterDropdown'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions } from 'scenes/retention/retentionTableLogic'
+import { retentionTableLogic, dateOptions, retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { DatePicker, Select } from 'antd'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const [open, setOpen] = useState<boolean>(false)
-    const { filters, startEntity, selectedDate, period } = useValues(retentionTableLogic)
+    const [returningOpen, setReturningOpen] = useState<boolean>(false)
+    const { filters, startEntity, selectedDate, period, retentionType, returningEntity } = useValues(
+        retentionTableLogic
+    )
     const { setFilters } = useActions(retentionTableLogic)
 
     const entityLogic = entityFilterLogic({
@@ -24,9 +27,34 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
+    const entityLogicReturning = entityFilterLogic({
+        setFilters: (filters) => {
+            setFilters({ returningEntity: filters })
+            setReturningOpen(false)
+        },
+        filters: filters.returningEntity,
+        typeKey: 'retention-table-returning',
+        singleMode: true,
+    })
+
     return (
         <div data-attr="retention-tab">
-            <h4 className="secondary">Target Event</h4>
+            <h4 className="secondary">Retention Type</h4>
+            <div>
+                <Select
+                    value={retentionOptions[retentionType]}
+                    onChange={(value): void => setFilters({ retentionType: value })}
+                    dropdownMatchSelectWidth={false}
+                >
+                    {Object.entries(retentionOptions).map(([key, value]) => (
+                        <Select.Option key={key} value={key}>
+                            {value}
+                        </Select.Option>
+                    ))}
+                </Select>
+            </div>
+            <hr />
+            <h4 className="secondary">{retentionType === 'retention_first_time' ? 'First Event' : 'Target Event'}</h4>
             <button
                 ref={node}
                 className="filter-action btn btn-sm btn-light"
@@ -49,6 +77,36 @@ export function RetentionTab(): JSX.Element {
                         setOpen(false)
                     }}
                 />
+            )}
+            {retentionType === 'retention_first_time' && (
+                <>
+                    <h4 style={{ marginTop: '0.5rem' }} className="secondary">
+                        {'Retained event'}
+                    </h4>
+                    <button
+                        ref={node}
+                        className="filter-action btn btn-sm btn-light"
+                        type="button"
+                        onClick={(): void => setReturningOpen(!returningOpen)}
+                        style={{
+                            fontWeight: 500,
+                        }}
+                    >
+                        {returningEntity?.name || 'Select action'}
+                        <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
+                    </button>
+                    {returningOpen && (
+                        <ActionFilterDropdown
+                            logic={entityLogicReturning}
+                            onClickOutside={(e): void => {
+                                if (node.current.contains(e.target)) {
+                                    return
+                                }
+                                setReturningOpen(false)
+                            }}
+                        />
+                    )}
+                </>
             )}
             <hr />
             <h4 className="secondary">Filters</h4>
