@@ -6,18 +6,11 @@ import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import whiteLogo from 'public/posthog-logo-white.svg'
+import lgLogo from 'public/posthog-logo-white.svg'
+import smLogo from 'public/icon-white.svg'
 import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import { IconDashboard, IconPerson } from './icons'
-
-function Logo(): JSX.Element {
-    return (
-        <div className="sidebar-logo">
-            <img src={whiteLogo} style={{ maxHeight: '100%' }} />
-        </div>
-    )
-}
 
 // to show the right page in the sidebar
 const sceneOverride = {
@@ -70,10 +63,13 @@ function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element
                     setSidebarCollapsed(sidebarCollapsed)
                     triggerResizeAfterADelay()
                 }}
-                style={{ backgroundColor: 'var(--bg-menu)' }}
+                className="navigation-main"
             >
-                <div className="navigation-main">
-                    <Logo />
+                <div className="navigation-inner">
+                    <div className="nav-logo">
+                        <img src={smLogo} className="logo-sm" alt="" />
+                        <img src={lgLogo} className="logo-lg" alt="" />
+                    </div>
                     <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
                     <MenuItem
                         title="Insights"

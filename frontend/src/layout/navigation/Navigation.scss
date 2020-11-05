@@ -1,15 +1,33 @@
 @import '~/vars';
 
 .navigation-main {
-    background-color: $bg_menu;
+    // General navigation bar styles
+    background-color: $bg_menu !important;
+
+    .navigation-inner {
+        background-color: $bg_menu;
+    }
+
+    .nav-logo {
+        display: flex;
+        align-items: center;
+        padding: 32px 16px;
+
+        img {
+            max-width: 100%;
+        }
+
+        .logo-sm {
+            display: none;
+        }
+    }
 
     .menu-item {
         display: flex;
         align-items: center;
-        flex-direction: column;
         border-radius: $radius;
-        color: $text_light;
-        padding: 10px 0;
+        color: #ffffff;
+        padding: 12px;
         margin-top: 8px;
         margin-left: 6px;
         margin-right: 6px;
@@ -17,21 +35,57 @@
 
         .anticon {
             line-height: 0;
-            font-size: 22px;
+            font-size: 28px;
         }
 
         svg {
-            max-height: 22px;
-            max-width: 22px;
+            max-height: 28px;
+            max-width: 28px;
         }
 
         .menu-title {
-            font-size: 10px;
+            font-size: 14px;
             font-weight: bold;
+            padding-left: 10px;
         }
 
         &.menu-item-active {
             background-color: $primary;
+        }
+    }
+
+    // Styles for collapsed navigation bar (80px)
+    &.ant-layout-sider-collapsed {
+        .nav-logo {
+            padding: 8px 16px;
+
+            .logo-lg {
+                display: none;
+            }
+
+            .logo-sm {
+                display: block;
+            }
+        }
+
+        .menu-item {
+            flex-direction: column;
+            padding: 10px 0;
+
+            .anticon {
+                line-height: 0;
+                font-size: 22px;
+            }
+
+            svg {
+                max-height: 22px;
+                max-width: 22px;
+            }
+
+            .menu-title {
+                font-size: 10px;
+                padding-left: 0;
+            }
         }
     }
 }
