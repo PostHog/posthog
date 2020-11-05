@@ -21,7 +21,14 @@ const sceneOverride = {
     featureFlags: 'experiments',
 }
 
-const MenuItem = ({ title, icon, identifier, to }): JSX.Element => {
+interface MenuItemProps {
+    title: string
+    icon: JSX.Element
+    identifier: string
+    to: string
+}
+
+const MenuItem = ({ title, icon, identifier, to }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const { collapseMenu } = useActions(navigationLogic)

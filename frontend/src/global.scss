@@ -147,7 +147,8 @@ style files without adding already imported styles. */
 }
 
 .main-app-content {
-    padding: $default_spacing $default_spacing * 3;
+    /* top | horizontal | bottom */
+    padding: 0px $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;
