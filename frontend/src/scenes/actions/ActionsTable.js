@@ -31,12 +31,16 @@ export function ActionsTable() {
                 )
             },
         },
-        actions[0]?.count !== null && {
-            title: 'Volume',
-            render: function RenderVolume(_, action) {
-                return <span>{action.count}</span>
-            },
-        },
+        ...(actions[0]?.count !== null
+            ? [
+                  {
+                      title: 'Volume',
+                      render: function RenderVolume(_, action) {
+                          return <span>{action.count}</span>
+                      },
+                  },
+              ]
+            : []),
         {
             title: 'Type',
             render: function RenderType(_, action) {
