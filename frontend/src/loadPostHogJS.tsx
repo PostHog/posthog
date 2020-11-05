@@ -4,6 +4,8 @@ import * as Sentry from '@sentry/browser'
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, { api_host: window.JS_POSTHOG_HOST })
+        // Make sure we have access to the object in window for debugging
+        window.posthog = posthog
     } else {
         posthog.init('fake token', {
             autocapture: false,
