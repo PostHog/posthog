@@ -64,6 +64,9 @@ def setup_periodic_tasks(sender, **kwargs):
     if not check_ee_enabled():
         sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+    else:
+        # ee enabled scheduled tasks
+        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse event table lag")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
@@ -77,6 +80,19 @@ def setup_periodic_tasks(sender, **kwargs):
 @app.task(ignore_result=True)
 def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
+
+
+@app.task(ignore_result=True)
+def clickhouse_lag():
+    if check_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from events;"""
+        lag = sync_execute(QUERY)[0][2]
+        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+        g.send("clickhouse_even_table_lag_seconds", lag)
+    else:
+        pass
 
 
 @app.task(ignore_result=True)
