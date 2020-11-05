@@ -84,7 +84,7 @@ def redis_heartbeat():
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if settings.EE_AVAILABLE:
+    if check_ee_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from events;"""
