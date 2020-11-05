@@ -251,6 +251,8 @@ class EventManager(models.QuerySet):
                 return Q(event=entity.id)
             elif entity.type == TREND_FILTER_TYPE_ACTIONS:
                 return Q(action__pk=entity.id)
+            else:
+                raise ValueError(f"Entity type not supported")
 
         entity_condition = get_entity_condition(entity)
         returning_condition = get_entity_condition(returning_entity)
