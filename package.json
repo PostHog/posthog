@@ -12,18 +12,22 @@
     },
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
+    "engines": {
+        "node": "14.x"
+    },
     "scripts": {
         "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly --https",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
-        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
+        "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen:watch": "kea-typegen watch"
+        "typegen:watch": "kea-typegen watch",
+        "format-python": "black . && isort ."
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
@@ -32,13 +36,11 @@
         "@mariusandra/simmerjs": "0.7.1-posthog.1",
         "antd": "^4.1.1",
         "babel-preset-nano-react-app": "^0.1.0",
-        "bootstrap": "^4.4.1",
         "chart.js": "^2.9.3",
         "core-js": "3.6.5",
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
         "editor": "^1.0.0",
-        "eslint-plugin-cypress": "^2.11.1",
         "expr-eval": "^2.0.2",
         "funnel-graph-js": "^1.4.1",
         "fuse.js": "^6.4.1",
@@ -48,7 +50,7 @@
         "kea-router": "^0.5.1",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "^1.5.2",
+        "posthog-js": "^1.6.0",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-string": "^6.13.1",
@@ -63,7 +65,7 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb": "^0.9.7",
+        "rrweb": "^0.9.9",
         "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
         "zxcvbn": "^4.4.2"
@@ -92,6 +94,7 @@
         "cypress-terminal-report": "^2.1.0",
         "eslint": "^7.8.0",
         "eslint-config-prettier": "^6.11.0",
+        "eslint-plugin-cypress": "^2.11.2",
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
         "file-loader": "^6.1.0",
@@ -99,6 +102,8 @@
         "html-webpack-plugin": "^4.4.1",
         "husky": "~4.2.5",
         "kea-typegen": "^0.3.5",
+        "less": "^3.12.2",
+        "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",
         "mini-css-extract-plugin": "^0.11.0",
         "nodemon": "^2.0.4",
@@ -123,9 +128,10 @@
     "lint-staged": {
         "*.{js,ts,tsx,json,yml,css,scss}": "prettier --write",
         "*.{js,ts,tsx}": "eslint",
-        "*.py": [
-            "./env/bin/black -l 120",
-            "./env/bin/isort -m 3 --tc --fgw 8 --up -n -l 120"
+        "*.{py,pyi}": [
+            "flake8 --select=E9,F63,F7,F82",
+            "black",
+            "isort"
         ]
     }
 }

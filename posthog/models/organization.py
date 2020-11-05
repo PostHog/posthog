@@ -13,7 +13,7 @@ except ImportError:
     License = None  # type: ignore
 
 try:
-    from multi_tenancy.models import OrganizationBilling  # type: ignore
+    from multi_tenancy.models import OrganizationBilling
 except ImportError:
     OrganizationBilling = None
 

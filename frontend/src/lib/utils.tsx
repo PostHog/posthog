@@ -58,9 +58,9 @@ export function percentage(division: number): string {
         : ''
 }
 
-export function Loading(): JSX.Element {
+export function Loading(props: Record<string, any>): JSX.Element {
     return (
-        <div className="loading-overlay">
+        <div className="loading-overlay" style={props.style}>
             <Spin />
         </div>
     )
@@ -90,38 +90,7 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function CloseButton(props: Record<string, any>): JSX.Element {
-    return (
-        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
-            <span aria-hidden="true">&times;</span>
-        </span>
-    )
-}
-
-export function Card(props: Record<string, any>): JSX.Element {
-    return (
-        <div
-            {...props}
-            className={'card' + (props.className ? ` ${props.className}` : '')}
-            style={props.style}
-            title=""
-        >
-            {props.title && <div className="card-header">{props.title}</div>}
-            {props.children}
-        </div>
-    )
-}
-
-export function deleteWithUndo({
-    undo = false,
-    ...props
-}: {
-    undo?: boolean
-    endpoint: string
-    name?: string
-    object: { id: any; name?: string }
-    callback?: () => void
-}): void {
+export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
         deleted: !undo,
@@ -543,4 +512,33 @@ export function sample<T>(items: T[], size: number): T[] {
 export function sampleSingle<T>(items: T[]): T[] {
     if (!items.length) throw Error('Items array is empty!')
     return [items[Math.floor(Math.random() * items.length)]]
+}
+
+export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
+    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
+    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
+    const match = input.match(/[A-Za-z][a-z]*/g)
+    if (!match) return null
+
+    return match
+        .map((group) => {
+            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
+        })
+        .join(' ')
+}
+
+export function parseGithubRepoURL(url: string): Record<string, string> {
+    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
+    if (!match) {
+        throw new Error('Must be in the format: https://github.com/user/repo')
+    }
+    const [, user, repo] = match
+    return { user, repo }
+}
+
+export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
+    if (element.matches(selector)) {
+        return true
+    }
+    return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
 }

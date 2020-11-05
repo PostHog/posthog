@@ -3,5 +3,5 @@ SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC'
 """
 
 VOLUME_ACTIONS_SQL = """
-SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and uuid IN ({actions_query}) {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
+SELECT {aggregate_operation} as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events {event_join} where team_id = {team_id} and {actions_query} {filters} {parsed_date_from} {parsed_date_to} GROUP BY {interval}({timestamp})
 """

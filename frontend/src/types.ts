@@ -14,6 +14,7 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
+    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
     are_invite_emails_available: boolean
@@ -23,6 +24,13 @@ export interface UserUpdateType {
     user?: Omit<Partial<UserType>, 'team'>
     team?: Partial<TeamType>
 }
+
+export interface PluginAccess {
+    view: boolean
+    install: boolean
+    configure: boolean
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string
@@ -57,6 +65,7 @@ export interface TeamType {
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    plugins_opt_in: boolean
     ingested_event: boolean
 }
 
@@ -212,4 +221,41 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     updated_at: string
+}
+
+export interface PluginConfigSchema {
+    name: string
+    type: string
+    default: any
+    required: boolean
+}
+
+export interface PluginType {
+    id: number
+    name: string
+    description: string
+    url: string
+    tag: string
+    config_schema: Record<string, PluginConfigSchema>
+    from_json: boolean
+    from_web: boolean
+    error?: PluginErrorType
+}
+
+export interface PluginConfigType {
+    id?: number
+    plugin: number
+    enabled: boolean
+    order: number
+    config: Record<string, any>
+    global?: boolean
+    error?: PluginErrorType
+}
+
+export interface PluginErrorType {
+    message: string
+    time: string
+    stack?: string
+    name?: string
+    event?: Record<string, any>
 }

@@ -15,7 +15,7 @@ export const scenes = {
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    people: () => import(/* webpackChunkName: 'people' */ './users/People'),
+    persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
@@ -32,13 +32,15 @@ export const scenes = {
     signup: () => import(/* webpackChunkName: 'signup' */ './Signup'),
     ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
+    plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
 export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
+    '/plugins': '/project/plugins',
 }
 
 export const routes = {
@@ -53,12 +55,13 @@ export const routes = {
     '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
-    '/people/persons': 'people',
-    '/people/new_cohort': 'people',
-    '/people/cohorts': 'cohorts',
+    '/persons': 'persons',
+    '/cohorts/new': 'persons',
+    '/cohorts': 'cohorts',
     '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
     '/project/settings': 'projectSettings',
+    '/project/plugins': 'plugins',
     '/organization/settings': 'organizationSettings',
     '/organization/members': 'organizationMembers',
     '/organization/invites': 'organizationInvites',
@@ -177,20 +180,18 @@ export const sceneLogic = kea({
                     importedScene = await scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
-                        console.error('Error loading webpack chunk!')
-
                         if (scene !== null) {
-                            // we were on another page (not the first loaded scene)
-                            console.error('Reloading!')
+                            // We were on another page (not the first loaded scene)
+                            console.error('App assets regenerated. Reloading this page.')
                             window.location.reload()
                         } else {
-                            // first scene, show an error page
-                            console.error("Redirecting to the 'Network Error' page!")
+                            // First scene, show an error page
+                            console.error('App assets regenerated. Showing error page.')
                             actions.setScene('4xx', {})
-                            return
                         }
+                    } else {
+                        throw error
                     }
-                    throw error
                 }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene

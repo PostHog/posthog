@@ -13,10 +13,8 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.cohort import GET_LATEST_PERSON_SQL
-from ee.clickhouse.sql.person import PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
-from ee.clickhouse.util import CH_ACTION_ENDPOINT, endpoint_enabled
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -41,10 +39,6 @@ class ClickhouseActions(ActionViewSet):
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        if not endpoint_enabled(CH_ACTION_ENDPOINT, request.user.distinct_id):
-            result = super().get_people(request)
-            return Response(result)
 
         team = request.user.team
         filter = Filter(request=request)
@@ -98,7 +92,7 @@ class ClickhouseActions(ActionViewSet):
             try:
                 action = Action.objects.get(pk=entity.id)
                 action_query, params = format_action_filter(action)
-                entity_filter = "AND uuid IN ({})".format(action_query)
+                entity_filter = "AND {}".format(action_query)
 
             except Action.DoesNotExist:
                 raise ValueError("This action does not exist")

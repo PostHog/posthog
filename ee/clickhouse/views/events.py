@@ -13,7 +13,6 @@ from ee.clickhouse.models.property import get_property_values_for_key, parse_pro
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
-from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
@@ -33,9 +32,6 @@ class ClickhouseEvents(EventViewSet):
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return super().list(request)
-
         team = request.user.team
         filter = Filter(request=request)
         if request.GET.get("after"):
@@ -50,7 +46,7 @@ class ClickhouseEvents(EventViewSet):
             if action.steps.count() == 0:
                 return Response({"next": False, "results": []})
             action_query, params = format_action_filter(action)
-            prop_filters += " AND uuid IN {}".format(action_query)
+            prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
@@ -86,9 +82,6 @@ class ClickhouseEvents(EventViewSet):
 
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return super().retrieve(request, pk)
-
         # TODO: implement getting elements
         team = request.user.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
@@ -98,9 +91,6 @@ class ClickhouseEvents(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
-
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return Response(super().get_values(request))
 
         key = request.GET.get("key")
         team = request.user.team

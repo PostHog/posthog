@@ -7,6 +7,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { ExportOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Link } from 'lib/components/Link'
+import './ActionFilterDropdown.scss'
 
 export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
@@ -69,9 +70,13 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
         if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
             const action = entities[selectedFilter.type].filter((a) => a.id === selectedFilter.filter.id)[0]
             return (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
-                    Edit "{action.name}" <i className="fi flaticon-export" />
-                </a>
+                <div style={{ textAlign: 'right', paddingBottom: 8 }}>
+                    <Link to={'/action/' + selectedFilter.filter.id} target="_blank">
+                        <>
+                            Edit "{action.name}" <ExportOutlined />
+                        </>
+                    </Link>
+                </div>
             )
         } else {
             return null

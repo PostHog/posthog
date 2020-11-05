@@ -33,16 +33,16 @@ export function CardContainer({
                         {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
                     </Row>
                 }
-                className="card"
                 style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto' }}
             >
                 {children}
             </Card>
 
             {nextButton && (
-                <Card
+                <div
                     data-attr="wizard-continue-button"
-                    className="card big-button"
+                    className="bg-primary"
+                    role="button"
                     style={{
                         marginTop: 20,
                         width: '65vw',
@@ -52,12 +52,11 @@ export function CardContainer({
                         justifyContent: 'center',
                         borderRadius: 5,
                         cursor: 'pointer',
-                        backgroundColor: '#007bff',
                     }}
                     onClick={onSubmit}
                 >
                     <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
-                </Card>
+                </div>
             )}
         </Col>
     )

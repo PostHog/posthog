@@ -4,23 +4,34 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import './RetentionTable.scss'
+import moment from 'moment'
 
 export function RetentionTable() {
-    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(retentionTableLogic)
+    const {
+        retention,
+        retentionLoading,
+        peopleLoading,
+        people,
+        loadingMore,
+        filters: { period },
+    } = useValues(retentionTableLogic)
     const { loadPeople, loadMore } = useActions(retentionTableLogic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
     let columns = [
         {
-            title: 'Cohort',
-            key: 'cohort',
-            render: (row) => row.date,
+            title: 'Date',
+            key: 'date',
+            render: (row) => moment(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            align: 'center',
         },
         {
             title: 'Users',
             key: 'users',
             render: (row) => row.values[0]['count'],
+            align: 'center',
         },
     ]
 
@@ -86,7 +97,7 @@ export function RetentionTable() {
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
-                                    <table className="table table-bordered table-fixed">
+                                    <table className="table-bordered full-width">
                                         <tbody>
                                             <tr>
                                                 <th />

@@ -9,6 +9,7 @@ import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface MembersProps {
     user: UserType
@@ -88,12 +89,10 @@ function _Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">Organization Members – {user?.organization.name}</h1>
-            <div style={{ maxWidth: 672 }}>
-                <i>
-                    <p>View and manage all organization members here. Build an even better product together.</p>
-                </i>
-            </div>
+            <PageHeader
+                title="Organization Members"
+                caption="View and manage all organization members here. Build an even better product together."
+            />
             <CreateOrgInviteModalWithButton />
             <Table
                 dataSource={members}

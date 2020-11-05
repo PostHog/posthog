@@ -2,6 +2,7 @@ import json
 import uuid
 from typing import Dict, List, Optional, Tuple, Union
 
+import celery
 import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
@@ -10,7 +11,7 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
-from ee.idl.gen import events_pb2  # type: ignore
+from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.models.element import Element
@@ -26,6 +27,7 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
+    site_url: Optional[str] = None,
 ) -> str:
 
     if not timestamp:
@@ -55,6 +57,26 @@ def create_event(
     p = ClickhouseProducer()
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+
+    if team.slack_incoming_webhook:
+        try:
+            celery.current_app.send_task(
+                "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
+                (
+                    {
+                        "event": event,
+                        "properties": properties,
+                        "distinct_id": distinct_id,
+                        "timestamp": timestamp,
+                        "elements_list": elements,
+                    },
+                    team.pk,
+                    site_url,
+                ),
+            )
+        except:
+            pass
+
     return str(event_uuid)
 
 
