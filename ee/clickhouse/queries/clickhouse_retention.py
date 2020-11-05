@@ -1,8 +1,5 @@
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple, Union
-
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
+from datetime import timedelta
+from typing import Dict
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -12,8 +9,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
-from posthog.queries.base import BaseQuery
+from posthog.queries.retention import Retention
 
 PERIOD_TRUNC_HOUR = "toStartOfHour"
 PERIOD_TRUNC_DAY = "toStartOfDay"
@@ -21,25 +17,23 @@ PERIOD_TRUNC_WEEK = "toStartOfWeek"
 PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
-class ClickhouseRetention(BaseQuery):
-    def calculate_retention(self, filter: Filter, team: Team, total_intervals: int) -> List[Dict[str, Any]]:
-
-        period = filter.period or "Day"
-
-        tdelta, trunc_func, t1 = self._determineTimedelta(total_intervals, period)
-
-        filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
-
+class ClickhouseRetention(Retention):
+    def _get_trunc_func(self, period: str) -> str:
         if period == "Hour":
-            date_to = filter.date_to if filter.date_to else now()
-            date_from = date_to - tdelta
+            return PERIOD_TRUNC_HOUR
+        elif period == "Week":
+            return PERIOD_TRUNC_WEEK
+        elif period == "Day":
+            return PERIOD_TRUNC_DAY
+        elif period == "Month":
+            return PERIOD_TRUNC_MONTH
         else:
-            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_to - tdelta
+            raise ValueError(f"Period {period} is unsupported.")
 
-        filter._date_from = date_from.isoformat()
-        filter._date_to = date_to.isoformat()
-
+    def _execute_sql(self, filter: Filter, team):
+        period = filter.period
+        date_from = filter.date_from
+        date_to = filter.date_to
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
         target_query = ""
@@ -57,6 +51,11 @@ class ClickhouseRetention(BaseQuery):
         elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
+
+        trunc_func = self._get_trunc_func(period)
+
+        if period == "Week":
+            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
 
         result = sync_execute(
             RETENTION_SQL.format(
@@ -83,37 +82,4 @@ class ClickhouseRetention(BaseQuery):
         for res in result:
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
-        if period == "Week":
-            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
-
-        parsed = [
-            {
-                "values": [
-                    result_dict.get((first_day, day), {"count": 0, "people": []})
-                    for day in range(total_intervals - first_day)
-                ],
-                "label": "{} {}".format(period, first_day),
-                "date": (date_from + self._determineTimedelta(first_day, period)[0]),
-            }
-            for first_day in range(total_intervals)
-        ]
-
-        return parsed
-
-    def _determineTimedelta(
-        self, total_intervals: int, period: str
-    ) -> Tuple[Union[timedelta, relativedelta], str, Union[timedelta, relativedelta]]:
-        if period == "Hour":
-            return timedelta(hours=total_intervals), PERIOD_TRUNC_HOUR, timedelta(hours=1)
-        elif period == "Week":
-            return timedelta(weeks=total_intervals), PERIOD_TRUNC_WEEK, timedelta(weeks=1)
-        elif period == "Day":
-            return timedelta(days=total_intervals), PERIOD_TRUNC_DAY, timedelta(days=1)
-        elif period == "Month":
-            return relativedelta(months=total_intervals), PERIOD_TRUNC_MONTH, relativedelta(months=1)
-        else:
-            raise ValueError(f"Period {period} is unsupported.")
-
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        total_intervals = kwargs.get("total_intervals", 11)
-        return self.calculate_retention(filter, team, total_intervals)
+        return result_dict
