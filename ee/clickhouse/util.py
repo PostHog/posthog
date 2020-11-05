@@ -29,18 +29,18 @@ from ee.clickhouse.sql.session_recording_events import (
 
 
 class ClickhouseTestMixin:
-    def tearDown(self):
-        try:
-            self._destroy_event_tables()
-            self._destroy_person_tables()
-            self._destroy_session_recording_tables()
+    # def tearDown(self):
+    #     try:
+    #         self._destroy_event_tables()
+    #         self._destroy_person_tables()
+    #         self._destroy_session_recording_tables()
 
-            self._create_event_tables()
-            self._create_person_tables()
-            self._create_session_recording_tables()
-        except ServerException as e:
-            print(e)
-            pass
+    #         self._create_event_tables()
+    #         self._create_person_tables()
+    #         self._create_session_recording_tables()
+    #     except ServerException as e:
+    #         print(e)
+    #         pass
 
     def _destroy_person_tables(self):
         sync_execute(DROP_PERSON_TABLE_SQL)

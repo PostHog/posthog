@@ -120,19 +120,19 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             result = retention().run(
                 Filter(
                     data={
-                        "date_to": self._date(9, hour=6),
+                        "date_to": self._date(4, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
                     }
                 ),
                 self.team,
+                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
             self.assertEqual(
-                self.pluck(result, "label"),
-                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
+                self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
             )
 
             self.assertEqual(

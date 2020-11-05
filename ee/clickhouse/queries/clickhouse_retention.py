@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.sql.retention.retention import RETENTION_SQL
+from ee.clickhouse.sql.retention.retention import BASIC_SUBQUERY, FIRST_TIME_RETENTION_SUBQUERY, RETENTION_SQL
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -42,18 +42,23 @@ class ClickhouseRetention(BaseQuery):
 
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
-        target_query, target_params = self._get_entity(filter)
-        returning_query, returning_params = (
-            self._get_entity(filter, returning=True) if filter.retention_type == RETENTION_FIRST_TIME else target_query,
-            target_params,
+        target_query, event_filter, target_params = self._get_event_filter(filter)
+
+        subquery = (
+            FIRST_TIME_RETENTION_SUBQUERY if filter.retention_type == RETENTION_FIRST_TIME else BASIC_SUBQUERY
+        ).format(
+            filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+            trunc_func=trunc_func,
+            target_query=target_query,
+            event_filter=event_filter,
         )
 
         result = sync_execute(
             RETENTION_SQL.format(
-                target_query=target_query,
-                returning_query=returning_query,
+                event_filter=event_filter,
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
                 trunc_func=trunc_func,
+                subquery=subquery,
             ),
             {
                 "team_id": team.pk,
@@ -65,7 +70,6 @@ class ClickhouseRetention(BaseQuery):
                 ),
                 **prop_filter_params,
                 **target_params,
-                **returning_params,
                 "period": period,
             },
         )
@@ -92,33 +96,55 @@ class ClickhouseRetention(BaseQuery):
 
         return parsed
 
-    def _get_entity(self, filter: Filter, returning=False) -> Tuple[str, Dict]:
+    def _get_event_filter(self, filter: Filter) -> Tuple[str, str, Dict]:
         query = ""
         params: Dict = {}
 
+        first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+
         target_entity = (
+            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            if not filter.target_entity
+            else filter.target_entity
+        )
+
+        returning_entity = (
             (
                 Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
                 if not len(filter.entities) > 0
                 else filter.entities[0]
             )
-            if returning
-            else (
-                Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-                if not filter.target_entity
-                else filter.target_entity
-            )
+            if first_time_retention
+            else target_entity
         )
 
+        target_query, params = self._get_condition(target_entity)
+        returning_query, returning_params = self._get_condition(
+            returning_entity, "returning" if first_time_retention else ""
+        )
+
+        query = "AND {target_query}".format(target_query=target_query)
+        returning_query = (
+            "AND ({target_query} OR {returning_query})".format(
+                target_query=target_query, returning_query=returning_query
+            )
+            if first_time_retention
+            else "AND {target_query}".format(target_query=target_query)
+        )
+        return query, returning_query, {**params, **returning_params}
+
+    def _get_condition(self, target_entity: Entity, prepend: str = "") -> Tuple[str, Dict]:
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=target_entity.id)
-            action_query, params = format_action_filter(action, use_loop=True)
-            query = "AND e.uuid IN ({})".format(action_query)
+            action_query, params = format_action_filter(action, prepend=prepend, use_loop=True)
+            condition = "e.uuid IN ({})".format(action_query)
         elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            query = "AND e.event = %(target_event)s"
-            params = {"target_event": target_entity.id}
-
-        return query, params
+            condition = "e.event = %({}_event)s".format(prepend)
+            params = {"{}_event".format(prepend): target_entity.id}
+        else:
+            condition = "e.event = %({}_event)s".format(prepend)
+            params = {"{}_event".format(prepend): "$pageview"}
+        return condition, params
 
     def _determineTimedelta(
         self, total_intervals: int, period: str
