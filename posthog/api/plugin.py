@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Any, Dict, Optional
 
 import requests
@@ -12,7 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.models.plugin import Plugin, PluginConfig
+from posthog.models.plugin import Plugin, PluginConfig, PluginFile
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -128,6 +129,15 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
         validated_data.pop("plugin", None)
         response = super().update(plugin_config, validated_data)
+        request = self.context["request"]
+
+        for key, file in request.FILES.items():
+            match = re.match(r"^files\[([^]]+)\]$", key)
+            if match:
+                key = match.group(1)
+                print(file)
+                # TODO: put the file in!
+
         reload_plugins_on_workers()
         return response
 

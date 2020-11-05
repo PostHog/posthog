@@ -120,19 +120,32 @@ export const pluginsLogic = kea<
 
                     const { __enabled: enabled, ...config } = pluginConfigChanges
 
+                    const configSchema = editingPlugin.config_schema
+
+                    const formData = new FormData()
+                    const otherConfig: Record<string, any> = {}
+                    formData.append('enabled', enabled)
+                    for (const [key, value] of Object.entries(config)) {
+                        if (configSchema[key]?.type === 'file') {
+                            formData.append(`files[${key}]`, value)
+                        } else {
+                            otherConfig[key] = value
+                        }
+                    }
+                    formData.append('config', JSON.stringify(otherConfig))
+
+                    // debugger
                     let response
                     if (editingPlugin.pluginConfig.id) {
-                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, {
-                            enabled,
-                            config,
-                        })
+                        response = await api.update(
+                            `api/plugin_config/${editingPlugin.pluginConfig.id}`,
+                            formData,
+                            true
+                        )
                     } else {
-                        response = await api.create(`api/plugin_config/`, {
-                            plugin: editingPlugin.id,
-                            enabled,
-                            config,
-                            order: 0,
-                        })
+                        formData.append('plugin', editingPlugin.id.toString())
+                        formData.append('order', '0')
+                        response = await api.create(`api/plugin_config/`, formData, true)
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }

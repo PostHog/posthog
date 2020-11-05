@@ -8,6 +8,7 @@ import { PluginImage } from './PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
+import { UploadField } from 'scenes/plugins/UploadField'
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -99,22 +100,35 @@ export function PluginDrawer(): JSX.Element {
                         <h3 className="l3" style={{ marginTop: 32 }}>
                             Configuration
                         </h3>
-                        {Object.keys(editingPlugin.config_schema).map((configKey) => (
-                            <Form.Item
-                                key={configKey}
-                                label={editingPlugin.config_schema[configKey].name || configKey}
-                                name={configKey}
-                                required={editingPlugin.config_schema[configKey].required}
-                                rules={[
-                                    {
-                                        required: editingPlugin.config_schema[configKey].required,
-                                        message: 'Please enter a value!',
-                                    },
-                                ]}
-                            >
-                                <Input />
-                            </Form.Item>
-                        ))}
+                        {Object.keys(editingPlugin.config_schema).map((configKey) => {
+                            const fieldConfig = editingPlugin.config_schema[configKey]
+                            return (
+                                <Form.Item
+                                    key={configKey}
+                                    label={fieldConfig.name || configKey}
+                                    name={configKey}
+                                    required={fieldConfig.required}
+                                    rules={[
+                                        {
+                                            required: fieldConfig.required,
+                                            message: 'Please enter a value!',
+                                        },
+                                    ]}
+                                >
+                                    {fieldConfig.type === 'file' ? (
+                                        <UploadField />
+                                    ) : fieldConfig.type === 'string' || !fieldConfig.type ? (
+                                        <Input />
+                                    ) : (
+                                        <strong style={{ color: 'var(--red)' }}>
+                                            Unknown field type "<code>{fieldConfig.type}</code>".
+                                            <br />
+                                            You may need to upgrade PostHog!
+                                        </strong>
+                                    )}
+                                </Form.Item>
+                            )
+                        })}
                     </div>
                 ) : null}
             </Form>

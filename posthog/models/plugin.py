@@ -29,3 +29,12 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
+
+
+class PluginFile(models.Model):
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    content_type: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    file_name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    contents: models.BinaryField = models.BinaryField(blank=True, null=True)

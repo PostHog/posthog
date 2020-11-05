@@ -35,17 +35,17 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async update(url, data) {
+    async update(url, data, isFormData = false) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json',
+                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-            body: JSON.stringify(data),
+            body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
             const data = await getJSONOrThrow(response)
@@ -56,17 +56,17 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async create(url, data) {
+    async create(url, data, isFormData = false) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
         const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-            body: JSON.stringify(data),
+            body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
             const data = await getJSONOrThrow(response)
