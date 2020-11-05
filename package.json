@@ -7,8 +7,8 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "start": "yarn run start:dev",
-        "start:dev": "cd src; ts-node index.ts start --config \"{\\\"BASE_DIR\\\": \\\"../../posthog\\\"}\"",
         "start:dist": "cd dist; node index.js start --config \"{\\\"BASE_DIR\\\": \\\"../../posthog\\\"}\"",
+        "start:dev": "yarn run build && yarn run start:dist",
         "build": "yarn run clean && yarn run compile",
         "clean": "rimraf dist/*",
         "compile": "npm run compile:rollup",
@@ -25,13 +25,14 @@
         "adm-zip": "^0.4.16",
         "celery-node": "^0.5.0",
         "gunzip-maybe": "^1.4.2",
-        "tar-stream": "^2.1.4",
-        "pg": "^8.4.1",
-        "vm2": "^3.9.2",
         "ioredis": "^4.19.0",
         "node-fetch": "^2.6.1",
         "node-schedule": "^1.3.2",
+        "pg": "^8.4.1",
         "posthog-js-lite": "^0.0.5",
+        "posthog-plugins": "^0.1.0",
+        "tar-stream": "^2.1.4",
+        "vm2": "^3.9.2",
         "yargs": "^15.4.0"
     },
     "devDependencies": {

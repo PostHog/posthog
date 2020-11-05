@@ -1,7 +1,8 @@
 import { VM } from 'vm2'
 import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
-import { PluginsServer, Plugin, PluginVM, VMMethod, PluginConfig, PluginEvent } from './types'
+import { PluginsServer, Plugin, PluginVM, VMMethod, PluginConfig } from './types'
+import { PluginEvent } from 'posthog-plugins'
 import { createCache } from './extensions/cache'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 

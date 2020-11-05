@@ -1,6 +1,7 @@
 import { runPlugins } from './plugins'
 import * as celery from 'celery-node'
 import { PluginsServer } from './types'
+import { PluginEvent } from 'posthog-plugins'
 
 export function startWorker(server: PluginsServer) {
     const worker = celery.createWorker(server.REDIS_URL, server.REDIS_URL, server.PLUGINS_CELERY_QUEUE)
@@ -17,7 +18,7 @@ export function startWorker(server: PluginsServer) {
             now: string,
             sent_at?: string
         ) => {
-            const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data }
+            const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data } as PluginEvent
             const processedEvent = await runPlugins(server, event)
             if (processedEvent) {
                 const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
@@ -45,7 +46,7 @@ export function startWorker(server: PluginsServer) {
             now: string,
             sent_at?: string
         ) => {
-            const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data }
+            const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data } as PluginEvent
             const processedEvent = await runPlugins(server, event)
             if (processedEvent) {
                 const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent

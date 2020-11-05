@@ -1,4 +1,5 @@
-import { Plugin, PluginConfig, PluginEvent, PluginsServer } from './types'
+import { Plugin, PluginConfig, PluginsServer } from './types'
+import { PluginEvent } from 'posthog-plugins'
 
 export async function processError(
     server: PluginsServer,

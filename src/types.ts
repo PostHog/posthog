@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
-import { createVm } from './vm'
+import { PluginEvent, PluginMeta } from 'posthog-plugins'
 import { VM } from 'vm2'
 
 export interface PluginsServerConfig {
@@ -41,14 +41,6 @@ export interface PluginConfig {
 }
 
 export type VMMethod = 'processEvent' | 'setupTeam'
-
-export interface PluginEvent extends Record<string, any>{
-
-}
-
-export interface PluginMeta extends Record<string, any>{
-
-}
 
 export interface PluginVM {
     plugin: Plugin

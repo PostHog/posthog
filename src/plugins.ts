@@ -1,7 +1,8 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { createVm, prepareForRun } from './vm'
-import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginEvent } from './types'
+import { PluginsServer, Plugin, PluginConfig, PluginVM } from './types'
+import { PluginEvent } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
 

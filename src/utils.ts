@@ -2,7 +2,6 @@ import { Readable } from 'stream'
 import tar from 'tar-stream'
 import gunzip from 'gunzip-maybe'
 import AdmZip from 'adm-zip'
-import { processError } from './error'
 
 /**
  * @param binary Buffer
