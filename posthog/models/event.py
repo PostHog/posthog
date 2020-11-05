@@ -17,7 +17,7 @@ from django.db.models.functions.datetime import TruncHour, TruncMonth, TruncWeek
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
 from posthog.utils import generate_cache_key
 
@@ -227,6 +227,7 @@ class EventManager(models.QuerySet):
 
     def query_retention(self, filter: Filter, team) -> dict:
 
+        first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         period = filter.period
         events: QuerySet = QuerySet()
         entity = (
@@ -234,11 +235,29 @@ class EventManager(models.QuerySet):
             if not filter.target_entity
             else filter.target_entity
         )
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
 
+        returning_entity = (
+            (
+                Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+                if not len(filter.entities) > 0
+                else filter.entities[0]
+            )
+            if first_time_retention
+            else entity
+        )
+
+        def get_entity_condition(entity: Entity) -> Q:
+            if entity.type == TREND_FILTER_TYPE_EVENTS:
+                return Q(event=entity.id)
+            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+                return Q(action__pk=entity.id)
+
+        entity_condition = get_entity_condition(entity)
+        returning_condition = get_entity_condition(returning_entity)
+
+        events = (
+            Event.objects.filter(team_id=team.id).filter(entity_condition | returning_condition).add_person_id(team.id)
+        )
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
         def _determineTrunc(subject: str, period: str) -> Tuple[Union[TruncHour, TruncDay, TruncWeek, TruncMonth], str]:
@@ -270,8 +289,12 @@ class EventManager(models.QuerySet):
                 raise ValueError(f"Period {period} is unsupported.")
 
         trunc, fields = _determineTrunc("timestamp", period)
-        first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
-
+        first_date = (
+            filtered_events.filter(entity_condition)
+            .annotate(first_date=trunc)
+            .values("first_date", "person_id")
+            .distinct()
+        )
         events_query, events_query_params = filtered_events.query.sql_with_params()
         first_date_query, first_date_params = first_date.query.sql_with_params()
 
