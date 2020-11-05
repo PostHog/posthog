@@ -371,6 +371,15 @@ if not REDIS_URL:
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
+
+if PRIMARY_DB == CLICKHOUSE:
+    try:
+        from ee.apps import EnterpriseConfig  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
+
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
