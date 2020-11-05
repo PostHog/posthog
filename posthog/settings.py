@@ -374,7 +374,7 @@ CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
 if PRIMARY_DB == CLICKHOUSE:
     try:
-        from ee.tasks.webhooks_ee import post_event_to_webhook_ee
+        from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
         pass
     else:
