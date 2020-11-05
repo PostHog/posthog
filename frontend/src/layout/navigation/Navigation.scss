@@ -13,6 +13,7 @@
         margin-top: 8px;
         margin-left: 6px;
         margin-right: 6px;
+        transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
 
         .anticon {
             line-height: 0;

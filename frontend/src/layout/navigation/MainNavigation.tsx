@@ -2,6 +2,7 @@ import React from 'react'
 import { Layout } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
+import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -26,18 +27,20 @@ const sceneOverride = {
     featureFlags: 'experiments',
 }
 
-const MenuItem = ({ title, icon, identifier }): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to }): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
 
     return (
-        <div
-            className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
-            data-attr={`menu-item-${identifier}`}
-        >
-            {icon}
-            <span className="menu-title">{title}</span>
-        </div>
+        <Link to={to}>
+            <div
+                className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
+                data-attr={`menu-item-${identifier}`}
+            >
+                {icon}
+                <span className="menu-title">{title}</span>
+            </div>
+        </Link>
     )
 }
 
@@ -71,9 +74,14 @@ function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element
             >
                 <div className="navigation-main">
                     <Logo />
-                    <MenuItem title="Insights" icon={<IconDashboard />} identifier="insights" />
-                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" />
-                    <MenuItem title="Dashboards" icon={<FundOutlined />} identifier="dashboards" />
+                    <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
+                    <MenuItem
+                        title="Insights"
+                        icon={<FundOutlined />}
+                        identifier="insights"
+                        to="/insights?insight=TRENDS"
+                    />
+                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
                 </div>
             </Layout.Sider>
         </>
