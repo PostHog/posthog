@@ -24,9 +24,10 @@ const sceneOverride = {
 const MenuItem = ({ title, icon, identifier, to }): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    const { collapseMenu } = useActions(navigationLogic)
 
     return (
-        <Link to={to}>
+        <Link to={to} onClick={collapseMenu}>
             <div
                 className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
                 data-attr={`menu-item-${identifier}`}
@@ -41,13 +42,7 @@ const MenuItem = ({ title, icon, identifier, to }): JSX.Element => {
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
     const { menuCollapsed } = useValues(navigationLogic)
-    const { setMenuCollapsed } = useActions(navigationLogic)
-
-    const collapseMenu = (): void => {
-        if (!menuCollapsed && window.innerWidth <= 991) {
-            setMenuCollapsed(true)
-        }
-    }
+    const { setMenuCollapsed, collapseMenu } = useActions(navigationLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
