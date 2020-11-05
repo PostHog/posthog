@@ -99,7 +99,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
         const response = (
             <span>
                 <b>{props.object.name ?? 'Untitled'}</b>
-                {!undo ? ' deleted. Click here to undo.' : ' deletion undone.'}
+                {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
             </span>
         )
         toast(response, {
