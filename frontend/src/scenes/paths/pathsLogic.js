@@ -78,11 +78,11 @@ export const pathsLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
-            actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
-            actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
         },
         setFilter: () => {
             actions.loadPaths()
+        },
+        loadPaths: () => {
             actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
         },

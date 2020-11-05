@@ -179,11 +179,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadRetention(true)
-            actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
-            actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
         setFilters: () => {
             actions.loadRetention(true)
+        },
+        loadRetention: () => {
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
