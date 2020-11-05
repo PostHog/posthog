@@ -118,7 +118,6 @@ export function SaveToDashboardModal({
                             name="name"
                             required
                             type="text"
-                            className="form-control"
                             placeholder="Users who did x"
                             autoFocus={!name}
                             value={name}
