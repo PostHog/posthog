@@ -1,6 +1,6 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.utils import timezone
 from rest_framework import serializers
@@ -26,6 +26,14 @@ from posthog.models.team import Team
 class ClickhouseActionSerializer(ActionSerializer):
     is_calculating = serializers.SerializerMethodField()
 
+    def get_count(self, action: Action) -> Optional[int]:
+        if self.context.get("view") and self.context["view"].action != "list":
+            query, params = format_action_filter(action)
+            if query == "":
+                return None
+            return sync_execute("SELECT count(1) FROM events WHERE {}".format(query), params)[0][0]
+        return None
+
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
@@ -36,6 +44,11 @@ class ClickhouseActions(ActionViewSet):
     # Don't calculate actions in Clickhouse as it's on the fly
     def _calculate_action(self, action: Action) -> None:
         pass
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        actions = self.get_queryset()
+        actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
+        return Response({"results": actions_list})
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
