@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.sql.retention.retention import BASIC_SUBQUERY, FIRST_TIME_RETENTION_SUBQUERY, RETENTION_SQL
+from ee.clickhouse.sql.retention.retention import RETENTION_SQL
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -42,23 +42,14 @@ class ClickhouseRetention(BaseQuery):
 
         prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
 
-        target_query, event_filter, target_params = self._get_event_filter(filter)
-
-        subquery = (
-            FIRST_TIME_RETENTION_SUBQUERY if filter.retention_type == RETENTION_FIRST_TIME else BASIC_SUBQUERY
-        ).format(
-            filters="{filters}".format(filters=prop_filters) if filter.properties else "",
-            trunc_func=trunc_func,
-            target_query=target_query,
-            event_filter=event_filter,
-        )
+        target_query, returning_query, target_params = self._get_event_filter(filter)
 
         result = sync_execute(
             RETENTION_SQL.format(
-                event_filter=event_filter,
+                target_query=target_query,
+                returning_query=returning_query,
                 filters="{filters}".format(filters=prop_filters) if filter.properties else "",
                 trunc_func=trunc_func,
-                subquery=subquery,
             ),
             {
                 "team_id": team.pk,

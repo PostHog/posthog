@@ -96,8 +96,10 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
         def test_first_user_retention(self):
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person3"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person4"])
 
             self._create_events([("person1", self._date(-1)), ("person2", self._date(-1)),], "$user_signed_up")
 
@@ -116,11 +118,28 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
 
+            self._create_events([("person3", self._date(0))], "$user_signed_up")
+
+            self._create_events(
+                [
+                    ("person3", self._date(1)),
+                    ("person3", self._date(3)),
+                    ("person3", self._date(4)),
+                    ("person3", self._date(5)),
+                ]
+            )
+
+            self._create_events([("person4", self._date(2))], "$user_signed_up")
+
+            self._create_events(
+                [("person4", self._date(3)), ("person4", self._date(5)),]
+            )
+
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().run(
                 Filter(
                     data={
-                        "date_to": self._date(4, hour=6),
+                        "date_to": self._date(5, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
@@ -137,16 +156,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0],
-                    [2, 2, 1, 0, 1, 2, 0],
-                    [2, 1, 0, 1, 2, 0],
-                    [1, 0, 0, 1, 0],
-                    [0, 0, 0, 0],
-                    [1, 1, 0],
-                    [2, 0],
-                    [0],
-                ],
+                [[2, 1, 2, 2, 1, 0, 1], [1, 1, 0, 1, 1, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [0, 0, 0], [0, 0], [0]],
             )
 
         def test_retention_with_properties(self):
