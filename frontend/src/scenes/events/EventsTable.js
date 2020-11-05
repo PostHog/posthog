@@ -63,7 +63,12 @@ export function EventsTable({
                 return eventToName(event)
             },
             filterIcon: function RenderFilterIcon() {
-                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} data-attr="event-filter-trigger" />
+                return (
+                    <SearchOutlined
+                        style={{ color: eventFilter && 'var(--primary)' }}
+                        data-attr="event-filter-trigger"
+                    />
+                )
             },
             filterDropdown: function RenderFilter({ confirm }) {
                 return (

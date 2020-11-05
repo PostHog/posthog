@@ -37,7 +37,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
         strokeColor: [
             (selectors) => [selectors.percentage],
             (percentage) => {
-                let color: string | Record<string, string> = '#1890FF'
+                let color: string | Record<string, string> = 'var(--primary)'
                 if (percentage === null || percentage === undefined) {
                     /* No event limit set */
                     color = {
@@ -47,10 +47,10 @@ export const billingLogic = kea<billingLogicType<PlanInterface, BillingSubscript
                 }
 
                 if (percentage && percentage > 0.65 && percentage < 0.8) {
-                    color = '#F7A501'
+                    color = 'var(--warning)'
                 }
                 if (percentage && percentage > 0.8) {
-                    color = '#F54E00'
+                    color = 'var(--danger)'
                 }
                 return color
             },
