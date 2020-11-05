@@ -370,7 +370,7 @@ if not REDIS_URL:
 # NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
-CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
+CELERY_IMPORTS = ["posthog.tasks.webhooks", "ee.tasks.webhooks_ee"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
