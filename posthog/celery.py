@@ -45,7 +45,7 @@ def setup_periodic_tasks(sender, **kwargs):
 
     # update events table partitions twice a week
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
+        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
@@ -54,12 +54,12 @@ def setup_periodic_tasks(sender, **kwargs):
 
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
+        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
-    sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
+    sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
-    sender.add_periodic_task(crontab(day_of_week="fri"), clean_stale_partials.s())
+    sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
     if not check_ee_enabled():
         sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
