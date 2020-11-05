@@ -81,22 +81,21 @@ function _App(): JSX.Element {
         <>
             <UpgradeModal />
             <Layout>
-                {!featureFlags['navigation-1775'] && (
-                    <Sidebar
-                        user={user}
-                        sidebarCollapsed={sidebarCollapsed}
-                        setSidebarCollapsed={setSidebarCollapsed}
-                    />
-                )}
-                {featureFlags['navigation-1775'] && (
-                    <MainNavigation sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
-                )}
+                {featureFlags['navigation-1775'] &&
+                    (featureFlags['navigation-1775'] ? (
+                        <MainNavigation sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+                    ) : (
+                        <Sidebar
+                            user={user}
+                            sidebarCollapsed={sidebarCollapsed}
+                            setSidebarCollapsed={setSidebarCollapsed}
+                        />
+                    ))}
                 <Layout
                     className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
                     style={{ minHeight: '100vh' }}
                 >
-                    {!featureFlags['navigation-1775'] && <TopContent />}
-                    {featureFlags['navigation-1775'] && <TopNavigation />}
+                    {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&

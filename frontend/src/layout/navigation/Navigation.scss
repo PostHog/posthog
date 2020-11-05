@@ -6,6 +6,11 @@
 
     .navigation-inner {
         background-color: $bg_menu;
+        position: fixed;
+        width: 180px;
+        height: 100%;
+        overflow: scroll;
+        padding-bottom: 32px;
     }
 
     .nav-logo {
@@ -66,6 +71,10 @@
             .logo-sm {
                 display: block;
             }
+        }
+
+        .navigation-inner {
+            width: 80px;
         }
 
         .menu-item {
