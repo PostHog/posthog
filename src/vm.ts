@@ -10,6 +10,7 @@ export function createVm(plugin: Plugin, indexJs: string, libJs: string | null, 
     const vm = new VM({
         sandbox: {},
     })
+    vm.run("const exports = {};")
     vm.freeze(fetch, 'fetch') // Second argument adds object to global.
     vm.freeze(createConsole(), 'console')
 
@@ -19,11 +20,12 @@ export function createVm(plugin: Plugin, indexJs: string, libJs: string | null, 
     vm.run(indexJs)
 
     const global = vm.run('global')
+    const exports = vm.run('exports')
 
     return {
         vm,
-        setupTeam: global.setupTeam,
-        processEvent: global.processEvent || global.process_event,
+        setupTeam: exports.setupTeam || global.setupTeam,
+        processEvent: exports.processEvent || global.processEvent,
     }
 }
 
