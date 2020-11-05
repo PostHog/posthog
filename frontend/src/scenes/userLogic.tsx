@@ -4,7 +4,6 @@ import { posthogEvents } from 'lib/utils'
 import { router } from 'kea-router'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, UserUpdateType } from '~/types'
-import posthog from 'posthog-js'
 
 interface EventProperty {
     value: string
@@ -101,6 +100,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                         id: user.id,
                     })
 
+                    const posthog = window.posthog
                     if (posthog) {
                         if (posthog.get_distinct_id() !== user.distinct_id) {
                             posthog.reset()
@@ -130,7 +130,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             }
         },
         logout: () => {
-            posthog.reset()
+            window.posthog?.reset()
             window.location.href = '/logout'
         },
     }),

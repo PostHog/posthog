@@ -148,16 +148,16 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
-            posthog.capture('upgrade modal shown', { featureName })
+            window.posthog?.capture('upgrade modal shown', { featureName })
         },
         hideUpgradeModal: () => {
-            posthog.capture('upgrade modal cancellation')
+            window.posthog?.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
             window.open(
                 `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
             )
-            posthog.capture('upgrade modal pricing interaction')
+            window.posthog?.capture('upgrade modal pricing interaction')
         },
         setScene: () => {
             posthog.capture('$pageview')

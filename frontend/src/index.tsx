@@ -7,9 +7,6 @@ import { getContext } from 'kea'
 import { App } from 'scenes/App'
 import { initKea } from './initKea'
 
-import { loadPostHogJS } from './loadPostHogJS'
-
-loadPostHogJS()
 initKea()
 
 ReactDOM.render(
