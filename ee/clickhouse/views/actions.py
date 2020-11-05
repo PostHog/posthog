@@ -29,7 +29,7 @@ class ClickhouseActionSerializer(ActionSerializer):
     def get_count(self, action: Action) -> Optional[int]:
         if self.context.get("view") and self.context["view"].action != "list":
             query, params = format_action_filter(action)
-            if query == '':
+            if query == "":
                 return None
             return sync_execute("SELECT count(1) FROM events WHERE {}".format(query), params)[0][0]
         return None
