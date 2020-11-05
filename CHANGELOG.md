@@ -18,6 +18,8 @@ Additionally, you can do so while still preserving the privacy of your users, by
 
 However, please note that our session recording feature is in **Beta** at the moment. This means that it can be unstable and have bugs. To report bugs you find while using it, please [open an issue for us on GitHub](https://github.com/PostHog/posthog/issues). 
 
+If you have posthog-js [installed via npm](https://www.npmjs.com/package/posthog-js) you will need to update to latest version. 
+
 
 - [Plugins (Beta)](https://github.com/PostHog/posthog/issues/1896)
 
