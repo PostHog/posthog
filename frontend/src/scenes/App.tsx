@@ -6,7 +6,7 @@ import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
-import { MainNavigation } from '~/layout/navigation'
+import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
@@ -95,7 +95,8 @@ function _App(): JSX.Element {
                     className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <TopContent />
+                    {!featureFlags['navigation-1775'] && <TopContent />}
+                    {featureFlags['navigation-1775'] && <TopNavigation />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&

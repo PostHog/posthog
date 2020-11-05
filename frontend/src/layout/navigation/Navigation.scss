@@ -89,3 +89,15 @@
         }
     }
 }
+
+.navigation-top {
+    background-color: $bg_light;
+    width: 100%;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    @extend .mixin-elevated;
+    position: fixed;
+    top: 0;
+    z-index: 31415;
+}

@@ -65,19 +65,21 @@ function _MainNavigation({ sidebarCollapsed, setSidebarCollapsed }): JSX.Element
                 }}
                 className="navigation-main"
             >
-                <div className="navigation-inner">
-                    <div className="nav-logo">
-                        <img src={smLogo} className="logo-sm" alt="" />
-                        <img src={lgLogo} className="logo-lg" alt="" />
+                <div>
+                    <div className="navigation-inner">
+                        <div className="nav-logo">
+                            <img src={smLogo} className="logo-sm" alt="" />
+                            <img src={lgLogo} className="logo-lg" alt="" />
+                        </div>
+                        <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
+                        <MenuItem
+                            title="Insights"
+                            icon={<FundOutlined />}
+                            identifier="insights"
+                            to="/insights?insight=TRENDS"
+                        />
+                        <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
                     </div>
-                    <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
-                    <MenuItem
-                        title="Insights"
-                        icon={<FundOutlined />}
-                        identifier="insights"
-                        to="/insights?insight=TRENDS"
-                    />
-                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
                 </div>
             </Layout.Sider>
         </>
