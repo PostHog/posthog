@@ -133,13 +133,22 @@
     position: fixed;
     top: 0;
     z-index: 1000;
+    color: $text_default;
 
     div {
         justify-content: center;
         display: flex;
+        padding: 0 8px;
     }
 
     .middle {
         flex-grow: 1;
+    }
+
+    .menu-toggle {
+        cursor: pointer;
+        svg {
+            height: 22px;
+        }
     }
 }

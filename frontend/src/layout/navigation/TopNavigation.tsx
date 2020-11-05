@@ -1,8 +1,8 @@
 import React from 'react'
 import './Navigation.scss'
-import { BarsOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
+import { IconMenu } from './icons'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed } = useActions(navigationLogic)
@@ -11,8 +11,8 @@ export function TopNavigation(): JSX.Element {
     return (
         <div className="navigation-top">
             <div>
-                <div className="hide-gte-lg cursor-pointer" onClick={() => setMenuCollapsed(!menuCollapsed)}>
-                    <BarsOutlined />
+                <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
+                    <IconMenu />
                 </div>
             </div>
             <div className="middle">Project chooser</div>
