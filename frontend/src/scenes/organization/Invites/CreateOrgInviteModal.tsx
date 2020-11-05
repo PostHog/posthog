@@ -23,15 +23,17 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
 
     return (
         <>
-            <Button
-                type="primary"
-                data-attr="invite-teammate-button"
-                onClick={() => {
-                    setIsVisible(true)
-                }}
-            >
-                + Invite Teammate
-            </Button>
+            <div className="mb text-right">
+                <Button
+                    type="primary"
+                    data-attr="invite-teammate-button"
+                    onClick={() => {
+                        setIsVisible(true)
+                    }}
+                >
+                    + Invite Teammate
+                </Button>
+            </div>
             <Modal
                 title="Inviting Teammate"
                 okText="Create Invite Link"

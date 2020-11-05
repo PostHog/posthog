@@ -8,7 +8,8 @@ import { EditFeatureFlag } from './EditFeatureFlag'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -68,7 +69,7 @@ function _FeatureFlags() {
                         }
                         data-attr="usage"
                     >
-                        Usage
+                        Insights <ExportOutlined />
                     </Link>
                 )
             },
@@ -78,7 +79,9 @@ function _FeatureFlags() {
             render: function RenderActive(featureFlag) {
                 return (
                     <>
-                        <EditOutlined onClick={() => setOpenFeatureFlag(featureFlag)} />
+                        <Link>
+                            <EditOutlined onClick={() => setOpenFeatureFlag(featureFlag)} />
+                        </Link>
                         <DeleteWithUndo
                             endpoint="feature_flag"
                             object={featureFlag}
@@ -96,15 +99,20 @@ function _FeatureFlags() {
 
     return (
         <div className="feature_flags">
-            <h1 className="page-header">Feature Flags</h1>
-            <p style={{ maxWidth: 600 }}>
-                <i>Feature flags are a way of turning functionality in your app on or off, based on user properties.</i>
-            </p>
-            <Button type="primary" onClick={() => setOpenFeatureFlag('new')} data-attr="new-feature-flag">
-                + New Feature Flag
-            </Button>
-            <br />
-            <br />
+            <PageHeader
+                title="Feature Flags"
+                caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
+            />
+            <div className="mb text-right">
+                <Button
+                    type="primary"
+                    onClick={() => setOpenFeatureFlag('new')}
+                    data-attr="new-feature-flag"
+                    icon={<PlusOutlined />}
+                >
+                    New Feature Flag
+                </Button>
+            </div>
             <Table
                 dataSource={featureFlags}
                 columns={columns}

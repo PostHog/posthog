@@ -4,7 +4,8 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Col } from 'antd'
+import { Card, Checkbox, Col, Input, Radio } from 'antd'
+import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -128,11 +129,9 @@ export class ActionStep extends Component {
         }
 
         return (
-            <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
                 <label>
-                    <input
-                        type="checkbox"
-                        name="selection"
+                    <Checkbox
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={(e) => {
@@ -148,11 +147,10 @@ export class ActionStep extends Component {
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
+                    <Input
                         data-attr="edit-action-url-input"
-                        className="form-control"
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />
@@ -162,56 +160,43 @@ export class ActionStep extends Component {
     }
     TypeSwitcher = () => {
         let { step } = this.props
+        const handleChange = (e) => {
+            const type = e.target.value
+            if (type === '$autocapture') {
+                this.setState(
+                    {
+                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
+                    },
+                    () => this.sendStep({ ...step, event: '$autocapture' })
+                )
+            } else if (type === 'event') {
+                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
+            } else if (type === '$pageview') {
+                this.setState({ selection: ['url'] }, () =>
+                    this.sendStep({
+                        ...step,
+                        event: '$pageview',
+                        url: step.url,
+                    })
+                )
+            }
+        }
+
         return (
             <div>
-                <div className="type-switcher btn-group">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            this.setState(
-                                {
-                                    selection: Object.keys(step).filter(
-                                        (key) => key !== 'id' && key !== 'isNew' && step[key]
-                                    ),
-                                },
-                                () => this.sendStep({ ...step, event: '$autocapture' })
-                            )
-                        }
-                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
-                    >
-                        Autocapture
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
-                        className={
-                            'btn ' +
-                            (typeof step.event !== 'undefined' &&
-                            step.event !== '$autocapture' &&
-                            step.event !== '$pageview'
-                                ? 'btn-secondary'
-                                : 'btn-light btn-action')
-                        }
-                    >
-                        Custom event
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            this.setState({ selection: ['url'] }, () =>
-                                this.sendStep({
-                                    ...step,
-                                    event: '$pageview',
-                                    url: step.url,
-                                })
-                            )
-                        }}
-                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
-                        data-attr="action-step-pageview"
-                    >
-                        Page view
-                    </button>
-                </div>
+                <Radio.Group
+                    buttonStyle="solid"
+                    onChange={handleChange}
+                    value={
+                        step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
+                            ? step.event
+                            : 'event'
+                    }
+                >
+                    <Radio.Button value="$autocapture">Autocapture</Radio.Button>
+                    <Radio.Button value="event">Custom event</Radio.Button>
+                    <Radio.Button value="$pageview">Page view</Radio.Button>
+                </Radio.Group>
             </div>
         )
     }
@@ -226,8 +211,8 @@ export class ActionStep extends Component {
         return (
             <div>
                 <span>
-                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
-                        Select element on site <i className="fi flaticon-export" />
+                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
+                        Select element on site <ExportOutlined />
                     </AppEditorLink>
                     <a
                         href="https://posthog.com/docs/features/actions"
@@ -258,33 +243,21 @@ export class ActionStep extends Component {
         )
     }
     URLMatching = ({ step }) => {
+        const handleURLMatchChange = (e) => {
+            this.sendStep({ ...step, url_matching: e.target.value })
+        }
         return (
-            <div className="btn-group" style={{ margin: '0 0 0 8px' }}>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'contains' })}
-                    type="button"
-                    className={
-                        'btn btn-sm ' +
-                        (!step.url_matching || step.url_matching === 'contains' ? 'btn-secondary' : 'btn-light')
-                    }
-                >
-                    contains
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'regex' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'regex' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches regex
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'exact' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches exactly
-                </button>
-            </div>
+            <Radio.Group
+                buttonStyle="solid"
+                onChange={handleURLMatchChange}
+                value={step.url_matching || 'contains'}
+                size="small"
+                style={{ paddingBottom: 16 }}
+            >
+                <Radio.Button value="contains">contains</Radio.Button>
+                <Radio.Button value="regex">matches regex</Radio.Button>
+                <Radio.Button value="exact">matches exactly</Radio.Button>
+            </Radio.Group>
         )
     }
     render() {
@@ -292,9 +265,9 @@ export class ActionStep extends Component {
 
         return (
             <Col span={24} md={12}>
-                <div className="action-step card" style={{ overflow: 'visible' }}>
+                <Card className="action-step" style={{ overflow: 'visible' }}>
                     {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
-                    <div className="card-body">
+                    <div>
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
                                 <button type="button" aria-label="delete" onClick={onDelete}>
@@ -344,9 +317,9 @@ export class ActionStep extends Component {
 
                             {step.event && (
                                 <div className="property-filters">
-                                    <div className="section-title">Filters</div>
+                                    <h3 className="l3">Filters</h3>
                                     {(!step.properties || step.properties.length === 0) && (
-                                        <div className="empty-state">This match group has no additional filters.</div>
+                                        <div className="text-muted">This match group has no additional filters.</div>
                                     )}
                                     <PropertyFilters
                                         propertyFilters={step.properties}
@@ -363,7 +336,7 @@ export class ActionStep extends Component {
                             )}
                         </div>
                     </div>
-                </div>
+                </Card>
             </Col>
         )
     }

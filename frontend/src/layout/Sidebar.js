@@ -20,6 +20,7 @@ import {
     ClockCircleOutlined,
     MessageOutlined,
     ProjectOutlined,
+    SettingOutlined,
     LockOutlined,
     WalletOutlined,
     ApiOutlined,
@@ -41,11 +42,8 @@ const itemStyle = { display: 'flex', alignItems: 'center' }
 
 function Logo() {
     return (
-        <div
-            className="row logo-row d-flex align-items-center justify-content-center"
-            style={{ margin: 16, height: 42, whiteSpace: 'nowrap', width: 168, overflow: 'hidden' }}
-        >
-            <img className="logo posthog-logo" src={whiteLogo} style={{ maxHeight: '100%' }} />
+        <div className="sidebar-logo">
+            <img src={whiteLogo} style={{ maxHeight: '100%' }} />
         </div>
     )
 }
@@ -53,7 +51,7 @@ function Logo() {
 // to show the right page in the sidebar
 const sceneOverride = {
     action: 'actions',
-    person: 'people',
+    person: 'persons',
     dashboard: 'dashboards',
     featureFlags: 'experiments',
 }
@@ -63,7 +61,7 @@ const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
     sessions: 'events',
-    cohorts: 'people',
+    cohorts: 'persons',
     projectSettings: 'project',
     plugins: 'project',
     organizationSettings: 'organization',
@@ -111,16 +109,17 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
             <Layout.Sider
                 breakpoint="lg"
                 collapsedWidth="0"
-                className="bg-dark"
                 collapsed={sidebarCollapsed}
                 onCollapse={(sidebarCollapsed) => {
                     setSidebarCollapsed(sidebarCollapsed)
                     triggerResizeAfterADelay()
                 }}
+                style={{ backgroundColor: 'var(--bg-menu)' }}
             >
                 <Menu
-                    className="h-100 bg-dark"
+                    className="h-100"
                     theme="dark"
+                    style={{ backgroundColor: 'var(--bg-menu)' }}
                     selectedKeys={[activeScene]}
                     openKeys={[openSubmenu]}
                     mode="inline"
@@ -205,7 +204,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.SubMenu>
 
                     <Menu.SubMenu
-                        key="people"
+                        key="persons"
                         title={
                             <span style={itemStyle} data-attr="menu-item-people">
                                 <UserOutlined />
@@ -214,18 +213,18 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            location.pathname !== '/people/persons' && push('/people/persons')
+                            location.pathname !== '/persons' && push('/persons')
                         }}
                     >
-                        <Menu.Item key="people" style={itemStyle} data-attr="menu-item-people-persons">
+                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-people-persons">
                             <UserOutlined />
                             <span className="sidebar-label">Persons</span>
-                            <Link to={'/people/persons'} onClick={collapseSidebar} />
+                            <Link to={'/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">Cohorts</span>
-                            <Link to={'/people/cohorts'} onClick={collapseSidebar} />
+                            <Link to={'/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
 
@@ -245,7 +244,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         key="project"
                         title={
                             <span style={itemStyle} data-attr="menu-item-project">
-                                <DeploymentUnitOutlined />
+                                <ProjectOutlined />
                                 <span className="sidebar-label">Project</span>
                             </span>
                         }
@@ -255,7 +254,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         }}
                     >
                         <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
-                            <ProjectOutlined />
+                            <SettingOutlined />
                             <span className="sidebar-label">Settings</span>
                             <Link to={'/project/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
