@@ -66,14 +66,18 @@ def parse_url(url: str, get_latest_if_none=False) -> Dict[str, str]:
 
 
 # passing `tag` overrides whatever is in the URL
-def download_plugin_archive(url: str, tag: Optional[str]):
+def download_plugin_archive(url: str, tag: Optional[str] = None):
     parsed_url = parse_url(url)
 
     if parsed_url["type"] == "github":
+        if not (tag or parsed_url.get("tag", None)):
+            raise Exception("No Github tag given!")
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
             user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
         )
     elif parsed_url["type"] == "npm":
+        if not (tag or parsed_url.get("version", None)):
+            raise Exception("No NPM version given")
         url = "https://registry.npmjs.org/{pkg}/-/{pkg}-{version}.tgz".format(
             pkg=parsed_url["pkg"], version=tag or parsed_url["version"]
         )
@@ -107,7 +111,10 @@ def get_json_from_zip_archive(archive: bytes, filename: str):
 
 def get_json_from_tgz_archive(archive: bytes, filename: str):
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        root_folder = "/".join(tar.getmembers()[0].name.split("/")[0:-1])
+        if tar.getmembers()[0].isdir():
+            root_folder = tar.getmembers()[0].name
+        else:
+            root_folder = "/".join(tar.getmembers()[0].name.split("/")[0:-1])
         file_path = os.path.join(root_folder, filename)
         extracted_file = tar.extractfile(file_path)
         if not extracted_file:
