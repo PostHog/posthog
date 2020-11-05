@@ -11,9 +11,6 @@ from django.utils import timezone
 from posthog.ee import check_ee_enabled
 from posthog.redis import get_client
 
-if check_ee_enabled() and settings.EE_AVAILABLE:
-    from ee.clickhouse.client import sync_execute
-
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
@@ -87,10 +84,15 @@ def redis_heartbeat():
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from events;"""
-    lag = sync_execute(QUERY)[0][2]
-    g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-    g.send("clickhouse_even_table_lag_seconds", lag)
+    if settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from events;"""
+        lag = sync_execute(QUERY)[0][2]
+        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+        g.send("clickhouse_even_table_lag_seconds", lag)
+    else:
+        pass
 
 
 @app.task(ignore_result=True)
