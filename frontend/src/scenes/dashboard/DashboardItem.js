@@ -26,7 +26,6 @@ import {
     CopyOutlined,
     DeliveredProcedureOutlined,
     ReloadOutlined,
-    QuestionCircleOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -85,7 +84,7 @@ const typeMap = {
     RetentionTable: {
         className: 'retention',
         element: RetentionTable,
-        icon: QuestionCircleOutlined,
+        icon: TableOutlined,
         viewText: 'View table',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
@@ -98,7 +97,7 @@ const typeMap = {
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
-        icon: QuestionCircleOutlined,
+        icon: FunnelPlotOutlined,
         viewText: 'View graph',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
