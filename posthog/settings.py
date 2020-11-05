@@ -375,10 +375,10 @@ CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 if PRIMARY_DB == CLICKHOUSE:
     try:
         from ee.tasks.webhooks_ee import post_event_to_webhook_ee
-
-        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
     except ImportError:
         pass
+    else:
+        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
