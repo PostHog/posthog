@@ -1,0 +1,40 @@
+@import '~/vars';
+
+.navigation-main {
+    background-color: $bg_menu !important;
+
+    &.ant-menu-inline-collapsed {
+        // Styles for the collapsed short menu (80px)
+
+        .ant-menu-item {
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            border-radius: $radius;
+            min-height: 50px;
+            /*padding-top: 6px;
+            padding-left: 24px !important;*/
+            padding: 0px !important;
+            margin-top: 8px;
+            margin-right: 6px !important;
+            margin-left: 6px !important;
+
+            .anticon {
+                line-height: 0;
+                font-size: 22px;
+                color: $text_light;
+            }
+
+            p {
+                color: $text_light;
+                font-size: 10px;
+                font-weight: bold;
+                line-height: 22px;
+            }
+
+            &.ant-menu-item-active {
+                background-color: $primary;
+            }
+        }
+    }
+}
