@@ -23,7 +23,7 @@ However, please note that our session recording feature is in **Beta** at the mo
 
 ![Plugins Screenshot](https://posthog.com/static/f84e34e19a7715f563dabe7c2d3ca823/2cefc/plugins.png)
 
-Plugins is another **Beta** feature that we're extremely excited for. Currently only available for self-hosted instances, plugins allow you to add additional logic to your event processing pipeline, in order to do things like enrich your data or send it somewhere else, like a data warehouse. 
+Plugins is another **Beta** feature that we're extremely excited for. Currently only available for self-hosted instances, plugins allow you to add additional logic to your event processing pipeline, in order to do things like enrich your data or send it somewhere else, for instance to a data warehouse. 
 
 At the moment, we have created a few example plugins for you to test out the functionality, and have the intention of launching more for the next release. We will also be launching tutorials on how to make your own plugins, so stay tuned for that.
 
@@ -76,14 +76,11 @@ We have been working hard to improve our product documentation and had a few big
 - Our Docs pages now load faster
 - New screenshots have been added throughout the Docs, as well as functionality walkthrough videos
 
-...and a lot more!
+…and a lot more!
 
 If you have any suggestions for new tutorials or improvements to our documentation, [do not hesitate to let us know!](https://github.com/PostHog/posthog.com/issues)
 
-- [User Interviews](calendly.com/posthog-feedback)
-
-We’re working hard to improve PostHog and would love to talk to you about your experience with the product. 
-
+We’re working hard to improve PostHog and would love to talk to you about your experience with the product.
 If you're interested in helping us out, you can schedule a quick 30-min call with us [on Calendly](https://calendly.com/posthog-feedback). 
 
 Oh, and we're giving away some awesome [PostHog merch](https://merch.posthog.com) as a thank you!
@@ -730,7 +727,7 @@ This should really help with debugging, or just trying to get a detailed view of
 * We worked hard on improving caching to speed things up. We [fixed cache refreshing](https://github.com/PostHog/posthog/pull/1035) in a few areas, we made a few [caching adjustments](https://github.com/PostHog/posthog/pull/1023) to fix #1022. Finally, we now use [redis to cache results](https://github.com/PostHog/posthog/pull/972).
 * Save time! You can now [create actions from the trends page](https://github.com/PostHog/posthog/pull/990).
 * [Upgrade to posthog-js 1.2.0 to support dynamic params](https://github.com/PostHog/posthog/pull/957).
-* We fixed long href inserts - the href [can now go up to 2048 characters](https://github.com/PostHog/posthog/pull/1027) before truncation. Someone must have had some funky urls going on...
+* We fixed long href inserts - the href [can now go up to 2048 characters](https://github.com/PostHog/posthog/pull/1027) before truncation. Someone must have had some funky urls going on…
 * [We prevented intermittent issues with yarn build](https://github.com/PostHog/posthog/pull/1026)
 * We [fixed a bug](https://github.com/PostHog/posthog/pull/1021) that caused cohorts to fail when actions were deleted
 * We [solved a problem](https://github.com/PostHog/posthog/pull/980) with comparing trend sessions distribution
