@@ -82,8 +82,8 @@ export const pluginsLogic = kea<
                     const otherConfig: Record<string, any> = {}
                     formData.append('enabled', enabled)
                     for (const [key, value] of Object.entries(config)) {
-                        if (configSchema[key]?.type === 'file') {
-                            formData.append(`files[${key}]`, value)
+                        if (configSchema[key]?.type === 'attachment') {
+                            formData.append(`attachments[${key}]`, value)
                         } else {
                             otherConfig[key] = value
                         }

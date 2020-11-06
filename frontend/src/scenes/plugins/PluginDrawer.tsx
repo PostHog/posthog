@@ -115,7 +115,7 @@ export function PluginDrawer(): JSX.Element {
                                         },
                                     ]}
                                 >
-                                    {fieldConfig.type === 'file' ? (
+                                    {fieldConfig.type === 'attachment' ? (
                                         <UploadField />
                                     ) : fieldConfig.type === 'string' || !fieldConfig.type ? (
                                         <Input />

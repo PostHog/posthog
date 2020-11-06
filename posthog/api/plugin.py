@@ -151,7 +151,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def _update_plugin_attachments(self, plugin_config: PluginConfig):
         request = self.context["request"]
         for key, file in request.FILES.items():
-            match = re.match(r"^files\[([^]]+)\]$", key)
+            match = re.match(r"^attachments\[([^]]+)\]$", key)
             if match:
                 self._update_plugin_attachment(plugin_config, match.group(1), file)
 
