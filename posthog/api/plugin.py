@@ -126,10 +126,25 @@ class PluginViewSet(viewsets.ModelViewSet):
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):
+    config = serializers.SerializerMethodField()  # type: ignore
+
     class Meta:
         model = PluginConfig
         fields = ["id", "plugin", "enabled", "order", "config", "error"]
         read_only_fields = ["id"]
+
+    def get_config(self, plugin_config: PluginConfig):
+        attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).all()
+        new_plugin_config = plugin_config.config.copy()
+        for attachment in attachments:
+            new_plugin_config[attachment.key] = {
+                "uid": attachment.id,
+                "saved": True,
+                "size": attachment.file_size,
+                "name": attachment.file_name,
+                "type": attachment.content_type,
+            }
+        return new_plugin_config
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins_via_api():
