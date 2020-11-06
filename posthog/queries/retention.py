@@ -15,11 +15,11 @@ from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
-from posthog.utils import SqlQuery, generate_cache_key
+from posthog.utils import generate_cache_key
 
 
 class Retention(BaseQuery):
-    def calculate_retention(self, filter: Filter, team: Team, total_intervals=11):
+    def preprocess_params(self, filter: Filter, total_intervals=11):
         period = filter.period or "Day"
         tdelta, t1 = self.determineTimedelta(total_intervals, period)
         filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
@@ -41,23 +41,24 @@ class Retention(BaseQuery):
             else filter.target_entity
         )
 
-        resultset = self._execute_sql(filter, entity, team)
+        return filter, entity
 
+    def process_result(self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: Filter, total_intervals: int):
         result = [
             {
                 "values": [
                     resultset.get((first_day, day), {"count": 0, "people": []})
                     for day in range(total_intervals - first_day)
                 ],
-                "label": "{} {}".format(period, first_day),
-                "date": (date_from + self.determineTimedelta(first_day, period)[0]),
+                "label": "{} {}".format(filter.period, first_day),
+                "date": (filter.date_from + self.determineTimedelta(first_day, filter.period)[0]),
             }
             for first_day in range(total_intervals)
         ]
 
         return result
 
-    def _execute_sql(self, filter: Filter, target_entity: Entity, team: Team):
+    def _execute_sql(self, filter: Filter, target_entity: Entity, team: Team) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
         period = filter.period
         events: QuerySet = QuerySet()
@@ -74,17 +75,18 @@ class Retention(BaseQuery):
         event_query, events_query_params = filtered_events.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
-        final_query = SqlQuery(
-            SELECT="""
+        final_query = """
+            SELECT
                 {fields}
                 COUNT(DISTINCT "events"."person_id"),
                 array_agg(DISTINCT "events"."person_id") as people
-            """.format(
-                fields=fields
-            ),
-            FROM=f"({event_query}) events JOIN ({reference_event_query}) reference_event ON (events.person_id = reference_event.person_id)",
-            WHERE="timestamp >= first_date",
-            GROUP="date, first_date",
+            FROM ({event_query}) events
+            LEFT JOIN ({reference_event_query}) first_event_date
+              ON (events.person_id = first_event_date.person_id)
+            WHERE timestamp >= first_date
+            GROUP BY date, first_date
+        """.format(
+            event_query=event_query, reference_event_query=reference_event_query, fields=fields
         )
 
         start_params = (
@@ -93,7 +95,7 @@ class Retention(BaseQuery):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                str(final_query), start_params + events_query_params + first_date_params,
+                final_query, start_params + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
@@ -133,7 +135,11 @@ class Retention(BaseQuery):
         return by_dates
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_retention(filter=filter, team=team, total_intervals=kwargs.get("total_intervals", 11),)
+        total_intervals = kwargs.get("total_intervals", 11)
+        filter, entity = self.preprocess_params(filter, total_intervals)
+        resultset = self._execute_sql(filter, entity, team)
+        result = self.process_result(resultset, filter, total_intervals)
+        return result
 
     def determineTimedelta(
         self, total_intervals: int, period: str
