@@ -352,13 +352,13 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(
                 self.pluck(result, "date"),
                 [
-                    datetime(2020, 6, 8, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 15, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 22, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 6, 29, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 6, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 13, 0, tzinfo=pytz.UTC),
-                    datetime(2020, 7, 20, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 7, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 14, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 21, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 28, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 7, 5, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 7, 12, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 7, 19, 0, tzinfo=pytz.UTC),
                 ],
             )
 

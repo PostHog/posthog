@@ -27,8 +27,11 @@ class Retention(BaseQuery):
         if period == "Hour":
             date_to = filter.date_to if filter.date_to else now()
             date_from = date_to - tdelta
+        elif period == "Week":
+            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = date_to - tdelta
+            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
         else:
-
             date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
             date_from = date_to - tdelta
 

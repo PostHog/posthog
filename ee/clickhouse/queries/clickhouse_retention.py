@@ -39,14 +39,9 @@ class ClickhouseRetention(Retention):
 
         trunc_func = self._get_trunc_func(period)
 
-        if period == "Week":
-            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
-
         result = sync_execute(
             RETENTION_SQL.format(
-                target_query=target_query,
-                filters="{filters}".format(filters=prop_filters) if filter.properties else "",
-                trunc_func=trunc_func,
+                target_query=target_query, filters=prop_filters if filter.properties else "", trunc_func=trunc_func,
             ),
             {
                 "team_id": team.pk,
