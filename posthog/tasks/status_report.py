@@ -41,12 +41,11 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         team_report["persons_count_total"] = persons_considered_total.count()
         team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
 
-        with connection.cursor() as cursor:
-            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
+        params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
 
-            team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(cursor, params)
-            team_report["events_count_by_lib"] = fetch_event_counts_by_lib(cursor, params)
-            team_report["events_count_by_name"] = fetch_events_count_by_name(cursor, params)
+        team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
+        team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
+        team_report["events_count_by_name"] = fetch_events_count_by_name(params)
 
         report["teams"][team.id] = team_report
 
@@ -59,9 +58,8 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     return report
 
 
-def fetch_persons_count_active_in_period(cursor: Any, params: Tuple[Any, ...]) -> int:
+def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
     return fetch_sql(
-        cursor,
         """
         SELECT COUNT(DISTINCT person_id) as persons_count
         FROM posthog_event JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id)
@@ -71,9 +69,8 @@ def fetch_persons_count_active_in_period(cursor: Any, params: Tuple[Any, ...]) -
     )[0].persons_count
 
 
-def fetch_event_counts_by_lib(cursor: Any, params: Tuple[Any, ...]) -> dict:
+def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
     results = fetch_sql(
-        cursor,
         """
         SELECT properties->>'$lib' as lib, COUNT(*) as count
         FROM posthog_event WHERE team_id = %s AND timestamp >= %s AND timestamp <= %s
@@ -84,9 +81,8 @@ def fetch_event_counts_by_lib(cursor: Any, params: Tuple[Any, ...]) -> dict:
     return {result.lib: result.count for result in results}
 
 
-def fetch_events_count_by_name(cursor: Any, params: Tuple[Any, ...]) -> dict:
+def fetch_events_count_by_name(params: Tuple[Any, ...]) -> dict:
     results = fetch_sql(
-        cursor,
         """
         SELECT event as name, COUNT(*) as count
         FROM posthog_event WHERE team_id = %s AND timestamp >= %s AND timestamp <= %s
@@ -97,6 +93,7 @@ def fetch_events_count_by_name(cursor: Any, params: Tuple[Any, ...]) -> dict:
     return {result.name: result.count for result in results}
 
 
-def fetch_sql(cursor: Any, sql_: str, params: Tuple[Any, ...]) -> List[Any]:
-    cursor.execute(sql.SQL(sql_), params)
-    return namedtuplefetchall(cursor)
+def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
+    with connection.cursor() as cursor:
+        cursor.execute(sql.SQL(sql_), params)
+        return namedtuplefetchall(cursor)
