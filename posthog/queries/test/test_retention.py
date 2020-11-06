@@ -101,7 +101,10 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             person_factory(team_id=self.team.pk, distinct_ids=["person3"])
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
 
-            self._create_events([("person1", self._date(-1)), ("person2", self._date(-1)),], "$user_signed_up")
+            self._create_events(
+                [("person1", self._date(-1)), ("person1", self._date(1)), ("person2", self._date(-1)),],
+                "$user_signed_up",
+            )
 
             self._create_events(
                 [
@@ -156,7 +159,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
-                [[2, 1, 2, 2, 1, 0, 1], [1, 1, 0, 1, 1, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [0, 0, 0], [0, 0], [0]],
+                [[2, 1, 2, 2, 1, 0, 1], [1, 1, 0, 1, 1, 1], [1, 0, 0, 0, 0], [1, 1, 0, 1], [0, 0, 0], [0, 0], [0]],
             )
 
         def test_retention_with_properties(self):

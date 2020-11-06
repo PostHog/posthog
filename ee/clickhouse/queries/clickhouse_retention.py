@@ -42,7 +42,7 @@ class ClickhouseRetention(BaseQuery):
 
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
 
-        target_query, returning_query, target_params = self._get_event_filter(filter)
+        target_query, returning_query, target_params = self._get_event_filter(filter, trunc_func)
 
         result = sync_execute(
             RETENTION_SQL.format(
@@ -87,7 +87,7 @@ class ClickhouseRetention(BaseQuery):
 
         return parsed
 
-    def _get_event_filter(self, filter: Filter) -> Tuple[str, str, Dict]:
+    def _get_event_filter(self, filter: Filter, trunc: str) -> Tuple[str, str, Dict]:
         query = ""
         params: Dict = {}
 
@@ -116,8 +116,8 @@ class ClickhouseRetention(BaseQuery):
 
         query = "AND {target_query}".format(target_query=target_query)
         returning_query = (
-            "AND ({target_query} OR {returning_query})".format(
-                target_query=target_query, returning_query=returning_query
+            "AND ({target_query} OR ({returning_query} AND {trunc_func}(toDateTime(%(start_date)s)) = {trunc_func}(timestamp)))".format(
+                target_query=target_query, returning_query=returning_query, trunc_func=trunc
             )
             if first_time_retention
             else "AND {target_query}".format(target_query=target_query)
