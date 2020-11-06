@@ -14,7 +14,6 @@ import {
 import { userLogic } from 'scenes/userLogic'
 import { red } from '@ant-design/colors'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Link } from 'lib/components/Link'
