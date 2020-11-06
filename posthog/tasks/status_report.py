@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
@@ -17,8 +18,10 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
+        "deployment": os.environ.get("DEPLOYMENT", "unknown"),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
     }
+
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
         if user.anonymize_data
