@@ -25,6 +25,7 @@ import {
     WalletOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -37,6 +38,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CreateOrgInviteModalWithButton } from 'scenes/organization/Invites/CreateOrgInviteModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -345,6 +347,10 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <SmileOutlined />
                         <span className="sidebar-label">Me</span>
                         <Link to={'/me/settings'} onClick={collapseSidebar} />
+                    </Menu.Item>
+                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-inviteTeam">
+                        <PlusOutlined />
+                        <CreateOrgInviteModalWithButton type="text" />
                     </Menu.Item>
                 </Menu>
 
