@@ -40,6 +40,22 @@ export interface PluginConfig {
     error: any
 }
 
+export interface PluginAttachment {
+    id: number
+    team_id: number
+    plugin_config_id: number
+    key: string
+    content_type: string
+    file_name: string
+    contents: Buffer | null
+}
+
+export interface MetaAttachment {
+    content_type: string
+    file_name: string
+    contents: Buffer | null
+}
+
 export type VMMethod = 'processEvent' | 'setupTeam'
 
 export interface PluginVM {
