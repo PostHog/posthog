@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
@@ -9,13 +9,18 @@ import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 import { Button, Dropdown } from 'antd'
 import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined } from '@ant-design/icons'
+import { guardPremiumFeature } from 'scenes/UpgradeModal'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization } = useActions(navigationLogic)
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
+    const { showUpgradeModal } = useActions(sceneLogic)
     const { push } = router.actions
+    const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -72,7 +77,19 @@ export function TopNavigation(): JSX.Element {
             </div>
             <div className="divider mt mb-05" />
             <div className="text-center">
-                <a onClick={() => {}}>
+                <a
+                    onClick={() =>
+                        guardPremiumFeature(
+                            user,
+                            showUpgradeModal,
+                            'organizations_projects',
+                            'multiple projects',
+                            () => {
+                                setProjectModalShown(true)
+                            }
+                        )
+                    }
+                >
                     <PlusOutlined /> Create new project
                 </a>
             </div>
@@ -124,6 +141,7 @@ export function TopNavigation(): JSX.Element {
                     </Dropdown>
                 </div>
             </div>
+            <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
