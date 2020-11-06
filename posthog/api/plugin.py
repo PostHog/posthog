@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.models.plugin import Plugin, PluginConfig, PluginFile
+from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -137,40 +137,42 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team"] = request.user.team
         plugin_config = super().create(validated_data)
-        self._update_plugin_files(plugin_config)
+        self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
         validated_data.pop("plugin", None)
         response = super().update(plugin_config, validated_data)
-        self._update_plugin_files(plugin_config)
+        self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
         return response
 
-    def _update_plugin_files(self, plugin_config: PluginConfig):
+    def _update_plugin_attachments(self, plugin_config: PluginConfig):
         request = self.context["request"]
         for key, file in request.FILES.items():
             match = re.match(r"^files\[([^]]+)\]$", key)
             if match:
-                self._update_plugin_file(plugin_config, match.group(1), file)
+                self._update_plugin_attachment(plugin_config, match.group(1), file)
 
-    def _update_plugin_file(self, plugin_config: PluginConfig, key: str, file):
+    def _update_plugin_attachment(self, plugin_config: PluginConfig, key: str, file):
         try:
-            plugin_file = PluginFile.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
-            plugin_file.content_type = file.content_type
-            plugin_file.file_name = file.name
-            # plugin_file.file_size=file.size
-            plugin_file.contents = file.file.read()
-            plugin_file.save()
+            plugin_attachment = PluginAttachment.objects.get(
+                team=plugin_config.team, plugin_config=plugin_config, key=key
+            )
+            plugin_attachment.content_type = file.content_type
+            plugin_attachment.file_name = file.name
+            plugin_attachment.file_size = file.size
+            plugin_attachment.contents = file.file.read()
+            plugin_attachment.save()
         except ObjectDoesNotExist as e:
-            PluginFile.objects.create(
+            PluginAttachment.objects.create(
                 team=plugin_config.team,
                 plugin_config=plugin_config,
                 key=key,
                 content_type=file.content_type,
                 file_name=file.name,
-                # file_size=file.size,
+                file_size=file.size,
                 contents=file.file.read(),
             )
 

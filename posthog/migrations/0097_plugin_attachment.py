@@ -12,13 +12,14 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="PluginFile",
+            name="PluginAttachment",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("key", models.CharField(blank=True, max_length=200, null=True)),
-                ("content_type", models.CharField(blank=True, max_length=200, null=True)),
-                ("file_name", models.CharField(blank=True, max_length=200, null=True)),
-                ("contents", models.BinaryField(blank=True, null=True)),
+                ("key", models.CharField(max_length=200)),
+                ("content_type", models.CharField(max_length=200)),
+                ("file_name", models.CharField(max_length=200)),
+                ("file_size", models.IntegerField()),
+                ("contents", models.BinaryField()),
                 (
                     "plugin_config",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.PluginConfig"),

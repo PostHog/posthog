@@ -31,10 +31,11 @@ class PluginConfig(models.Model):
     error: JSONField = JSONField(default=None, null=True)
 
 
-class PluginFile(models.Model):
+class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
-    key: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    content_type: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    file_name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    contents: models.BinaryField = models.BinaryField(blank=True, null=True)
+    key: models.CharField = models.CharField(max_length=200)
+    content_type: models.CharField = models.CharField(max_length=200)
+    file_name: models.CharField = models.CharField(max_length=200)
+    file_size: models.IntegerField = models.IntegerField()
+    contents: models.BinaryField = models.BinaryField()
