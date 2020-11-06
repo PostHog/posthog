@@ -13,7 +13,7 @@ export function TopContent(): JSX.Element {
     const { backTo } = useValues(topContentLogic)
 
     return (
-        <div className="content py-3 layout-top-content">
+        <div className="main-app-content layout-top-content" style={{ paddingTop: 16 }}>
             <div
                 className="layout-top-content"
                 style={{

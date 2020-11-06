@@ -118,6 +118,27 @@ function createEntry(entry) {
                     ].filter((a) => a),
                 },
                 {
+                    // Apply rule for less files (used to import and override AntD)
+                    test: /\.(less)$/,
+                    use: [
+                        {
+                            loader: 'style-loader', // creates style nodes from JS strings
+                        },
+                        {
+                            loader: 'css-loader', // translates CSS into CommonJS
+                        },
+                        {
+                            loader: 'less-loader', // compiles Less to CSS
+                            options: {
+                                lessOptions: {
+                                    javascriptEnabled: true,
+                                },
+                            },
+                        },
+                    ],
+                },
+
+                {
                     // Now we apply rule for images
                     test: /\.(png|jpe?g|gif|svg)$/,
                     use: [

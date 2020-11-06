@@ -16,7 +16,7 @@ initKea()
 let dashboard = window.__SHARED_DASHBOARD__
 ReactDOM.render(
     <Provider store={getContext().store}>
-        <div style={{ background: 'var(--gray-background)', minHeight: '100vh', top: 0 }}>
+        <div style={{ minHeight: '100vh', top: 0 }}>
             <Row style={{ marginBottom: '1rem' }}>
                 <Col sm={7} xs={24} style={{ padding: '1rem' }}>
                     <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">

@@ -11,6 +11,8 @@ import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, 
 import { AnnotationScope, annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PlusOutlined } from '@ant-design/icons'
 
 const { TextArea } = Input
 
@@ -98,54 +100,58 @@ function _Annotations(): JSX.Element {
 
     return (
         <div>
-            <h1 className="page-header">Annotations</h1>
-            <p style={{ maxWidth: 600 }}>
-                <i>
-                    Here you can add organization- and project-wide annotations.
-                    <br />
-                    Dashboard-specific ones can be added directly in the dashboard.
-                    <br />
-                    Edit any annotation by clicking on it below.
-                </i>
-            </p>
-            <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
-                + Create Annotation
-            </Button>
-            <Table
-                data-attr="annotations-table"
-                size="small"
-                rowKey={(item): string => item.id}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
-                dataSource={annotations}
-                columns={columns}
-                loading={annotationsLoading}
-                onRow={(annotation): HTMLAttributes<HTMLElement> => ({
-                    onClick: (): void => {
-                        setSelected(annotation)
-                        setOpen(true)
-                    },
-                })}
+            <PageHeader
+                title="Annotations"
+                caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
             />
-            <div
-                style={{
-                    visibility: next ? 'visible' : 'hidden',
-                    margin: '2rem auto 5rem',
-                    textAlign: 'center',
-                }}
-            >
-                {loadingNext ? (
-                    <Spin />
-                ) : (
+
+            <div>
+                <div className="mb text-right">
                     <Button
                         type="primary"
-                        onClick={(): void => {
-                            loadAnnotationsNext()
-                        }}
+                        data-attr="create-annotation"
+                        onClick={(): void => setOpen(true)}
+                        icon={<PlusOutlined />}
                     >
-                        {'Load more annotations'}
+                        Create Annotation
                     </Button>
-                )}
+                </div>
+                <Table
+                    data-attr="annotations-table"
+                    size="small"
+                    rowKey={(item): string => item.id}
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    rowClassName="cursor-pointer"
+                    dataSource={annotations}
+                    columns={columns}
+                    loading={annotationsLoading}
+                    onRow={(annotation): HTMLAttributes<HTMLElement> => ({
+                        onClick: (): void => {
+                            setSelected(annotation)
+                            setOpen(true)
+                        },
+                    })}
+                />
+                <div
+                    style={{
+                        visibility: next ? 'visible' : 'hidden',
+                        margin: '2rem auto 5rem',
+                        textAlign: 'center',
+                    }}
+                >
+                    {loadingNext ? (
+                        <Spin />
+                    ) : (
+                        <Button
+                            type="primary"
+                            onClick={(): void => {
+                                loadAnnotationsNext()
+                            }}
+                        >
+                            {'Load more annotations'}
+                        </Button>
+                    )}
+                </div>
             </div>
             <CreateAnnotationModal
                 visible={open}
@@ -256,7 +262,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                             </Menu>
                         }
                     >
-                        <Button>
+                        <Button style={{ marginLeft: 8, marginRight: 8 }}>
                             {annotationScopeToName.get(scope)} <DownOutlined />
                         </Button>
                     </Dropdown>{' '}
@@ -267,7 +273,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     <span>Change existing annotation text</span>
                     {!props.annotation?.deleted ? (
                         <DeleteOutlined
-                            className="button-border clickable"
+                            className="text-danger"
                             onClick={(): void => {
                                 props.onDelete()
                             }}
@@ -287,7 +293,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 <div>
                     Date:
                     <DatePicker
-                        className="mb-2 mt-2 ml-2"
+                        style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
                         getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
                         value={selectedDate}
                         onChange={(date): void => setDate(date)}

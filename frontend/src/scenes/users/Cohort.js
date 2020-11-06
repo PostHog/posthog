@@ -1,9 +1,9 @@
 import React from 'react'
-import { Card, CloseButton, fromParams } from 'lib/utils'
+import { fromParams } from 'lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
-import { Button } from 'antd'
-
+import { Button, Card, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 
 const isSubmitDisabled = (cohorts) => {
@@ -16,90 +16,84 @@ export function Cohort({ onChange }) {
     const { personProperties, cohort } = useValues(cohortLogic({ onChange, id: fromParams()['cohort'] }))
 
     if (!cohort) return null
-    return cohort.groups.length === 0 ? (
-        <Button
-            style={{ marginBottom: '1rem', marginRight: 12 }}
-            onClick={() => setCohort({ groups: [{}] })}
-            type="primary"
-            data-attr="create-cohort"
-        >
-            + New Cohort
-        </Button>
-    ) : (
-        <div style={{ maxWidth: 750 }}>
-            <Card
-                title={
-                    <span>
-                        <CloseButton
-                            className="float-right"
-                            onClick={() => {
-                                setCohort({ id: false, groups: [] })
-                                onChange()
-                            }}
-                        />
-                        {cohort.name || 'New Cohort'}
-                    </span>
-                }
-            >
-                <form
-                    className="card-body"
-                    onSubmit={(e) => {
-                        e.preventDefault()
-                        saveCohort(cohort)
-                    }}
-                >
-                    <input
-                        style={{ marginBottom: '1rem' }}
-                        required
-                        className="form-control"
-                        autoFocus
-                        placeholder="Cohort name..."
-                        value={cohort.name}
-                        onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
-                    />
-                    {cohort.groups
-                        .map((group, index) => (
-                            <CohortGroup
-                                key={index}
-                                group={group}
-                                properties={personProperties}
-                                index={index}
-                                onRemove={() => {
-                                    cohort.groups.splice(index, 1)
-                                    setCohort({ ...cohort })
-                                }}
-                                onChange={(group) => {
-                                    cohort.groups[index] = group
-                                    setCohort({ ...cohort })
+    return (
+        cohort.groups.length > 0 && (
+            <div style={{ maxWidth: 750 }} className="mb">
+                <Card
+                    title={
+                        <span>
+                            <CloseButton
+                                style={{ float: 'right' }}
+                                onClick={() => {
+                                    setCohort({ id: false, groups: [] })
+                                    onChange()
                                 }}
                             />
-                        ))
-                        .reduce((prev, curr, index) => [
-                            prev,
-                            <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
-                                {' '}
-                                OR{' '}
-                            </div>,
-                            curr,
-                        ])}
-
-                    <Button
-                        type="primary"
-                        htmlType="submit"
-                        disabled={isSubmitDisabled(cohort)}
-                        data-attr="save-cohort"
-                        style={{ marginTop: '1rem' }}
+                            {cohort.name || 'New Cohort'}
+                        </span>
+                    }
+                >
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault()
+                            saveCohort(cohort)
+                        }}
                     >
-                        Save cohort
-                    </Button>
-                    <Button
-                        style={{ marginTop: '1rem', marginLeft: 12 }}
-                        onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
-                    >
-                        New group
-                    </Button>
-                </form>
-            </Card>
-        </div>
+                        <div className="mb">
+                            <Input
+                                required
+                                autoFocus
+                                placeholder="Cohort name..."
+                                value={cohort.name}
+                                data-attr="cohort-name"
+                                onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
+                            />
+                        </div>
+                        {cohort.groups
+                            .map((group, index) => (
+                                <CohortGroup
+                                    key={index}
+                                    group={group}
+                                    properties={personProperties}
+                                    index={index}
+                                    onRemove={() => {
+                                        cohort.groups.splice(index, 1)
+                                        setCohort({ ...cohort })
+                                    }}
+                                    onChange={(group) => {
+                                        cohort.groups[index] = group
+                                        setCohort({ ...cohort })
+                                    }}
+                                />
+                            ))
+                            .reduce((prev, curr, index) => [
+                                prev,
+                                <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
+                                    {' '}
+                                    OR{' '}
+                                </div>,
+                                curr,
+                            ])}
+                        <div className="mt">
+                            <Button
+                                type="primary"
+                                htmlType="submit"
+                                disabled={isSubmitDisabled(cohort)}
+                                data-attr="save-cohort"
+                                style={{ marginTop: '1rem' }}
+                            >
+                                Save cohort
+                            </Button>
+                            <Button
+                                style={{ marginTop: '1rem', marginLeft: 12 }}
+                                onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
+                            >
+                                New group
+                            </Button>
+                        </div>
+                    </form>
+                </Card>
+            </div>
+        )
     )
 }

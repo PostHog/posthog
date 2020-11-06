@@ -82,6 +82,7 @@ export const sessionsTableLogic = kea<
             sessionRecordingId: SessionRecordingId | null
         ) => ({ properties, selectedDate, sessionRecordingId }),
         closeSessionPlayer: true,
+        setPlayerSpeed: (speed: number) => ({ speed }),
     }),
     reducers: {
         sessions: {
@@ -113,6 +114,13 @@ export const sessionsTableLogic = kea<
             null as null | eventWithTime[],
             {
                 closeSessionPlayer: () => null,
+            },
+        ],
+        sessionsPlayerSpeed: [
+            1,
+            { persist: true },
+            {
+                setPlayerSpeed: (_, { speed }) => speed,
             },
         ],
     },
