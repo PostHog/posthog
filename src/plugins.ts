@@ -15,6 +15,7 @@ import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
 import { performance } from 'perf_hooks'
+import { logTime } from './stats'
 
 const plugins = new Map<PluginId, Plugin>()
 const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
@@ -96,7 +97,7 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
         defaultConfigs.sort((a, b) => a.order - b.order)
         for (const teamId of Object.keys(pluginConfigsPerTeam).map((key: string) => parseInt(key))) {
             pluginConfigsPerTeam.set(teamId, [...(pluginConfigsPerTeam.get(teamId) || []), ...defaultConfigs])
-            pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
+            pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.id - b.id)
         }
     }
 }
@@ -180,7 +181,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
 
     let returnedEvent: PluginEvent | null = event
 
-    for (const pluginConfig of pluginsToRun) {
+    for (const pluginConfig of pluginsToRun.reverse()) {
         if (pluginConfig.vm) {
             const processEvent = prepareForRun(server, event.team_id, pluginConfig, 'processEvent', event)
 
@@ -188,18 +189,12 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
                 const startTime = performance.now()
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
-                    console.log(
-                        `Running plugin ${pluginConfig.plugin.name}: ${
-                            Math.round((performance.now() - startTime) * 1000) / 1000
-                        }ms`
-                    )
+                    const ms = Math.round((performance.now() - startTime) * 1000) / 1000
+                    logTime(pluginConfig.plugin.name, ms)
                 } catch (error) {
                     await processError(server, pluginConfig, error, returnedEvent)
-                    console.log(
-                        `Running plugin ${pluginConfig.plugin.name}: ERROR IN ${
-                            Math.round((performance.now() - startTime) * 1000) / 1000
-                        }ms`
-                    )
+                    const ms = Math.round((performance.now() - startTime) * 1000) / 1000
+                    logTime(pluginConfig.plugin.name, ms, true)
                 }
             }
 
