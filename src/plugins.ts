@@ -18,7 +18,7 @@ import { getFileFromArchive } from './utils'
 const plugins = new Map<PluginId, Plugin>()
 const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
 const pluginConfigsPerTeam = new Map<TeamId, PluginConfig[]>()
-const defaultConfigs: PluginConfig[] = []
+let defaultConfigs: PluginConfig[] = []
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
     const { rows: pluginRows }: { rows: Plugin[] } = await server.db.query(
@@ -56,6 +56,8 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
         "SELECT * FROM posthog_pluginconfig WHERE enabled='t'"
     )
     const foundPluginConfigs = new Map<number, boolean>()
+    pluginConfigsPerTeam.clear()
+    defaultConfigs = []
     for (const row of pluginConfigRows) {
         const plugin = plugins.get(row.plugin_id)
         if (!plugin) {
