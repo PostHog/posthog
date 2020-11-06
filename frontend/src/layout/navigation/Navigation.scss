@@ -155,8 +155,10 @@ $top_nav_height: 50px;
         padding: 0 8px;
     }
 
-    .middle {
+    .project-chooser {
         flex-grow: 1;
+        height: 100%;
+        font-weight: bold;
     }
 
     .menu-toggle {
@@ -238,6 +240,40 @@ $top_nav_height: 50px;
                 }
             }
         }
+    }
+
+    &.project-dropdown {
+        min-width: 260px;
+
+        .dp-title {
+            padding: 0 $default_spacing / 2;
+            color: $text_muted;
+            font-weight: bold;
+        }
+
+        .projects {
+            a {
+                color: $text_default;
+                padding: 6px;
+                &:hover {
+                    background-color: $border_light;
+                }
+                width: 100%;
+                display: flex;
+            }
+
+            .settings {
+                cursor: pointer;
+                padding: 0 4px;
+                border-radius: $radius;
+                color: $primary;
+
+                &:hover {
+                    background-color: $border;
+                }
+            }
+        }
+        padding-bottom: $default_spacing / 2;
     }
 
     .divider {

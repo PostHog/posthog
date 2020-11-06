@@ -8,6 +8,7 @@ import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 import { Button, Dropdown } from 'antd'
+import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined } from '@ant-design/icons'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization } = useActions(navigationLogic)
@@ -52,6 +53,32 @@ export function TopNavigation(): JSX.Element {
         </div>
     )
 
+    const projectDropdown = (
+        <div className="navigation-top-dropdown project-dropdown">
+            <div className="dp-title">SELECT A PROJECT</div>
+            <div className="projects">
+                <a onClick={() => console.log(1)}>
+                    <span style={{ flexGrow: 1 }}>Hogflix Web</span>
+                    <span
+                        className="settings"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            console.log(2)
+                        }}
+                    >
+                        <ToolOutlined />
+                    </span>
+                </a>
+            </div>
+            <div className="divider mt mb-05" />
+            <div className="text-center">
+                <a onClick={() => {}}>
+                    <PlusOutlined /> Create new project
+                </a>
+            </div>
+        </div>
+    )
+
     return (
         <>
             <div className="navigation-spacer" />
@@ -77,10 +104,17 @@ export function TopNavigation(): JSX.Element {
                         />
                     </div>
                 </div>
-                <div className="middle">Project chooser</div>
+                <div className="project-chooser">
+                    <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter" visible>
+                        <div style={{ height: '100%' }}>
+                            <ProjectOutlined className="mr-05" />
+                            {user?.team.name} <DownOutlined className="ml-05" />
+                        </div>
+                    </Dropdown>
+                </div>
                 <div>
-                    <Dropdown overlay={whoAmIDropdown}>
-                        <div className="whoami">
+                    <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                        <div className="whoami cursor-pointer">
                             <div className="pp">{user?.name[0].toUpperCase()}</div>
                             <div className="details hide-lte-lg">
                                 <span>{user?.name}</span>
