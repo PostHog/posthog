@@ -1,14 +1,15 @@
 {
     "compilerOptions": {
-        "module": "ESNext",
+        "module": "CommonJS",
         "target": "ESNext",
         "declaration": true,
         "removeComments": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
         "esModuleInterop": true,
+        "moduleResolution": "node",
         "sourceMap": true,
-        "baseUrl": "./",
+        "baseUrl": "./src",
         "outDir": "./dist",
         "types": ["node"],
         "resolveJsonModule": true,

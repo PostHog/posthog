@@ -28,7 +28,11 @@ export default [
             json(),
             // Compile TypeScript/JavaScript files
             typescript({
-                include: ['*.ts', '**/*.ts'],
+                tsconfigOverride: {
+                    compilerOptions: {
+                        module: 'ESNext',
+                    },
+                },
             }),
             babel({ extensions, include: ['src/**/*'] }),
         ],
