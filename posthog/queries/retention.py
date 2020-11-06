@@ -15,7 +15,7 @@ from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
-from posthog.utils import generate_cache_key
+from posthog.utils import SqlQuery, generate_cache_key
 
 
 class Retention(BaseQuery):
@@ -35,7 +35,13 @@ class Retention(BaseQuery):
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
 
-        resultset = self._execute_sql(filter, team)
+        entity = (
+            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            if not filter.target_entity
+            else filter.target_entity
+        )
+
+        resultset = self._execute_sql(filter, entity, team)
 
         result = [
             {
@@ -51,40 +57,35 @@ class Retention(BaseQuery):
 
         return result
 
-    def _execute_sql(self, filter, team):
+    def _execute_sql(self, filter: Filter, target_entity: Entity, team: Team):
 
         period = filter.period
         events: QuerySet = QuerySet()
-        entity = (
-            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-            if not filter.target_entity
-            else filter.target_entity
-        )
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
+
+        if target_entity.type == TREND_FILTER_TYPE_EVENTS:
+            events = Event.objects.filter_by_event_with_people(event=target_entity.id, team_id=team.id)
+        elif target_entity.type == TREND_FILTER_TYPE_ACTIONS:
+            events = Event.objects.filter(action__pk=target_entity.id).add_person_id(team.id)
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
         first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
 
-        events_query, events_query_params = filtered_events.query.sql_with_params()
-        first_date_query, first_date_params = first_date.query.sql_with_params()
+        event_query, events_query_params = filtered_events.query.sql_with_params()
+        reference_event_query, first_date_params = first_date.query.sql_with_params()
 
-        full_query = """
-            SELECT
+        final_query = SqlQuery(
+            SELECT="""
                 {fields}
                 COUNT(DISTINCT "events"."person_id"),
                 array_agg(DISTINCT "events"."person_id") as people
-            FROM ({events_query}) events
-            LEFT JOIN ({first_date_query}) first_event_date
-              ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp >= first_date
-            GROUP BY date, first_date
-        """
-
-        full_query = full_query.format(events_query=events_query, first_date_query=first_date_query, fields=fields)
+            """.format(
+                fields=fields
+            ),
+            FROM=f"({event_query}) events JOIN ({reference_event_query}) reference_event ON (events.person_id = reference_event.person_id)",
+            WHERE="timestamp >= first_date",
+            GROUP="date, first_date",
+        )
 
         start_params = (
             (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
@@ -92,7 +93,7 @@ class Retention(BaseQuery):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query, start_params + events_query_params + first_date_params,
+                str(final_query), start_params + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
