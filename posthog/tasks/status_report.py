@@ -29,6 +29,11 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         for user in User.objects.filter(last_login__gte=period_start)
     ]
     report["teams"] = {}
+    report["table_sizes"] = {
+        "posthog_event": fetch_table_size("posthog_event"),
+        "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
+    }
+
     for team in Team.objects.all():
         team_report: Dict[str, Any] = {}
         events_considered_total = Event.objects.filter(team_id=team.id)
@@ -94,6 +99,10 @@ def fetch_events_count_by_name(params: Tuple[Any, ...]) -> dict:
         params,
     )
     return {result.name: result.count for result in results}
+
+
+def fetch_table_size(table_name: str) -> int:
+    return fetch_sql("SELECT pg_total_relation_size(%s) as size", (table_name,))[0].size
 
 
 def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:

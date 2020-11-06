@@ -19,6 +19,8 @@ class TestStatusReport(BaseTest):
 
         self.assertEqual(report["posthog_version"], VERSION)
         self.assertEqual(report["deployment"], "tests")
+        self.assertLess(report["table_sizes"]["posthog_event"], 10 ** 7)  # <10MB
+        self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10 ** 7)  # <10MB
 
     def test_team_status_report_event_counts(self) -> None:
         with freeze_time("2020-01-04T13:01:01Z"):
