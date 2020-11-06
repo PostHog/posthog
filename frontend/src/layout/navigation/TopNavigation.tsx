@@ -14,7 +14,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization } = useActions(navigationLogic)
+    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
+        navigationLogic
+    )
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
@@ -62,18 +64,26 @@ export function TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="dp-title">SELECT A PROJECT</div>
             <div className="projects">
-                <a onClick={() => console.log(1)}>
-                    <span style={{ flexGrow: 1 }}>Hogflix Web</span>
-                    <span
-                        className="settings"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            console.log(2)
-                        }}
-                    >
-                        <ToolOutlined />
-                    </span>
-                </a>
+                {user?.organization.teams.map((team) => {
+                    return (
+                        <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                            <span style={{ flexGrow: 1 }}>{team.name}</span>
+                            <span
+                                className="settings"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (team.id === user?.team.id) {
+                                        push('/project/settings')
+                                    } else {
+                                        updateCurrentProject(team.id, '/project/settings')
+                                    }
+                                }}
+                            >
+                                <ToolOutlined />
+                            </span>
+                        </a>
+                    )
+                })}
             </div>
             <div className="divider mt mb-05" />
             <div className="text-center">
@@ -122,8 +132,8 @@ export function TopNavigation(): JSX.Element {
                     </div>
                 </div>
                 <div className="project-chooser">
-                    <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter" visible>
-                        <div style={{ height: '100%' }}>
+                    <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter">
+                        <div style={{ height: '100%' }} className="cursor-pointer">
                             <ProjectOutlined className="mr-05" />
                             {user?.team.name} <DownOutlined className="ml-05" />
                         </div>

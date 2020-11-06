@@ -12,6 +12,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         setSystemStatus: (status) => ({ status }),
         setChangelogModalOpen: (isOpen) => ({ isOpen }),
         updateCurrentOrganization: (id) => ({ id }),
+        updateCurrentProject: (id, dest) => ({ id, dest }),
     },
     reducers: {
         menuCollapsed: [
@@ -54,6 +55,12 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 return !latestVersionLoading && !user?.is_multi_tenancy && latestVersion !== user?.posthog_version
             },
         ],
+        currentTeam: [
+            () => [userLogic.selectors.user],
+            (user) => {
+                return user.team.id
+            },
+        ],
     },
     loaders: {
         latestVersion: [
@@ -77,6 +84,15 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 user: { current_organization_id: id },
             })
             location.href = '/'
+        },
+        updateCurrentProject: async ({ id, dest }) => {
+            if (values.currentTeam === id) {
+                return
+            }
+            await api.update('api/user', {
+                user: { current_team_id: id },
+            })
+            location.href = dest
         },
     }),
     events: ({ actions }) => ({
