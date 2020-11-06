@@ -1,13 +1,14 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { createVm, prepareForRun } from './vm'
-import { PluginsServer, Plugin, PluginConfig, PluginVM } from './types'
+import { PluginsServer, Plugin, PluginConfig, PluginVM, PluginAttachment, MetaAttachment } from './types'
 import { PluginEvent } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
 
 const plugins: Record<string, Plugin> = {}
 const pluginsPerTeam: Record<string, PluginConfig[]> = {}
+const pluginAttachmentsPerTeam: Record<string, Record<string, MetaAttachment>> = {}
 const pluginVms: Record<string, PluginVM> = {}
 const defaultConfigs: PluginConfig[] = []
 
@@ -35,6 +36,20 @@ export async function setupPlugins(server: PluginsServer) {
     for (const id of Object.keys(plugins)) {
         if (!foundPlugins[id]) {
             unloadPlugin(plugins[id])
+        }
+    }
+
+    const { rows: pluginAttachmentRows }: { rows: PluginAttachment[] } = await server.db.query(
+        "SELECT * FROM posthog_pluginfile WHERE plugin_config_id in (SELECT id FROM posthog_pluginconfig WHERE enabled='t')"
+    )
+    for (const row of pluginAttachmentRows) {
+        if (!pluginAttachmentsPerTeam[row.team_id]) {
+            pluginAttachmentsPerTeam[row.team_id] = {}
+        }
+        pluginAttachmentsPerTeam[row.team_id][row.key] = {
+            content_type: row.content_type,
+            file_name: row.file_name,
+            contents: row.contents
         }
     }
 
