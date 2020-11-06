@@ -4,7 +4,7 @@ import { PluginEvent } from 'posthog-plugins'
 export async function processError(
     server: PluginsServer,
     plugin: Plugin,
-    teamPlugin: PluginConfig | null,
+    pluginConfig: PluginConfig | null,
     error: Error | string,
     event?: PluginEvent | null
 ) {
@@ -24,16 +24,16 @@ export async function processError(
                   event: event,
               }
 
-    if (teamPlugin) {
-        await server.db.query('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [errorJson, teamPlugin.id])
+    if (pluginConfig) {
+        await server.db.query('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [errorJson, pluginConfig.id])
     } else {
         await server.db.query('UPDATE posthog_plugin SET error = $1 WHERE id = $2', [errorJson, plugin.id])
     }
 }
 
-export async function clearError(server: PluginsServer, plugin: Plugin, teamPlugin: PluginConfig | null) {
-    if (teamPlugin) {
-        await server.db.query('UPDATE posthog_pluginconfig SET error = NULL WHERE id = $1', [teamPlugin.id])
+export async function clearError(server: PluginsServer, plugin: Plugin, pluginConfig: PluginConfig | null) {
+    if (pluginConfig) {
+        await server.db.query('UPDATE posthog_pluginconfig SET error = NULL WHERE id = $1', [pluginConfig.id])
     } else {
         await server.db.query('UPDATE posthog_plugin SET error = NULL WHERE id = $1', [plugin.id])
     }

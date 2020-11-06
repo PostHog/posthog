@@ -184,13 +184,13 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
 
     let returnedEvent: PluginEvent | null = event
 
-    for (const teamPlugin of pluginsToRun) {
-        if (pluginVms[teamPlugin.plugin_id]) {
+    for (const pluginConfig of pluginsToRun) {
+        if (pluginVms[pluginConfig.plugin_id]) {
             const processEvent = prepareForRun(
                 server,
-                pluginVms[teamPlugin.plugin_id],
+                pluginVms[pluginConfig.plugin_id],
                 teamId,
-                teamPlugin,
+                pluginConfig,
                 'processEvent',
                 event
             )
@@ -199,7 +199,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent) {
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    await processError(server, plugins[teamPlugin.plugin_id], teamPlugin, error, returnedEvent)
+                    await processError(server, plugins[pluginConfig.plugin_id], pluginConfig, error, returnedEvent)
                 }
             }
 
