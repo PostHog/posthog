@@ -5,11 +5,12 @@ import { navigationLogic } from './navigationLogic'
 import { IconMenu } from './icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
+import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed } = useActions(navigationLogic)
-    const { menuCollapsed, systemStatus } = useValues(navigationLogic)
+    const { setMenuCollapsed, setChangelogModalOpen } = useActions(navigationLogic)
+    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -21,12 +22,20 @@ export function TopNavigation(): JSX.Element {
                         <IconMenu />
                     </div>
                     <div className="hide-lte-lg">
+                        {!user?.is_multi_tenancy && (
+                            <Badge
+                                type={systemStatus ? 'success' : 'danger'}
+                                onClick={() => router.actions.push('/instance/status')}
+                                tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                                className="mr"
+                            />
+                        )}
                         <Badge
-                            type={systemStatus ? 'success' : 'danger'}
-                            onClick={() => router.actions.push('/instance/status')}
-                            tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                            type={updateAvailable ? 'warning' : undefined}
+                            tooltip={updateAvailable ? 'New version available' : undefined}
+                            icon={<></>}
+                            onClick={() => setChangelogModalOpen(true)}
                         />
-                        <Badge className="ml" />
                     </div>
                 </div>
                 <div className="middle">Project chooser</div>
@@ -38,6 +47,7 @@ export function TopNavigation(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )
 }
