@@ -1,14 +1,15 @@
 import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
+import yargs from 'yargs'
 
-require('yargs')
+yargs
     .scriptName('posthog-plugins')
-    .command('start', 'start the server', ({ argv }: { argv: Record<string, any> }) => {
+    .option('config', { alias: 'c', describe: 'json string of config options', type: 'string' })
+    .command('start', 'start the server', ({ argv }) => {
         const config: PluginsServerConfig = {
             ...(argv.config ? JSON.parse(argv.config) : {}),
         }
         startPluginsServer(config)
     })
-    .option('config', { alias: 'c', describe: 'json string of config options', type: 'string' })
     .demandCommand()
     .help().argv

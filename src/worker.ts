@@ -3,7 +3,7 @@ import * as celery from 'celery-node'
 import { PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
 
-export function startWorker(server: PluginsServer) {
+export function startWorker(server: PluginsServer): void {
     const worker = celery.createWorker(server.REDIS_URL, server.REDIS_URL, server.PLUGINS_CELERY_QUEUE)
     const client = celery.createClient(server.REDIS_URL, server.REDIS_URL, server.CELERY_DEFAULT_QUEUE)
 
@@ -13,7 +13,7 @@ export function startWorker(server: PluginsServer) {
             distinct_id: string,
             ip: string,
             site_url: string,
-            data: Record<string, any>,
+            data: Record<string, unknown>,
             team_id: number,
             now: string,
             sent_at?: string
@@ -41,7 +41,7 @@ export function startWorker(server: PluginsServer) {
             distinct_id: string,
             ip: string,
             site_url: string,
-            data: Record<string, any>,
+            data: Record<string, unknown>,
             team_id: number,
             now: string,
             sent_at?: string

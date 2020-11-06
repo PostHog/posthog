@@ -1,4 +1,4 @@
-import { Plugin, PluginConfig, PluginsServer } from './types'
+import { Plugin, PluginConfig, PluginError, PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
 
 export async function processError(
@@ -7,10 +7,10 @@ export async function processError(
     pluginConfig: PluginConfig | null,
     error: Error | string,
     event?: PluginEvent | null
-) {
+): Promise<void> {
     console.error(error)
 
-    const errorJson =
+    const errorJson: PluginError =
         typeof error === 'string'
             ? {
                   message: error,
@@ -31,7 +31,11 @@ export async function processError(
     }
 }
 
-export async function clearError(server: PluginsServer, plugin: Plugin, pluginConfig: PluginConfig | null) {
+export async function clearError(
+    server: PluginsServer,
+    plugin: Plugin,
+    pluginConfig: PluginConfig | null
+): Promise<void> {
     if (pluginConfig) {
         await server.db.query('UPDATE posthog_pluginconfig SET error = NULL WHERE id = $1', [pluginConfig.id])
     } else {
