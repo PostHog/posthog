@@ -11,6 +11,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         collapseMenu: () => {},
         setSystemStatus: (status) => ({ status }),
         setChangelogModalOpen: (isOpen) => ({ isOpen }),
+        updateCurrentOrganization: (id) => ({ id }),
     },
     reducers: {
         menuCollapsed: [
@@ -70,6 +71,12 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             if (!values.menuCollapsed && window.innerWidth <= 991) {
                 actions.setMenuCollapsed(true)
             }
+        },
+        updateCurrentOrganization: async ({ id }) => {
+            await api.update('api/user', {
+                user: { current_organization_id: id },
+            })
+            location.href = '/'
         },
     }),
     events: ({ actions }) => ({

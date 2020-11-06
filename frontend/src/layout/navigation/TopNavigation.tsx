@@ -10,7 +10,7 @@ import { router } from 'kea-router'
 import { Button, Dropdown } from 'antd'
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen } = useActions(navigationLogic)
+    const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization } = useActions(navigationLogic)
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
@@ -32,22 +32,22 @@ export function TopNavigation(): JSX.Element {
                     </Button>
                 </div>
                 <div className="mt-05">
-                    <a href="#" onClick={() => push('/me/settings')}>
-                        My account
-                    </a>
+                    <a onClick={() => push('/me/settings')}>My account</a>
                 </div>
             </div>
             <div className="divider mt-05" />
             <div className="organizations">
-                <a href="#">
-                    <IconBuilding /> Hogflix, Inc.
-                </a>
+                {user?.organizations.map((organization) => {
+                    return (
+                        <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
+                            <IconBuilding /> {organization.name}
+                        </a>
+                    )
+                })}
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
-                <a href="#" onClick={logout}>
-                    Log out
-                </a>
+                <a onClick={logout}>Log out</a>
             </div>
         </div>
     )
@@ -79,7 +79,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 <div className="middle">Project chooser</div>
                 <div>
-                    <Dropdown overlay={whoAmIDropdown} visible={true}>
+                    <Dropdown overlay={whoAmIDropdown}>
                         <div className="whoami">
                             <div className="pp">{user?.name[0].toUpperCase()}</div>
                             <div className="details hide-lte-lg">

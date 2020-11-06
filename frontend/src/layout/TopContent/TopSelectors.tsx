@@ -1,3 +1,4 @@
+// DEPRECATED in favor of TopNavigation.tsx & navigationLogic.ts
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { Alert, Button, Dropdown, Input, Menu, Modal } from 'antd'
