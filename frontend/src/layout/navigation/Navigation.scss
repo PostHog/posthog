@@ -165,11 +165,28 @@ $top_nav_height: 50px;
             height: 22px;
         }
     }
+}
 
-    .whoami {
+.navigation-spacer {
+    height: $top_nav_height;
+}
+
+// Dropdown styles (root scope because dropdowns are mounted on <body>
+
+.whoami {
+    display: flex;
+    align-items: center;
+
+    .details {
         flex-direction: column;
         font-weight: bold;
         align-items: flex-start;
+        padding: 0 8px;
+
+        span {
+            display: block;
+        }
+
         span:last-of-type {
             font-size: 12px;
             color: $text_muted;
@@ -190,6 +207,42 @@ $top_nav_height: 50px;
     }
 }
 
-.navigation-spacer {
-    height: $top_nav_height;
+.navigation-top-dropdown {
+    margin-top: $default_spacing / 2;
+    @extend .mixin-elevated;
+    background-color: $bg_light;
+    padding-top: $default_spacing;
+    padding-bottom: $default_spacing / 2;
+    border-radius: $radius;
+
+    &.whoami-dropdown {
+        display: flex;
+        flex-direction: column;
+
+        .organizations {
+            padding-top: 4px;
+            padding-bottom: 4px;
+
+            a {
+                display: flex;
+                align-items: center;
+                color: $text_default;
+                padding: 6px;
+
+                svg {
+                    color: $text_muted;
+                }
+
+                &:hover {
+                    background-color: $border_light;
+                }
+            }
+        }
+    }
+
+    .divider {
+        background-color: $border_light;
+        height: 1px;
+        width: 100%;
+    }
 }
