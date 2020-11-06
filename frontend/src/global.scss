@@ -270,6 +270,18 @@ style files without adding already imported styles. */
     margin-left: 5px;
 }
 
+// Badges styles
+.badge {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    background-color: $border_dark;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
 // Overlays styles
 #bottom-notice {
     z-index: 1000000000;

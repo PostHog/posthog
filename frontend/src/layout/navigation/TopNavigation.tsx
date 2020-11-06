@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
 import { IconMenu } from './icons'
 import { userLogic } from 'scenes/userLogic'
+import { Badge } from 'lib/components/Badge'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed } = useActions(navigationLogic)
@@ -17,6 +18,10 @@ export function TopNavigation(): JSX.Element {
                 <div>
                     <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
                         <IconMenu />
+                    </div>
+                    <div className="hide-lte-lg">
+                        <Badge type="success" onClick={() => console.log('called')} tooltip="All systems operational" />
+                        <Badge className="ml" />
                     </div>
                 </div>
                 <div className="middle">Project chooser</div>
