@@ -33,7 +33,7 @@ export function prepareForRun(
     server: PluginsServer,
     pluginVM: PluginVM,
     teamId: number,
-    teamPlugin: PluginConfig,
+    pluginConfig: PluginConfig,
     method: VMMethod,
     event?: PluginEvent
 ) {
@@ -45,11 +45,11 @@ export function prepareForRun(
         return null
     }
     const meta = {
-        team: teamPlugin.team_id,
-        order: teamPlugin.order,
+        team: pluginConfig.team_id,
+        order: pluginConfig.order,
         name: plugin.name,
         tag: plugin.tag,
-        config: teamPlugin.config,
+        config: pluginConfig.config,
     }
 
     vm.freeze(createCache(server, plugin.name, teamId), 'cache')
