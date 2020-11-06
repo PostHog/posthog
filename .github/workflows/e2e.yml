@@ -100,6 +100,7 @@ jobs:
                   SELF_CAPTURE: 1
               run: |
                   python manage.py collectstatic --noinput
+                  python manage.py setup_dev
                   mkdir -p cypress/screenshots
                   ./bin/docker-migrate
                   ./bin/docker-worker &
