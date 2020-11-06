@@ -15,8 +15,8 @@ const defaultConfig: PluginsServerConfig = {
     PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
 }
 
-export function startPluginsServer(config: PluginsServerConfig) {
-    console.info(`⚡ Starting posthog-plugins server v${version}!`)
+export async function startPluginsServer(config: PluginsServerConfig): Promise<void> {
+    console.info(`⚡ Starting posthog-plugin-server v${version}!`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -34,7 +34,7 @@ export function startPluginsServer(config: PluginsServerConfig) {
         redis,
     }
 
-    setupPlugins(server)
+    await setupPlugins(server)
     startWorker(server)
 
     const pubSub = new Redis(serverConfig.REDIS_URL)
