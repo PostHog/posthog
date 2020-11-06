@@ -1,4 +1,5 @@
 .idea
+.clinic
 node_modules
 yarn-error.log
 dist

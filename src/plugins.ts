@@ -14,6 +14,7 @@ import {
 import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
+import { performance } from 'perf_hooks'
 
 const plugins = new Map<PluginId, Plugin>()
 const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
@@ -184,10 +185,21 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
             const processEvent = prepareForRun(server, event.team_id, pluginConfig, 'processEvent', event)
 
             if (processEvent) {
+                const startTime = performance.now()
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
+                    console.log(
+                        `Running plugin ${pluginConfig.plugin.name}: ${
+                            Math.round((performance.now() - startTime) * 1000) / 1000
+                        }ms`
+                    )
                 } catch (error) {
                     await processError(server, pluginConfig, error, returnedEvent)
+                    console.log(
+                        `Running plugin ${pluginConfig.plugin.name}: ERROR IN ${
+                            Math.round((performance.now() - startTime) * 1000) / 1000
+                        }ms`
+                    )
                 }
             }
 
