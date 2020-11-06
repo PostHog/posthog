@@ -50,7 +50,9 @@ SAMPLE BY uuid
 )
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS), extra_fields=""
+    table_name="kafka_" + EVENTS_TABLE,
+    engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
+    extra_fields="",
 )
 
 EVENTS_TABLE_MV_SQL = """
