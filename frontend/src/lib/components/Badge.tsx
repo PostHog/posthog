@@ -1,5 +1,5 @@
 import React from 'react'
-import { CheckOutlined } from '@ant-design/icons'
+import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 
 interface BadgeProps {
@@ -14,6 +14,10 @@ export function Badge({ icon, type, className, onClick, tooltip }: BadgeProps): 
     const getTypeIcon = (): JSX.Element | undefined => {
         if (type === 'success') {
             return <CheckOutlined />
+        } else if (type === 'warning') {
+            return <WarningOutlined />
+        } else if (type === 'danger') {
+            return <WarningOutlined />
         }
     }
 

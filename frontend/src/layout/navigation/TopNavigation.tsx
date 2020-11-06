@@ -5,10 +5,11 @@ import { navigationLogic } from './navigationLogic'
 import { IconMenu } from './icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
+import { router } from 'kea-router'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed } = useActions(navigationLogic)
-    const { menuCollapsed } = useValues(navigationLogic)
+    const { menuCollapsed, systemStatus } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -20,7 +21,11 @@ export function TopNavigation(): JSX.Element {
                         <IconMenu />
                     </div>
                     <div className="hide-lte-lg">
-                        <Badge type="success" onClick={() => console.log('called')} tooltip="All systems operational" />
+                        <Badge
+                            type={systemStatus ? 'success' : 'danger'}
+                            onClick={() => router.actions.push('/instance/status')}
+                            tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                        />
                         <Badge className="ml" />
                     </div>
                 </div>
