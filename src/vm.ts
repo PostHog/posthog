@@ -1,77 +1,78 @@
-import { VM, VMScript } from 'vm2'
+import { VM } from 'vm2'
 import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
-import { PluginsServer, Plugin, PluginConfig, PluginScript, MetaAttachment } from './types'
+import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
 import { PluginEvent } from 'posthog-plugins'
 import { createCache } from './extensions/cache'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 import { performance } from 'perf_hooks'
 
-interface PluginScriptReponse {
-    plugin: Plugin
-    script: VMScript
-    setupTeam: boolean
-    processEvent: boolean
-}
-
-export function createPluginScript(plugin: Plugin, indexJs: string, libJs: string | null): PluginScriptReponse {
+export function createPluginConfigVM(
+    server: PluginsServer,
+    pluginConfig: PluginConfig, // NB! might have team_id = 0
+    indexJs: string,
+    libJs: string | null
+): PluginConfigVMReponse {
     const vm = new VM({
-        sandbox: {
-            // exports: {}
-        },
+        sandbox: {},
     })
-    vm.run('const exports = {};')
     vm.freeze(createConsole(), 'console')
+    vm.freeze(fetch, 'fetch')
 
-    const script = new VMScript(`${libJs} ; ${indexJs}`)
-    script.compile()
-    vm.run(script)
+    vm.run('const exports = {};')
+    vm.run('const __pluginLocalMeta = { global: {} };')
+    vm.freeze(
+        {
+            cache: createCache(server, pluginConfig.plugin.name, pluginConfig.team_id),
+            config: pluginConfig.config,
+            attachments: pluginConfig.attachments,
+        },
+        '__pluginHostMeta'
+    )
+    vm.run(`const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };`)
+    vm.run(`${libJs} ; ${indexJs}`)
+    // remain backwards compatible with 1) compiled and non-compiled js, 2) setupPlugin and old setupTeam
+    vm.run(`;global.setupPlugin 
+            ? global.setupPlugin(__pluginMeta) 
+            : exports.setupPlugin 
+                ? exports.setupPlugin(__pluginMeta) 
+                : global.setupTeam 
+                    ? global.setupTeam(__pluginMeta) 
+                    : exports.setupTeam 
+                        ? exports.setupTeam(__pluginMeta) 
+                        : false;`)
 
     const global = vm.run('global')
     const exports = vm.run('exports')
 
+    vm.run(`
+    const __methods = {
+        processEvent: exports.processEvent || global.processEvent ? (...args) => (exports.processEvent || global.processEvent)(...args, __pluginMeta) : null
+    }`)
+
     return {
-        plugin,
-        script,
-        setupTeam: !!(exports.setupTeam || global.setupTeam),
-        processEvent: !!(exports.processEvent || global.processEvent),
+        vm,
+        methods: vm.run('__methods'),
     }
 }
 
 export function prepareForRun(
     server: PluginsServer,
-    pluginScript: PluginScript,
     teamId: number,
     pluginConfig: PluginConfig, // might have team_id=0
-    pluginAttachments: Record<string, MetaAttachment>,
-    method: 'setupTeam' | 'processEvent',
+    method: 'processEvent',
     event?: PluginEvent
 ): null | ((event: PluginEvent) => PluginEvent) | (() => void) {
-    if (!pluginScript) {
+    if (!pluginConfig.vm) {
         return null
     }
-    if (!pluginScript[method]) {
+    if (!pluginConfig.vm.methods[method]) {
         return null
     }
-    const { plugin } = pluginScript
-    const meta = {
-        team: pluginConfig.team_id,
-        order: pluginConfig.order,
-        name: plugin.name,
-        tag: plugin.tag,
-        config: pluginConfig.config,
-        attachments: pluginAttachments,
-    }
-
-    const vm = new VM({
-        sandbox: {},
-    })
-    vm.run('const exports = {};')
-    vm.freeze(fetch, 'fetch') // Second argument adds object to global.
-    vm.freeze(createConsole(), 'console')
-    vm.freeze(createCache(server, plugin.name, teamId), 'cache')
+    const { vm } = pluginConfig.vm
 
     if (event?.properties?.token) {
+        // TODO: this should be nicer...
         const posthog = createInternalPostHogInstance(
             event.properties.token,
             { apiHost: event.site_url, fetch },
@@ -83,16 +84,5 @@ export function prepareForRun(
     } else {
         vm.freeze(null, 'posthog')
     }
-
-    vm.run(pluginScript.script)
-
-    const global = vm.run('global')
-    const exports = vm.run('exports')
-
-    if (method === 'processEvent') {
-        return (event: PluginEvent) => (exports.processEvent || global.processEvent)(event, meta)
-    } else if (method === 'setupTeam') {
-        return () => (exports.setupTeam || global.setupTeam)(meta)
-    }
-    return null
+    return pluginConfig.vm.methods[method]
 }

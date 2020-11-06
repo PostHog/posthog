@@ -1,8 +1,4 @@
-interface ConsoleExtension {
-    log: (...args: unknown[]) => void
-    error: (...args: unknown[]) => void
-    debug: (...args: unknown[]) => void
-}
+import { ConsoleExtension } from 'posthog-plugins'
 
 export function createConsole(): ConsoleExtension {
     return {
