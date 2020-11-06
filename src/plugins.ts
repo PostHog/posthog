@@ -1,60 +1,51 @@
 import * as path from 'path'
 import * as fs from 'fs'
-import { createPluginScript, prepareForRun } from './vm'
+import { createPluginConfigVM, prepareForRun } from './vm'
 import {
     PluginsServer,
     Plugin,
     PluginConfig,
-    PluginScript,
-    PluginAttachment,
-    MetaAttachment,
+    PluginAttachmentDB,
     PluginJsonConfig,
+    PluginId,
+    PluginConfigId,
+    TeamId,
 } from './types'
-import { PluginEvent } from 'posthog-plugins'
+import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
 
-const plugins: Record<string, Plugin> = {}
-const pluginsPerTeam: Record<string, PluginConfig[]> = {}
-const pluginAttachmentsPerTeam: Record<string, Record<string, MetaAttachment>> = {}
-const pluginScripts: Record<string, PluginScript> = {}
+const plugins = new Map<PluginId, Plugin>()
+const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
+const pluginConfigsPerTeam = new Map<TeamId, PluginConfig[]>()
 const defaultConfigs: PluginConfig[] = []
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
     const { rows: pluginRows }: { rows: Plugin[] } = await server.db.query(
-        "SELECT * FROM posthog_plugin WHERE (select count(*) from posthog_pluginconfig where plugin_id = posthog_plugin.id and enabled='t') > 0"
+        "SELECT * FROM posthog_plugin WHERE id in (SELECT plugin_id FROM posthog_pluginconfig WHERE enabled='t' GROUP BY plugin_id)"
     )
-    const foundPlugins: Record<string, boolean> = {}
+    const foundPlugins = new Map<number, boolean>()
     for (const row of pluginRows) {
-        foundPlugins[row.id] = true
-        if (
-            !plugins[row.id] ||
-            row.url.startsWith('file:') ||
-            row.tag !== plugins[row.id].tag ||
-            row.name !== plugins[row.id].name ||
-            row.url !== plugins[row.id].url
-        ) {
-            if (plugins[row.id]) {
-                unloadPlugin(row)
-            }
-            plugins[row.id] = row
-            await loadPlugin(server, row)
-        }
+        foundPlugins.set(row.id, true)
+        plugins.set(row.id, row)
     }
-    for (const id of Object.keys(plugins)) {
-        if (!foundPlugins[id]) {
-            unloadPlugin(plugins[id])
+    for (const [id, plugin] of plugins) {
+        if (!foundPlugins.has(id)) {
+            plugins.delete(id)
         }
     }
 
-    const { rows: pluginAttachmentRows }: { rows: PluginAttachment[] } = await server.db.query(
+    const { rows: pluginAttachmentRows }: { rows: PluginAttachmentDB[] } = await server.db.query(
         "SELECT * FROM posthog_pluginattachment WHERE plugin_config_id in (SELECT id FROM posthog_pluginconfig WHERE enabled='t')"
     )
+    const attachmentsPerConfig = new Map<TeamId, Record<string, PluginAttachment>>()
     for (const row of pluginAttachmentRows) {
-        if (!pluginAttachmentsPerTeam[row.team_id]) {
-            pluginAttachmentsPerTeam[row.team_id] = {}
+        let attachments = attachmentsPerConfig.get(row.plugin_config_id)
+        if (!attachments) {
+            attachments = {}
+            attachmentsPerConfig.set(row.plugin_config_id, attachments)
         }
-        pluginAttachmentsPerTeam[row.team_id][row.key] = {
+        attachments[row.key] = {
             content_type: row.content_type,
             file_name: row.file_name,
             contents: row.contents,
@@ -64,46 +55,52 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
     const { rows: pluginConfigRows }: { rows: PluginConfig[] } = await server.db.query(
         "SELECT * FROM posthog_pluginconfig WHERE enabled='t'"
     )
+    const foundPluginConfigs = new Map<number, boolean>()
     for (const row of pluginConfigRows) {
+        const plugin = plugins.get(row.plugin_id)
+        if (!plugin) {
+            continue
+        }
+        foundPluginConfigs.set(row.id, true)
+        const pluginConfig: PluginConfig = {
+            ...row,
+            plugin: plugin,
+            attachments: attachmentsPerConfig.get(row.id) || {},
+            vm: null,
+        }
+        pluginConfigs.set(row.id, pluginConfig)
+
         if (!row.team_id) {
             defaultConfigs.push(row)
         } else {
-            if (!pluginsPerTeam[row.team_id]) {
-                pluginsPerTeam[row.team_id] = []
+            let teamConfigs = pluginConfigsPerTeam.get(row.team_id)
+            if (!teamConfigs) {
+                teamConfigs = []
+                pluginConfigsPerTeam.set(row.team_id, teamConfigs)
             }
-            pluginsPerTeam[row.team_id].push(row)
+            teamConfigs.push(pluginConfig)
         }
-
-        const setupTeam = prepareForRun(
-            server,
-            pluginScripts[row.plugin_id],
-            row.team_id,
-            row,
-            pluginAttachmentsPerTeam[row.team_id],
-            'setupTeam',
-            undefined
-        ) as () => void
-
-        if (setupTeam) {
-            await setupTeam()
+    }
+    for (const [id, pluginConfig] of pluginConfigs) {
+        if (!foundPluginConfigs.has(id)) {
+            pluginConfigs.delete(id)
+        } else if (!pluginConfig.vm) {
+            await loadPlugin(server, pluginConfig)
         }
     }
 
     if (defaultConfigs.length > 0) {
         defaultConfigs.sort((a, b) => a.order - b.order)
-        for (const teamId of Object.keys(pluginsPerTeam)) {
-            pluginsPerTeam[teamId] = [...pluginsPerTeam[teamId], ...defaultConfigs]
-            pluginsPerTeam[teamId].sort((a, b) => a.order - b.order)
+        for (const teamId of Object.keys(pluginConfigsPerTeam).map((key: string) => parseInt(key))) {
+            pluginConfigsPerTeam.set(teamId, [...(pluginConfigsPerTeam.get(teamId) || []), ...defaultConfigs])
+            pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
         }
     }
 }
 
-function unloadPlugin(plugin: Plugin): void {
-    delete plugins[plugin.id]
-    delete pluginScripts[plugin.id]
-}
+async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Promise<void> {
+    const { plugin } = pluginConfig
 
-async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> {
     if (plugin.url.startsWith('file:')) {
         const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
         const configPath = path.resolve(pluginPath, 'plugin.json')
@@ -116,8 +113,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> 
             } catch (e) {
                 await processError(
                     server,
-                    plugin,
-                    null,
+                    pluginConfig,
                     `Could not load posthog config at "${configPath}" for plugin "${plugin.name}"`
                 )
                 return
@@ -127,8 +123,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> 
         if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
             await processError(
                 server,
-                plugin,
-                null,
+                pluginConfig,
                 `No "main" config key or "index.js" file found for plugin "${plugin.name}"`
             )
             return
@@ -141,11 +136,11 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> 
         const libJs = fs.existsSync(libPath) ? fs.readFileSync(libPath).toString() : ''
 
         try {
-            pluginScripts[plugin.id] = createPluginScript(plugin, indexJs, libJs)
+            pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs)
             console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
-            await clearError(server, plugin, null)
+            await clearError(server, pluginConfig)
         } catch (error) {
-            await processError(server, plugin, null, error)
+            await processError(server, pluginConfig, error)
         }
     } else if (plugin.archive) {
         let config: PluginJsonConfig = {}
@@ -154,7 +149,7 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> 
             try {
                 config = JSON.parse(json)
             } catch (error) {
-                await processError(server, plugin, null, `Can not load plugin.json for plugin "${plugin.name}"`)
+                await processError(server, pluginConfig, `Can not load plugin.json for plugin "${plugin.name}"`)
             }
         }
 
@@ -163,43 +158,34 @@ async function loadPlugin(server: PluginsServer, plugin: Plugin): Promise<void> 
 
         if (indexJs) {
             try {
-                pluginScripts[plugin.id] = createPluginScript(plugin, indexJs, libJs)
+                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs)
                 console.log(`Loaded plugin "${plugin.name}"!`)
-                await clearError(server, plugin, null)
+                await clearError(server, pluginConfig)
             } catch (error) {
-                await processError(server, plugin, null, error)
+                await processError(server, pluginConfig, error)
             }
         } else {
-            await processError(server, plugin, null, `Could not load index.js for plugin "${plugin.name}"!`)
+            await processError(server, pluginConfig, `Could not load index.js for plugin "${plugin.name}"!`)
         }
     } else {
-        console.error('Undownloaded Github plugins not yet supported')
+        await processError(server, pluginConfig, 'Un-downloaded remote plugins not supported!')
     }
 }
 
 export async function runPlugins(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
-    const teamId = event.team_id
-    const pluginsToRun = pluginsPerTeam[teamId] || defaultConfigs
+    const pluginsToRun = pluginConfigsPerTeam.get(event.team_id) || defaultConfigs
 
     let returnedEvent: PluginEvent | null = event
 
     for (const pluginConfig of pluginsToRun) {
-        if (pluginScripts[pluginConfig.plugin_id]) {
-            const processEvent = prepareForRun(
-                server,
-                pluginScripts[pluginConfig.plugin_id],
-                teamId,
-                pluginConfig,
-                pluginAttachmentsPerTeam[teamId], // TODO: check teamId
-                'processEvent',
-                event
-            )
+        if (pluginConfig.vm) {
+            const processEvent = prepareForRun(server, event.team_id, pluginConfig, 'processEvent', event)
 
             if (processEvent) {
                 try {
                     returnedEvent = (await processEvent(returnedEvent)) || null
                 } catch (error) {
-                    await processError(server, plugins[pluginConfig.plugin_id], pluginConfig, error, returnedEvent)
+                    await processError(server, pluginConfig, error, returnedEvent)
                 }
             }
 

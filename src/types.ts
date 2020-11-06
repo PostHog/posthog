@@ -1,7 +1,7 @@
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
-import { PluginEvent, PluginMeta } from 'posthog-plugins'
-import { VMScript } from 'vm2'
+import { PluginEvent, PluginAttachment } from 'posthog-plugins'
+import { VM, VMScript } from 'vm2'
 
 export interface PluginsServerConfig {
     CELERY_DEFAULT_QUEUE: string
@@ -17,8 +17,12 @@ export interface PluginsServer extends PluginsServerConfig {
     redis: Redis
 }
 
+export type PluginId = number
+export type PluginConfigId = number
+export type TeamId = number
+
 export interface Plugin {
-    id: number
+    id: PluginId
     name: string
     description: string
     url: string
@@ -31,13 +35,16 @@ export interface Plugin {
 }
 
 export interface PluginConfig {
-    id: number
-    team_id: number
-    plugin_id: number
+    id: PluginConfigId
+    team_id: TeamId
+    plugin: Plugin
+    plugin_id: PluginId
     enabled: boolean
     order: number
     config: Record<string, unknown>
     error?: PluginError
+    attachments?: Record<string, PluginAttachment>
+    vm?: PluginConfigVMReponse | null
 }
 
 export interface PluginJsonConfig {
@@ -64,23 +71,15 @@ export interface PluginError {
     event?: PluginEvent | null
 }
 
-export interface PluginAttachment {
+export interface PluginAttachmentDB {
     id: number
-    team_id: number
-    plugin_config_id: number
+    team_id: TeamId
+    plugin_config_id: PluginConfigId
     key: string
     content_type: string
     file_name: string
     contents: Buffer | null
 }
-
-export interface MetaAttachment {
-    content_type: string
-    file_name: string
-    contents: Buffer | null
-}
-
-export type VMMethod = 'processEvent' | 'setupTeam'
 
 export interface PluginScript {
     plugin: Plugin
@@ -89,7 +88,9 @@ export interface PluginScript {
     setupTeam: boolean
 }
 
-export interface PluginScriptMethods {
-    processEvent: (event: PluginEvent, meta: PluginMeta) => PluginEvent | null
-    setupTeam: (meta: PluginMeta) => void
+export interface PluginConfigVMReponse {
+    vm: VM
+    methods: {
+        processEvent: (event: PluginEvent) => PluginEvent
+    }
 }
