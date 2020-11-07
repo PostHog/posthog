@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
-import { PluginEvent, PluginAttachment } from 'posthog-plugins'
+import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugins'
 import { VM, VMScript } from 'vm2'
 
 export interface PluginsServerConfig {
@@ -26,7 +26,7 @@ export interface Plugin {
     name: string
     description: string
     url: string
-    config_schema: Record<string, PluginConfigSchema>
+    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag: string
     archive: Buffer | null
     from_json: boolean
@@ -53,14 +53,7 @@ export interface PluginJsonConfig {
     url?: string
     main?: string
     lib?: string
-    config?: Record<string, PluginConfigSchema>
-}
-
-export interface PluginConfigSchema {
-    name: string
-    type: 'string' | 'file'
-    default: string
-    required: boolean
+    config?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
 }
 
 export interface PluginError {
