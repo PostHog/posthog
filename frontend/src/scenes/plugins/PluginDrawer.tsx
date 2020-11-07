@@ -22,7 +22,7 @@ function EnabledDisabledSwitch({
     return (
         <>
             <Switch checked={value} onChange={onChange} />{' '}
-            {value ? <b style={{ paddingLeft: 8 }}>Enabled</b> : <b style={{ paddingLeft: 8 }}>Disabled</b>}
+            <strong style={{ paddingLeft: 8 }}>{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )
 }

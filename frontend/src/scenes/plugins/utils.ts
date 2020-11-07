@@ -17,9 +17,9 @@ export function getConfigSchemaObject(
 ): Record<string, PluginConfigSchema> {
     if (Array.isArray(configSchema)) {
         const newSchema: Record<string, PluginConfigSchema> = {}
-        configSchema.forEach((conf) => {
+        configSchema.forEach((conf, order) => {
             if (conf.key) {
-                newSchema[conf.key] = conf
+                newSchema[conf.key] = { ...conf, order }
             }
         })
         return newSchema
