@@ -154,17 +154,25 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
         validated_data["team"] = request.user.team
+        self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
+        self._fix_formdata_config_json(validated_data)
         validated_data.pop("plugin", None)
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)
         reload_plugins_on_workers()
         return response
+
+    # sending files via a multipart form puts the config JSON in a un-serialized format
+    def _fix_formdata_config_json(self, validated_data: dict):
+        request = self.context["request"]
+        if not validated_data.get("config", None) and request.POST.get("config", None):
+            validated_data["config"] = json.loads(request.POST["config"])
 
     def _update_plugin_attachments(self, plugin_config: PluginConfig):
         request = self.context["request"]
