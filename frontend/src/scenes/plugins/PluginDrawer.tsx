@@ -9,6 +9,23 @@ import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
 import { UploadField } from 'scenes/plugins/UploadField'
+import { getConfigSchemaArray } from 'scenes/plugins/utils'
+import Markdown from 'react-markdown'
+
+function EnabledDisabledSwitch({
+    value,
+    onChange,
+}: {
+    value?: boolean
+    onChange?: (value: boolean) => void
+}): JSX.Element {
+    return (
+        <>
+            <Switch checked={value} onChange={onChange} />{' '}
+            {value ? <b style={{ paddingLeft: 8 }}>Enabled</b> : <b style={{ paddingLeft: 8 }}>Disabled</b>}
+        </>
+    )
+}
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -84,51 +101,58 @@ export function PluginDrawer(): JSX.Element {
                                         </Link>
                                     )}
                                 </div>
+                                <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
+                                    <Form.Item
+                                        fieldKey="__enabled"
+                                        name="__enabled"
+                                        style={{ display: 'inline-block', marginBottom: 0 }}
+                                    >
+                                        <EnabledDisabledSwitch />
+                                    </Form.Item>
+                                </div>
                             </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <b style={{ paddingRight: 8 }}>Enabled</b>
-                            <Form.Item
-                                fieldKey="__enabled"
-                                name="__enabled"
-                                valuePropName="checked"
-                                style={{ display: 'inline-block', marginBottom: 0 }}
-                            >
-                                <Switch />
-                            </Form.Item>
                         </div>
                         <h3 className="l3" style={{ marginTop: 32 }}>
                             Configuration
                         </h3>
-                        {Object.keys(editingPlugin.config_schema).map((configKey) => {
-                            const fieldConfig = editingPlugin.config_schema[configKey]
-                            return (
-                                <Form.Item
-                                    key={configKey}
-                                    label={fieldConfig.name || configKey}
-                                    name={configKey}
-                                    required={fieldConfig.required}
-                                    rules={[
-                                        {
-                                            required: fieldConfig.required,
-                                            message: 'Please enter a value!',
-                                        },
-                                    ]}
-                                >
-                                    {fieldConfig.type === 'attachment' ? (
-                                        <UploadField />
-                                    ) : fieldConfig.type === 'string' || !fieldConfig.type ? (
-                                        <Input />
-                                    ) : (
-                                        <strong style={{ color: 'var(--red)' }}>
-                                            Unknown field type "<code>{fieldConfig.type}</code>".
-                                            <br />
-                                            You may need to upgrade PostHog!
-                                        </strong>
-                                    )}
-                                </Form.Item>
-                            )
-                        })}
+                        {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
+                            <>
+                                {fieldConfig.markdown ? (
+                                    <Markdown
+                                        key={`__markdown_${index}`}
+                                        source={fieldConfig.markdown}
+                                        linkTarget="_blank"
+                                    />
+                                ) : null}
+                                {fieldConfig.type ? (
+                                    <Form.Item
+                                        key={fieldConfig.key || `__key__${index}`}
+                                        label={fieldConfig.name || fieldConfig.key}
+                                        extra={fieldConfig.hint}
+                                        name={fieldConfig.key}
+                                        required={fieldConfig.required}
+                                        rules={[
+                                            {
+                                                required: fieldConfig.required,
+                                                message: 'Please enter a value!',
+                                            },
+                                        ]}
+                                    >
+                                        {fieldConfig.type === 'attachment' ? (
+                                            <UploadField />
+                                        ) : fieldConfig.type === 'string' ? (
+                                            <Input />
+                                        ) : (
+                                            <strong style={{ color: 'var(--red)' }}>
+                                                Unknown field type "<code>{fieldConfig.type}</code>".
+                                                <br />
+                                                You may need to upgrade PostHog!
+                                            </strong>
+                                        )}
+                                    </Form.Item>
+                                ) : null}
+                            </>
+                        ))}
                     </div>
                 ) : null}
             </Form>

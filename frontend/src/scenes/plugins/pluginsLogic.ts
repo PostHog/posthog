@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
+import { getConfigSchemaObject } from 'scenes/plugins/utils'
 
 export const pluginsLogic = kea<
     pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
@@ -76,7 +77,7 @@ export const pluginsLogic = kea<
 
                     const { __enabled: enabled, ...config } = pluginConfigChanges
 
-                    const configSchema = editingPlugin.config_schema
+                    const configSchema = getConfigSchemaObject(editingPlugin.config_schema)
 
                     const formData = new FormData()
                     const otherConfig: Record<string, any> = {}
@@ -200,9 +201,11 @@ export const pluginsLogic = kea<
                         let pluginConfig = pluginConfigs[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
-                            Object.entries(plugin.config_schema).forEach(([key, { default: def }]) => {
-                                config[key] = def
-                            })
+                            Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
+                                ([key, { default: def }]) => {
+                                    config[key] = def
+                                }
+                            )
 
                             pluginConfig = {
                                 id: undefined,
