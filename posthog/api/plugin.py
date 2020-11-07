@@ -8,6 +8,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.files.uploadedfile import UploadedFile
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -134,7 +135,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def get_config(self, plugin_config: PluginConfig):
-        attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).all()
+        attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
+            "id", "file_size", "file_name", "content_type"
+        )
         new_plugin_config = plugin_config.config.copy()
         for attachment in attachments:
             new_plugin_config[attachment.key] = {
@@ -169,27 +172,35 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             match = re.match(r"^attachments\[([^]]+)\]$", key)
             if match:
                 self._update_plugin_attachment(plugin_config, match.group(1), file)
+        for key, file in request.POST.items():
+            match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
+            if match:
+                self._update_plugin_attachment(plugin_config, match.group(1), None)
 
-    def _update_plugin_attachment(self, plugin_config: PluginConfig, key: str, file):
+    def _update_plugin_attachment(self, plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
         try:
             plugin_attachment = PluginAttachment.objects.get(
                 team=plugin_config.team, plugin_config=plugin_config, key=key
             )
-            plugin_attachment.content_type = file.content_type
-            plugin_attachment.file_name = file.name
-            plugin_attachment.file_size = file.size
-            plugin_attachment.contents = file.file.read()
-            plugin_attachment.save()
-        except ObjectDoesNotExist as e:
-            PluginAttachment.objects.create(
-                team=plugin_config.team,
-                plugin_config=plugin_config,
-                key=key,
-                content_type=file.content_type,
-                file_name=file.name,
-                file_size=file.size,
-                contents=file.file.read(),
-            )
+            if file:
+                plugin_attachment.content_type = file.content_type
+                plugin_attachment.file_name = file.name
+                plugin_attachment.file_size = file.size
+                plugin_attachment.contents = file.file.read()
+                plugin_attachment.save()
+            else:
+                plugin_attachment.delete()
+        except ObjectDoesNotExist:
+            if file:
+                PluginAttachment.objects.create(
+                    team=plugin_config.team,
+                    plugin_config=plugin_config,
+                    key=key,
+                    content_type=file.content_type,
+                    file_name=file.name,
+                    file_size=file.size,
+                    contents=file.file.read(),
+                )
 
 
 class PluginConfigViewSet(viewsets.ModelViewSet):
