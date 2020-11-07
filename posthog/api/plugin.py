@@ -127,7 +127,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):
-    config = serializers.SerializerMethodField()  # type: ignore
+    config = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
@@ -204,7 +204,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     team=plugin_config.team,
                     plugin_config=plugin_config,
                     key=key,
-                    content_type=file.content_type,
+                    content_type=str(file.content_type),
                     file_name=file.name,
                     file_size=file.size,
                     contents=file.file.read(),
