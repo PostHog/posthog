@@ -116,19 +116,18 @@ export function PluginDrawer(): JSX.Element {
                             Configuration
                         </h3>
                         {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
-                            <>
+                            <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                 {fieldConfig.markdown ? (
-                                    <Markdown
-                                        key={`__markdown_${index}`}
-                                        source={fieldConfig.markdown}
-                                        linkTarget="_blank"
-                                    />
+                                    <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
                                 ) : null}
                                 {fieldConfig.type ? (
                                     <Form.Item
-                                        key={fieldConfig.key || `__key__${index}`}
                                         label={fieldConfig.name || fieldConfig.key}
-                                        extra={fieldConfig.hint}
+                                        extra={
+                                            fieldConfig.hint ? (
+                                                <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                            ) : null
+                                        }
                                         name={fieldConfig.key}
                                         required={fieldConfig.required}
                                         rules={[
@@ -151,7 +150,7 @@ export function PluginDrawer(): JSX.Element {
                                         )}
                                     </Form.Item>
                                 ) : null}
-                            </>
+                            </React.Fragment>
                         ))}
                     </div>
                 ) : null}
