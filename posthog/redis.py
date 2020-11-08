@@ -15,6 +15,7 @@ def get_client() -> redis.Redis:
 
     if settings.TEST:
         import fakeredis
+
         _client = fakeredis.FakeStrictRedis()
     elif settings.REDIS_URL:
         _client = redis.from_url(settings.REDIS_URL, db=0)
