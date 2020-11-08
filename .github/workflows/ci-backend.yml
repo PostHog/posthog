@@ -142,8 +142,8 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
                   python manage.py test ee --testrunner="ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner"
 
-    multitenancy:
-        name: Django tests – posthog-production
+    cloud:
+        name: Django tests – Cloud
         runs-on: ubuntu-latest
 
         services:
@@ -175,7 +175,7 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
 
-            - name: Link posthog-production
+            - name: Link posthog-production at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
@@ -202,7 +202,9 @@ jobs:
                   python -m pip install freezegun
               if: steps.cache.outputs.cache-hit != 'true'
 
-            - name: Migrate at master
+            # The 2-step migration process (first master, then current branch) verifies that it'll always
+            # be possible to migrate to the new version without problems in production
+            - name: Migrate initially at master, then remove master deploy code
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -210,13 +212,15 @@ jobs:
               run: |
                   cd deploy
                   python manage.py migrate
+                  cd ..
+                  rm -rf deploy
 
-            - name: Checkout current
+            - name: Checkout current branch
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
 
-            - name: Link posthog-production
+            - name: Link posthog-production at current branch
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
@@ -261,7 +265,7 @@ jobs:
                   python manage.py test multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
 
     foss:
-        name: Django tests – posthog-foss
+        name: Django tests – FOSS
         runs-on: ubuntu-latest
 
         services:
