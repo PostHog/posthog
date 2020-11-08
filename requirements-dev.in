@@ -10,13 +10,10 @@ flake8-logging-format
 flake8-print
 pip-tools
 django-debug-toolbar
-tblib
-ipdb
 mypy
 mypy-extensions
 djangorestframework-stubs
 django-stubs
-django-extensions
 freezegun
 packaging
 black
