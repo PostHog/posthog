@@ -1,6 +1,6 @@
 import React from 'react'
-import { Layout } from 'antd'
-import { FundOutlined, ProjectFilled, ApiFilled, ClockCircleFilled } from '@ant-design/icons'
+import { Layout, Modal } from 'antd'
+import { ProjectFilled, ApiFilled, ClockCircleFilled } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -15,12 +15,12 @@ import {
     IconDashboard,
     IconEvents,
     IconFeatureFlags,
-    IconFunnel,
     IconInsights,
     IconPerson,
     IconToolbar,
 } from './icons'
 import { navigationLogic } from './navigationLogic'
+import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
 // to show the right page in the sidebar
 const sceneOverride = {
@@ -34,15 +34,23 @@ interface MenuItemProps {
     icon: JSX.Element
     identifier: string
     to: string
+    onClick?: () => void
 }
 
-const MenuItem = ({ title, icon, identifier, to }: MenuItemProps): JSX.Element => {
+const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
     const { scene, loadingScene } = useValues(sceneLogic)
     const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const { collapseMenu } = useActions(navigationLogic)
 
+    const handleClick = (): void => {
+        if (onClick) {
+            onClick()
+        }
+        collapseMenu()
+    }
+
     return (
-        <Link to={to} onClick={collapseMenu}>
+        <Link to={to} onClick={handleClick}>
             <div
                 className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
                 data-attr={`menu-item-${identifier}`}
@@ -56,8 +64,8 @@ const MenuItem = ({ title, icon, identifier, to }: MenuItemProps): JSX.Element =
 
 export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
-    const { menuCollapsed } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu } = useActions(navigationLogic)
+    const { menuCollapsed, toolbarModalOpen } = useValues(navigationLogic)
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -111,9 +119,24 @@ function _MainNavigation(): JSX.Element {
                         to="/project/settings"
                     />
                     <div className="divider" />
-                    <MenuItem title="Toolbar" icon={<IconToolbar />} identifier="toolbar" to="/toolbar" />
+                    <MenuItem
+                        title="Toolbar"
+                        icon={<IconToolbar />}
+                        identifier="toolbar"
+                        to=""
+                        onClick={() => setToolbarModalOpen(true)}
+                    />
                 </div>
             </Layout.Sider>
+
+            <Modal
+                bodyStyle={{ padding: 0 }}
+                visible={toolbarModalOpen}
+                footer={null}
+                onCancel={() => setToolbarModalOpen(false)}
+            >
+                <ToolbarModal />
+            </Modal>
         </>
     )
 }

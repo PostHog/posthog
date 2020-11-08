@@ -13,6 +13,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         setChangelogModalOpen: (isOpen) => ({ isOpen }),
         updateCurrentOrganization: (id) => ({ id }),
         updateCurrentProject: (id, dest) => ({ id, dest }),
+        setToolbarModalOpen: (isOpen) => ({ isOpen }),
     },
     reducers: {
         menuCollapsed: [
@@ -25,6 +26,12 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             false,
             {
                 setChangelogModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        toolbarModalOpen: [
+            false,
+            {
+                setToolbarModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
     },
@@ -58,7 +65,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
         currentTeam: [
             () => [userLogic.selectors.user],
             (user) => {
-                return user.team.id
+                return user?.team.id
             },
         ],
     },
