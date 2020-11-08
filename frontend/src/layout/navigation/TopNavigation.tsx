@@ -12,6 +12,7 @@ import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined } from '@ant-
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
+import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 
 export function TopNavigation(): JSX.Element {
     const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
@@ -23,6 +24,7 @@ export function TopNavigation(): JSX.Element {
     const { showUpgradeModal } = useActions(sceneLogic)
     const { push } = router.actions
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
+    const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -52,6 +54,22 @@ export function TopNavigation(): JSX.Element {
                         </a>
                     )
                 })}
+                <a
+                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                    onClick={() =>
+                        guardPremiumFeature(
+                            user,
+                            showUpgradeModal,
+                            'organizations_projects',
+                            'multiple organizations',
+                            () => {
+                                setOrganizationModalShown(true)
+                            }
+                        )
+                    }
+                >
+                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                </a>
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
@@ -152,6 +170,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
             </div>
             <CreateProjectModal isVisible={projectModalShown} setIsVisible={setProjectModalShown} />
+            <CreateOrganizationModal isVisible={organizationModalShown} setIsVisible={setOrganizationModalShown} />
             {changelogModalOpen && <ChangelogModal onDismiss={() => setChangelogModalOpen(false)} />}
         </>
     )

@@ -19,6 +19,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Link } from 'lib/components/Link'
 import api from 'lib/api'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
+import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 
 export function User(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -50,54 +51,6 @@ export function User(): JSX.Element {
                 {user ? user.name || user.email : <i>loading</i>}
             </Button>
         </Dropdown>
-    )
-}
-
-function CreateOrganizationModal({
-    isVisible,
-    setIsVisible,
-}: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
-}): JSX.Element {
-    const { createOrganization } = useActions(organizationLogic)
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
-
-    const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
-    }, [inputRef, setIsVisible])
-
-    return (
-        <Modal
-            title="Creating an Organization"
-            okText="Create Organization"
-            cancelText="Cancel"
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    setErrorMessage(null)
-                    createOrganization(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your organization needs a name!')
-                }
-            }}
-            onCancel={closeModal}
-            visible={isVisible}
-        >
-            <p>Organizations gather people building products together.</p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Acme Corporation"'
-                maxLength={64}
-                autoFocus
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
-        </Modal>
     )
 }
 
