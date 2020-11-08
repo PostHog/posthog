@@ -1,6 +1,6 @@
-from typing import Optional
 import secrets
 import string
+from typing import Optional
 
 try:
     import yaml
