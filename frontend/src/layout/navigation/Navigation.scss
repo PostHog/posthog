@@ -82,13 +82,13 @@ $top_nav_height: 50px;
         width: 80%;
         height: 1px;
         background-color: lighten($bg_menu, 20%);
-        margin: 0 auto;
+        margin: 8px auto 0;
     }
 
     // Styles for default navigation bar (80px)
     &:not(.ant-layout-sider-below) {
         .nav-logo {
-            padding: 8px 16px;
+            padding: 8px 16px 0;
 
             .logo-lg {
                 display: none;
@@ -105,7 +105,7 @@ $top_nav_height: 50px;
 
         .menu-item {
             flex-direction: column;
-            padding: 10px 0;
+            padding: 8px 0;
 
             .anticon {
                 line-height: 0;
