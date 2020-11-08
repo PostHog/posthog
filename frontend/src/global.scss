@@ -1,0 +1,334 @@
+/* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
+nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
+style files without adding already imported styles. */
+
+// Global components
+@import 'node_modules/react-toastify/dist/ReactToastify';
+@import 'node_modules/react-datepicker/dist/react-datepicker';
+@import './vars';
+
+:root {
+    --primary: #{$primary};
+    --success: #{$success};
+    --danger: #{$danger};
+    --warning: #{$warning};
+    --bg-menu: #{$bg_menu};
+    --bg-mid: #{$bg_mid};
+    // Used for graph series
+    --blue: #{$blue_500};
+    --purple: #{purple_500};
+    --salmon: #ff906e;
+    --yellow: #ffc035;
+    --green: #{$success};
+    --indigo: #{$purple_700};
+    --cyan: #17a2b8;
+    --pink: #e83e8c;
+    --white: #f4f6ff;
+}
+
+// Text styles
+.text-default {
+    color: $text_default;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 400;
+}
+
+.text-small {
+    @extend .text-default;
+    font-size: 12px;
+}
+
+.text-extra-small {
+    @extend .text-default;
+    font-size: 10px;
+}
+
+.page-title {
+    font-size: 28px;
+    line-height: 34px;
+    margin-top: 32px;
+    font-weight: 700;
+    color: $text_default;
+}
+
+.page-caption {
+    @extend .text-default;
+    max-width: 640px;
+    margin-bottom: 32px;
+}
+
+.subtitle {
+    margin-top: 24px;
+    font-size: 22px;
+    line-height: 26px;
+    font-weight: 700;
+}
+
+.l3 {
+    /* Level 3 title (ideally H3) */
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 19px;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: $text_muted;
+}
+
+// Spacing & layout
+.mb {
+    margin-bottom: $default_spacing;
+}
+
+.mt {
+    margin-top: $default_spacing;
+}
+
+.mb-05 {
+    margin-bottom: $default_spacing * 0.5;
+}
+
+.mt-05 {
+    margin-top: $default_spacing * 0.5;
+}
+
+.mr {
+    margin-right: $default_spacing;
+}
+
+.ml {
+    margin-left: $default_spacing;
+}
+
+.pa {
+    // Padding all
+    padding: $default_spacing;
+}
+
+.pb {
+    padding-bottom: $default_spacing;
+}
+
+.pt {
+    padding-top: $default_spacing;
+}
+
+.pr {
+    padding-right: $default_spacing;
+}
+
+.pl {
+    padding-left: $default_spacing;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.float-right {
+    float: right;
+}
+
+.float-left {
+    float: left;
+}
+
+.main-app-content {
+    padding: $default_spacing $default_spacing * 3;
+
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding: $default_spacing $default_spacing * 2 !important;
+    }
+
+    @media (max-width: 480px) {
+        padding: $default_spacing $default_spacing !important;
+    }
+}
+
+// Color styles
+.bg-primary {
+    background-color: $primary;
+}
+
+.text-danger {
+    color: $danger !important;
+}
+
+// Random general styles
+.cursor-pointer {
+    cursor: pointer;
+}
+
+// Toasts
+.Toastify__toast-container {
+    opacity: 1;
+    transform: none;
+}
+
+.Toastify__toast {
+    padding: 16px;
+    border-radius: $radius;
+    color: $text_default;
+    font-family: inherit;
+    background-color: $bg_light;
+}
+
+.Toastify__toast-body {
+    @extend .l3;
+    color: $success;
+    p {
+        @extend .text-default;
+        color: $text_default;
+    }
+}
+
+.Toastify__progress-bar--default {
+    background: $success;
+}
+
+.Toastify__toast--error {
+    h1 {
+        color: $danger;
+    }
+    .Toastify__progress-bar {
+        background: $danger;
+    }
+    .error-details {
+        font-style: italic;
+    }
+}
+
+// Table styles
+.table-bordered td {
+    border: 1px solid $border;
+}
+
+// Card styles
+.card-elevated {
+    @extend .mixin-elevated;
+}
+
+// Form & input styles
+.input-set {
+    padding-bottom: $default_spacing;
+    color: $text_default;
+
+    label {
+        font-weight: bold;
+        @extend .text-default;
+    }
+
+    .caption {
+        color: $text_muted;
+        @extend .text-small;
+    }
+
+    &.errored {
+        .caption {
+            color: $danger;
+        }
+        .ant-input-password,
+        input[type='text'] {
+            border-color: $danger !important;
+        }
+    }
+}
+
+// Button styles
+.btn-close {
+    color: $text_muted;
+}
+
+.ant-btn-sm {
+    font-size: 12px !important;
+}
+
+.ant-btn-md {
+    // Size between `small` & `default`
+    font-size: 13px !important;
+    height: 28px !important;
+    padding: 0px 10px !important;
+}
+
+.info-indicator {
+    color: $primary !important;
+    cursor: pointer;
+    margin-left: 5px;
+}
+
+// Overlays styles
+#bottom-notice {
+    z-index: 1000000000;
+    display: flex;
+    flex-direction: row;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    background: #000;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    &.warning div {
+        height: auto;
+        background: $danger;
+    }
+
+    div:nth-child(1) {
+        background: $purple_700;
+    }
+    div:nth-child(2) {
+        background: $purple_500;
+    }
+    div:nth-child(3) {
+        background: $purple_300;
+    }
+
+    div {
+        flex-basis: 0;
+        flex-grow: 1;
+        height: 1.5rem;
+        text-align: center;
+    }
+    span {
+        display: none;
+    }
+    button {
+        border: none;
+        background: transparent;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    @media screen and (min-width: 750px) {
+        font-size: 1rem;
+        line-height: 2rem;
+        div {
+            height: 2rem;
+        }
+        span {
+            display: inline;
+        }
+        button {
+            width: 2rem;
+            height: 2rem;
+            font-size: 1.25rem;
+        }
+    }
+}

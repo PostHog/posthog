@@ -3,7 +3,7 @@ from typing import Any, Dict
 
 import posthoganalytics
 from django.db import connection
-from psycopg2 import sql  # type: ignore
+from psycopg2 import sql
 
 from posthog.models import Event, Team, User
 from posthog.models.utils import namedtuplefetchall

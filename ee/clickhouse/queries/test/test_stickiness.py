@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from ee.clickhouse.models.action import populate_action_event_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -16,7 +15,6 @@ def _create_action(**kwargs):
     event_name = kwargs.pop("event_name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=event_name)
-    populate_action_event_table(action)
     return action
 
 

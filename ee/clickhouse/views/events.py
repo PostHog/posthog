@@ -1,4 +1,3 @@
-import json
 from typing import Any, Dict, List, Optional
 
 from rest_framework import viewsets
@@ -7,43 +6,31 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.element import get_elements_by_elements_hash, get_elements_by_elements_hashes
+from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
+from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
-from ee.clickhouse.util import CH_EVENT_ENDPOINT, endpoint_enabled
 from posthog.api.event import EventViewSet
-from posthog.models import Filter, Team
+from posthog.models import Filter, Person, Team
+from posthog.models.action import Action
 from posthog.utils import convert_property_value
 
 
 class ClickhouseEvents(EventViewSet):
-    def _get_elements(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
-        element_hashes = [event[6] for event in query_result]
-        elements = get_elements_by_elements_hashes(element_hashes, team.pk)
-        grouped_elements: Dict[str, List[Dict[str, Any]]] = {}
-        for element in elements:
-            if not grouped_elements.get(element["elements_hash"], None):
-                grouped_elements[element["elements_hash"]] = []
-            grouped_elements[element["elements_hash"]].append(element)
-        return grouped_elements
-
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
 
-        distinct_to_person: Dict[str, Dict[str, Any]] = {}
+        distinct_to_person: Dict[str, Person] = {}
         for person in persons:
-            for distinct_id in person["distinct_ids"]:
+            for distinct_id in person.distinct_ids:
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return super().list(request)
 
         team = request.user.team
         filter = Filter(request=request)
@@ -53,7 +40,14 @@ class ClickhouseEvents(EventViewSet):
             filter._date_to = request.GET["before"]
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
+        if request.GET.get("action_id"):
+            action = Action.objects.get(pk=request.GET["action_id"])
+            if action.steps.count() == 0:
+                return Response({"next": False, "results": []})
+            action_query, params = format_action_filter(action)
+            prop_filters += " AND {}".format(action_query)
+            prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
             query_result = sync_execute(
@@ -67,12 +61,7 @@ class ClickhouseEvents(EventViewSet):
             )
 
         result = ClickhouseEventSerializer(
-            query_result,
-            many=True,
-            context={
-                "elements": self._get_elements(query_result, team),
-                "people": self._get_people(query_result, team),
-            },
+            query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
         if len(query_result) > 100:
@@ -93,24 +82,15 @@ class ClickhouseEvents(EventViewSet):
 
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
 
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return super().retrieve(request, pk)
-
         # TODO: implement getting elements
-        team = request.user.team_set.get()
+        team = request.user.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
-
-        if result["elements_hash"]:
-            result["elements"] = get_elements_by_elements_hash(result["elements_hash"], team.pk)
 
         return Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request) -> Response:
-
-        if not endpoint_enabled(CH_EVENT_ENDPOINT, request.user.distinct_id):
-            return Response(super().get_values(request))
 
         key = request.GET.get("key")
         team = request.user.team
@@ -118,3 +98,17 @@ class ClickhouseEvents(EventViewSet):
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
         return Response([{"name": convert_property_value(value[0])} for value in result])
+
+    # ******************************************
+    # /event/session_recording
+    # params:
+    # - session_recording_id: (string) id of the session recording
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.request.user.team
+        snapshots = SessionRecording().run(
+            team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+        )
+
+        return Response({"result": snapshots})

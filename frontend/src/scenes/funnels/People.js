@@ -2,20 +2,22 @@ import React from 'react'
 import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
-import { Card, percentage, Loading } from 'lib/utils'
+import { percentage, Loading } from 'lib/utils'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
+import './FunnelPeople.scss'
+import { Card } from 'antd'
 
 export function People() {
     const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
 
     return (
-        <Card title="Per user">
-            {peopleLoading && <Loading />}
+        <Card title="Per user" className="funnel-people">
+            {peopleLoading && <Loading style={{ minHeight: 50 }} />}
             {!peopleSorted && !peopleLoading && (
                 <div style={{ textAlign: 'center', margin: '3rem 0' }}>No users found for this funnel.</div>
             )}
             {peopleSorted && peopleSorted.length > 0 && (
-                <table className="table table-bordered table-fixed">
+                <table className="table-bordered full-width">
                     <tbody>
                         <tr>
                             <th />
@@ -52,7 +54,7 @@ export function People() {
                                         <td
                                             key={index}
                                             className={
-                                                step.people.indexOf(person.id) > -1
+                                                step.people.indexOf(person.uuid) > -1
                                                     ? 'funnel-success'
                                                     : 'funnel-dropped'
                                             }

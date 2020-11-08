@@ -1,24 +1,30 @@
 import React from 'react'
+import './ActionComponents.scss'
 import { capitalizeFirstLetter } from '~/lib/utils'
+import { AimOutlined, ContainerOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
 
 export function ActionSelectTab({ entityType, chooseEntityType, allTypes }) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const icon = (type) => {
+        // TODO: Move to kea logic
+        if (type === 'actions') {
+            return <AimOutlined style={{ paddingRight: 6 }} />
+        } else if (type === 'events') {
+            return <ContainerOutlined style={{ paddingRight: 6 }} />
+        }
+    }
     return (
-        <div style={{ display: 'flex', flexDirection: 'row', height: '25px', borderBottom: '1px solid #cccccc' }}>
+        <div className={'ast-container ' + (featureFlags['actions-ux-201012'] ? 'ast-v2' : '')}>
             {allTypes.map((type, index) => (
                 <div
+                    className={'ast-tab ' + (entityType == type ? 'active' : '')}
                     key={index}
-                    style={{
-                        backgroundColor: entityType == type ? 'white' : '#eeeeee',
-                        flex: 1,
-                        display: 'flex',
-                        justifyContent: 'center',
-                        borderTopLeftRadius: index == 0 ? '5px' : '0px',
-                        borderTopRightRadius: index == allTypes.length - 1 ? '5px' : '0px',
-                        cursor: 'pointer',
-                    }}
                     onClick={() => chooseEntityType(type)}
                 >
-                    {capitalizeFirstLetter(type)}
+                    {featureFlags['actions-ux-201012'] && icon(type)}
+                    {capitalizeFirstLetter(type.replace('_', ' '))}
                 </div>
             ))}
         </div>

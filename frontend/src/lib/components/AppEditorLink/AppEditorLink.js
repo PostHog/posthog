@@ -3,27 +3,26 @@ import { useValues } from 'kea'
 
 import { EditAppUrls } from './EditAppUrls'
 import { appEditorUrl } from './utils'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'
 
-export function AppEditorLink({ actionId, style, className, children }) {
+export function AppEditorLink({ actionId, style, children }) {
     const [modalOpen, setModalOpen] = useState(false)
-    const { user } = useValues(userLogic)
-    const appUrls = user.team.app_urls
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <>
-            <a
-                href={appEditorUrl(actionId, appUrls && appUrls[0])}
+            <Button
+                href={appEditorUrl(actionId, currentTeam?.appUrls?.[0])}
                 style={style}
-                className={className}
+                size="small"
                 onClick={(e) => {
                     e.preventDefault()
                     setModalOpen(true)
                 }}
             >
                 {children}
-            </a>
+            </Button>
             <Modal
                 visible={modalOpen}
                 title={

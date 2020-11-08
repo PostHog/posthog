@@ -19,6 +19,14 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import { copyToClipboard } from 'lib/utils'
+import { Popconfirm } from 'antd'
+import { PopconfirmProps } from 'antd/lib/popconfirm'
+
+export interface Action {
+    Icon: any
+    callback: () => void
+    popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
+}
 
 export enum Language {
     Text = 'text',
@@ -61,23 +69,41 @@ SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
+export interface CodeSnippetProps {
+    children: string
+    language?: Language
+    wrap?: boolean
+    actions?: Action[]
+    style?: React.CSSProperties
+}
+
 export function CodeSnippet({
     children,
     language = Language.Text,
     wrap = false,
-}: {
-    children: string
-    language?: Language
-    wrap?: boolean
-}): JSX.Element {
+    style = {},
+    actions,
+}: CodeSnippetProps): JSX.Element {
     return (
-        <div className="code-container">
-            <CopyOutlined
-                className="copy-icon"
-                onClick={() => {
-                    copyToClipboard(children, 'code snippet')
-                }}
-            />
+        <div className="code-container" style={style}>
+            <div className="action-icon-container">
+                {actions &&
+                    actions.map(({ Icon, callback, popconfirmProps }, index) =>
+                        !popconfirmProps ? (
+                            <Icon key={`snippet-action-${index}`} className="action-icon" onClick={callback} />
+                        ) : (
+                            <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
+                                <Icon className="action-icon" />
+                            </Popconfirm>
+                        )
+                    )}
+                <CopyOutlined
+                    className="action-icon"
+                    onClick={() => {
+                        copyToClipboard(children, 'code snippet')
+                    }}
+                />
+            </div>
             <SyntaxHighlighter
                 style={okaidia}
                 language={language}

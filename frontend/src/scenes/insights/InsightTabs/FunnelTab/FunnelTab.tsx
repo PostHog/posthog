@@ -46,6 +46,7 @@ export function FunnelTab(): JSX.Element {
                     setFilters={(filters): void => setFilters(filters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
+                    copy="Add funnel step"
                 />
                 <hr />
                 <h4 className="secondary">Filters</h4>
@@ -64,7 +65,7 @@ export function FunnelTab(): JSX.Element {
                 <Row justify="space-between">
                     <Row justify="start">
                         <Button
-                            className="mr-1"
+                            style={{ marginRight: 4 }}
                             type="primary"
                             htmlType="submit"
                             disabled={isStepsEmpty}

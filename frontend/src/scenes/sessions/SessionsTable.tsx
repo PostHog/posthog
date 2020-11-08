@@ -10,7 +10,12 @@ import moment from 'moment'
 import { SessionType } from '~/types'
 import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
+import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
+import { userLogic } from 'scenes/userLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -19,8 +24,18 @@ interface SessionsTableProps {
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
-    const { sessions, sessionsLoading, nextOffset, isLoadingNext, selectedDate } = useValues(logic)
-    const { fetchNextSessions, dateChanged, previousDay, nextDay } = useActions(logic)
+    const { user } = useValues(userLogic)
+    const {
+        sessions,
+        sessionsLoading,
+        nextOffset,
+        isLoadingNext,
+        selectedDate,
+        properties,
+        sessionRecordingId,
+    } = useValues(logic)
+    const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -85,11 +100,11 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         },
     ]
 
-    if ((window as any).posthog && (window as any).posthog.isFeatureEnabled('session-recording-player')) {
+    if (!user?.is_multi_tenancy || featureFlags['session-recording-player']) {
         columns.push({
             title: 'Play Session',
             render: function RenderEndPoint(session: SessionType) {
-                return <SessionsPlayerButton session={session}></SessionsPlayerButton>
+                return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
         })
@@ -97,12 +112,17 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <h1 className="page-header">Sessions By Day</h1>}
-            <Space className="mb-2">
+            {!isPersonPage && <PageHeader title="Sessions By Day" />}
+            <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker value={selectedDate} onChange={dateChanged} allowClear={false} />
+                <DatePicker
+                    value={selectedDate}
+                    onChange={(date) => setFilters(properties, date, sessionRecordingId)}
+                    allowClear={false}
+                />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
+            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
@@ -121,6 +141,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
+            {!!sessionRecordingId && <SessionsPlayerDrawer />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

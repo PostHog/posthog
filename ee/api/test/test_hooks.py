@@ -1,10 +1,11 @@
 from typing import Type
 
-from ee.models import Hook
-from posthog.api.test.base import TransactionBaseTest
+from ee.models.hook import Hook
+
+from .base import APILicensedTest
 
 
-class TestHooksAPI(TransactionBaseTest):
+class TestHooksAPI(APILicensedTest):
     TESTS_API = True
 
     def test_create_hook(self):

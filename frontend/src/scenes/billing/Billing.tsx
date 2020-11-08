@@ -3,8 +3,9 @@ import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
-import defaultImg from './../../../public/plan-default.svg'
+import defaultImg from 'public/plan-default.svg'
 import { PlanInterface } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
 
 function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: PlanInterface) => void }): JSX.Element {
     return (
@@ -38,10 +39,14 @@ export function Billing(): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">
-                Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
-            </h1>
-            <div className="space-top"></div>
+            <PageHeader
+                title={
+                    <>
+                        Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
+                    </>
+                }
+            />
+            <div className="space-top" />
             <Card title="Current usage">
                 {user?.billing?.current_usage && (
                     <>
@@ -74,7 +79,7 @@ export function Billing(): JSX.Element {
                     </div>
                 )}
             </Card>
-            <div className="space-top"></div>
+            <div className="space-top" />
             <Card title="Billing plan">
                 {user?.billing.plan && !user?.billing.should_setup_billing && (
                     <>
@@ -119,7 +124,7 @@ export function Billing(): JSX.Element {
                     </>
                 )}
             </Card>
-            <div style={{ marginBottom: 128 }}></div>
+            <div style={{ marginBottom: 128 }} />
         </>
     )
 }

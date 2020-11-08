@@ -147,8 +147,11 @@ class ActionViewSet(viewsets.ModelViewSet):
                 ActionStep.objects.create(
                     action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
                 )
-        calculate_action.delay(action_id=action.pk)
+        self._calculate_action(action)
         return Response(ActionSerializer(action, context={"request": request}).data)
+
+    def _calculate_action(self, action: Action) -> None:
+        calculate_action.delay(action_id=action.pk)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action = Action.objects.get(pk=kwargs["pk"], team=request.user.team)
@@ -177,12 +180,12 @@ class ActionViewSet(viewsets.ModelViewSet):
             del request.data["created_by"]
         serializer.update(action, request.data)
         action.is_calculating = True
-        calculate_action.delay(action_id=action.pk)
-        return Response(ActionSerializer(action, context={"request": request}).data)
+        self._calculate_action(action)
+        return Response(self.serializer_class(action, context={"request": request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
-        actions_list: List[Dict[Any, Any]] = ActionSerializer(actions, many=True, context={"request": request}).data  # type: ignore
+        actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
         if request.GET.get("include_count", False):
             actions_list.sort(key=lambda action: action.get("count", action["id"]), reverse=True)
         return Response({"results": actions_list})

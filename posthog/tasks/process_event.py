@@ -7,9 +7,8 @@ from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
-from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, Team, User
+from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -17,12 +16,16 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     new_person: Optional[Person] = None
 
     try:
-        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
+        old_person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=previous_distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
     try:
-        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+        new_person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
@@ -63,6 +66,13 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
+    if not team.ingested_event:
+        # First event for the team captured
+        for user in Team.objects.get(pk=team.pk).users.all():
+            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.ingested_event = True
+        save = True
     if event not in team.event_names:
         save = True
         team.event_names.append(event)
@@ -108,14 +118,6 @@ def _capture(
         "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
     ).get(pk=team_id)
 
-    if not team.ingested_event:
-        # First event for the team captured
-        for user in Team.objects.get(pk=team_id).users.all():
-            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
-
-        team.ingested_event = True
-        team.save()
-
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
 
@@ -147,10 +149,14 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
             created = True
         except IntegrityError:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
             created = False
     else:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
         created = False
 
     return person, created
@@ -158,29 +164,49 @@ def get_or_create_person(team_id: int, distinct_id: str) -> Tuple[Person, bool]:
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
         except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
     person.properties.update(properties)
     person.save()
 
 
 def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
         # Catch race condition where in between getting and creating, another request already created this person
         except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
     if not person.is_identified:
         person.is_identified = is_identified
         person.save()
+
+
+def _store_session_recording_event(
+    team_id: int, distinct_id: str, session_id: str, timestamp: Union[datetime.datetime, str], snapshot_data: dict
+) -> None:
+    SessionRecordingEvent.objects.create(
+        team_id=team_id,
+        distinct_id=distinct_id,
+        session_id=session_id,
+        timestamp=timestamp,
+        snapshot_data=snapshot_data,
+    )
 
 
 def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.datetime:
@@ -193,7 +219,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
                 # otherwise we can't get a diff to add to now
                 return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
             except TypeError as e:
-                capture_exception(e)
+                pass
         return parser.isoparse(data["timestamp"])
     now_datetime = parser.parse(now)
     if data.get("offset"):
@@ -201,25 +227,40 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
     return now_datetime
 
 
-@shared_task
+def handle_identify_or_alias(event: str, properties: dict, distinct_id: str, team_id: int) -> None:
+    if event == "$create_alias":
+        _alias(
+            previous_distinct_id=properties["alias"], distinct_id=distinct_id, team_id=team_id,
+        )
+    elif event == "$identify":
+        if properties.get("$anon_distinct_id"):
+            _alias(
+                previous_distinct_id=properties["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
+            )
+        if properties.get("$set"):
+            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=properties["$set"])
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+
+
+@shared_task(name="posthog.tasks.process_event.process_event", ignore_result=True)
 def process_event(
     distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
-    if data["event"] == "$create_alias":
-        _alias(
-            previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
+    properties = data.get("properties", {})
+    if data.get("$set"):
+        properties["$set"] = data["$set"]
+
+    handle_identify_or_alias(data["event"], properties, distinct_id, team_id)
+
+    if data["event"] == "$snapshot":
+        _store_session_recording_event(
+            team_id=team_id,
+            distinct_id=distinct_id,
+            session_id=data["properties"]["$session_id"],
+            timestamp=handle_timestamp(data, now, sent_at),
+            snapshot_data=data["properties"]["$snapshot_data"],
         )
-    elif data["event"] == "$identify":
-
-        if data.get("properties") and data["properties"].get("$anon_distinct_id"):
-            _alias(
-                previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
-            )
-        if data.get("$set"):
-            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
-        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
-
-    properties = data.get("properties", data.get("$set", {}))
+        return
 
     _capture(
         ip=ip,

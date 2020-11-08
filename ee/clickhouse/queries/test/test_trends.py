@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.action import populate_action_event_table
-from ee.clickhouse.models.cohort import populate_cohort_person_table
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -20,7 +18,6 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
-    populate_action_event_table(action)
     return action
 
 
@@ -29,7 +26,6 @@ def _create_cohort(**kwargs):
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
-    populate_cohort_person_table(cohort)
     return cohort
 
 
@@ -128,8 +124,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[1]["label"], "sign up - other_value")
 
         self.assertEqual(sum(event_response[0]["data"]), 1)
-        self.assertEqual(event_response[0]["data"][3], 1)  # property not defined
+        self.assertEqual(event_response[0]["data"][4], 1)  # property not defined
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][4], 1)
+        self.assertEqual(event_response[1]["data"][5], 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response))

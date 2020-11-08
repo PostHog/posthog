@@ -17,7 +17,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             sign_up_action = action_factory(team=self.team, name="sign up")
 
             person = person_factory(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            secondTeam = Team.objects.create(api_token="token123")
+            secondTeam = Team.objects.create(api_token="token456")
 
             freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
             freeze_with_time = [
@@ -360,6 +360,43 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 team=self.team, event="watched movie", distinct_id="person4", timestamp="2020-01-05T12:00:00Z",
             )
             return (person1, person2, person3, person4)
+
+        def test_stickiness_people_no_timestamp_endpoint(self):
+            person1, _, _, person4 = self._create_multiple_people()
+
+            watched_movie = action_factory(team=self.team, name="watched movie")
+
+            # test people
+            with freeze_time("2020-01-07"):
+                action_response = self.client.get(
+                    "/api/action/people/",
+                    data={
+                        "shown_as": "Stickiness",
+                        "stickiness_days": 1,
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "type": "actions",
+                        "entityId": watched_movie.id,
+                    },
+                ).json()
+                event_response = self.client.get(
+                    "/api/action/people/",
+                    data={
+                        "shown_as": "Stickiness",
+                        "stickiness_days": 1,
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "type": "events",
+                        "entityId": "watched movie",
+                    },
+                ).json()
+
+            all_people_ids = [str(person["id"]) for person in action_response["results"][0]["people"]]
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
+
+            self.assertTrue(
+                self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
+            )
 
         def test_stickiness_people_endpoint(self):
             person1, _, _, person4 = self._create_multiple_people()

@@ -123,7 +123,11 @@ export const trendsLogic = kea({
             loadResults: async (refresh = false, breakpoint) => {
                 if (values.results.length === 0 && props.cachedResults) return props.cachedResults
                 let response
-                if (props.view === ViewType.SESSIONS || props.filters?.session) {
+                if (
+                    props.view === ViewType.SESSIONS ||
+                    props.filters?.insight === ViewType.SESSIONS ||
+                    props.filters?.session
+                ) {
                     response = await api.get(
                         'api/insight/session/?' +
                             (refresh ? 'refresh=true&' : '') +
@@ -164,7 +168,7 @@ export const trendsLogic = kea({
 
     reducers: ({ actions, props }) => ({
         filters: [
-            props.dashboardItemId ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
+            props.filters ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
                 [actions.setFilters]: (state, { filters, mergeFilters }) => {
                     return cleanFilters({

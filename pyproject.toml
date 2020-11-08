@@ -1,0 +1,9 @@
+[tool.black]
+line-length = 120
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 8
+ensure_newline_before_comments = true
+line_length = 120

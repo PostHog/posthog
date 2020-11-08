@@ -9,6 +9,7 @@ import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import moment from 'moment'
+import './Insights.scss'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -204,7 +205,7 @@ export function LineGraph({
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
                                       return (
-                                          formatLabel(label, entityData.action) +
+                                          (entityData.action ? formatLabel(label, entityData.action) : label) +
                                           ' - ' +
                                           tooltipItem.yLabel.toLocaleString()
                                       )

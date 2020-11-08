@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Tooltip, Row } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
-import { CloseButton } from 'lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../trendsLogic'
@@ -22,6 +22,7 @@ export function TrendTab(): JSX.Element {
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={false}
+                copy="Add graph series"
             />
             <hr />
             <h4 className="secondary">Filters</h4>
@@ -33,7 +34,7 @@ export function TrendTab(): JSX.Element {
                     placement="right"
                     title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
                 >
-                    <InfoCircleOutlined className="info" style={{ color: '#007bff' }}></InfoCircleOutlined>
+                    <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
             <Row>
@@ -58,7 +59,7 @@ export function TrendTab(): JSX.Element {
                                             performed an action on Monday and again on Friday, it would be shown 
                                             as "2 days".'
                 >
-                    <InfoCircleOutlined className="info" style={{ color: '#007bff' }}></InfoCircleOutlined>
+                    <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
             <ShownAsFilter filters={filters} onChange={(shown_as): void => setFilters({ shown_as })} />

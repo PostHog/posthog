@@ -8,15 +8,9 @@ const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
 // main = app
-// toolbar = new toolbar
-// editor = old toolbar
+// toolbar = toolbar
 // shared_dashboard = publicly available dashboard
-module.exports = () => [
-    createEntry('main'),
-    createEntry('toolbar'),
-    createEntry('editor'),
-    createEntry('shared_dashboard'),
-]
+module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
 
 function createEntry(entry) {
     return {
@@ -29,8 +23,6 @@ function createEntry(entry) {
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.tsx'
-                    : entry === 'editor'
-                    ? './frontend/src/editor/index.js'
                     : entry === 'shared_dashboard'
                     ? './frontend/src/scenes/dashboard/SharedDashboard.js'
                     : null,
@@ -58,6 +50,7 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
+                public: path.resolve(__dirname, 'frontend', 'public'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
@@ -124,6 +117,27 @@ function createEntry(entry) {
                         },
                     ].filter((a) => a),
                 },
+                {
+                    // Apply rule for less files (used to import and override AntD)
+                    test: /\.(less)$/,
+                    use: [
+                        {
+                            loader: 'style-loader', // creates style nodes from JS strings
+                        },
+                        {
+                            loader: 'css-loader', // translates CSS into CommonJS
+                        },
+                        {
+                            loader: 'less-loader', // compiles Less to CSS
+                            options: {
+                                lessOptions: {
+                                    javascriptEnabled: true,
+                                },
+                            },
+                        },
+                    ],
+                },
+
                 {
                     // Now we apply rule for images
                     test: /\.(png|jpe?g|gif|svg)$/,

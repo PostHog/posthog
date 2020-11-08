@@ -5,6 +5,6 @@
 
 ## Checklist
 
-- [ ] All querysets/queries filter by Team (if this PR affects any querysets/queries)
-- [ ] Backend tests (if this PR affects the backend)
-- [ ] Cypress E2E tests (if this PR affects the front and/or backend)
+- [ ] All querysets/queries filter by Organization, Team, and User (if this PR affects ANY querysets/queries).
+- [ ] Django backend tests (if this PR affects the backend).
+- [ ] Cypress end-to-end tests (if this PR affects the frontend).

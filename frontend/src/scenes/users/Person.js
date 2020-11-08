@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
@@ -9,6 +10,9 @@ import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const { TabPane } = Tabs
 
@@ -22,6 +26,8 @@ function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (distinctId) {
@@ -90,9 +96,9 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 danger
-                onClick={() => deletePersonData(person, () => history.push('/people'))}
+                onClick={() => deletePersonData(person, () => history.push('/persons'))}
             >
-                {isScreenSmall ? <DeleteOutlined></DeleteOutlined> : 'Delete all data on this person'}
+                {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
             <Button
                 className="float-right"
@@ -102,10 +108,7 @@ function _Person({ _: distinctId, id }) {
             >
                 Save updated data
             </Button>
-            <h1 className="page-header">
-                {'name' in person.properties ? person.properties.name.first : person.name}{' '}
-                {person.properties.name ? person.properties.name.last : ''}
-            </h1>
+            <PageHeader title={`Person ${person.properties.name?.first || person.name || person.properties.email}`} />
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{
@@ -138,7 +141,7 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {window.posthog?.isFeatureEnabled('session-recording-player') && (
+                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
                     <TabPane
                         tab={<span data-attr="people-types-tab">Sessions By Day</span>}
                         key="sessions"

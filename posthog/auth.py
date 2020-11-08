@@ -3,7 +3,6 @@ import re
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
-from dateutil import parser
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, JsonResponse

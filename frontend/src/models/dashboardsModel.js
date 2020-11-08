@@ -26,8 +26,8 @@ export const dashboardsModel = kea({
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            addDashboard: async ({ name, show = false }) => {
-                const result = await api.create('api/dashboard', { name, pinned: true })
+            addDashboard: async ({ name, show = false, useTemplate = '' }) => {
+                const result = await api.create('api/dashboard', { name, pinned: true, use_template: useTemplate })
                 if (show) router.actions.push(`/dashboard/${result.id}`)
                 return result
             },

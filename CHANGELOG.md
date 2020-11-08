@@ -1,5 +1,363 @@
 # Changelog
 
+### 1.16.0 - Wednesday 4 November 2020
+
+- [Session Recording (Beta)](https://github.com/PostHog/posthog/issues/1846)
+
+![Session Recording Page Screenshot](https://posthog.com/static/dec14fdf98d81deada734c03126d482f/2cefc/session-recording.png)
+
+Given that our mission at PostHog is to increase the number of successful projects in the world, session recording felt like a feature that fits in perfectly with that goal.
+
+PostHog already provides various features to help you understand and improve your UX - but watching real users use your product is a _whole other ball game_. 
+
+With PostHog's session recording, you are able to truly feel the pain points of your users first-hand, seeing where they get stuck, debugging exceptions faster, and making your UX smoother. 
+
+![Session Recording Screenshot](https://posthog.com/static/677bd4dc1f4ff4c2b0b2509e66f1e7ea/2cefc/session-recording-ss.png)
+
+Additionally, you can do so while still preserving the privacy of your users, by determining what shouldn't be captured, as well as being able to turn session recording on and off as you wish.
+
+However, please note that our session recording feature is in **Beta** at the moment. This means that it can be unstable and have bugs. To report bugs you find while using it, please [open an issue for us on GitHub](https://github.com/PostHog/posthog/issues). 
+
+If you have posthog-js [installed via npm](https://www.npmjs.com/package/posthog-js) you will need to update to latest version. 
+
+
+- [Plugins (Beta)](https://github.com/PostHog/posthog/issues/1896)
+
+![Plugins Screenshot](https://posthog.com/static/f84e34e19a7715f563dabe7c2d3ca823/2cefc/plugins.png)
+
+Plugins is another **Beta** feature that we're extremely excited for. Currently only available for self-hosted instances, plugins allow you to add additional logic to your event processing pipeline, in order to do things like enrich your data or send it somewhere else, for instance to a data warehouse. 
+
+At the moment, we have created a few example plugins for you to test out the functionality, and have the intention of launching more for the next release. We will also be launching tutorials on how to make your own plugins, so stay tuned for that.
+
+As of right now, if you're on a self-hosted instance, you should head over to 'Project' -> 'Plugins' to enable the functionality. You can start testing it out with our "Hello World" plugin, which adds a property to your events called `foo` with a value that is up to you to decide in setup. 
+
+We also have built plugins for currency normalization and GeoIP data, allowing you to convert currency values in events according to up-to-date exchange rates and determine the location of an event based on the user's IP.
+
+Our overall vision for plugins is to enable seamless integration with other relevant data analytics platforms, as well as allow users to more easily customize PostHog's functionality by adding their own logic and data to the event pipeline.
+
+Finally, as is the case with session recording, please report any bugs in the functionality on [GitHub](https://github.com/PostHog/posthog/issues).
+
+
+- [Multiple Projects](https://github.com/PostHog/posthog/pull/1562)
+
+![Multiple Projects Screenshot](https://posthog.com/static/821f1e938621ad7d37e1ce0e9a3704a9/2cefc/org-project.png)
+
+You asked and we delivered!
+
+As per feedback from many in our community, PostHog now offers support for managing multiple projects under one "umbrella" organization. 
+
+This allows you to segregate concerns, such as keeping tracking for your dev and prod environments separately, as well as track multiple domains and apps without mixing data.  
+
+In addition, we also enhanced our invite and permissioning system as a by-product of this feature. 
+
+As this is an Enterprise Edition feature, please contact us at _sales@posthog.com_ if you are interested in using it.
+
+- [Dashboard Templates](https://github.com/PostHog/posthog/pull/1942)
+
+![Dashboard Templates Screenshot](https://posthog.com/static/1430069845eb4f0a34a7d4afc9b9fa30/2cefc/dashboard-template.png)
+
+In order to make it easier to create valuable dashboards to keep track of your business metrics, PostHog now offers the option to create new dashboards based on a template. We will be expanding the power of dashboard templates, but, as of right now, you can already create a dashboard using our web app dashboard template, which provides you with a good starting point for determining and tracking relevant metrics.
+
+- [Setup Improvements](https://github.com/PostHog/posthog/pull/1990)
+
+![Google Login Screenshot](https://posthog.com/static/14e1269485fcf90f90e761b1accbeb34/2cefc/google-login.png)
+
+In addition to GitHub and GitLab authentication, PostHog now supports signup and login with Google accounts! 
+
+We also improved our setup process by better structuring our settings pages, allowing you to [change your project's token](https://github.com/PostHog/posthog/pull/2015), and [enhancing the UX for empty states on dashboards](https://github.com/PostHog/posthog/pull/2068).
+
+- [Documentation Level Up](https://github.com/PostHog/posthog.com)
+
+![Docs Screenshot](https://posthog.com/static/5b1046b5a6615c1cd91af2519b8d603d/2cefc/docs.png)
+
+We have been working hard to improve our product documentation and had a few big upgrades recently:
+
+- Our Docs now have a Dark Mode option
+- You can search our entire documentation without ever using your mouse
+- We are actively releasing new tutorials on how to use PostHog to track key metrics and improve your product
+- Our Docs pages now load faster
+- New screenshots have been added throughout the Docs, as well as functionality walkthrough videos
+
+…and a lot more!
+
+If you have any suggestions for new tutorials or improvements to our documentation, [do not hesitate to let us know!](https://github.com/PostHog/posthog.com/issues)
+
+We’re working hard to improve PostHog and would love to talk to you about your experience with the product.
+If you're interested in helping us out, you can schedule a quick 30-min call with us [on Calendly](https://calendly.com/posthog-feedback). 
+
+Oh, and we're giving away some awesome [PostHog merch](https://merch.posthog.com) as a thank you!
+
+## Bug Fixes and Performance Improvements
+
+- Retention UX fixes [\#2168](https://github.com/PostHog/posthog/pull/2168) ([EDsCODE](https://github.com/EDsCODE))
+- Simplify action queries [\#2167](https://github.com/PostHog/posthog/pull/2167) ([timgl](https://github.com/timgl))
+- Prune person materialized [\#2166](https://github.com/PostHog/posthog/pull/2166) ([EDsCODE](https://github.com/EDsCODE))
+- Switch to the official Heroku Python buildpack [\#2151](https://github.com/PostHog/posthog/pull/2151) ([edmorley](https://github.com/edmorley))
+- Slim down dev docker image [\#2147](https://github.com/PostHog/posthog/pull/2147) ([timgl](https://github.com/timgl))
+- Clickhouse binary capture [\#2146](https://github.com/PostHog/posthog/pull/2146) ([timgl](https://github.com/timgl))
+- Fix funnel loading and other UX issues [\#2134](https://github.com/PostHog/posthog/pull/2134) ([timgl](https://github.com/timgl))
+- Fix elements chain with bad classes [\#2133](https://github.com/PostHog/posthog/pull/2133) ([timgl](https://github.com/timgl))
+- Fix social auth account creation [\#2123](https://github.com/PostHog/posthog/pull/2123) ([Twixes](https://github.com/Twixes))
+- Flatten array and check length for actions [\#2120](https://github.com/PostHog/posthog/pull/2120) ([EDsCODE](https://github.com/EDsCODE))
+- \[Clickhouse\] speed up sessions list [\#2118](https://github.com/PostHog/posthog/pull/2118) ([timgl](https://github.com/timgl))
+- Fix for action/event dropdown [\#2117](https://github.com/PostHog/posthog/pull/2117) ([EDsCODE](https://github.com/EDsCODE))
+- Make DELETE synchronous in clickhouse tests / make tests less flaky [\#2116](https://github.com/PostHog/posthog/pull/2116) ([macobo](https://github.com/macobo))
+- Capture social\_create\_user exception with Sentry [\#2115](https://github.com/PostHog/posthog/pull/2115) ([Twixes](https://github.com/Twixes))
+- Clarify invite creation [\#2113](https://github.com/PostHog/posthog/pull/2113) ([Twixes](https://github.com/Twixes))
+- \[Clickhouse\] More speed optimizations for funnels [\#2109](https://github.com/PostHog/posthog/pull/2109) ([timgl](https://github.com/timgl))
+- Fix changelog images [\#2105](https://github.com/PostHog/posthog/pull/2105) ([yakkomajuri](https://github.com/yakkomajuri))
+- Debug redis leak [\#2102](https://github.com/PostHog/posthog/pull/2102) ([mariusandra](https://github.com/mariusandra))
+- Clickhouse improve funnel speed [\#2100](https://github.com/PostHog/posthog/pull/2100) ([timgl](https://github.com/timgl))
+- Reduce Heroku worker thread count [\#2092](https://github.com/PostHog/posthog/pull/2092) ([mariusandra](https://github.com/mariusandra))
+- Wire up the length to the proto message [\#2089](https://github.com/PostHog/posthog/pull/2089) ([fuziontech](https://github.com/fuziontech))
+- Start with a new topic [\#2088](https://github.com/PostHog/posthog/pull/2088) ([fuziontech](https://github.com/fuziontech))
+- Provide required proto message length for our clickhouse overlords [\#2087](https://github.com/PostHog/posthog/pull/2087) ([fuziontech](https://github.com/fuziontech))
+- Clickhouse window funnel [\#2086](https://github.com/PostHog/posthog/pull/2086) ([timgl](https://github.com/timgl))
+- Protobufize events to protect from malformed JSON [\#2085](https://github.com/PostHog/posthog/pull/2085) ([fuziontech](https://github.com/fuziontech))
+- \#2083 Ignore result [\#2084](https://github.com/PostHog/posthog/pull/2084) ([timgl](https://github.com/timgl))
+- Add CH Person Sessions By Day [\#2082](https://github.com/PostHog/posthog/pull/2082) ([yakkomajuri](https://github.com/yakkomajuri))
+- Fix bin/tests too many files watching error [\#2078](https://github.com/PostHog/posthog/pull/2078) ([timgl](https://github.com/timgl))
+- Fix retention label and add tests [\#2076](https://github.com/PostHog/posthog/pull/2076) ([EDsCODE](https://github.com/EDsCODE))
+- Make possible CI optimizations [\#2074](https://github.com/PostHog/posthog/pull/2074) ([Twixes](https://github.com/Twixes))
+- Attempt to speed up 3.9 tests [\#2073](https://github.com/PostHog/posthog/pull/2073) ([macobo](https://github.com/macobo))
+- Fix cypress tests [\#2070](https://github.com/PostHog/posthog/pull/2070) ([macobo](https://github.com/macobo))
+- Give staff users superuser permissions [\#2069](https://github.com/PostHog/posthog/pull/2069) ([Twixes](https://github.com/Twixes))
+- Fix loading people and stickiness [\#2067](https://github.com/PostHog/posthog/pull/2067) ([EDsCODE](https://github.com/EDsCODE))
+- Improved settings for session recording [\#2066](https://github.com/PostHog/posthog/pull/2066) ([macobo](https://github.com/macobo))
+- Fix History button layout in Insights [\#2065](https://github.com/PostHog/posthog/pull/2065) ([Twixes](https://github.com/Twixes))
+- Fixes bad timerange for retentino [\#2064](https://github.com/PostHog/posthog/pull/2064) ([EDsCODE](https://github.com/EDsCODE))
+- Autoimport celery tasks [\#2062](https://github.com/PostHog/posthog/pull/2062) ([macobo](https://github.com/macobo))
+- Limit ingestion for teams [\#2060](https://github.com/PostHog/posthog/pull/2060) ([fuziontech](https://github.com/fuziontech))
+- Clickhouse never calculate action [\#2059](https://github.com/PostHog/posthog/pull/2059) ([timgl](https://github.com/timgl))
+- Bump cryptography from 2.9 to 3.2 [\#2058](https://github.com/PostHog/posthog/pull/2058) ([dependabot[bot]](https://github.com/apps/dependabot))
+- Clickhouse move to JSON extract for all filters [\#2056](https://github.com/PostHog/posthog/pull/2056) ([timgl](https://github.com/timgl))
+- Fix cohorts clickhouse [\#2052](https://github.com/PostHog/posthog/pull/2052) ([timgl](https://github.com/timgl))
+- Fix flaky test [\#2048](https://github.com/PostHog/posthog/pull/2048) ([EDsCODE](https://github.com/EDsCODE))
+- Upgrade kea-router and typegen [\#2044](https://github.com/PostHog/posthog/pull/2044) ([mariusandra](https://github.com/mariusandra))
+- Use jsonextract for steps in funnel query [\#2040](https://github.com/PostHog/posthog/pull/2040) ([EDsCODE](https://github.com/EDsCODE))
+- Use uuids in funnels for consistency [\#2036](https://github.com/PostHog/posthog/pull/2036) ([timgl](https://github.com/timgl))
+- \[Clickhouse\] fix events for action with no steps [\#2035](https://github.com/PostHog/posthog/pull/2035) ([timgl](https://github.com/timgl))
+- Fix funnels with multiple property filters [\#2034](https://github.com/PostHog/posthog/pull/2034) ([timgl](https://github.com/timgl))
+- Restore original retention query [\#2029](https://github.com/PostHog/posthog/pull/2029) ([EDsCODE](https://github.com/EDsCODE))
+- Filter person\_distinct\_id table further before joining [\#2028](https://github.com/PostHog/posthog/pull/2028) ([EDsCODE](https://github.com/EDsCODE))
+- Fix typescript errors \#1 [\#2027](https://github.com/PostHog/posthog/pull/2027) ([mariusandra](https://github.com/mariusandra))
+- Remove useless User.is\_superuser [\#2026](https://github.com/PostHog/posthog/pull/2026) ([Twixes](https://github.com/Twixes))
+- Get rid of Py 3.7-incompatible typing.Literal [\#2025](https://github.com/PostHog/posthog/pull/2025) ([Twixes](https://github.com/Twixes))
+- Update person property filtering [\#2024](https://github.com/PostHog/posthog/pull/2024) ([EDsCODE](https://github.com/EDsCODE))
+- Add eslint rule for empty JSX elements [\#2023](https://github.com/PostHog/posthog/pull/2023) ([mariusandra](https://github.com/mariusandra))
+- Fix click outside spam & public paths [\#2022](https://github.com/PostHog/posthog/pull/2022) ([mariusandra](https://github.com/mariusandra))
+- \[Clickhouse\] Fix action filtering on events [\#2013](https://github.com/PostHog/posthog/pull/2013) ([timgl](https://github.com/timgl))
+- Add types to window.posthog [\#2012](https://github.com/PostHog/posthog/pull/2012) ([macobo](https://github.com/macobo))
+- Rename existing projects to "Default Project" [\#2009](https://github.com/PostHog/posthog/pull/2009) ([Twixes](https://github.com/Twixes))
+- Enable compatibility with old Team signup links [\#2007](https://github.com/PostHog/posthog/pull/2007) ([Twixes](https://github.com/Twixes))
+- Add tests to important query builders [\#2006](https://github.com/PostHog/posthog/pull/2006) ([EDsCODE](https://github.com/EDsCODE))
+- Put organization switcher under user [\#2005](https://github.com/PostHog/posthog/pull/2005) ([Twixes](https://github.com/Twixes))
+- Fix links [\#2004](https://github.com/PostHog/posthog/pull/2004) ([Twixes](https://github.com/Twixes))
+- Cohorts Test [\#2003](https://github.com/PostHog/posthog/pull/2003) ([mariusandra](https://github.com/mariusandra))
+- Patch broken link from changed path [\#2002](https://github.com/PostHog/posthog/pull/2002) ([EDsCODE](https://github.com/EDsCODE))
+- Fix cohort page link [\#2000](https://github.com/PostHog/posthog/pull/2000) ([mariusandra](https://github.com/mariusandra))
+- Break down feature\_flag\_response and add to propertykeyinfo [\#1991](https://github.com/PostHog/posthog/pull/1991) ([timgl](https://github.com/timgl))
+- Make PostHog compatibile with Python 3.9 [\#1987](https://github.com/PostHog/posthog/pull/1987) ([Twixes](https://github.com/Twixes))
+- Use posthog.js correctly in userLogic [\#1975](https://github.com/PostHog/posthog/pull/1975) ([macobo](https://github.com/macobo))
+- \[Clickhouse\] Fix grabbing by person [\#1960](https://github.com/PostHog/posthog/pull/1960) ([timgl](https://github.com/timgl))
+- Add new person materialized [\#1944](https://github.com/PostHog/posthog/pull/1944) ([EDsCODE](https://github.com/EDsCODE))
+
+### 1.15.1 - Thursday 22 October 2020
+
+- Fixed issue where 100s of emails would be sent. (oops!)
+- Fixed performance issues with Redis caches filling up.
+
+### 1.15.0 - Thursday 15 October 2020
+
+- [ClickHouse 👆🏠](https://github.com/PostHog/posthog/pulls?page=1&q=is%3Apr+clickhouse+is%3Aclosed)
+
+![Clickhouse Screenshot](https://posthog.com/static/bf2c9d775b519ae2132048751c1909b0/2cefc/clickhouse.png)
+
+If you've followed our progress on GitHub over the past months, you'll know that ClickHouse has been the talk of the town.
+
+In their own words, ClickHouse is "a column-oriented database management system (DBMS) for online analytical processing of queries (OLAP)". 
+
+Or, in simple terms: it's a **very fast database**.
+
+As you may know, we have been using the well-established and reliable PostgreSQL until now, but from here on out our Enterprise Edition will be using ClickHouse instead. PostgreSQL remains a great option for lower volumes, but, for companies that handle huge event volumes, ClickHouse is a much better choice. 
+
+On our cloud version we handle event numbers in the nine figures, and implementing ClickHouse has drastically reduced the execution time for all of our queries. 
+
+If you're interested in using PostHog with ClickHouse, send us an email at _sales@posthog.com_.
+
+- [Command Palette](https://github.com/PostHog/posthog/pull/1819)
+
+![Command Palette Screenshot](https://posthog.com/static/8e2f200d5ba2252b33f4bdb20784d614/2cefc/command-palette.png)
+
+<br />
+
+We're super excited about this. 
+
+Last week we did an internal hackathon and the command palette was one of the awesome projects to come out of it.
+
+Now, when using PostHog, you can press `⌘K` (Mac) or `Ctrl + K` (Windows) to reveal a Spotlight or Superhuman-like command palette that lets you navigate around PostHog mouse-less. In addition to navigation, the command palette also has page-specific commands that let you, for example, change the time range on charts, as well as a way to quickly share feedback with the PostHog team, create an API key, or even do some math with the built-in calculator. 
+
+Eric, Michael, and Paolo got this done in just a few days, and we love it. 
+
+Stay tuned for more exciting features that were built during the hackathon.
+
+- [Backend Feature Flags](https://github.com/PostHog/posthog-python/pull/9)
+
+![Backend Feature Flags Code](https://posthog.com/static/5dfed95825588d03f88309c661539326/2cefc/backend-flags.png)
+
+Based on community feedback, we made it easier for feature flags to be integrated with your backend, in addition to our frontend JavaScript implementation.
+
+We've added feature flag support to our [Python Integration](https://github.com/PostHog/posthog-python/pull/9), as well as [improved the `/decide` endpoint](https://github.com/PostHog/posthog/pull/1592) used by feature flags to make the API experience better.
+
+We have ourselves been using feature flags with the Python integration to slowly roll out some exciting new features. 
+
+- [Weekly Report Email](https://github.com/PostHog/posthog/pull/1700)
+
+![Weekly Email Screenshot](https://posthog.com/static/b2f8999a674c1be5307cafd5bc760070/2cefc/weekly-email.png)
+
+To help users keep up with their key metrics in a simple way, we have introduced a weekly email that gives you an overview of your active and churned users over the previous week.
+
+This is in Beta mode and we're expanding its capabilities, but it already gives you a good sense of your performance in terms of users. 
+
+Have you gotten your weekly report yet? 
+
+- [User Interviews](calendly.com/posthog-feedback)
+
+We’re working hard to improve PostHog and would love to talk to you about your experience with the product. 
+
+If you're interested in helping us out, you can schedule a quick 30-min call with us [on Calendly](https://calendly.com/posthog-feedback). 
+
+Oh, and we're giving away some awesome [PostHog merch](https://merch.posthog.com) as a thank you!
+
+## Bug Fixes and Performance Improvements
+
+- Add overflow to card body [\#1878](https://github.com/PostHog/posthog/pull/1878) ([EDsCODE](https://github.com/EDsCODE))
+- Pinning the dev Dockerfile PostgreSQL and Redis to the production version [\#1877](https://github.com/PostHog/posthog/pull/1877) ([ahtik](https://github.com/ahtik))
+- Fix path loading spinner [\#1876](https://github.com/PostHog/posthog/pull/1876) ([EDsCODE](https://github.com/EDsCODE))
+- Fix session label hover erroring [\#1874](https://github.com/PostHog/posthog/pull/1874) ([EDsCODE](https://github.com/EDsCODE))
+- Add check to event serializer [\#1873](https://github.com/PostHog/posthog/pull/1873) ([EDsCODE](https://github.com/EDsCODE))
+- Upgrade cypress, fix and stabilize tests [\#1872](https://github.com/PostHog/posthog/pull/1872) ([macobo](https://github.com/macobo))
+- Fix small util bugs [\#1871](https://github.com/PostHog/posthog/pull/1871) ([Twixes](https://github.com/Twixes))
+- Mark js\_posthog\_host as safe [\#1868](https://github.com/PostHog/posthog/pull/1868) ([macobo](https://github.com/macobo))
+- Destroy lodash [\#1864](https://github.com/PostHog/posthog/pull/1864) ([Twixes](https://github.com/Twixes))
+- Use official react-grid-layout [\#1862](https://github.com/PostHog/posthog/pull/1862) ([Twixes](https://github.com/Twixes))
+- Fix feature flags test [\#1858](https://github.com/PostHog/posthog/pull/1858) ([yakkomajuri](https://github.com/yakkomajuri))
+- Remove redis warning [\#1856](https://github.com/PostHog/posthog/pull/1856) ([timgl](https://github.com/timgl))
+- Trim quotes on event properties [\#1852](https://github.com/PostHog/posthog/pull/1852) ([EDsCODE](https://github.com/EDsCODE))
+- Reset user session after logging in as another user [\#1850](https://github.com/PostHog/posthog/pull/1850) ([macobo](https://github.com/macobo))
+- Fill in person filtering and reintegrate tests [\#1848](https://github.com/PostHog/posthog/pull/1848) ([EDsCODE](https://github.com/EDsCODE))
+- Try running review apps in production mode [\#1847](https://github.com/PostHog/posthog/pull/1847) ([Twixes](https://github.com/Twixes))
+- Bump drf-exceptions-hog to 0.0.3 [\#1845](https://github.com/PostHog/posthog/pull/1845) ([Twixes](https://github.com/Twixes))
+- Experiment: Improving actions UX? [\#1841](https://github.com/PostHog/posthog/pull/1841) ([paolodamico](https://github.com/paolodamico))
+- When DEBUG, include posthog.js with local posthog host [\#1840](https://github.com/PostHog/posthog/pull/1840) ([macobo](https://github.com/macobo))
+- Trim retention query [\#1839](https://github.com/PostHog/posthog/pull/1839) ([EDsCODE](https://github.com/EDsCODE))
+- Add per entity filtering [\#1838](https://github.com/PostHog/posthog/pull/1838) ([EDsCODE](https://github.com/EDsCODE))
+- Disable web snippet on DEBUG instances [\#1837](https://github.com/PostHog/posthog/pull/1837) ([Twixes](https://github.com/Twixes))
+- Fix distinct id too long [\#1831](https://github.com/PostHog/posthog/pull/1831) ([timgl](https://github.com/timgl))
+- Get rid of caching in /decide endpoint [\#1829](https://github.com/PostHog/posthog/pull/1829) ([macobo](https://github.com/macobo))
+- Improve event properties display [\#1825](https://github.com/PostHog/posthog/pull/1825) ([timgl](https://github.com/timgl))
+- Fix tsconfig.json lib property [\#1818](https://github.com/PostHog/posthog/pull/1818) ([mariusandra](https://github.com/mariusandra))
+- Update dockerfile for dev-ing [\#1817](https://github.com/PostHog/posthog/pull/1817) ([fuziontech](https://github.com/fuziontech))
+- Fix email test [\#1814](https://github.com/PostHog/posthog/pull/1814) ([timgl](https://github.com/timgl))
+- Fix status report period [\#1810](https://github.com/PostHog/posthog/pull/1810) ([Twixes](https://github.com/Twixes))
+- Toolbar Shadow Root Support [\#1805](https://github.com/PostHog/posthog/pull/1805) ([mariusandra](https://github.com/mariusandra))
+- Change session query to not collect events [\#1802](https://github.com/PostHog/posthog/pull/1802) ([EDsCODE](https://github.com/EDsCODE))
+- Fix person querying [\#1797](https://github.com/PostHog/posthog/pull/1797) ([timgl](https://github.com/timgl))
+- Add python version to posthog for automated deploys [\#1795](https://github.com/PostHog/posthog/pull/1795) ([fuziontech](https://github.com/fuziontech))
+- Always limit events [\#1794](https://github.com/PostHog/posthog/pull/1794) ([timgl](https://github.com/timgl))
+- Fix ambiguous timestamp ordering [\#1792](https://github.com/PostHog/posthog/pull/1792) ([timgl](https://github.com/timgl))
+- Fix dev docker build [\#1791](https://github.com/PostHog/posthog/pull/1791) ([timgl](https://github.com/timgl))
+- Create CODE\_OF\_CONDUCT.md [\#1790](https://github.com/PostHog/posthog/pull/1790) ([yakkomajuri](https://github.com/yakkomajuri))
+- Make shared\_dashboards endpoint exempt from x-frame-options header [\#1789](https://github.com/PostHog/posthog/pull/1789) ([yakkomajuri](https://github.com/yakkomajuri))
+- Retention date filtering [\#1788](https://github.com/PostHog/posthog/pull/1788) ([EDsCODE](https://github.com/EDsCODE))
+- Search for cohorts that contain the given distinctIDs for feature flags [\#1780](https://github.com/PostHog/posthog/pull/1780) ([fuziontech](https://github.com/fuziontech))
+- Report all non-DRF exceptions to sentry [\#1773](https://github.com/PostHog/posthog/pull/1773) ([paolodamico](https://github.com/paolodamico))
+- Bump posthoganalytics requirement for feature flag bugfixes [\#1772](https://github.com/PostHog/posthog/pull/1772) ([fuziontech](https://github.com/fuziontech))
+- Set heroku python runtime to python 3.8.6 [\#1769](https://github.com/PostHog/posthog/pull/1769) ([fuziontech](https://github.com/fuziontech))
+- Fix sessions team filtering [\#1766](https://github.com/PostHog/posthog/pull/1766) ([timgl](https://github.com/timgl))
+- Add option to delete feature flags [\#1761](https://github.com/PostHog/posthog/pull/1761) ([yakkomajuri](https://github.com/yakkomajuri))
+- Test if any filters exist and if they do make sure there are properties to filter on for decide endpoint [\#1759](https://github.com/PostHog/posthog/pull/1759) ([fuziontech](https://github.com/fuziontech))
+- Fix demo urls [\#1757](https://github.com/PostHog/posthog/pull/1757) ([mariusandra](https://github.com/mariusandra))
+- Change h1 of Live Actions page to "Live Actions" instead of "Events" [\#1756](https://github.com/PostHog/posthog/pull/1756) ([yakkomajuri](https://github.com/yakkomajuri))
+- Fix toolbar fade container click block [\#1753](https://github.com/PostHog/posthog/pull/1753) ([mariusandra](https://github.com/mariusandra))
+- Bump posthog analytics version [\#1751](https://github.com/PostHog/posthog/pull/1751) ([timgl](https://github.com/timgl))
+- Add personal api key [\#1747](https://github.com/PostHog/posthog/pull/1747) ([timgl](https://github.com/timgl))
+- 1684 allow ip override [\#1744](https://github.com/PostHog/posthog/pull/1744) ([timgl](https://github.com/timgl))
+- Remove Toolbar Dock Mode [\#1733](https://github.com/PostHog/posthog/pull/1733) ([mariusandra](https://github.com/mariusandra))
+- Use drf-exceptions-hog package [\#1732](https://github.com/PostHog/posthog/pull/1732) ([paolodamico](https://github.com/paolodamico))
+- Disable weekly status report on PostHog Cloud [\#1730](https://github.com/PostHog/posthog/pull/1730) ([Twixes](https://github.com/Twixes))
+- Use Django now for tz aware timestamps [\#1728](https://github.com/PostHog/posthog/pull/1728) ([fuziontech](https://github.com/fuziontech))
+- Use utcnow\(\). Always default to UTC [\#1727](https://github.com/PostHog/posthog/pull/1727) ([fuziontech](https://github.com/fuziontech))
+- Replace uuid4 and uuid1\_macless with UUIDT [\#1726](https://github.com/PostHog/posthog/pull/1726) ([Twixes](https://github.com/Twixes))
+- Onboarding improvements [\#1723](https://github.com/PostHog/posthog/pull/1723) ([mariusandra](https://github.com/mariusandra))
+- Self-serve billing enrollment & management [\#1721](https://github.com/PostHog/posthog/pull/1721) ([paolodamico](https://github.com/paolodamico))
+- Improve Django commands for development [\#1720](https://github.com/PostHog/posthog/pull/1720) ([Twixes](https://github.com/Twixes))
+- Do not shadow Kafka default columns \_timestamp and \_offset [\#1718](https://github.com/PostHog/posthog/pull/1718) ([fuziontech](https://github.com/fuziontech))
+- Small insights type update [\#1717](https://github.com/PostHog/posthog/pull/1717) ([mariusandra](https://github.com/mariusandra))
+- Don't assume that each user belongs to a team [\#1715](https://github.com/PostHog/posthog/pull/1715) ([Twixes](https://github.com/Twixes))
+- Fix migration issue [\#1711](https://github.com/PostHog/posthog/pull/1711) ([Twixes](https://github.com/Twixes))
+- Update 0085\_org\_models.py [\#1710](https://github.com/PostHog/posthog/pull/1710) ([Twixes](https://github.com/Twixes))
+- Fix compatibility with posthog-production [\#1708](https://github.com/PostHog/posthog/pull/1708) ([Twixes](https://github.com/Twixes))
+- Random improvements \(merge people, analytics\) [\#1706](https://github.com/PostHog/posthog/pull/1706) ([paolodamico](https://github.com/paolodamico))
+- Make production docker-compose.yml generated [\#1704](https://github.com/PostHog/posthog/pull/1704) ([Twixes](https://github.com/Twixes))
+- Added docker-compose proxy file [\#1703](https://github.com/PostHog/posthog/pull/1703) ([yakkomajuri](https://github.com/yakkomajuri))
+- Fix Master EE code [\#1701](https://github.com/PostHog/posthog/pull/1701) ([mariusandra](https://github.com/mariusandra))
+- Send a weekly instance status report \(resolves \#1509\) [\#1683](https://github.com/PostHog/posthog/pull/1683) ([Twixes](https://github.com/Twixes))
+- Materialize Views to wrap data coming in from Kafka for Events, Elements, People [\#1678](https://github.com/PostHog/posthog/pull/1678) ([fuziontech](https://github.com/fuziontech))
+- refactor how we grab kafka\_host to make it reusable for migrations [\#1677](https://github.com/PostHog/posthog/pull/1677) ([fuziontech](https://github.com/fuziontech))
+- Test if person exists before getting from it [\#1676](https://github.com/PostHog/posthog/pull/1676) ([fuziontech](https://github.com/fuziontech))
+- Make get\_is\_identified more tolerant of missing person [\#1675](https://github.com/PostHog/posthog/pull/1675) ([fuziontech](https://github.com/fuziontech))
+- Organizations – models [\#1674](https://github.com/PostHog/posthog/pull/1674) ([Twixes](https://github.com/Twixes))
+- Fix table view sessions [\#1672](https://github.com/PostHog/posthog/pull/1672) ([timgl](https://github.com/timgl))
+- Use cached results for funnels [\#1671](https://github.com/PostHog/posthog/pull/1671) ([timgl](https://github.com/timgl))
+- Remove default json serializer from kafka\_helper [\#1669](https://github.com/PostHog/posthog/pull/1669) ([fuziontech](https://github.com/fuziontech))
+- Put process\_event\_ee back on celery with delay [\#1667](https://github.com/PostHog/posthog/pull/1667) ([fuziontech](https://github.com/fuziontech))
+- Show underlying property value type [\#1666](https://github.com/PostHog/posthog/pull/1666) ([Twixes](https://github.com/Twixes))
+- Add detailed label to actionstable [\#1653](https://github.com/PostHog/posthog/pull/1653) ([timgl](https://github.com/timgl))
+- Added warning for changing feature flag key [\#1646](https://github.com/PostHog/posthog/pull/1646) ([yakkomajuri](https://github.com/yakkomajuri))
+- Fix a few "Unchanged files with check annotations" issues [\#1641](https://github.com/PostHog/posthog/pull/1641) ([mariusandra](https://github.com/mariusandra))
+- Add "is\_simple\_flag" to Feature flags [\#1639](https://github.com/PostHog/posthog/pull/1639) ([timgl](https://github.com/timgl))
+- Fix Cypress tests [\#1635](https://github.com/PostHog/posthog/pull/1635) ([yakkomajuri](https://github.com/yakkomajuri))
+- Upgrade Kea and TypeGen to latest versions [\#1634](https://github.com/PostHog/posthog/pull/1634) ([mariusandra](https://github.com/mariusandra))
+- Nicer API Failure Errors [\#1633](https://github.com/PostHog/posthog/pull/1633) ([mariusandra](https://github.com/mariusandra))
+- Added password strength bar [\#1632](https://github.com/PostHog/posthog/pull/1632) ([yakkomajuri](https://github.com/yakkomajuri))
+- Fix optional trailing slash routing [\#1631](https://github.com/PostHog/posthog/pull/1631) ([Twixes](https://github.com/Twixes))
+- Remove function call to see impact on performance [\#1627](https://github.com/PostHog/posthog/pull/1627) ([fuziontech](https://github.com/fuziontech))
+- Refactor get\_or\_create\_person function in process\_event [\#1626](https://github.com/PostHog/posthog/pull/1626) ([fuziontech](https://github.com/fuziontech))
+- Migrate process\_event shared functions to be public [\#1625](https://github.com/PostHog/posthog/pull/1625) ([fuziontech](https://github.com/fuziontech))
+- Make hash elements public function on element\_group [\#1622](https://github.com/PostHog/posthog/pull/1622) ([fuziontech](https://github.com/fuziontech))
+- Remove Trailing Spaces in Selector Box [\#1621](https://github.com/PostHog/posthog/pull/1621) ([J0](https://github.com/J0))
+- Convert private functions to public for ee access [\#1618](https://github.com/PostHog/posthog/pull/1618) ([fuziontech](https://github.com/fuziontech))
+- Core action tracking I [\#1612](https://github.com/PostHog/posthog/pull/1612) ([paolodamico](https://github.com/paolodamico))
+- Bugfix: Remove celerybeat.pid before starting docker worker [\#1608](https://github.com/PostHog/posthog/pull/1608) ([fuziontech](https://github.com/fuziontech))
+- Skip some tests on multitenancy [\#1607](https://github.com/PostHog/posthog/pull/1607) ([paolodamico](https://github.com/paolodamico))
+- Add tests for FOSS [\#1600](https://github.com/PostHog/posthog/pull/1600) ([timgl](https://github.com/timgl))
+- Typo in licenses.tsx [\#1599](https://github.com/PostHog/posthog/pull/1599) ([jonhyde-legl](https://github.com/jonhyde-legl))
+- Fix: Do not load debug\_toolbar when testing [\#1598](https://github.com/PostHog/posthog/pull/1598) ([paolodamico](https://github.com/paolodamico))
+- Bump posthog-js 1.4.5 [\#1597](https://github.com/PostHog/posthog/pull/1597) ([timgl](https://github.com/timgl))
+- Add statsd to celery tasks and add task to monitor queue size [\#1595](https://github.com/PostHog/posthog/pull/1595) ([fuziontech](https://github.com/fuziontech))
+- Papercups identify user [\#1593](https://github.com/PostHog/posthog/pull/1593) ([timgl](https://github.com/timgl))
+- Make /decide endpoint more flexible \(pt. 2\) [\#1592](https://github.com/PostHog/posthog/pull/1592) ([yakkomajuri](https://github.com/yakkomajuri))
+- Revert "Add monitoring of celery queue size to statsd \(\#1589\)" [\#1591](https://github.com/PostHog/posthog/pull/1591) ([fuziontech](https://github.com/fuziontech))
+- Add monitoring of celery queue size to statsd [\#1589](https://github.com/PostHog/posthog/pull/1589) ([fuziontech](https://github.com/fuziontech))
+- Noop on celery worker if ee is not enabled [\#1587](https://github.com/PostHog/posthog/pull/1587) ([fuziontech](https://github.com/fuziontech))
+- Use celery defaults for concurrency, bumping workers only increased latency of event processing [\#1584](https://github.com/PostHog/posthog/pull/1584) ([fuziontech](https://github.com/fuziontech))
+- Increase number of concurrent celery workers in production [\#1583](https://github.com/PostHog/posthog/pull/1583) ([fuziontech](https://github.com/fuziontech))
+- Handle the case of invalid json gracefully [\#1581](https://github.com/PostHog/posthog/pull/1581) ([weyert](https://github.com/weyert))
+- \#724: Export Events to CSV [\#1580](https://github.com/PostHog/posthog/pull/1580) ([michlsemn](https://github.com/michlsemn))
+- Fix and test Team.event\_properties\_numerical [\#1572](https://github.com/PostHog/posthog/pull/1572) ([Twixes](https://github.com/Twixes))
+- Explicitly use python-statsd as statsd lib [\#1570](https://github.com/PostHog/posthog/pull/1570) ([fuziontech](https://github.com/fuziontech))
+- Remove statsd [\#1568](https://github.com/PostHog/posthog/pull/1568) ([EDsCODE](https://github.com/EDsCODE))
+- Downgrade react dom [\#1559](https://github.com/PostHog/posthog/pull/1559) ([timgl](https://github.com/timgl))
+- Identify email in frontend [\#1558](https://github.com/PostHog/posthog/pull/1558) ([timgl](https://github.com/timgl))
+- Improve API routing [\#1557](https://github.com/PostHog/posthog/pull/1557) ([Twixes](https://github.com/Twixes))
+- Fix multiple elementgroup returned [\#1549](https://github.com/PostHog/posthog/pull/1549) ([timgl](https://github.com/timgl))
+- Fix team uuid migration [\#1548](https://github.com/PostHog/posthog/pull/1548) ([timgl](https://github.com/timgl))
+- Fix property filtering null values [\#1546](https://github.com/PostHog/posthog/pull/1546) ([timgl](https://github.com/timgl))
+- Only allow using aggregate functions on numerical properties [\#1536](https://github.com/PostHog/posthog/pull/1536) ([Twixes](https://github.com/Twixes))
+- Signup improvements [\#1535](https://github.com/PostHog/posthog/pull/1535) ([paolodamico](https://github.com/paolodamico))
+- Changes to make person editable \(resolves \#89\) [\#1491](https://github.com/PostHog/posthog/pull/1491) ([cr33dx](https://github.com/cr33dx))
+
 ### 1.14.0 - Thursday 03 September
 
 - [Insight History](https://github.com/PostHog/posthog/pull/1379)
@@ -263,7 +621,7 @@ Clicking on any section in the retention table will tell you exactly what users 
 
 - Many toolbar fixes.
 
-![heatmap](../images/casts/heatmap.gif)
+![heatmap](https://posthog.com/images/429b37ae1bb9cc559ade21c81b56a687/heatmap.gif)
 
 #### Bug fixes and performance improvements
 
@@ -291,28 +649,28 @@ Clicking on any section in the retention table will tell you exactly what users 
 
 - It's like inspect element, but for user data.
 
-![inspect](https://posthog.com/images/3ce1232ef29d0d59b4ac2779d8e97cf8/inspect.gif)
+![inspect](https://posthog.com/images/c9709b954e8ea19cf23a633eb35cac05/inspect.gif)
 
 - Easily see the ranking of which parts of the page your users are interacting with the most:
 
-![heatmap](https://posthog.com/images/782d9d2142c331403efdbec7ebd56145/heatmap.gif)
+![heatmap](https://posthog.com/images/429b37ae1bb9cc559ade21c81b56a687/heatmap.gif)
 
 - We learned a ton about our product and website within minutes of trying this out.
 
-![toolbar dance](https://posthog.com/images/55fe4bbc5e8fbc428fe4f1830f3d280c/dance.gif)
+![toolbar dance](https://posthog.com/images/1f1984b6926d02444eef3148293c72af/dance.gif)
 
 #### Feature flags
 
 - Feature flags let you roll out changes to users with a certain property, or to a percentage of users, or some combo of the two.
 
-![feature flags](https://posthog.com/static/2824e49b2d3200ba4260a1bb83edb6ad/db910/feature-flags.png)
+![feature flags](https://posthog.com/static/99083b2fefbe9b348c4150c0964d474e/db910/feature-flags.png)
 
 #### Other exciting, enthralling and invigorating features
 
 - Flutter Integration. You asked for it and now [it's here](https://posthog.com/docs/integrations/flutter-integration)!
 - Retention page. PostHog already had stickiness, but now there is a table that demonstrates perhaps more clearly how your users are coming back (or not!)
 
-![retention view](https://posthog.com/static/c72806fa990efb5ea9bcf852c9ba9ffe/dc333/retention-view.png)
+![retention view](https://posthog.com/static/33cdb2d1cd630a44b67da0425ca639e3/dc333/retention-view.png)
 
 - Better onboarding. We've had a go at redoing how our set up flow works, and will be tracking if it helps more people get through PostHog's own funnel!
 - Platform.sh deployment. A very simple, new and trendy way to get up and running!
@@ -348,7 +706,7 @@ Clicking on any section in the retention table will tell you exactly what users 
 ### 1.9.0 - Thursday 18 June 2020
 
 - [Sessions view](https://github.com/PostHog/posthog/pull/926)
-![sessions overview](https://posthog.com/static/b64e1508790f6b60958d5d320f2b8a22/efc66/sessions-overview.png)
+![sessions overview](https://posthog.com/static/bdce507cbee394ad12a0a86695889f5f/2cefc/sessions-overview.png)
 - You can then see exactly how a user interacted with your app:
 ![sessions more detail](https://posthog.com/static/c4fe51ff11bbe87eb64c00daf7cc3d78/efc66/session-broken-out.png)
 This should really help with debugging, or just trying to get a detailed view of what users are up to.
@@ -371,7 +729,7 @@ This should really help with debugging, or just trying to get a detailed view of
 * We worked hard on improving caching to speed things up. We [fixed cache refreshing](https://github.com/PostHog/posthog/pull/1035) in a few areas, we made a few [caching adjustments](https://github.com/PostHog/posthog/pull/1023) to fix #1022. Finally, we now use [redis to cache results](https://github.com/PostHog/posthog/pull/972).
 * Save time! You can now [create actions from the trends page](https://github.com/PostHog/posthog/pull/990).
 * [Upgrade to posthog-js 1.2.0 to support dynamic params](https://github.com/PostHog/posthog/pull/957).
-* We fixed long href inserts - the href [can now go up to 2048 characters](https://github.com/PostHog/posthog/pull/1027) before truncation. Someone must have had some funky urls going on...
+* We fixed long href inserts - the href [can now go up to 2048 characters](https://github.com/PostHog/posthog/pull/1027) before truncation. Someone must have had some funky urls going on…
 * [We prevented intermittent issues with yarn build](https://github.com/PostHog/posthog/pull/1026)
 * We [fixed a bug](https://github.com/PostHog/posthog/pull/1021) that caused cohorts to fail when actions were deleted
 * We [solved a problem](https://github.com/PostHog/posthog/pull/980) with comparing trend sessions distribution
@@ -398,7 +756,7 @@ This should really help with debugging, or just trying to get a detailed view of
 
 - [Cumulative graphs](https://github.com/PostHog/posthog/pull/862)
 
-![cumulative graphs](https://posthog.com/images/8b9a5516ddcc2ac7030b690273ed7e8e/cumulative-graph.gif)
+![cumulative graphs](https://posthog.com/images/bfe6baa6ab1a5cac9ca7a74a9d920a7c/cumulative-graph.gif)
 
 - [More powerful paths](https://github.com/PostHog/posthog/pull/897)
 
@@ -434,12 +792,12 @@ This should really help with debugging, or just trying to get a detailed view of
 - [Reactive Native](https://github.com/PostHog/posthog-react-native)
 - [Comparison charts](https://github.com/PostHog/posthog/pull/824)
 
-![Comparison charts](https://posthog.com/images/a1571726df68831e4626a937a19821d0/side-by-side-comparison.gif)
+![Comparison charts](https://posthog.com/images/8fe8e9e7c6ac033b80ba06f9c3f36f98/side-by-side-comparison.gif)
 
 
 - [Tooltip: View the users inside each datapoint](https://github.com/PostHog/posthog/pull/830/commits/64e1ef34b5d8565934b1980d33432cef4e7002f7)
 
-![Hover breakdown](https://posthog.com/static/729a492575e82595e30266d63dc13765/c83ae/hover-breakdown.png)
+![Hover breakdown](https://posthog.com/static/5a29596c659e08c983fe803abd607f21/2cefc/hover-breakdown.png)
 
 - [Property keys explained](https://github.com/PostHog/posthog/pull/822)
 

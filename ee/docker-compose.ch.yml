@@ -2,7 +2,7 @@ version: '3'
 
 services:
     db:
-        image: postgres:alpine
+        image: postgres:11-alpine
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -17,7 +17,7 @@ services:
         build:
             context: ../
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-dev-web
+        command: ./bin/docker-ch-dev-web
         volumes:
             - ..:/code
         ports:
@@ -73,6 +73,9 @@ services:
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
+        volumes:
+            - ./idl:/idl
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:

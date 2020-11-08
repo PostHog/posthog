@@ -78,7 +78,7 @@ function NoData() {
 
 export function Paths() {
     const canvas = useRef(null)
-    const { paths, loadedFilter, pathsLoading } = useValues(pathsLogic)
+    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [event, setEvent] = useState(null)
@@ -156,7 +156,7 @@ export function Paths() {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => 'var(--blue)')
+            .attr('stroke', () => 'var(--primary)')
             .attr('opacity', 0.3)
             .style('mix-blend-mode', 'multiply')
 
@@ -233,18 +233,16 @@ export function Paths() {
             {loadedFilter.path_type === AUTOCAPTURE && (
                 <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
             )}
-            <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 ? (
-                    <NoData />
-                ) : (
-                    pathsLoading && (
-                        <div className="loading-overlay mt-5">
-                            <div />
-                            <Loading />
-                            <br />
-                        </div>
-                    )
-                )}
+            <div
+                style={{
+                    minHeight: '70vh',
+                    position: 'relative',
+                }}
+            >
+                {pathsLoading && <Loading />}
+                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                    {paths && paths.nodes.length === 0 && <NoData />}
+                </div>
             </div>
             <Modal
                 visible={modalVisible}

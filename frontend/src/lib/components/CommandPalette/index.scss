@@ -1,4 +1,7 @@
+@import '~/vars';
+
 .palette__overlay {
+    z-index: 2147483021;
     position: fixed;
     top: 0;
     left: 0;
@@ -10,7 +13,6 @@
 }
 
 .palette__box {
-    z-index: 99999;
     position: absolute;
     top: 30%;
     display: flex;
@@ -18,7 +20,21 @@
     width: 36rem;
     max-width: 100%;
     max-height: 60%;
-    color: #fff;
+    color: $text_light;
+    border-radius: $radius;
+    background-color: $bg_menu;
+    @extend .mixin-elevated;
+
+    @media (max-width: 500px) {
+        top: 10%;
+        max-height: 80%;
+        width: 100%;
+    }
+    @media (max-height: 500px) {
+        top: 0%;
+        max-height: 100%;
+        max-width: 90%;
+    }
 }
 
 .palette__row {
@@ -40,11 +56,8 @@
 }
 
 .palette__display {
-    padding-left: 1.5rem;
+    padding: 0 0 0 1.5rem;
     font-size: 1rem;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
 }
 
 .palette__input {
@@ -72,7 +85,7 @@
 }
 
 .palette__result--focused {
-    background: rgba(0, 0, 0, 0.35);
+    background: darken($bg_menu, 10%);
     &::before,
     &::after {
         content: '';
@@ -91,7 +104,7 @@
 }
 
 .palette__result--executable::after {
-    background: #1890ff;
+    background: $primary;
 }
 
 .palette__scope {
@@ -103,5 +116,4 @@
     display: flex;
     align-items: center;
     width: 1rem;
-    height: 100%;
 }

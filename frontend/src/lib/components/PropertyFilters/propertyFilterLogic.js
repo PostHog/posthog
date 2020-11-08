@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api from '../../../lib/api'
+import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'

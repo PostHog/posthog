@@ -114,6 +114,16 @@ export const keyMapping = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
+        $feature_flag_response: {
+            label: 'Feature Flag Response',
+            description: 'What the call to feature flag responded with.',
+            examples: ['true', 'false'],
+        },
+        $feature_flag: {
+            label: 'Feature Flag',
+            description: 'The feature flag that was called.',
+            examples: ['beta-feature'],
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
@@ -123,12 +133,6 @@ export const keyMapping = {
             label: 'Sentry URL',
             description: 'Direct link to the exception in Sentry',
             examples: ['https://sentry.io/...'],
-        },
-        // Events we hide entirely from the list
-        $snapshot_data: {
-            label: 'Snapshot data',
-            description: 'JSON object used for session recordings.',
-            hide: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
@@ -258,7 +262,7 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                 <span>
                     {data.examples ? (
                         <>
-                            <p>{data.description}</p>
+                            <span>{data.description}</span>
                             <span>
                                 <i>Example: </i>
                                 {data.examples.join(', ')}

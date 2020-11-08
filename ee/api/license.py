@@ -5,8 +5,7 @@ from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, response, serializers, viewsets
 from rest_framework.response import Response
 
-from ee.models import License
-from ee.models.license import LicenseError
+from ee.models.license import License, LicenseError
 
 
 class LicenseSerializer(serializers.ModelSerializer):

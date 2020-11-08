@@ -4,21 +4,21 @@ import { commandPaletteLogicType } from 'types/lib/components/CommandPalette/com
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
-import _ from 'lodash'
 import {
     CommentOutlined,
     FundOutlined,
     RiseOutlined,
     ContainerOutlined,
     AimOutlined,
+    SmileOutlined,
+    ProjectOutlined,
     CheckOutlined,
     SyncOutlined,
     TagOutlined,
     ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
-    ExperimentOutlined,
-    SettingOutlined,
+    FlagOutlined,
     MessageOutlined,
     TeamOutlined,
     LinkOutlined,
@@ -26,7 +26,7 @@ import {
     FunnelPlotOutlined,
     GatewayOutlined,
     InteractionOutlined,
-    MailOutlined,
+    ExclamationCircleOutlined,
     KeyOutlined,
     VideoCameraOutlined,
     SendOutlined,
@@ -36,9 +36,11 @@ import {
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
-import { appUrlsLogic } from '../AppEditorLink/appUrlsLogic'
-import { copyToClipboard, isURL } from 'lib/utils'
+import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import posthog from 'posthog-js'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -52,9 +54,12 @@ export interface CommandResultTemplate {
     guarantee?: boolean // show result always and first, regardless of fuzzy search
 }
 
-export type CommandResult = CommandResultTemplate & {
+export interface CommandResult extends CommandResultTemplate {
     source: Command | CommandFlow
-    index?: number
+}
+
+export interface CommandResultDisplayable extends CommandResult {
+    index: number
 }
 
 export type CommandResolver = (
@@ -73,10 +78,11 @@ export interface CommandFlow {
     icon?: any
     instruction?: string
     resolver: CommandResolver | CommandResultTemplate[] | CommandResultTemplate
-    scope: string
+    scope?: string
+    previousFlow?: CommandFlow | null
 }
 
-export type CommandRegistrations = {
+export interface CommandRegistrations {
     [commandKey: string]: Command
 }
 
@@ -98,11 +104,18 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 }
 
 export const commandPaletteLogic = kea<
-    commandPaletteLogicType<Command, CommandRegistrations, CommandResult, CommandFlow, RegExpCommandPairs>
+    commandPaletteLogicType<
+        Command,
+        CommandRegistrations,
+        CommandResult,
+        CommandFlow,
+        RegExpCommandPairs,
+        CommandResultDisplayable
+    >
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
-        values: [appUrlsLogic, ['appUrls', 'suggestions']],
+        values: [teamLogic, ['currentTeam']],
     },
     actions: {
         hidePalette: true,
@@ -115,6 +128,7 @@ export const commandPaletteLogic = kea<
         onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
+        backFlow: true,
         registerCommand: (command: Command) => ({ command }),
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
@@ -135,6 +149,7 @@ export const commandPaletteLogic = kea<
                 setInput: () => 0,
                 executeResult: () => 0,
                 activateFlow: () => 0,
+                backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
             },
@@ -142,11 +157,12 @@ export const commandPaletteLogic = kea<
         hoverResultIndex: [
             null as number | null,
             {
+                activateFlow: () => null,
+                backFlow: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
                 onArrowDown: () => null,
-                activateFlow: () => null,
             },
         ],
         input: [
@@ -154,13 +170,16 @@ export const commandPaletteLogic = kea<
             {
                 setInput: (_, { input }) => input,
                 activateFlow: () => '',
+                backFlow: () => '',
                 executeResult: () => '',
             },
         ],
         activeFlow: [
             null as CommandFlow | null,
             {
-                activateFlow: (_, { flow }) => flow,
+                activateFlow: (currentFlow, { flow }) =>
+                    flow ? { ...flow, scope: flow.scope ?? currentFlow?.scope, previousFlow: currentFlow } : null,
+                backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
         rawCommandRegistrations: [
@@ -179,16 +198,17 @@ export const commandPaletteLogic = kea<
 
     listeners: ({ actions, values }) => ({
         showPalette: () => {
-            window.posthog?.capture('palette shown')
+            posthog.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) window.posthog?.capture('palette shown')
+            if (values.isPaletteShown) posthog.capture('palette shown', { isMobile: isMobile() })
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
                 actions.activateFlow(null)
+                actions.hidePalette()
             } else {
-                const possibleFlow = result.executor?.() ?? null
+                const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
                 if (!possibleFlow) actions.hidePalette()
             }
@@ -198,7 +218,8 @@ export const commandPaletteLogic = kea<
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
-            window.posthog?.capture('palette command executed', cleanedResult)
+            cleanedResult.isMobile = isMobile()
+            posthog.capture('palette command executed', cleanedResult)
         },
         deregisterScope: ({ scope }) => {
             for (const command of Object.values(values.commandRegistrations)) {
@@ -246,8 +267,7 @@ export const commandPaletteLogic = kea<
             (selectors) => [
                 selectors.rawCommandRegistrations,
                 dashboardsModel.selectors.dashboards,
-                appUrlsLogic({ actionId: null }).selectors.appUrls,
-                appUrlsLogic({ actionId: null }).selectors.suggestions,
+                teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
                 ...rawCommandRegistrations,
@@ -279,14 +299,21 @@ export const commandPaletteLogic = kea<
             },
         ],
         commandSearchResults: [
-            (selectors) => [selectors.regexpCommandPairs, selectors.input, selectors.activeFlow, selectors.isSqueak],
+            (selectors) => [
+                selectors.isPaletteShown,
+                selectors.regexpCommandPairs,
+                selectors.input,
+                selectors.activeFlow,
+                selectors.isSqueak,
+            ],
             (
+                isPaletteShown: boolean,
                 regexpCommandPairs: RegExpCommandPairs,
                 argument: string,
                 activeFlow: CommandFlow | null,
                 isSqueak: boolean
             ) => {
-                if (isSqueak) return []
+                if (!isPaletteShown || isSqueak) return []
                 if (activeFlow) return resolveCommand(activeFlow, argument)
                 let directResults: CommandResult[] = []
                 let prefixedResults: CommandResult[] = []
@@ -306,8 +333,8 @@ export const commandPaletteLogic = kea<
                     if (result.guarantee) guaranteedResults.push(result)
                     else fusableResults.push(result)
                 }
-                fusableResults = _.uniqBy(fusableResults, 'display')
-                guaranteedResults = _.uniqBy(guaranteedResults, 'display')
+                fusableResults = uniqueBy(fusableResults, (result) => result.display)
+                guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
                           keys: ['display', 'synonyms'],
@@ -315,34 +342,29 @@ export const commandPaletteLogic = kea<
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : _.sampleSize(fusableResults, RESULTS_MAX - guaranteedResults.length)
-                const finalResults = guaranteedResults.concat(fusedResults)
-                // put global scope last
-                return finalResults.sort((resultA, resultB) =>
-                    resultA.source.scope === resultB.source.scope
-                        ? 0
-                        : resultA.source.scope === GLOBAL_COMMAND_SCOPE
-                        ? 1
-                        : -1
-                )
+                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                return guaranteedResults.concat(fusedResults)
             },
         ],
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
                 const resultsGrouped: { [scope: string]: CommandResult[] } = {}
-                if (activeFlow) resultsGrouped[activeFlow.scope] = []
+                if (activeFlow) resultsGrouped[activeFlow.scope ?? '?'] = []
                 for (const result of commandSearchResults) {
-                    const scope: string = result.source.scope
+                    const scope: string = result.source.scope ?? '?'
                     if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
-                let rollingIndex = 0
-                const resultsGroupedInOrder = Object.entries(resultsGrouped)
-                for (const [, group] of resultsGroupedInOrder) {
-                    for (const result of group) {
-                        result.index = rollingIndex++
+                let rollingGroupIndex = 0
+                let rollingResultIndex = 0
+                const resultsGroupedInOrder: [string, CommandResultDisplayable[]][] = []
+                for (const [group, results] of Object.entries(resultsGrouped)) {
+                    resultsGroupedInOrder.push([group, []])
+                    for (const result of results) {
+                        resultsGroupedInOrder[rollingGroupIndex][1].push({ ...result, index: rollingResultIndex++ })
                     }
+                    rollingGroupIndex++
                 }
                 return resultsGroupedInOrder
             },
@@ -442,33 +464,25 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: UserOutlined,
-                        display: 'Go to People',
+                        display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/people')
+                            push('/persons')
                         },
                     },
                     {
                         icon: UsergroupAddOutlined,
                         display: 'Go to Cohorts',
                         executor: () => {
-                            push('/people/cohorts')
+                            push('/cohorts')
                         },
                     },
                     {
-                        icon: ExperimentOutlined,
-                        display: 'Go to Experiments',
+                        icon: FlagOutlined,
+                        display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
-                            push('/experiments/feature_flags')
-                        },
-                    },
-                    {
-                        icon: SettingOutlined,
-                        display: 'Go to Setup',
-                        synonyms: ['settings', 'configuration'],
-                        executor: () => {
-                            push('/setup')
+                            push('/feature_flags')
                         },
                     },
                     {
@@ -480,9 +494,32 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team',
+                        display: 'Go to Organization Members',
+                        synonyms: ['teammates'],
                         executor: () => {
-                            push('/team')
+                            push('/organization/members')
+                        },
+                    },
+                    {
+                        icon: SendOutlined,
+                        display: 'Go to Organization Invites',
+                        executor: () => {
+                            push('/organization/invites')
+                        },
+                    },
+                    {
+                        icon: ProjectOutlined,
+                        display: 'Go to Project Settings',
+                        executor: () => {
+                            push('/project/settings')
+                        },
+                    },
+                    {
+                        icon: SmileOutlined,
+                        display: 'Go to My Settings',
+                        synonyms: ['account'],
+                        executor: () => {
+                            push('/me/settings')
                         },
                     },
                     {
@@ -496,7 +533,7 @@ export const commandPaletteLogic = kea<
                         icon: LogoutOutlined,
                         display: 'Log Out',
                         executor: () => {
-                            window.location.href = '/logout'
+                            userLogic.actions.logout()
                         },
                     },
                 ],
@@ -531,16 +568,16 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
-                    const results: CommandResultTemplate[] = (appUrlsLogic.values.appUrls ?? [])
-                        .concat(appUrlsLogic.values.suggestedUrls ?? [])
-                        .map((url: string) => ({
+                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
+                        (url: string) => ({
                             icon: LinkOutlined,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
                                 open(url)
                             },
-                        }))
+                        })
+                    )
                     if (isURL(argument))
                         results.push({
                             icon: LinkOutlined,
@@ -579,7 +616,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/setup', {}, 'personal-api-keys')
+                                        push('/my/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             return null
@@ -619,28 +656,33 @@ export const commandPaletteLogic = kea<
                 resolver: {
                     icon: CommentOutlined,
                     display: 'Share Feedback',
-                    synonyms: ['send opinion', 'ask question', 'message posthog'],
+                    synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
                         scope: 'Sharing Feedback',
-                        instruction: "What's on your mind?",
-                        icon: CommentOutlined,
-                        resolver: (argument) => [
+                        resolver: [
                             {
-                                icon: SendOutlined,
                                 display: 'Send Message Directly to PostHog',
-                                executor: !argument?.length
-                                    ? undefined
-                                    : () => {
-                                          window.posthog?.capture('palette feedback', { message: argument })
-                                          return {
-                                              scope: 'Sharing Feedback',
-                                              resolver: {
-                                                  icon: CheckOutlined,
-                                                  display: 'Message Sent!',
-                                                  executor: true,
+                                icon: CommentOutlined,
+                                executor: () => ({
+                                    instruction: "What's on your mind?",
+                                    icon: CommentOutlined,
+                                    resolver: (argument) => ({
+                                        icon: SendOutlined,
+                                        display: 'Send',
+                                        executor: !argument?.length
+                                            ? undefined
+                                            : () => {
+                                                  posthog.capture('palette feedback', { message: argument })
+                                                  return {
+                                                      resolver: {
+                                                          icon: CheckOutlined,
+                                                          display: 'Message Sent!',
+                                                          executor: true,
+                                                      },
+                                                  }
                                               },
-                                          }
-                                      },
+                                    }),
+                                }),
                             },
                             {
                                 icon: VideoCameraOutlined,
@@ -650,10 +692,10 @@ export const commandPaletteLogic = kea<
                                 },
                             },
                             {
-                                icon: MailOutlined,
-                                display: 'Email Core Team',
+                                icon: ExclamationCircleOutlined,
+                                display: 'Create GitHub Issue',
                                 executor: () => {
-                                    open('mailto:hey@posthog.com')
+                                    open('https://github.com/PostHog/posthog/issues/new/choose')
                                 },
                             },
                         ],

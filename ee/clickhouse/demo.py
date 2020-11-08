@@ -8,7 +8,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
-from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import update_person_is_identified, update_person_properties
 from posthog.models import Team
@@ -48,26 +47,26 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
             update_person_is_identified(team_id=team.pk, id=person.uuid, is_identified=True)
             demo_data_index += 1
 
-            elements = [
-                Element(
-                    tag_name="a", href="/demo/1", attr_class=["btn", "btn-success"], attr_id="sign-up", text="Sign up",
-                ),
-                Element(tag_name="form", attr_class=["form"]),
-                Element(tag_name="div", attr_class=["container"]),
-                Element(tag_name="body"),
-                Element(tag_name="html"),
-            ]
-
-            event_uuid = uuid4()
-            elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
             create_event(
                 team=team,
                 distinct_id=distinct_id,
                 event="$autocapture",
                 properties={"$current_url": base_url, "$browser": browser, "$lib": "web", "$event_type": "click",},
                 timestamp=date + relativedelta(seconds=14),
-                elements_hash=elements_hash,
                 event_uuid=event_uuid,
+                elements=[
+                    Element(
+                        tag_name="a",
+                        href="/demo/1",
+                        attr_class=["btn", "btn-success"],
+                        attr_id="sign-up",
+                        text="Sign up",
+                    ),
+                    Element(tag_name="form", attr_class=["form"]),
+                    Element(tag_name="div", attr_class=["container"]),
+                    Element(tag_name="body"),
+                    Element(tag_name="html"),
+                ],
             )
 
             event_uuid = uuid4()
@@ -81,17 +80,6 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
             )
 
             if index % 4 == 0:
-
-                elements = [
-                    Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
-                    Element(tag_name="form", attr_class=["form"]),
-                    Element(tag_name="div", attr_class=["container"]),
-                    Element(tag_name="body"),
-                    Element(tag_name="html"),
-                ]
-
-                event_uuid = uuid4()
-                elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
                 create_event(
                     team=team,
                     event="$autocapture",
@@ -103,8 +91,14 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         "$event_type": "click",
                     },
                     timestamp=date + relativedelta(seconds=29),
-                    elements_hash=elements_hash,
                     event_uuid=event_uuid,
+                    elements=[
+                        Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
+                        Element(tag_name="form", attr_class=["form"]),
+                        Element(tag_name="div", attr_class=["container"]),
+                        Element(tag_name="body"),
+                        Element(tag_name="html"),
+                    ],
                 )
 
                 event_uuid = uuid4()
@@ -118,18 +112,6 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                 )
 
                 if index % 5 == 0:
-
-                    elements = [
-                        Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
-                        Element(tag_name="form", attr_class=["form"]),
-                        Element(tag_name="div", attr_class=["container"]),
-                        Element(tag_name="body"),
-                        Element(tag_name="html"),
-                    ]
-
-                    event_uuid = uuid4()
-                    elements_hash = create_elements(elements=elements, team=team, event_uuid=event_uuid)
-
                     create_event(
                         team=team,
                         event="$autocapture",
@@ -141,8 +123,14 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                             "$event_type": "click",
                         },
                         timestamp=date + relativedelta(seconds=59),
-                        elements_hash=elements_hash,
                         event_uuid=event_uuid,
+                        elements=[
+                            Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
+                            Element(tag_name="form", attr_class=["form"]),
+                            Element(tag_name="div", attr_class=["container"]),
+                            Element(tag_name="body"),
+                            Element(tag_name="html"),
+                        ],
                     )
 
                     event_uuid = uuid4()

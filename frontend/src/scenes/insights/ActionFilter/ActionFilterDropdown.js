@@ -2,9 +2,12 @@ import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
-import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
+import { ExportOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Link } from 'lib/components/Link'
+import './ActionFilterDropdown.scss'
 
 export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
@@ -43,7 +46,7 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
                     logic={logic}
                 />
                 <ActionPanelContainer
-                    title="events"
+                    title="raw_events"
                     entityType={EntityTypes.EVENTS}
                     options={eventNamesGrouped}
                     panelIndex={1}
@@ -55,8 +58,9 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
 }
 
 export function ActionPanelContainer({ entityType, panelIndex, options, logic }) {
-    const { entities, selectedFilter, filters } = useValues(logic)
+    const { entities, selectedFilter } = useValues(logic)
     const { updateFilter } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dropDownOnSelect = (value, name) =>
         updateFilter({ type: entityType, value: value, name, index: selectedFilter.index })
@@ -66,17 +70,32 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
         if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
             const action = entities[selectedFilter.type].filter((a) => a.id === selectedFilter.filter.id)[0]
             return (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
-                    Edit "{action.name}" <i className="fi flaticon-export" />
-                </a>
+                <div style={{ textAlign: 'right', paddingBottom: 8 }}>
+                    <Link to={'/action/' + selectedFilter.filter.id} target="_blank">
+                        <>
+                            Edit "{action.name}" <ExportOutlined />
+                        </>
+                    </Link>
+                </div>
             )
         } else {
             return null
         }
     }
 
+    const NewActionButton = () => {
+        return (
+            <div style={{ position: 'absolute', bottom: 16, width: 'calc(100% - 32px)', textAlign: 'right' }}>
+                <Link href="/actions" target="_blank">
+                    View &amp; edit all actions <ExportOutlined />
+                </Link>
+            </div>
+        )
+    }
+
     const message = () => {
-        if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
+        const optionsFlattened = options.map((category) => category.options || []).flat()
+        if (entityType === EntityTypes.ACTIONS && !optionsFlattened.length) {
             return (
                 <div
                     style={{
@@ -91,10 +110,20 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
                     <Link to="/action">Click here to define an action.</Link>
                 </div>
             )
+        } else if (entityType === EntityTypes.ACTIONS && featureFlags['actions-ux-201012']) {
+            return <NewActionButton />
         } else {
             return null
         }
     }
+
+    const caption = () => {
+        if (entityType === EntityTypes.EVENTS && featureFlags['actions-ux-201012']) {
+            return 'To analyze multiple raw events as one, use actions instead.'
+        }
+        return null
+    }
+
     return (
         <ActionSelectPanel
             key={panelIndex}
@@ -106,6 +135,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             active={selectedFilter}
             redirect={redirect()}
             message={message()}
+            caption={caption()}
         />
     )
 }

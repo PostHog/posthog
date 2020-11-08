@@ -2,7 +2,7 @@ import React from 'react'
 import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
-import PostHogIcon from './../../../../public/icon-white.svg'
+import PostHogIcon from 'public/icon-white.svg'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 export function CommandInput(): JSX.Element {
@@ -26,6 +26,7 @@ export function CommandInput(): JSX.Element {
                     setInput(event.target.value)
                 }}
                 placeholder={activeFlow?.instruction ?? 'What would you like to do? Try some suggestions…'}
+                data-attr="command-palette-input"
             />
         </div>
     )
