@@ -5,8 +5,9 @@ import { invitesLogic } from './logic'
 import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
+import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateOrgInviteModalWithButton(): JSX.Element {
+export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
@@ -23,19 +24,31 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
 
     return (
         <>
-            <div className="mb text-right">
-                <Button
-                    type="primary"
-                    data-attr="invite-teammate-button"
+            {type === 'text' ? (
+                <span
                     onClick={() => {
                         setIsVisible(true)
                     }}
                 >
-                    + Invite Teammate
-                </Button>
-            </div>
+                    Invite Team Member
+                </span>
+            ) : (
+                <div className="mb text-right">
+                    <Button
+                        type="primary"
+                        data-attr="invite-teammate-button"
+                        onClick={() => {
+                            setIsVisible(true)
+                        }}
+                        icon={<PlusOutlined />}
+                    >
+                        Invite Team Member
+                    </Button>
+                </div>
+            )}
+
             <Modal
-                title="Inviting Teammate"
+                title="Inviting Team member"
                 okText="Create Invite Link"
                 cancelText="Cancel"
                 onOk={() => {
@@ -55,11 +68,10 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 visible={isVisible}
             >
                 <p>
-                    Create an invite link for a teammate with a specific email address.
+                    Create an invite link for a team member with a specific email address.
                     <br />
-                    Remember to send the link to the teammate.
-                    <br />
-                    <i>Invites emailed by PostHog coming soon.</i>
+                    Remember to <b>share the link</b> with the person you want to invite.
+                    <i> Invites emailed by PostHog coming soon.</i>
                 </p>
                 <Input
                     data-attr="invite-email-input"

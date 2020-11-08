@@ -40,7 +40,7 @@ class ClickhouseRetention(BaseQuery):
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
 
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
 
         target_query = ""
         target_params: Dict = {}

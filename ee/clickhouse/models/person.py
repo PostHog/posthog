@@ -10,6 +10,7 @@ from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
@@ -29,7 +30,9 @@ from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import check_ee_enabled
+from posthog.models.filter import Filter
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 
 if settings.EE_AVAILABLE and check_ee_enabled():
@@ -109,8 +112,13 @@ def get_person_distinct_ids(team_id: int):
     return ClickhousePersonDistinctIdSerializer(result, many=True).data
 
 
-def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Dict[str, Any]:
-    result = sync_execute(GET_PERSON_BY_DISTINCT_ID, {"team_id": team_id, "distinct_id": distinct_id.__str__()})
+def get_person_by_distinct_id(team: Team, distinct_id: str, filter: Optional[Filter] = None) -> Dict[str, Any]:
+    params = {"team_id": team.pk, "distinct_id": distinct_id.__str__()}
+    filter_query = ""
+    if filter:
+        filter_query, filter_params = parse_prop_clauses(filter.properties, team, table_name="pid")
+        params = {**params, **filter_params}
+    result = sync_execute(GET_PERSON_BY_DISTINCT_ID.format(distinct_query=filter_query, query=""), params)
     if len(result) > 0:
         return ClickhousePersonSerializer(result[0], many=False).data
     return {}

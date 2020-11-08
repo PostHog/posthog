@@ -44,7 +44,7 @@ class ClickhouseStickiness(BaseQuery):
         range_days = (filter.date_to - filter.date_from).days + 2
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
 
         params: Dict = {"team_id": team.pk}
         params = {**params, **prop_filter_params}

@@ -443,6 +443,7 @@ class Event(models.Model):
             # Update the last updated team action timestamp for future reference
             LAST_UPDATED_TEAM_ACTION[self.team_id] = last_updated_action_ts
         else:
+
             # If we have reached this block we are about to use the sql query cache
             # Grab the actions using the cached action query
             actions.raw(TEAM_ACTION_QUERY_CACHE[self.team_id])

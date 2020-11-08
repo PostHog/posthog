@@ -79,6 +79,7 @@ def _capture_ee(
         team=team,
         distinct_id=distinct_id,
         elements=elements_list,
+        site_url=site_url,
     )
 
 
