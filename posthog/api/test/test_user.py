@@ -51,6 +51,39 @@ class TestUser(BaseTest):
             ],
         )
 
+    def test_user_events_column_config_change_to_default(self):
+        user = User.objects.get(id=self.user.id)
+        user.events_column_config = {"active": ["column_1", "column_2"]}
+        user.save()
+        self.assertDictEqual(user.events_column_config, {"active": ["column_1", "column_2"]})
+
+        response = self.client.patch(
+            "/api/user/",
+            data={"user": {"events_column_config": {"active": "DEFAULT"}}},
+            content_type="application/json",
+        ).json()
+        self.assertDictEqual(response["events_column_config"], {"active": "DEFAULT"})
+
+        user = User.objects.get(id=self.user.id)
+        self.assertDictEqual(user.events_column_config, {"active": "DEFAULT"})
+
+    def test_user_events_column_config_patch(self):
+        user = User.objects.get(id=self.user.id)
+        user.events_column_config = {"active": "DEFAULT"}
+        user.save()
+        self.assertDictEqual(user.events_column_config, {"active": "DEFAULT"})
+
+        response = self.client.patch(
+            "/api/user/",
+            data={"user": {"events_column_config": {"active": ["column_1", "column_2"]}}},
+            content_type="application/json",
+        ).json()
+
+        self.assertDictEqual(response["events_column_config"], {"active": ["column_1", "column_2"]})
+
+        user = User.objects.get(id=self.user.id)
+        self.assertDictEqual(user.events_column_config, {"active": ["column_1", "column_2"]})
+
 
 class TestUserChangePassword(BaseTest):
     TESTS_API = True

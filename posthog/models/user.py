@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
@@ -85,6 +86,10 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
+def events_column_config_default() -> Dict[str, Any]:
+    return {"active": "DEFAULT"}
+
+
 class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
@@ -110,6 +115,7 @@ class User(AbstractUser):
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
 
+    events_column_config: JSONField = JSONField(default=events_column_config_default)
     objects: UserManager = UserManager()  # type: ignore
 
     @property
