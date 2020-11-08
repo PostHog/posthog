@@ -6,7 +6,7 @@ try:
     import yaml
     from yaml.loader import FullLoader
 except ImportError:
-    raise ImportError('Missing pyyaml! Install it with command `pip3 install pyyaml` to run this configurator.')
+    raise ImportError("Missing pyyaml! Install it with command `pip3 install pyyaml` to run this configurator.")
 
 FILE_PATH = "docker-compose.yml"
 
@@ -82,4 +82,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print('\nConfiguration canceled.')
+        print("\nConfiguration canceled.")
