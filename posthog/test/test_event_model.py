@@ -109,6 +109,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
+            team2 = Team.objects.create()
             event1 = _create_event(
                 team=self.team,
                 event="$autocapture",
@@ -143,6 +144,20 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     # make sure elements don't get double counted if they're part of the same event
                     Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
                 ],
+            )
+
+            # team leakage
+            _create_event(
+                team=team2,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[Element(tag_name="a", href="/a-url", text="some_other_text", nth_child=0, nth_of_type=0,),],
+            )
+            _create_event(
+                team=team2,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),],
             )
 
             events = _get_events_for_action(action1)
