@@ -1,3 +1,3 @@
-const rrwebBlockClass: string = 'ph-no-capture'
+const rrwebBlockClass: string = 'rr-block'
 
 export default rrwebBlockClass
