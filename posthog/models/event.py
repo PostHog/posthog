@@ -95,12 +95,10 @@ class Selector(object):
 
     def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
-        # Sometimes people manually add *, just remove them as they don't do anything
-        selector = selector.replace("> * > ", "").replace("> *", "")
         tags = re.split(" ", selector.strip())
         tags.reverse()
         for index, tag in enumerate(tags):
-            if tag == ">" or tag == "":
+            if tag == ">":
                 continue
             direct_descendant = False
             if index > 0 and tags[index - 1] == ">":
