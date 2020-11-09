@@ -48,6 +48,10 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
+    # Update usage information on the team model
+    sender.add_periodic_task(crontab(minute=0, hour="*/12"), calculate_event_property_usage.s())
+    calculate_event_property_usage.delay()
+
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
 
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
@@ -176,3 +180,10 @@ def send_weekly_email_report():
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))
+
+
+@app.task(ignore_result=True)
+def calculate_event_property_usage():
+    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
+
+    calculate_event_property_usage()
