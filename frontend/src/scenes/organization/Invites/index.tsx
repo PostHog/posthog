@@ -8,6 +8,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { UserType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const Invites = hot(_Invites)
 function _Invites({ user }: { user: UserType }): JSX.Element {
@@ -87,12 +88,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">Organization Invites – {user.organization.name}</h1>
-            <div style={{ maxWidth: 672 }}>
-                <i>
-                    <p>Create, send out, and delete organization invites.</p>
-                </i>
-            </div>
+            <PageHeader title="Organization Invites" caption="Create, send out, and delete organization invites." />
             <CreateOrgInviteModalWithButton />
             <Table
                 dataSource={invites}

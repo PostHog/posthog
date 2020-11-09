@@ -6,7 +6,8 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatPropertyLabel } from 'lib/utils'
+import { formatPropertyLabel } from 'lib/utils'
+import { CloseButton } from 'lib/components/CloseButton'
 import '../../../scenes/actions/Actions.scss'
 
 const FilterRow = React.memo(function FilterRow({
@@ -31,7 +32,7 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-2 mb-2">
+        <Row align="middle" className="mt-05 mb-05">
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
@@ -85,7 +86,7 @@ export function PropertyFilters({
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <div className="column" style={{ marginBottom: '15px' }}>
+        <div className="mb">
             {filters &&
                 filters.map((item, index) => {
                     return (

@@ -5,6 +5,7 @@ import { billingLogic } from './billingLogic'
 import { Card, Progress, Row, Col, Button, Popconfirm, Spin } from 'antd'
 import defaultImg from 'public/plan-default.svg'
 import { PlanInterface } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
 
 function Plan({ plan, onUpgrade }: { plan: PlanInterface; onUpgrade: (plan: PlanInterface) => void }): JSX.Element {
     return (
@@ -38,9 +39,13 @@ export function Billing(): JSX.Element {
 
     return (
         <>
-            <h1 className="page-header">
-                Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
-            </h1>
+            <PageHeader
+                title={
+                    <>
+                        Billing &amp; usage information <span style={{ fontSize: 12, color: '#F7A501' }}>BETA</span>
+                    </>
+                }
+            />
             <div className="space-top" />
             <Card title="Current usage">
                 {user?.billing?.current_usage && (

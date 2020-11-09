@@ -18,7 +18,7 @@ function _Dashboard({ id, shareToken }) {
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
-        <div>
+        <div style={{ marginTop: 32 }}>
             {!shareToken && <DashboardHeader id={id} logic={logic} />}
 
             {dashboardsLoading ? (

@@ -1,5 +1,3 @@
-import 'react-toastify/dist/ReactToastify.css'
-import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
@@ -26,6 +24,10 @@ const darkerScenes: Record<string, boolean> = {
     funnel: true,
     editFunnel: true,
     paths: true,
+}
+
+const Toast = (): JSX.Element => {
+    return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
 }
 
 export const App = hot(_App)
@@ -55,9 +57,9 @@ function _App(): JSX.Element {
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (
-            <>
-                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
+            <Layout>
+                <Scene {...params} /> <Toast />
+            </Layout>
         ) : (
             <div />
         )
@@ -67,7 +69,7 @@ function _App(): JSX.Element {
         return (
             <>
                 <Scene user={user} {...params} />
-                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                <Toast />
             </>
         )
     }
@@ -75,16 +77,14 @@ function _App(): JSX.Element {
     return (
         <>
             <UpgradeModal />
-            <Layout className="bg-white">
+            <Layout>
                 <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
                 <Layout
-                    className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
-                        !sidebarCollapsed ? ' with-open-sidebar' : ''
-                    }`}
+                    className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
                     style={{ minHeight: '100vh' }}
                 >
                     <TopContent />
-                    <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
+                    <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&
                         !currentTeam.ingested_event &&
@@ -93,7 +93,7 @@ function _App(): JSX.Element {
                         ) : (
                             <Scene user={user} {...params} />
                         )}
-                        <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                        <Toast />
                     </Layout.Content>
                 </Layout>
             </Layout>

@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons'
 import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 
 function PreflightItem({ name, status, caption, failedState }) {
     /*
@@ -108,20 +109,17 @@ function PreflightCheck() {
 
     return (
         <>
-            <Space direction="vertical" className="space-top" style={{ width: '100%' }}>
-                <h1 className="title text-center" style={{ marginBottom: 0 }}>
-                    Welcome to PostHog!
-                </h1>
-                <div className="page-caption text-center">Understand your users. Build a better product.</div>
+            <Space direction="vertical" className="space-top" style={{ width: '100%', paddingLeft: 32 }}>
+                <PageHeader title="Welcome to PostHog!" caption="Understand your users. Build a better product." />
             </Space>
-            <Col xs={24} style={{ margin: '32px 16px' }}>
+            <Col xs={24} style={{ margin: '0 16px' }}>
                 <h2 className="subtitle text-center space-top">
-                    We're&nbsp;glad to&nbsp;have you&nbsp;here! Let's&nbsp;get&nbsp;you started with&nbsp;PostHog.
+                    We're glad to have you here! Let's get you started with PostHog.
                 </h2>
             </Col>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={hedgehogBlue} style={{ maxHeight: '100%', width: 380 }} />
+                    <img src={hedgehogBlue} style={{ maxHeight: '100%', width: 320 }} />
                     <p>Got any PostHog questions?</p>
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
@@ -224,7 +222,7 @@ function PreflightCheck() {
                                     <b>Checks in progress…</b>
                                 )}
                             </div>
-                            <div className="space-top text-center" style={{ marginBottom: 64 }}>
+                            <div className="text-center" style={{ marginBottom: 64 }}>
                                 <Button
                                     type="primary"
                                     data-attr="preflight-complete"

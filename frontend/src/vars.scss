@@ -1,0 +1,50 @@
+/* This file contains the main styling configuration for PostHog. We also use AntD which uses LESS,
+when changing any base config here, please remember to update antd.less too  */
+
+// Main colors
+$primary: #5375ff;
+$primary_alt: #35416b;
+$success: #77b96c;
+$warning: #f7a501;
+$danger: #f96132;
+
+// Text colors
+$text_default: #2d2d2d;
+$text_light: rgba(255, 255, 255, 0.88);
+$text_muted: #d9d9d9;
+$text_muted_alt: #35416b;
+
+// Background colors
+$bg_navy: #35416b;
+$bg_charcoal: #2d2d2d;
+$bg_mid: #f2f2f2;
+$bg_light: #ffffff;
+$bg_depth: #0f0f0f;
+$bg_menu: #2c3035;
+
+// Border colors
+$border_light: #f0f0f0;
+$border: #d9d9d9;
+$border_dark: #bdbdbd;
+
+.bg-mid {
+    background-color: $bg_mid !important;
+}
+
+// Blue Swatch
+$blue_700: #35416b;
+$blue_500: #597dce;
+$blue_300: #8da9e7;
+$blue_100: #b8cefd;
+
+// Purple Swatch
+$purple_700: #7c4286;
+$purple_500: #c278cf;
+$purple_300: #dcb1e3;
+
+// Additional style configurations
+.mixin-elevated {
+    box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
+}
+$default_spacing: 16px;
+$radius: 2px;

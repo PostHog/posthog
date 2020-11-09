@@ -1,3 +1,14 @@
+.sidebar-logo {
+    margin: 16px;
+    height: 42px;
+    white-space: nowrap;
+    width: 168px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 @media (max-width: 991px) {
     #root {
         height: 100%;

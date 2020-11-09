@@ -7,7 +7,7 @@
 }
 .t-element {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     border-right: 0.75px solid #c4c4c4;
     padding-left: 32px;
 
@@ -40,13 +40,8 @@
 .action-edit-container {
     margin-top: 32px;
 
-    label {
-        font-weight: bold;
-    }
-
     .match-group-section {
         margin-top: 32px;
-        padding: 16px;
     }
 
     .match-group-add-skeleton {
@@ -99,16 +94,11 @@
     }
 
     .property-filters {
-        border-top: 1px solid rgba(#a7b7be, 0.5);
         margin-top: 16px;
         padding-top: 16px;
 
         .section-title {
             font-weight: bold;
-        }
-
-        .empty-state {
-            color: #a7b7be;
         }
     }
 }

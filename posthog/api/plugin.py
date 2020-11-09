@@ -16,7 +16,9 @@ from posthog.models.plugin import Plugin, PluginConfig
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
-    download_plugin_github_zip,
+    download_plugin_archive,
+    get_json_from_archive,
+    parse_url,
     reload_plugins_on_workers,
 )
 from posthog.plugins.utils import load_json_file
@@ -49,12 +51,23 @@ class PluginSerializer(serializers.ModelSerializer):
             validated_data["name"] = json.get("name", json_path.split("/")[-2])
             validated_data["description"] = json.get("description", "")
             validated_data["config_schema"] = json.get("config", {})
+        else:
+            parsed_url = parse_url(validated_data["url"], get_latest_if_none=True)
+            if parsed_url:
+                validated_data["url"] = parsed_url["root_url"]
+                validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
+                validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
+                plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
+                if not plugin_json:
+                    raise ValidationError("Could not find plugin.json in the plugin")
+                validated_data["name"] = plugin_json["name"]
+                validated_data["description"] = plugin_json.get("description", "")
+                validated_data["config_schema"] = plugin_json.get("config", {})
+            else:
+                raise ValidationError("Must be a GitHub repository or a NPM package URL!")
 
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
-
-        if not local_plugin:
-            validated_data["archive"] = download_plugin_github_zip(validated_data["url"], validated_data["tag"])
 
         validated_data["from_web"] = True
         plugin = super().create(validated_data)
@@ -62,7 +75,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        validated_data["archive"] = download_plugin_github_zip(plugin.url, plugin.tag)
+        validated_data["archive"] = download_plugin_archive(plugin.url, plugin.tag)
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
         return response

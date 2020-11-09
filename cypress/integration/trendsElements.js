@@ -27,8 +27,13 @@ describe('Trends actions & events', () => {
 
     it('Show property select dynamically', () => {
         cy.get('[data-attr=math-property-selector-0]').should('not.exist')
-        cy.get('[data-attr=math-selector-0]').click()
-        cy.get('[data-attr=math-avg-0]').click()
+
+        // Test that the math selector dropdown is shown on hover
+        cy.get('[data-attr=math-selector-0]').trigger('mouseover')
+        cy.get('[data-attr=math-total-0]').should('be.visible')
+
+        // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
+        cy.get('[data-attr=math-avg-0]').click({ force: true })
         cy.get('[data-attr=math-property-selector-0]').should('exist')
     })
 

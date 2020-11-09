@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .retention-table {
     .ant-table-tbody .ant-table-cell {
         padding: 0px !important;
@@ -9,8 +11,9 @@
 }
 
 .retention-success {
-    background-color: lighten($blue, 20%);
+    border-radius: $radius;
+    background-color: lighten($primary, 20%);
 }
 .retention-dropped {
-    background-color: $gray-200;
+    background-color: $bg_mid;
 }

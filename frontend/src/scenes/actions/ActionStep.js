@@ -4,6 +4,8 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import { ExportOutlined } from '@ant-design/icons'
+import { Button, Card, Checkbox, Input, Radio } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -132,15 +134,14 @@ export class ActionStep extends Component {
             selectorError = true
         }
         return (
-            <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
                 {props.selector && this.props.isEditor && (
                     <small className={'form-text float-right ' + (selectorError ? 'text-danger' : 'text-muted')}>
                         {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
                     </small>
                 )}
                 <label>
-                    <input
-                        type="checkbox"
+                    <Checkbox
                         name="selection"
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
@@ -157,11 +158,10 @@ export class ActionStep extends Component {
                     {props.label} {props.extra_options}
                 </label>
                 {props.item === 'selector' ? (
-                    <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
+                    <Input
                         data-attr="edit-action-url-input"
-                        className="form-control"
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
                     />
@@ -171,61 +171,45 @@ export class ActionStep extends Component {
     }
     TypeSwitcher = () => {
         let { step, isEditor } = this.props
+        const handleChange = (e) => {
+            const type = e.target.value
+            if (type === '$autocapture') {
+                this.setState(
+                    {
+                        selection: Object.keys(step).filter((key) => key !== 'id' && key !== 'isNew' && step[key]),
+                    },
+                    () => this.sendStep({ ...step, event: '$autocapture' })
+                )
+            } else if (type === '$pageview') {
+                this.setState({ selection: ['url'] }, () =>
+                    this.sendStep({
+                        ...step,
+                        event: '$pageview',
+                        url: isEditor
+                            ? window.location.protocol + '//' + window.location.host + window.location.pathname
+                            : step.url,
+                    })
+                )
+            } else {
+                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
+            }
+        }
+
         return (
             <div>
-                <div className="btn-group">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            this.setState(
-                                {
-                                    selection: Object.keys(step).filter(
-                                        (key) => key !== 'id' && key !== 'isNew' && step[key]
-                                    ),
-                                },
-                                () => this.sendStep({ ...step, event: '$autocapture' })
-                            )
-                        }
-                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
-                    >
-                        Frontend element
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
-                        className={
-                            'btn ' +
-                            (typeof step.event !== 'undefined' &&
-                            step.event !== '$autocapture' &&
-                            step.event !== '$pageview'
-                                ? 'btn-secondary'
-                                : 'btn-light btn-action')
-                        }
-                    >
-                        Custom event
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            this.setState({ selection: ['url'] }, () =>
-                                this.sendStep({
-                                    ...step,
-                                    event: '$pageview',
-                                    url: isEditor
-                                        ? window.location.protocol +
-                                          '//' +
-                                          window.location.host +
-                                          window.location.pathname
-                                        : step.url,
-                                })
-                            )
-                        }}
-                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
-                        data-attr="action-step-pageview"
-                    >
-                        Page view
-                    </button>
-                </div>
+                <Radio.Group
+                    buttonStyle="solid"
+                    onChange={handleChange}
+                    value={
+                        step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
+                            ? step.event
+                            : 'event'
+                    }
+                >
+                    <Radio.Button value="$autocapture">Frontend element</Radio.Button>
+                    <Radio.Button value="event">Custom event</Radio.Button>
+                    <Radio.Button value="$pageview">Page view</Radio.Button>
+                </Radio.Group>
             </div>
         )
     }
@@ -234,12 +218,8 @@ export class ActionStep extends Component {
             <div>
                 {!isEditor && (
                     <span>
-                        <AppEditorLink
-                            actionId={actionId}
-                            style={{ margin: '1rem 0' }}
-                            className="btn btn-sm btn-light"
-                        >
-                            Select element on site <i className="fi flaticon-export" />
+                        <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
+                            Select element on site <ExportOutlined />
                         </AppEditorLink>
                         <a
                             href="https://posthog.com/docs/features/actions"
@@ -269,55 +249,44 @@ export class ActionStep extends Component {
             </div>
         )
     }
-    URLMatching = ({ step, isEditor }) => {
+    URLMatching = ({ step }) => {
+        const handleURLMatchChange = (e) => {
+            this.sendStep({ ...step, url_matching: e.target.value })
+        }
+
         return (
-            <div className="btn-group" style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'contains' })}
-                    type="button"
-                    className={
-                        'btn btn-sm ' +
-                        (!step.url_matching || step.url_matching === 'contains' ? 'btn-secondary' : 'btn-light')
-                    }
-                >
-                    contains
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'regex' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'regex' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches regex
-                </button>
-                <button
-                    onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
-                    type="button"
-                    className={'btn btn-sm ' + (step.url_matching === 'exact' ? 'btn-secondary' : 'btn-light')}
-                >
-                    matches exactly
-                </button>
-            </div>
+            <Radio.Group
+                buttonStyle="solid"
+                onChange={handleURLMatchChange}
+                value={step.url_matching || 'contains'}
+                size="small"
+                style={{ paddingBottom: 16 }}
+            >
+                <Radio.Button value="contains">contains</Radio.Button>
+                <Radio.Button value="regex">matches regex</Radio.Button>
+                <Radio.Button value="exact">matches exactly</Radio.Button>
+            </Radio.Group>
         )
     }
     render() {
         let { step, isEditor, actionId, isOnlyStep } = this.props
 
         return (
-            <div
-                className={isEditor ? '' : 'card'}
+            <Card
                 style={{
                     marginBottom: 0,
                     background: isEditor ? 'rgba(0,0,0,0.05)' : '',
                 }}
             >
-                <div className={isEditor ? '' : 'card-body'}>
+                <div>
                     {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
-                                margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
+                                border: 0,
+                                float: 'right',
+                                color: 'hsl(0, 0%, 80%)',
                             }}
                             type="button"
-                            className="close pull-right"
                             aria-label="Close"
                             onClick={this.props.onDelete}
                         >
@@ -332,15 +301,14 @@ export class ActionStep extends Component {
                         }}
                     >
                         {isEditor && [
-                            <button
+                            <Button
                                 key="inspect-button"
-                                type="button"
-                                className="btn btn-sm btn-secondary"
+                                size="small"
                                 style={{ margin: '10px 0px 10px 12px' }}
                                 onClick={() => this.start()}
                             >
                                 Inspect element
-                            </button>,
+                            </Button>,
                             this.state.inspecting && (
                                 <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
                                     Hover over and click on an element you want to create an action for
@@ -394,7 +362,7 @@ export class ActionStep extends Component {
                         )}
                     </div>
                 </div>
-            </div>
+            </Card>
         )
     }
 }

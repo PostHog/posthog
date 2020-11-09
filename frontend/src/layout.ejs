@@ -6,6 +6,8 @@
     <title>PostHog</title>
     {% include "head.html" %}
     <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous" />
 <style>
     html,
 body {
@@ -98,7 +100,7 @@ input:not(:placeholder-shown) + label,
 input:focus + label {
   transform: translate(0, 0) scale(1);
   cursor: pointer;
-color: var(--blue)
+color: var(--primary)
 }
 </style>
   {% block head %}

@@ -80,31 +80,7 @@ function Signup() {
                     }}
                 >
                     <form onSubmit={handleSubmit}>
-                        <div className="ph-input-group">
-                            <label htmlFor="signupFirstName">First Name</label>
-                            <Input
-                                placeholder="Jane"
-                                autoFocus
-                                value={formState.firstName.value}
-                                onChange={(e) => updateForm('firstName', e.target)}
-                                required
-                                disabled={accountLoading}
-                                id="signupFirstName"
-                            />
-                        </div>
-
-                        <div className="ph-input-group">
-                            <label htmlFor="signupCompanyName">Company or Project</label>
-                            <Input
-                                placeholder="Hogflix Movies"
-                                value={formState.companyName.value}
-                                onChange={(e) => updateForm('companyName', e.target)}
-                                disabled={accountLoading}
-                                id="signupCompanyName"
-                            />
-                        </div>
-
-                        <div className="ph-input-group">
+                        <div className="input-set">
                             <label htmlFor="signupEmail">Email</label>
                             <Input
                                 placeholder="jane@hogflix.io"
@@ -117,11 +93,7 @@ function Signup() {
                             />
                         </div>
 
-                        <div
-                            className={`ph-input-group ${
-                                state.submitted && !formState.password.valid ? 'errored' : ''
-                            }`}
-                        >
+                        <div className={`input-set ${state.submitted && !formState.password.valid ? 'errored' : ''}`}>
                             <label htmlFor="signupPassword">Password</label>
                             <Input.Password
                                 value={formState.password.value}
@@ -137,6 +109,30 @@ function Signup() {
                             {!formState.password.valid && (
                                 <span className="caption">Your password must have at least 8 characters.</span>
                             )}
+                        </div>
+
+                        <div className="input-set">
+                            <label htmlFor="signupFirstName">First Name</label>
+                            <Input
+                                placeholder="Jane"
+                                autoFocus
+                                value={formState.firstName.value}
+                                onChange={(e) => updateForm('firstName', e.target)}
+                                required
+                                disabled={accountLoading}
+                                id="signupFirstName"
+                            />
+                        </div>
+
+                        <div className="input-set">
+                            <label htmlFor="signupCompanyName">Company or Project</label>
+                            <Input
+                                placeholder="Hogflix Movies"
+                                value={formState.companyName.value}
+                                onChange={(e) => updateForm('companyName', e.target)}
+                                disabled={accountLoading}
+                                id="signupCompanyName"
+                            />
                         </div>
 
                         <div>

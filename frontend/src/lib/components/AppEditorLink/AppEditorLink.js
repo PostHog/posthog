@@ -6,23 +6,23 @@ import { appEditorUrl } from './utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'
 
-export function AppEditorLink({ actionId, style, className, children }) {
+export function AppEditorLink({ actionId, style, children }) {
     const [modalOpen, setModalOpen] = useState(false)
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <>
-            <a
+            <Button
                 href={appEditorUrl(actionId, currentTeam?.appUrls?.[0])}
                 style={style}
-                className={className}
+                size="small"
                 onClick={(e) => {
                     e.preventDefault()
                     setModalOpen(true)
                 }}
             >
                 {children}
-            </a>
+            </Button>
             <Modal
                 visible={modalOpen}
                 title={

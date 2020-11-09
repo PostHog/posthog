@@ -35,7 +35,7 @@ export function ChangePassword(): JSX.Element {
         <Form
             onFinish={submit}
             labelCol={{
-                span: 8,
+                span: 4,
             }}
             wrapperCol={{
                 span: 16,

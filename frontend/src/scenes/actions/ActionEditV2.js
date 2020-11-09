@@ -7,8 +7,8 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStepV2'
-import { Col, Input, Row } from 'antd'
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button, Col, Input, Row } from 'antd'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
@@ -30,9 +30,9 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
     }
 
     const addGroup = (
-        <button type="button" className="btn btn-outline-success btn-sm" onClick={newAction}>
+        <Button onClick={newAction} size="small">
             Add another match group
-        </button>
+        </Button>
     )
 
     return (
@@ -44,9 +44,8 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 }}
             >
                 <label>Action name:</label>
-                <input
+                <Input
                     required
-                    className="form-control"
                     placeholder="e.g. user account created, purchase completed, movie watched"
                     value={action.name}
                     onChange={(e) => {
@@ -61,8 +60,8 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </div>
                 )}
 
-                <div className="match-group-section card" style={{ overflow: 'visible' }}>
-                    <h3>Match groups</h3>
+                <div className="match-group-section" style={{ overflow: 'visible' }}>
+                    <h2 className="subtitle">Match groups</h2>
                     <div>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
@@ -169,15 +168,16 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                     </p>
                 )}
                 <div>
-                    <button
+                    <Button
                         disabled={!edited}
                         data-attr="save-action-button"
-                        className={
-                            edited ? 'btn-success btn btn-sm float-right' : 'btn-secondary btn btn-sm float-right'
-                        }
+                        className="float-right"
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={saveAction}
                     >
                         Save action
-                    </button>
+                    </Button>
                 </div>
             </form>
         </div>

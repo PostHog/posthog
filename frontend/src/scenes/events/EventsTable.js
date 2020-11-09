@@ -11,10 +11,10 @@ import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
-
+import { PageHeader } from 'lib/components/PageHeader'
 import { eventToName, toParams } from 'lib/utils'
-
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import './EventsTable.scss'
 
 export function EventsTable({
     fixedFilters,
@@ -161,15 +161,17 @@ export function EventsTable({
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">
-                {isLiveActions
-                    ? 'Live Actions'
-                    : isPersonPage
-                    ? ''
-                    : !featureFlags['actions-ux-201012']
-                    ? 'Events'
-                    : 'Raw Events Stream'}
-            </h1>
+            <PageHeader
+                title={
+                    isLiveActions
+                        ? 'Live Actions'
+                        : isPersonPage
+                        ? ''
+                        : !featureFlags['actions-ux-201012']
+                        ? 'Events'
+                        : 'Raw Events Stream'
+                }
+            />
             {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
@@ -186,50 +188,53 @@ export function EventsTable({
                     Export
                 </Button>
             </Tooltip>
-            <Table
-                dataSource={eventsFormatted}
-                loading={isLoading}
-                columns={columns}
-                size="small"
-                className={rrwebBlockClass + ' ph-no-capture'}
-                locale={{
-                    emptyText: (
-                        <span>
-                            You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                            <Link to="/project">click here to set PostHog up on your app</Link>.
-                        </span>
-                    ),
-                }}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
-                rowClassName={(row) => {
-                    if (row.event) return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
-                    if (row.date_break) return 'event-day-separator'
-                    if (row.new_events) return 'event-row-new'
-                }}
-                expandable={{
-                    expandedRowRender: function renderExpand({ event }) {
-                        return <EventDetails event={event} />
-                    },
-                    rowExpandable: ({ event }) => event,
-                    expandRowByClick: true,
-                }}
-                onRow={(row) => ({
-                    onClick: () => {
-                        if (row.new_events) prependNewEvents(newEvents)
-                    },
-                })}
-            />
-            <div
-                style={{
-                    visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
-                    margin: '2rem auto 5rem',
-                    textAlign: 'center',
-                }}
-            >
-                <Button type="primary" onClick={fetchNextEvents}>
-                    {isLoadingNext ? <Spin /> : 'Load more events'}
-                </Button>
+            <div>
+                <Table
+                    dataSource={eventsFormatted}
+                    loading={isLoading}
+                    columns={columns}
+                    size="small"
+                    className={rrwebBlockClass + ' ph-no-capture'}
+                    locale={{
+                        emptyText: (
+                            <span>
+                                You don't have any items here! If you haven't integrated PostHog yet,{' '}
+                                <Link to="/project">click here to set PostHog up on your app</Link>.
+                            </span>
+                        ),
+                    }}
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
+                    rowClassName={(row) => {
+                        if (row.event)
+                            return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
+                        if (row.date_break) return 'event-day-separator'
+                        if (row.new_events) return 'event-row-new'
+                    }}
+                    expandable={{
+                        expandedRowRender: function renderExpand({ event }) {
+                            return <EventDetails event={event} />
+                        },
+                        rowExpandable: ({ event }) => event,
+                        expandRowByClick: true,
+                    }}
+                    onRow={(row) => ({
+                        onClick: () => {
+                            if (row.new_events) prependNewEvents(newEvents)
+                        },
+                    })}
+                />
+                <div
+                    style={{
+                        visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
+                        margin: '2rem auto 5rem',
+                        textAlign: 'center',
+                    }}
+                >
+                    <Button type="primary" onClick={fetchNextEvents}>
+                        {isLoadingNext ? <Spin /> : 'Load more events'}
+                    </Button>
+                </div>
             </div>
             <div style={{ marginTop: '5rem' }} />
         </div>

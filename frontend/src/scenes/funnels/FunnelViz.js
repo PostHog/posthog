@@ -4,6 +4,7 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
+import './FunnelViz.scss'
 
 export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cachedResults }) {
     const container = useRef()
@@ -25,7 +26,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
                         }`
                 ),
                 values: steps.map((step) => step.count),
-                colors: ['#66b0ff', 'var(--blue)'],
+                colors: ['#66b0ff', 'var(--primary)'],
             },
             displayPercent: true,
         })

@@ -156,7 +156,7 @@ export function Paths() {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', () => 'var(--blue)')
+            .attr('stroke', () => 'var(--primary)')
             .attr('opacity', 0.3)
             .style('mix-blend-mode', 'multiply')
 

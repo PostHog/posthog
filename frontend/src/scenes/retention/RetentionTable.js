@@ -4,7 +4,9 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import './RetentionTable.scss'
 import moment from 'moment'
+import posthog from 'posthog-js'
 
 export function RetentionTable() {
     const {
@@ -59,14 +61,14 @@ export function RetentionTable() {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={window.posthog?.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
+                rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            if (window.posthog?.isFeatureEnabled('ch-retention-endpoint')) {
+                            if (posthog.isFeatureEnabled('ch-retention-endpoint')) {
                                 return
                             }
 
@@ -96,7 +98,7 @@ export function RetentionTable() {
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
-                                    <table className="table table-bordered table-fixed">
+                                    <table className="table-bordered full-width">
                                         <tbody>
                                             <tr>
                                                 <th />
