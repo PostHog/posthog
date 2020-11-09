@@ -1,5 +1,6 @@
 import copy
 import datetime
+from itertools import accumulate
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
@@ -260,11 +261,17 @@ class Trends(BaseQuery):
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
             new_dict.update(append_data(dates_filled=list(item.items()), interval=filter.interval))
-            if filter.display == TRENDS_CUMULATIVE:
-                new_dict["data"] = np.cumsum(new_dict["data"])
             response.append(new_dict)
 
+        if filter.display == TRENDS_CUMULATIVE:
+            response = self._handle_cumulative(response)
+
         return response
+
+    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
+        for metrics in entity_metrics:
+            metrics.update(data=list(accumulate(metrics["data"])))
+        return entity_metrics
 
     def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         actions = Action.objects.filter(team_id=team_id).order_by("-id")
