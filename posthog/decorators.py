@@ -1,6 +1,6 @@
 from enum import Enum
 from functools import wraps
-from typing import Callable
+from typing import Any, Callable, Optional
 
 from django.core.cache import cache
 from django.http.request import HttpRequest
@@ -19,7 +19,7 @@ class CacheType(str, Enum):
 def cached_function(cache_type: str, expiry_seconds: int = 30):
     def parameterized_decorator(f: Callable):
         @wraps(f)
-        def wrapper(request: HttpRequest, pk: str, *args, **kwargs):
+        def wrapper(request: HttpRequest, pk: Optional[Any] = None, *args, **kwargs):
             # prepare caching params
             team = request.user.team
             if cache_type == CacheType.TRENDS:
