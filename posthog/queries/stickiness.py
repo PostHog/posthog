@@ -3,10 +3,12 @@ from typing import Any, Dict, List
 
 from django.db import connection
 from django.db.models import Count, QuerySet, functions
+from django.utils import timezone
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Event, Filter, Team
+from posthog.utils import relative_date_parse
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
@@ -19,9 +21,6 @@ def execute_custom_sql(query, params):
 
 class Stickiness(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        if filter.interval is None:
-            filter.interval = "day"
-
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -31,20 +30,21 @@ class Stickiness(BaseQuery):
             "days": [],
         }
         response = []
-        events = process_entity_for_events(entity=entity, team_id=team_id, order_by=None,)
-        events = events.filter(filter_events(team_id, filter, entity))
         new_dict = copy.deepcopy(serialized)
-        new_dict.update(self.stickiness(filtered_events=events, entity=entity, filter=filter, team_id=team_id))
+        new_dict.update(self.stickiness(entity=entity, filter=filter, team_id=team_id))
         response.append(new_dict)
         return response
 
-    def stickiness(self, filtered_events: QuerySet, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
+    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
         if not filter.date_to or not filter.date_from:
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
 
+        events = process_entity_for_events(entity=entity, team_id=team_id, order_by=None,)
+        events = events.filter(filter_events(team_id, filter, entity))
+
         events = (
-            filtered_events.filter(filter_events(team_id, filter, entity))
+            events.filter(filter_events(team_id, filter, entity))
             .values("person_id")
             .annotate(day_count=Count(functions.TruncDay("timestamp"), distinct=True))
             .filter(day_count__lte=range_days)
@@ -76,17 +76,15 @@ class Stickiness(BaseQuery):
         }
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        response = []
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
 
-        if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team.pk)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
+        if filter.interval is None:
+            filter.interval = "day"
+
+        response = []
 
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
