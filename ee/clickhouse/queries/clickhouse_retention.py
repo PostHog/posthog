@@ -1,4 +1,4 @@
-from datetime import timedelta
+import datetime
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.client import sync_execute
@@ -19,11 +19,15 @@ PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
 class ClickhouseRetention(Retention):
-    def _execute_sql(self, filter: Filter, target_entity: Entity, team: Team) -> Dict[Tuple[int, int], Dict[str, Any]]:
-
+    def _execute_sql(
+        self,
+        filter: Filter,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        target_entity: Entity,
+        team: Team,
+    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        date_from = filter.date_from
-        date_to = filter.date_to
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
 
         target_query = ""
@@ -37,7 +41,7 @@ class ClickhouseRetention(Retention):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
-        trunc_func = self._get_trunc_func(period)
+        trunc_func = self._get_trunc_func_ch(period)
 
         result = sync_execute(
             RETENTION_SQL.format(
@@ -64,7 +68,7 @@ class ClickhouseRetention(Retention):
 
         return result_dict
 
-    def _get_trunc_func(self, period: str) -> str:
+    def _get_trunc_func_ch(self, period: str) -> str:
         if period == "Hour":
             return PERIOD_TRUNC_HOUR
         elif period == "Week":

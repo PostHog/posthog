@@ -1,3 +1,4 @@
+import datetime
 import random
 import string
 from datetime import timedelta
@@ -26,7 +27,7 @@ class Retention(BaseQuery):
 
         if period == "Hour":
             date_to = filter.date_to if filter.date_to else now()
-            date_from = date_to - tdelta
+            date_from: datetime.datetime = date_to - tdelta
         elif period == "Week":
             date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
             date_from = date_to - tdelta
@@ -44,9 +45,17 @@ class Retention(BaseQuery):
             else filter.target_entity
         )
 
-        return filter, entity
+        # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
+        return filter, entity, date_from, date_to
 
-    def process_result(self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: Filter, total_intervals: int):
+    def process_result(
+        self,
+        resultset: Dict[Tuple[int, int], Dict[str, Any]],
+        filter: Filter,
+        date_from: datetime.datetime,
+        total_intervals: int,
+    ):
+
         result = [
             {
                 "values": [
@@ -54,14 +63,21 @@ class Retention(BaseQuery):
                     for day in range(total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": (filter.date_from + self.determineTimedelta(first_day, filter.period)[0]),
+                "date": (date_from + self.determineTimedelta(first_day, filter.period)[0]),
             }
             for first_day in range(total_intervals)
         ]
 
         return result
 
-    def _execute_sql(self, filter: Filter, target_entity: Entity, team: Team) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _execute_sql(
+        self,
+        filter: Filter,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        target_entity: Entity,
+        team: Team,
+    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
         period = filter.period
         events: QuerySet = QuerySet()
@@ -92,9 +108,7 @@ class Retention(BaseQuery):
             event_query=event_query, reference_event_query=reference_event_query, fields=fields
         )
 
-        start_params = (
-            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
-        )
+        start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -139,9 +153,9 @@ class Retention(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         total_intervals = kwargs.get("total_intervals", 11)
-        filter, entity = self.preprocess_params(filter, total_intervals)
-        resultset = self._execute_sql(filter, entity, team)
-        result = self.process_result(resultset, filter, total_intervals)
+        filter, entity, date_from, date_to = self.preprocess_params(filter, total_intervals)
+        resultset = self._execute_sql(filter, date_from, date_to, entity, team)
+        result = self.process_result(resultset, filter, date_from, total_intervals)
         return result
 
     def determineTimedelta(
