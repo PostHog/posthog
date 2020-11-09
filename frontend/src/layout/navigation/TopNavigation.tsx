@@ -13,8 +13,10 @@ import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
+import { hot } from 'react-hot-loader/root'
 
-export function TopNavigation(): JSX.Element {
+export const TopNavigation = hot(_TopNavigation)
+export function _TopNavigation(): JSX.Element {
     const { setMenuCollapsed, setChangelogModalOpen, updateCurrentOrganization, updateCurrentProject } = useActions(
         navigationLogic
     )
