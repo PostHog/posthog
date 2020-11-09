@@ -39,7 +39,14 @@ from posthog.models import (
 )
 from posthog.utils import append_data
 
-from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
+from .base import (
+    BaseQuery,
+    convert_to_comparison,
+    determine_compared_filter,
+    filter_events,
+    handle_compare,
+    process_entity_for_events,
+)
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
 
@@ -235,18 +242,28 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
 
 class Trends(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        if filter.interval is None:
-            filter.interval = "day"
+        if filter.breakdown:
+            result = self._serialize_breakdown(entity, filter, team_id)
+        else:
+            result = self._format_normal_query(entity, filter, team_id)
 
-        serialized: Dict[str, Any] = {
-            "action": entity.to_dict(),
-            "label": entity.name,
-            "count": 0,
-            "data": [],
-            "labels": [],
-            "days": [],
-        }
-        response = []
+        serialized_data = self._format_serialized(entity, result)
+
+        if filter.display == TRENDS_CUMULATIVE:
+            serialized_data = self._handle_cumulative(serialized_data)
+
+        return serialized_data
+
+    def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+        events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
+        events = events.filter(filter_events(team_id, filter, entity))
+        items = aggregate_by_interval(filtered_events=events, team_id=team_id, entity=entity, filter=filter,)
+        formatted_entities: List[Dict[str, Any]] = []
+        for _, item in items.items():
+            formatted_entities.append(append_data(dates_filled=list(item.items()), interval=filter.interval))
+        return formatted_entities
+
+    def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
         items = aggregate_by_interval(
@@ -256,17 +273,32 @@ class Trends(BaseQuery):
             filter=filter,
             breakdown="properties__{}".format(filter.breakdown) if filter.breakdown else None,
         )
+        formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
-            new_dict = copy.deepcopy(serialized)
+            new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            new_dict.update(append_data(dates_filled=list(item.items()), interval=filter.interval))
-            response.append(new_dict)
+            formatted_entities.append(new_dict)
+        return formatted_entities
 
-        if filter.display == TRENDS_CUMULATIVE:
-            response = self._handle_cumulative(response)
+    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+        serialized_data = []
 
-        return response
+        serialized: Dict[str, Any] = {
+            "action": entity.to_dict(),
+            "label": entity.name,
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [],
+        }
+
+        for queried_metric in result:
+            serialized_copy = copy.deepcopy(serialized)
+            serialized_copy.update(queried_metric)
+            serialized_data.append(serialized_copy)
+
+        return serialized_data
 
     def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
         for metrics in entity_metrics:
@@ -278,8 +310,8 @@ class Trends(BaseQuery):
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-        entities_list = []
 
+        # format default dates
         if not filter.date_from:
             filter._date_from = (
                 Event.objects.filter(team_id=team_id)
@@ -290,18 +322,23 @@ class Trends(BaseQuery):
         if not filter.date_to:
             filter._date_to = now().isoformat()
 
+        result = []
         for entity in filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                try:
-                    db_action = [action for action in actions if action.id == entity.id][0]
-                    entity.name = db_action.name
-                except IndexError:
-                    continue
-            entities_list.extend(
-                handle_compare(entity=entity, filter=filter, func=self._serialize_entity, team_id=team_id)
-            )
+            if filter.compare:
+                compare_filter = determine_compared_filter(filter=filter)
+                entity_result = self._serialize_entity(entity, filter, team_id)
+                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
+                result.extend(entity_result)
+                previous_entity_result = self._serialize_entity(entity, compare_filter, team_id)
+                previous_entity_result = convert_to_comparison(
+                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
+                )
+                result.extend(previous_entity_result)
+            else:
+                entity_result = self._serialize_entity(entity, filter, team_id)
+                result.extend(entity_result)
 
-        return entities_list
+        return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_trends(filter, team.pk)
