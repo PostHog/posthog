@@ -54,15 +54,17 @@ class Stickiness(BaseQuery):
         aggregated_query = "select count(v.person_id), v.day_count from ({}) as v group by v.day_count".format(
             events_sql
         )
-        aggregated_counts = execute_custom_sql(aggregated_query, events_sql_params)
+        counts = execute_custom_sql(aggregated_query, events_sql_params)
+        return self.process_result(counts, range_days)
+
+    def process_result(self, counts: List, range_days: int) -> Dict[str, Any]:
 
         response: Dict[int, int] = {}
-        for result in aggregated_counts:
+        for result in counts:
             response[result[1]] = result[0]
 
         labels = []
         data = []
-
         for day in range(1, range_days):
             label = "{} day{}".format(day, "s" if day > 1 else "")
             labels.append(label)

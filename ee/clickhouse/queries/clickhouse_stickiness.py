@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.utils import timezone
 
@@ -53,23 +53,5 @@ class ClickhouseStickiness(Stickiness):
                 filters=prop_filters if filter.properties else "",
             )
 
-        aggregated_counts = sync_execute(content_sql, params)
-
-        response: Dict[int, int] = {}
-        for result in aggregated_counts:
-            response[result[1]] = result[0]
-
-        labels = []
-        data = []
-
-        for day in range(1, range_days):
-            label = "{} day{}".format(day, "s" if day > 1 else "")
-            labels.append(label)
-            data.append(response[day] if day in response else 0)
-
-        return {
-            "labels": labels,
-            "days": [day for day in range(1, range_days)],
-            "data": data,
-            "count": sum(data),
-        }
+        counts = sync_execute(content_sql, params)
+        return self.process_result(counts, range_days)
