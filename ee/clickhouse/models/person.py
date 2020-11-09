@@ -75,7 +75,7 @@ def create_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
