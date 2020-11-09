@@ -16,7 +16,7 @@ class CacheType(str, Enum):
     FUNNEL = "Funnel"
 
 
-def cached_function(cache_type: str, expiry_seconds: int = 30):
+def cached_function(cache_type: CacheType, expiry_seconds: int = 30):
     def parameterized_decorator(f: Callable):
         @wraps(f)
         def wrapper(request: HttpRequest, pk: Optional[Any] = None, *args, **kwargs):
