@@ -117,7 +117,7 @@ function _MainNavigation(): JSX.Element {
                     <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" />
                     <div className="divider" />
                     <MenuItem
-                        title="Feat Flags"
+                        title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
                         to="/feature_flags"
