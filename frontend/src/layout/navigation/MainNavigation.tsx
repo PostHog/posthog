@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useRef, useState } from 'react'
 import { Layout, Modal } from 'antd'
-import { ProjectFilled, ApiFilled, ClockCircleFilled } from '@ant-design/icons'
+import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -11,6 +11,7 @@ import smLogo from 'public/icon-white.svg'
 import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
+    IconActions,
     IconCohorts,
     IconDashboard,
     IconEvents,
@@ -66,13 +67,23 @@ export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
     const { menuCollapsed, toolbarModalOpen } = useValues(navigationLogic)
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
+    const [canScroll, setCanScroll] = useState(true)
+    const navRef = useRef<HTMLDivElement | null>(null)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
+
+    const handleNavScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        const target = e.target as HTMLDivElement
+        setCanScroll(target.scrollHeight > target.offsetHeight + target.scrollTop + 60) // 60px of offset tolerance
+    }
+
+    const scrollToBottom = (): void => {
+        navRef.current?.scrollTo(0, navRef.current?.scrollHeight)
+    }
 
     return (
         <>
             <div className={`navigation-mobile-overlay${!menuCollapsed ? ' open' : ''}`} onClick={collapseMenu} />
-
             <Layout.Sider
                 breakpoint="lg"
                 collapsedWidth={0}
@@ -85,7 +96,7 @@ function _MainNavigation(): JSX.Element {
                 }}
                 className="navigation-main"
             >
-                <div className="navigation-inner">
+                <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
                         <img src={smLogo} className="logo-sm" alt="" />
                         <img src={lgLogo} className="logo-lg" alt="" />
@@ -99,6 +110,7 @@ function _MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" />
+                    <MenuItem title="Actions" icon={<IconActions />} identifier="actions" to="/actions" />
                     <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
                     <div className="divider" />
                     <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
@@ -126,6 +138,9 @@ function _MainNavigation(): JSX.Element {
                         to=""
                         onClick={() => setToolbarModalOpen(true)}
                     />
+                    <div className={`scroll-indicator ${canScroll ? '' : 'hide'}`} onClick={scrollToBottom}>
+                        <DownOutlined />
+                    </div>
                 </div>
             </Layout.Sider>
 

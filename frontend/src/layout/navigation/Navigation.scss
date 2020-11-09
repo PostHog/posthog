@@ -30,6 +30,7 @@ $top_nav_height: 50px;
         height: 100%;
         overflow: scroll;
         padding-bottom: 32px;
+        scroll-behavior: smooth;
     }
 
     .nav-logo {
@@ -128,6 +129,27 @@ $top_nav_height: 50px;
     &.ant-layout-sider-zero-width {
         .navigation-inner {
             position: inherit;
+        }
+    }
+
+    .scroll-indicator {
+        position: fixed;
+        bottom: 16px;
+        left: 30px;
+        background-color: $warning;
+        color: #fff;
+        padding: 0 4px;
+        cursor: pointer;
+        border-radius: $radius;
+        transition: opacity 0.5s;
+        @extend .mixin-elevated;
+
+        @media (max-width: 991px) {
+            display: none;
+        }
+
+        &.hide {
+            opacity: 0;
         }
     }
 }

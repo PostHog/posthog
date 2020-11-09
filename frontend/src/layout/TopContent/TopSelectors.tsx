@@ -1,7 +1,7 @@
 // DEPRECATED in favor of TopNavigation.tsx & navigationLogic.ts
-import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { Alert, Button, Dropdown, Input, Menu, Modal } from 'antd'
+import { Button, Dropdown, Menu } from 'antd'
 import {
     ProjectOutlined,
     SmileOutlined,
@@ -13,7 +13,6 @@ import {
 } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { red } from '@ant-design/colors'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Link } from 'lib/components/Link'

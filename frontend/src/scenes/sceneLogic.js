@@ -14,6 +14,7 @@ export const scenes = {
     insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
+    eventsActions: () => import(/* webpackChunkName: 'eventsActions' */ './events/EventsActions'),
     sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
