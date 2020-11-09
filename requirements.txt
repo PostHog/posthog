@@ -61,6 +61,7 @@ ptyprocess==0.6.0
 pycparser==2.20
 PyJWT==1.7.1
 pyparsing==2.4.6
+PyPika==0.43.1
 python-dateutil==2.8.1
 python-statsd==2.1.0
 python3-openid==3.1.0
