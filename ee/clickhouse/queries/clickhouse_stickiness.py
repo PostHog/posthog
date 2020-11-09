@@ -1,7 +1,4 @@
-import copy
-from typing import Any, Dict, List, Optional, Tuple
-
-from django.utils import timezone
+from typing import Any, Dict, Optional
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -13,14 +10,11 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
-from posthog.queries.base import BaseQuery
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import relative_date_parse
 
 
 class ClickhouseStickiness(Stickiness):
-    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Optional[Dict[str, Any]]:
+    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
         if not filter.date_to or not filter.date_from:
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
@@ -34,7 +28,7 @@ class ClickhouseStickiness(Stickiness):
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
             if action_query == "":
-                return None
+                return {}
 
             params = {**params, **action_params}
             content_sql = STICKINESS_ACTIONS_SQL.format(

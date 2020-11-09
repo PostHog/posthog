@@ -2,9 +2,8 @@ import copy
 from typing import Any, Dict, List
 
 from django.db import connection
-from django.db.models import Count, QuerySet, functions
+from django.db.models import Count, functions
 from django.utils import timezone
-from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Event, Filter, Team
