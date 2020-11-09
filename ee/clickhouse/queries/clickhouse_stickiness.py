@@ -34,17 +34,17 @@ class ClickhouseStickiness(Stickiness):
             content_sql = STICKINESS_ACTIONS_SQL.format(
                 team_id=team_id,
                 actions_query=action_query,
-                parsed_date_from=(parsed_date_from or ""),
-                parsed_date_to=(parsed_date_to or ""),
-                filters=prop_filters if filter.properties else "",
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                filters=prop_filters,
             )
         else:
             content_sql = STICKINESS_SQL.format(
                 team_id=team_id,
                 event=entity.id,
-                parsed_date_from=(parsed_date_from or ""),
-                parsed_date_to=(parsed_date_to or ""),
-                filters=prop_filters if filter.properties else "",
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                filters=prop_filters,
             )
 
         counts = sync_execute(content_sql, params)
