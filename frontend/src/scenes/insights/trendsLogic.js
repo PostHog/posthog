@@ -100,6 +100,9 @@ function parsePeopleParams(peopleParams, filters) {
     if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
     }
+    if (action.properties) {
+        params.properties = [...params.properties, ...action.properties]
+    }
 
     return toAPIParams(params)
 }
