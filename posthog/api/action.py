@@ -40,7 +40,7 @@ from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
-from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
+from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
     ActionStep,
@@ -195,7 +195,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         result = self._calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=TRENDS_ENDPOINT)
+    @cached_function(cache_type=CacheType.TRENDS)
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
@@ -248,7 +248,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     return Response(result)
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
-        task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+        task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
