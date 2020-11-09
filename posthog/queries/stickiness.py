@@ -36,6 +36,15 @@ class Stickiness(BaseQuery):
         return response
 
     def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
+
+        if not filter.date_from:
+            filter._date_from = (
+                Event.objects.filter(team_id=team_id)
+                .order_by("timestamp")[0]
+                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+            )
+
         if not filter.date_to or not filter.date_from:
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
