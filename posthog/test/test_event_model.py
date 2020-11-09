@@ -625,3 +625,21 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 1)
+
+    def test_asterisk_in_query(self):
+        # Sometimes people randomly add * but they don't do very much, so just remove them
+        selector1 = Selector("div > *")
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+        self.assertEqual(len(selector1.parts), 1)
+
+    def test_asterisk_in_middle_of_query(self):
+        selector1 = Selector("div > * > div")
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, False)
+        self.assertEqual(selector1.parts[1].unique_order, 1)
