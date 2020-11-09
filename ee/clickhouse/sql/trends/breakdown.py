@@ -32,7 +32,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             UNION ALL 
             SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
             FROM 
-            events e {event_join} {conditions}
+            events e {event_join} {breakdown_filter}
             GROUP BY day_start
         )
     ) 
