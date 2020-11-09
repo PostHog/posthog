@@ -24,13 +24,12 @@ export const pathOptionsToProperty = {
     [`${CUSTOM_EVENT}`]: 'custom_event',
 }
 
-function cleanPathParams(filters, properties) {
+function cleanPathParams(filters) {
     return {
         start_point: filters.start_point,
-        path_type: filters.path_type,
+        path_type: filters.path_type || '$pageview',
         date_from: filters.date_from,
         date_to: filters.date_to,
-        properties: properties,
         insight: ViewType.PATHS,
     }
 }
@@ -53,18 +52,20 @@ export const pathsLogic = kea({
             },
         ],
     }),
-    reducers: () => ({
+    reducers: ({ props }) => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
-            {
-                path_type: '$pageview',
-            },
+            props.filters
+                ? cleanPathParams(props.filters)
+                : (state) => cleanPathParams(router.selectors.searchParams(state)),
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
             },
         ],
         properties: [
-            [],
+            props.filters
+                ? props.filters.properties || []
+                : (state) => router.selectors.searchParams(state).properties || [],
             {
                 setProperties: (_, { properties }) => properties,
             },
@@ -77,13 +78,13 @@ export const pathsLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
-            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
-            actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
         setFilter: () => {
             actions.loadPaths()
-            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
-            actions.createInsight(cleanPathParams(values.filter, values.properties))
+        },
+        loadPaths: () => {
+            actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
+            actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
         },
     }),
     selectors: {
@@ -133,34 +134,23 @@ export const pathsLogic = kea({
     },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl]
         },
         setFilter: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl]
         },
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.PATHS) {
-                try {
-                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                    if (router.values.location.pathname !== values.initialPathname) {
-                        return
-                    }
-                } catch (error) {
-                    // since this is a catch-all route, this code might run during or after the logic was unmounted
-                    // if we have an error accessing the filter value, the logic is gone and we should return
-                    return
+                const cleanedPathParams = cleanPathParams(searchParams)
+
+                if (!objectsEqual(cleanedPathParams, values.filter)) {
+                    actions.setFilter(cleanedPathParams)
                 }
 
                 if (!objectsEqual(searchParams.properties || [], values.properties)) {
                     actions.setProperties(searchParams.properties || [])
-                }
-
-                const { insight: _, properties: __, ...restParams } = searchParams // eslint-disable-line
-
-                if (!objectsEqual(restParams, values.filter)) {
-                    actions.setFilter(restParams)
                 }
             }
         },

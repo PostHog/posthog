@@ -148,7 +148,7 @@ export const trendsLogic = kea({
     }),
 
     actions: () => ({
-        setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
+        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
@@ -299,9 +299,8 @@ export const trendsLogic = kea({
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
                     cleanSearchParams['session'] = 'avg'
                 }
-
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
-                    actions.setFilters(cleanSearchParams, false, true)
+                    actions.setFilters(cleanSearchParams, false)
                 }
             }
         },

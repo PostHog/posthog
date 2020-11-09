@@ -7,6 +7,7 @@ import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { AUTOCAPTURE, PAGEVIEW, pathsLogic } from 'scenes/paths/pathsLogic'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -76,16 +77,19 @@ function NoData() {
     )
 }
 
-export function Paths() {
+export function Paths({ dashboardItemId = null, filters = null }) {
     const canvas = useRef(null)
-    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(pathsLogic)
+    const size = useWindowSize()
+    const { paths, loadedFilter, loadedPathsLoading: pathsLoading } = useValues(
+        pathsLogic({ dashboardItemId, filters })
+    )
 
     const [modalVisible, setModalVisible] = useState(false)
     const [event, setEvent] = useState(null)
 
     useEffect(() => {
         renderPaths()
-    }, [paths, !pathsLoading])
+    }, [paths, !pathsLoading, size])
 
     function renderPaths() {
         const elements = document.querySelectorAll('.paths svg')
@@ -235,12 +239,11 @@ export function Paths() {
             )}
             <div
                 style={{
-                    minHeight: '70vh',
                     position: 'relative',
                 }}
             >
                 {pathsLoading && <Loading />}
-                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                <div ref={canvas} className="paths" data-attr="paths-viz">
                     {paths && paths.nodes.length === 0 && <NoData />}
                 </div>
             </div>
