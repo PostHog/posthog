@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog import redis
 from posthog.settings import (
     CLICKHOUSE,
     CLICKHOUSE_ASYNC,
@@ -20,8 +21,6 @@ from posthog.settings import (
     PRIMARY_DB,
     TEST,
 )
-from posthog import redis
-
 
 CACHE_TTL = 60  # seconds
 
@@ -79,34 +78,16 @@ else:
         connections_max=100,
     )
 
-
     def cache_sync_execute(query, args=None):
         rc = redis.get_client()
         key = hashlib.md5(query + pickle.dumps(args))
         if rc.exists(key):
             result = pickle.loads(rc.get(key))
-            ts = result['__ts']
-            age = datetime.datetime.now() - ts
-            if age.seconds > CACHE_TTL:
-                return result['result']
-            else:
-                rc.delete(key)
-                result = sync_execute(query, args)
-                cache_result = {
-                    'result': result,
-                    '__ts': datetime.datetime.now()
-                }
-                rc.set(key, cache_result)
-                return result
+            return result
         else:
             result = sync_execute(query, args)
-            cache_result = {
-                'result': result,
-                '__ts': datetime.datetime.now()
-            }
-            rc.set(key, cache_result)
+            rc.set(key, result, ex=CACHE_TTL)
             return result
-
 
     def sync_execute(query, args=None):
         with ch_sync_pool.get_client() as client:
