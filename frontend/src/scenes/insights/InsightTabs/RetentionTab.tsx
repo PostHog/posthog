@@ -5,15 +5,18 @@ import { ActionFilterDropdown } from '../ActionFilter/ActionFilterDropdown'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions } from 'scenes/retention/retentionTableLogic'
+import { retentionTableLogic, dateOptions, retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { Button, DatePicker, Select } from 'antd'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
+    const returningNode = useRef()
     const [open, setOpen] = useState<boolean>(false)
-    const { filters, startEntity, selectedDate, period } = useValues(retentionTableLogic({ dashboardItemId: null }))
+    const [returningOpen, setReturningOpen] = useState<boolean>(false)
+    const { filters, startEntity, selectedDate, period, retentionType, returningEntity } = useValues(
+        retentionTableLogic({ dashboardItemId: null })
+    )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
-
     const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
             setFilters({ startEntity: filters })
@@ -24,9 +27,35 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
+    const entityLogicReturning = entityFilterLogic({
+        setFilters: (filters) => {
+            setFilters({ returningEntity: filters })
+            setReturningOpen(false)
+        },
+        filters: filters.returningEntity,
+        typeKey: 'retention-table-returning',
+        singleMode: true,
+    })
+
     return (
         <div data-attr="retention-tab">
-            <h4 className="secondary">Target Event</h4>
+            <h4 className="secondary">Retention Type</h4>
+            <div>
+                <Select
+                    value={retentionOptions[retentionType]}
+                    onChange={(value): void => setFilters({ retentionType: value })}
+                    dropdownMatchSelectWidth={false}
+                >
+                    {Object.entries(retentionOptions).map(([key, value]) => (
+                        <Select.Option key={key} value={key}>
+                            {value}
+                        </Select.Option>
+                    ))}
+                </Select>
+            </div>
+            <hr />
+            <h4 className="secondary">{retentionType === 'retention_first_time' ? 'First Event' : 'Target Event'}</h4>
+
             <Button ref={node} data-attr="retention-action" onClick={(): void => setOpen(!open)}>
                 {startEntity?.name || 'Select action'}
                 <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
@@ -41,6 +70,33 @@ export function RetentionTab(): JSX.Element {
                         setOpen(false)
                     }}
                 />
+            )}
+            {retentionType === 'retention_first_time' && (
+                <>
+                    <h4 style={{ marginTop: '0.5rem' }} className="secondary">
+                        {'Retained event'}
+                    </h4>
+
+                    <Button
+                        ref={returningNode}
+                        data-attr="retention-returning-action"
+                        onClick={(): void => setReturningOpen(!returningOpen)}
+                    >
+                        {returningEntity?.name || 'Select action'}
+                        <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+                    </Button>
+                    {returningOpen && (
+                        <ActionFilterDropdown
+                            logic={entityLogicReturning}
+                            onClickOutside={(e): void => {
+                                if (node.current.contains(e.target)) {
+                                    return
+                                }
+                                setReturningOpen(false)
+                            }}
+                        />
+                    )}
+                </>
             )}
             <hr />
             <h4 className="secondary">Filters</h4>

@@ -14,6 +14,14 @@ export const dateOptions = {
     m: 'Month',
 }
 
+const RETENTION_RECURRING = 'retention_recurring'
+const RETENTION_FIRST_TIME = 'retention_first_time'
+
+export const retentionOptions = {
+    [`${RETENTION_RECURRING}`]: 'Recurring',
+    [`${RETENTION_FIRST_TIME}`]: 'First Time',
+}
+
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
@@ -28,6 +36,10 @@ function cleanFilters(filters): any {
         startEntity: filters.startEntity || {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
+        returningEntity: filters.returningEntity || {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+        },
+        retentionType: filters.retentionType || RETENTION_RECURRING,
         selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
         period: filters.period || 'd',
     }
@@ -46,6 +58,15 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
+                if (values.retentionType) params['retention_type'] = values.retentionType
+                if (values.returningEntity) {
+                    params['actions'] = Array.isArray(values.filters.returningEntity.actions)
+                        ? values.filters.returningEntity.actions
+                        : []
+                    params['events'] = Array.isArray(values.filters.returningEntity.events)
+                        ? values.filters.returningEntity.events
+                        : []
+                }
                 const urlParams = toParams(params)
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
@@ -97,7 +118,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
                       selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
+                      returningEntity: {
+                          events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                          actions: [],
+                      },
                       period: props.filters.period || 'd',
+                      retentionType: props.filters.retentionType || RETENTION_RECURRING,
                   }
                 : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
@@ -138,10 +164,26 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
+        returningEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters.returningEntity).reduce(function (r, k) {
+                    return r.concat(filters.returningEntity[k])
+                }, [])
+
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
+            },
+        ],
         selectedDate: [
             () => [selectors.filters],
             (filters) => {
                 return filters.selectedDate
+            },
+        ],
+        retentionType: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.retentionType
             },
         ],
         period: [
