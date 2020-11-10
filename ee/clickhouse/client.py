@@ -87,10 +87,8 @@ else:
         return result
 
 
-def format_sql(parameterized_sql, params):
-    params = {key: repr(value) for key, value in (params or {}).items()}
-    sql = parameterized_sql.replace("%(", "{").replace(")s", "}").format(**params)
-
+def format_sql(sql, params):
+    sql = ch_client.substitute_params(sql, params)
     sql = sqlparse.format(sql, reindent_aligned=True)
     try:
         import pygments.formatters
