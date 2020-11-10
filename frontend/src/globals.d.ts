@@ -1,7 +1,9 @@
-import { PostHog } from 'posthog-js'
+import posthog from 'posthog-js'
 
 declare global {
     interface Window {
-        posthog?: PostHog
+        JS_POSTHOG_API_KEY?: str
+        JS_POSTHOG_HOST?: str
+        posthog?: posthog
     }
 }

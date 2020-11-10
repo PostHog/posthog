@@ -60,6 +60,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEBUG = get_bool_from_env("DEBUG", False)
 TEST = "test" in sys.argv  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
+SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -512,3 +513,13 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler",},},
+    "root": {"handlers": ["console"], "level": "WARNING",},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
+    },
+}
