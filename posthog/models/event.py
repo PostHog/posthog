@@ -1,25 +1,16 @@
 import copy
 import datetime
-import random
 import re
-import string
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import celery
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
-from django.core.cache import cache
 from django.db import connection, models, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
-from django.db.models.functions import TruncDay
-from django.db.models.functions.datetime import TruncHour, TruncMonth, TruncWeek
 from django.forms.models import model_to_dict
 from django.utils import timezone
-
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models.entity import Entity
-from posthog.utils import generate_cache_key
 
 from .action import Action
 from .action_step import ActionStep
@@ -226,115 +217,6 @@ class EventManager(models.QuerySet):
         if order_by:
             events = events.order_by(order_by)
         return events
-
-    def query_retention(self, filter: Filter, team) -> dict:
-
-        period = filter.period
-        events: QuerySet = QuerySet()
-        entity = (
-            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-            if not filter.target_entity
-            else filter.target_entity
-        )
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
-
-        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
-
-        def _determineTrunc(subject: str, period: str) -> Tuple[Union[TruncHour, TruncDay, TruncWeek, TruncMonth], str]:
-            if period == "Hour":
-                fields = """
-                FLOOR(DATE_PART('day', first_date - %s) * 24 + DATE_PART('hour', first_date - %s)) AS first_date,
-                FLOOR(DATE_PART('day', timestamp - first_date) * 24 + DATE_PART('hour', timestamp - first_date)) AS date,
-                """
-                return TruncHour(subject), fields
-            elif period == "Day":
-                fields = """
-                FLOOR(DATE_PART('day', first_date - %s)) AS first_date,
-                FLOOR(DATE_PART('day', timestamp - first_date)) AS date,
-                """
-                return TruncDay(subject), fields
-            elif period == "Week":
-                fields = """
-                FLOOR(DATE_PART('day', first_date - %s) / 7) AS first_date,
-                FLOOR(DATE_PART('day', timestamp - first_date) / 7) AS date,
-                """
-                return TruncWeek(subject), fields
-            elif period == "Month":
-                fields = """
-                FLOOR((DATE_PART('year', first_date) - DATE_PART('year', %s)) * 12 + DATE_PART('month', first_date) - DATE_PART('month', %s)) AS first_date,
-                FLOOR((DATE_PART('year', timestamp) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', timestamp) - DATE_PART('month', first_date)) AS date,
-                """
-                return TruncMonth(subject), fields
-            else:
-                raise ValueError(f"Period {period} is unsupported.")
-
-        trunc, fields = _determineTrunc("timestamp", period)
-        first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
-
-        events_query, events_query_params = filtered_events.query.sql_with_params()
-        first_date_query, first_date_params = first_date.query.sql_with_params()
-
-        full_query = """
-            SELECT
-                {fields}
-                COUNT(DISTINCT "events"."person_id"),
-                array_agg(DISTINCT "events"."person_id") as people
-            FROM ({events_query}) events
-            LEFT JOIN ({first_date_query}) first_event_date
-              ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp >= first_date
-            GROUP BY date, first_date
-        """
-
-        full_query = full_query.format(events_query=events_query, first_date_query=first_date_query, fields=fields)
-
-        start_params = (
-            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                full_query, start_params + events_query_params + first_date_params,
-            )
-            data = namedtuplefetchall(cursor)
-
-            scores: dict = {}
-            for datum in data:
-                key = round(datum.first_date, 1)
-                if not scores.get(key, None):
-                    scores.update({key: {}})
-                for person in datum.people:
-                    if not scores[key].get(person, None):
-                        scores[key].update({person: 1})
-                    else:
-                        scores[key][person] += 1
-
-        by_dates = {}
-        for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
-
-            random_key = "".join(
-                random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
-            )
-            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
-            cache.set(
-                cache_key, people, 600,
-            )
-            by_dates.update(
-                {
-                    (int(row.first_date), int(row.date)): {
-                        "count": row.count,
-                        "people": people[0:100],
-                        "offset": 100,
-                        "next": cache_key if len(people) > 100 else None,
-                    }
-                }
-            )
-
-        return by_dates
 
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
