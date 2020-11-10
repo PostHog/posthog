@@ -17,7 +17,7 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { hot } from 'react-hot-loader/root'
 
 export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true, isLiveActions = false }) {
+function _EventsTable({ fixedFilters, filtersEnabled = true }) {
     const logic = eventsTableLogic({ fixedFilters })
     const {
         properties,
@@ -48,7 +48,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, isLiveActions = fal
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: isLiveActions ? 6 : 5,
+                            colSpan: 5,
                             style: {
                                 cursor: 'pointer',
                             },
@@ -144,19 +144,10 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, isLiveActions = fal
             },
         },
     ]
-    if (isLiveActions)
-        columns.splice(0, 0, {
-            title: 'Action',
-            key: 'action',
-            render: function renderAction(item) {
-                if (!item.event) return { props: { colSpan: 0 } }
-                return <Link to={'/action/' + item.event.actionId}>{item.event.actionName}</Link>
-            },
-        })
 
     return (
         <div className="events" data-attr="events-table">
-            {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
+            {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
                     type="default"

@@ -57,7 +57,6 @@ const sceneOverride = {
 // to show the open submenu
 const submenuOverride = {
     actions: 'events',
-    liveActions: 'events',
     sessions: 'events',
     cohorts: 'persons',
     projectSettings: 'settings',
