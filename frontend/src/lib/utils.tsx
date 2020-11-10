@@ -446,10 +446,17 @@ export function humanizeNumber(number: number, digits: number = 1): string {
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {
-    const descriptionAdjusted = description ? description.trim() + ' ' : ''
+    const descriptionAdjusted = description
+        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
+        : ''
     try {
         navigator.clipboard.writeText(value)
-        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
+        toast(
+            <div>
+                <h1 className="text-success">Copied to clipboard!</h1>
+                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+            </div>
+        )
         return true
     } catch (e) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
