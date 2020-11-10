@@ -2,12 +2,15 @@ import asyncio
 import datetime
 import hashlib
 import pickle
+from time import time
 from typing import Any
 
+import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+from django.conf import settings
 
 from posthog import redis
 from posthog.settings import (
@@ -22,6 +25,7 @@ from posthog.settings import (
     PRIMARY_DB,
     TEST,
 )
+
 
 CACHE_TTL = 60  # seconds
 
@@ -95,11 +99,33 @@ else:
             return result
 
     def sync_execute(query, args=None):
-        with ch_sync_pool.get_client() as client:
-            result = client.execute(query, args)
+        start_time = time()
+        try:
+            with ch_sync_pool.get_client() as client:
+                result = client.execute(query, args)
+        finally:
+            execution_time = time() - start_time
+            if settings.SHELL_PLUS_PRINT_SQL:
+                print(format_sql(query, args))
+                print("Execution time: %.6fs" % (execution_time,))
         return result
 
 
 def _key_hash(query: str, args: Any) -> bytes:
     key = hashlib.md5(query.encode("utf-8") + pickle.dumps(args)).digest()
     return key
+
+  
+def format_sql(sql, params):
+    sql = ch_client.substitute_params(sql, params)
+    sql = sqlparse.format(sql, reindent_aligned=True)
+    try:
+        import pygments.formatters
+        import pygments.lexers
+
+        sql = pygments.highlight(sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter())
+    except:
+        pass
+
+    return sql
+

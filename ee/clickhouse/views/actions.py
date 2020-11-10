@@ -2,6 +2,7 @@
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
@@ -65,12 +66,17 @@ class ClickhouseActions(ActionViewSet):
             entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
 
         # adhoc date handling. parsed differently with django orm
+        date_from = filter.date_from or timezone.now()
         if filter.interval == "month":
-            filter._date_to = (
-                timezone.now()
-                if not filter.date_from
-                else (filter.date_from + timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
-            )
+            filter._date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        elif filter.interval == "week":
+            filter._date_to = date_from + relativedelta(weeks=1)
+        elif filter.interval == "day":
+            filter._date_to = date_from + relativedelta(day=1)
+        elif filter.interval == "hour":
+            filter._date_to = date_from + relativedelta(hours=1)
+        elif filter.interval == "minute":
+            filter._date_to = date_from + relativedelta(minutes=1)
 
         current_url = request.get_full_path()
 

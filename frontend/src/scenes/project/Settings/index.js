@@ -15,7 +15,6 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
@@ -24,7 +23,6 @@ function _Setup() {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -97,26 +95,19 @@ function _Setup() {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
-                    <>
-                        <h2 id="sessionrecording" className="subtitle">
-                            Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
-                        </h2>
-                        <p>
-                            Watch sessions replays to see how users interact with your app and find out what can be
-                            improved.
-                        </p>
-                        <OptInSessionRecording />
-                        <br />
-                        <p>
-                            This is a new feature of PostHog. Please{' '}
-                            <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                                share feedback
-                            </a>{' '}
-                            with us!
-                        </p>
-                    </>
-                )}
+                <h2 id="sessionrecording" className="subtitle">
+                    Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
+                </h2>
+                <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
+                <OptInSessionRecording />
+                <br />
+                <p>
+                    This is a new feature of PostHog. Please{' '}
+                    <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
+                        share feedback
+                    </a>{' '}
+                    with us!
+                </p>
             </Card>
         </div>
     )

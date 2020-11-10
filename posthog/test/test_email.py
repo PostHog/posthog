@@ -125,7 +125,7 @@ class TestEmail(TestCase):
             "http://localhost:9999/static/posthog-logo.png", html_message,
         )  # absolute URLs are used
 
-        self.assertIn('style="font-weight: 300"', html_message)  # CSS is inlined
+        self.assertIn('style="font-weight: 600"', html_message)  # CSS is inlined
 
         self.assertIn(
             "Your PostHog weekly report is ready! Your team had 6 active users last week! &#127881;", html_message,
