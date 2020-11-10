@@ -6,8 +6,6 @@ import {
     SmileOutlined,
     TeamOutlined,
     SendOutlined,
-    DeploymentUnitOutlined,
-    CloudServerOutlined,
     UserOutlined,
     RiseOutlined,
     UsergroupAddOutlined,
@@ -60,14 +58,14 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'persons',
-    projectSettings: 'project',
-    plugins: 'project',
-    organizationSettings: 'organization',
-    organizationMembers: 'organization',
-    organizationInvites: 'organization',
-    billing: 'organization',
-    instanceStatus: 'instance',
-    instanceLicenses: 'instance',
+    projectSettings: 'settings',
+    plugins: 'settings',
+    organizationSettings: 'settings',
+    organizationMembers: 'settings',
+    organizationInvites: 'settings',
+    billing: 'settings',
+    instanceStatus: 'settings',
+    instanceLicenses: 'settings',
 }
 
 export const Sidebar = hot(_Sidebar)
@@ -212,52 +210,38 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.Item>
 
                     <Menu.SubMenu
-                        key="project"
+                        key="settings"
                         title={
                             <span style={itemStyle} data-attr="menu-item-project">
                                 <ProjectOutlined />
-                                <span className="sidebar-label">Project</span>
+                                <span className="sidebar-label">Settings</span>
                             </span>
                         }
                         onTitleClick={() => {
                             collapseSidebar()
-                            if (location.pathname !== '/project/settings') push('/project/settings')
+                            location.pathname !== '/project/settings' && push('/project/settings')
                         }}
                     >
                         <Menu.Item key="projectSettings" style={itemStyle} data-attr="menu-item-project-settings">
                             <SettingOutlined />
-                            <span className="sidebar-label">Settings</span>
+                            <span className="sidebar-label">Project Settings</span>
                             <Link to={'/project/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
                         {user.plugin_access.configure && (
                             <Menu.Item key="plugins" style={itemStyle} data-attr="menu-item-plugins">
                                 <ApiOutlined />
-                                <span className="sidebar-label">Plugins</span>
+                                <span className="sidebar-label">Project Plugins</span>
                                 <Link to="/project/plugins" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
-                    </Menu.SubMenu>
 
-                    <Menu.SubMenu
-                        key="organization"
-                        title={
-                            <span style={itemStyle} data-attr="menu-item-organization">
-                                <DeploymentUnitOutlined />
-                                <span className="sidebar-label">Organization</span>
-                            </span>
-                        }
-                        onTitleClick={() => {
-                            collapseSidebar()
-                            if (location.pathname !== '/organization/members') push('/organization/members')
-                        }}
-                    >
                         <Menu.Item
                             key="organizationMembers"
                             style={itemStyle}
                             data-attr="menu-item-organization-members"
                         >
                             <TeamOutlined />
-                            <span className="sidebar-label">Members</span>
+                            <span className="sidebar-label">Team Members</span>
                             <Link to={'/organization/members'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item
@@ -277,46 +261,28 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <Link to="/organization/billing" onClick={collapseSidebar} />
                             </Menu.Item>
                         )}
-                    </Menu.SubMenu>
 
-                    {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
-                        <Menu.SubMenu
-                            key="instance"
-                            title={
-                                <span style={itemStyle} data-attr="menu-item-instance">
-                                    <CloudServerOutlined />
-                                    <span className="sidebar-label">Instance</span>
-                                </span>
-                            }
-                            onTitleClick={() => {
-                                collapseSidebar()
-                                if (location.pathname !== '/instance/status') push('/instance/status')
-                            }}
-                        >
+                        {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
                             <Menu.Item key="instanceStatus" style={itemStyle} data-attr="menu-item-instance-status">
                                 <DatabaseOutlined />
                                 <span className="sidebar-label">System Status</span>
                                 <Link to={'/instance/status'} onClick={collapseSidebar} />
                             </Menu.Item>
+                        )}
 
-                            {user.ee_available && (
-                                <Menu.Item
-                                    key="instanceLicenses"
-                                    style={itemStyle}
-                                    data-attr="menu-item-instance-licenses"
-                                >
-                                    <LockOutlined />
-                                    <span className="sidebar-label">Licenses</span>
-                                    <Link to={'/instance/licenses'} onClick={collapseSidebar} />
-                                </Menu.Item>
-                            )}
-                        </Menu.SubMenu>
-                    )}
-                    <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
-                        <SmileOutlined />
-                        <span className="sidebar-label">Me</span>
-                        <Link to={'/me/settings'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                        {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && user.ee_available && (
+                            <Menu.Item key="instanceLicenses" style={itemStyle} data-attr="menu-item-instance-licenses">
+                                <LockOutlined />
+                                <span className="sidebar-label">Licenses</span>
+                                <Link to={'/instance/licenses'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
+                        <Menu.Item key="mySettings" style={itemStyle} data-attr="menu-item-my-settings">
+                            <SmileOutlined />
+                            <span className="sidebar-label">Me</span>
+                            <Link to={'/me/settings'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                    </Menu.SubMenu>
                 </Menu>
 
                 <Modal
