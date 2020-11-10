@@ -88,7 +88,7 @@ else:
 
 
 def format_sql(sql, params):
-    sql = ch_client.substitute_params(sql, params)
+    sql = ch_client.substitute_params(sql, params or {})
     sql = sqlparse.format(sql, reindent_aligned=True)
     try:
         import pygments.formatters
