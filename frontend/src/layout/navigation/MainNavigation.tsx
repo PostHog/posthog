@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import { Layout, Modal } from 'antd'
 import { ProjectFilled, ApiFilled, ClockCircleFilled, DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -67,19 +67,27 @@ export const MainNavigation = hot(_MainNavigation)
 function _MainNavigation(): JSX.Element {
     const { menuCollapsed, toolbarModalOpen } = useValues(navigationLogic)
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen } = useActions(navigationLogic)
-    const [canScroll, setCanScroll] = useState(true)
     const navRef = useRef<HTMLDivElement | null>(null)
+    const [canScroll, setCanScroll] = useState(false)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
+    const calcCanScroll = (target: HTMLDivElement | null): boolean => {
+        return !!target && target.scrollHeight > target.offsetHeight + target.scrollTop + 60 // 60px of offset tolerance
+    }
+
     const handleNavScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         const target = e.target as HTMLDivElement
-        setCanScroll(target.scrollHeight > target.offsetHeight + target.scrollTop + 60) // 60px of offset tolerance
+        setCanScroll(calcCanScroll(target))
     }
 
     const scrollToBottom = (): void => {
         navRef.current?.scrollTo(0, navRef.current?.scrollHeight)
     }
+
+    useEffect(() => {
+        setCanScroll(calcCanScroll(navRef.current))
+    }, [navRef])
 
     return (
         <>
