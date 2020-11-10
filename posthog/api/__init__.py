@@ -41,7 +41,6 @@ def api_not_found(request):
 
 router = DefaultRouterPlusPlus()
 router.register(r"annotation", annotation.AnnotationsViewSet)
-router.register(r"element", element.ElementViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
@@ -68,6 +67,7 @@ organizations_router.register(
 if check_ee_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActions
+        from ee.clickhouse.views.element import ClickhouseElement
         from ee.clickhouse.views.events import ClickhouseEvents
         from ee.clickhouse.views.insights import ClickhouseInsights
         from ee.clickhouse.views.paths import ClickhousePathsViewSet
@@ -81,6 +81,7 @@ if check_ee_enabled():
     router.register(r"insight", ClickhouseInsights, basename="insight")
     router.register(r"person", ClickhousePerson, basename="person")
     router.register(r"paths", ClickhousePathsViewSet, basename="paths")
+    router.register(r"element", ClickhouseElement, basename="element")
 
 else:
     router.register(r"insight", insight.InsightViewSet)
@@ -88,3 +89,4 @@ else:
     router.register(r"person", person.PersonViewSet)
     router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")
+    router.register(r"element", element.ElementViewSet)
