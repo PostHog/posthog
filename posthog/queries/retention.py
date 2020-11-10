@@ -9,9 +9,10 @@ from django.core.cache import cache
 from django.db import connection
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.utils.timezone import now
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.utils import namedtuplefetchall
@@ -24,6 +25,8 @@ class Retention(BaseQuery):
         period = filter.period or "Day"
         tdelta, t1 = self.determineTimedelta(total_intervals, period)
         filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
+
+        first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
 
         if period == "Hour":
             date_to = filter.date_to if filter.date_to else now()
@@ -45,8 +48,18 @@ class Retention(BaseQuery):
             else filter.target_entity
         )
 
+        returning_entity = (
+            (
+                Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+                if not len(filter.entities) > 0
+                else filter.entities[0]
+            )
+            if first_time_retention
+            else entity
+        )
+
         # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
-        return filter, entity, date_from, date_to
+        return filter, entity, returning_entity, first_time_retention, date_from, date_to
 
     def process_result(
         self,
@@ -76,20 +89,37 @@ class Retention(BaseQuery):
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         target_entity: Entity,
+        returning_entity: Entity,
+        is_first_time_retention: bool,
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
         period = filter.period
         events: QuerySet = QuerySet()
 
-        if target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=target_entity.id, team_id=team.id)
-        elif target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=target_entity.id).add_person_id(team.id)
+        def get_entity_condition(entity: Entity) -> Q:
+            if entity.type == TREND_FILTER_TYPE_EVENTS:
+                return Q(event=entity.id)
+            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+                return Q(action__pk=entity.id)
+            else:
+                raise ValueError(f"Entity type not supported")
+
+        entity_condition = get_entity_condition(target_entity)
+        returning_condition = get_entity_condition(returning_entity)
+
+        events = (
+            Event.objects.filter(team_id=team.pk).filter(entity_condition | returning_condition).add_person_id(team.pk)
+        )
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
-        first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
+        first_date = (
+            filtered_events.filter(entity_condition)
+            .annotate(first_date=trunc)
+            .values("first_date", "person_id")
+            .distinct()
+        )
 
         event_query, events_query_params = filtered_events.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
@@ -153,8 +183,12 @@ class Retention(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         total_intervals = kwargs.get("total_intervals", 11)
-        filter, entity, date_from, date_to = self.preprocess_params(filter, total_intervals)
-        resultset = self._execute_sql(filter, date_from, date_to, entity, team)
+        filter, entity, returning_entity, is_first_time_retention, date_from, date_to = self.preprocess_params(
+            filter, total_intervals
+        )
+        resultset = self._execute_sql(
+            filter, date_from, date_to, entity, returning_entity, is_first_time_retention, team
+        )
         result = self.process_result(resultset, filter, date_from, total_intervals)
         return result
 

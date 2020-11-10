@@ -25,6 +25,8 @@ class ClickhouseRetention(Retention):
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         target_entity: Entity,
+        returning_entity: Entity,
+        is_first_time_retention: bool,
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
@@ -41,11 +43,28 @@ class ClickhouseRetention(Retention):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
+        target_query, target_params = self._get_condition(target_entity)
+        returning_query, returning_params = self._get_condition(
+            returning_entity, "returning" if is_first_time_retention else ""
+        )
+
+        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        returning_query_formatted = (
+            "AND ({target_query} OR {returning_query})".format(
+                target_query=target_query, returning_query=returning_query
+            )
+            if is_first_time_retention
+            else "AND {target_query}".format(target_query=target_query)
+        )
+
         trunc_func = self._get_trunc_func_ch(period)
 
         result = sync_execute(
             RETENTION_SQL.format(
-                target_query=target_query, filters=prop_filters if filter.properties else "", trunc_func=trunc_func,
+                target_query=target_query_formatted,
+                returning_query=returning_query_formatted,
+                filters=prop_filters if filter.properties else "",
+                trunc_func=trunc_func,
             ),
             {
                 "team_id": team.pk,
@@ -57,6 +76,7 @@ class ClickhouseRetention(Retention):
                 ),
                 **prop_filter_params,
                 **target_params,
+                **returning_params,
                 "period": period,
             },
         )
@@ -67,6 +87,19 @@ class ClickhouseRetention(Retention):
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
         return result_dict
+
+    def _get_condition(self, target_entity: Entity, prepend: str = "") -> Tuple[str, Dict]:
+        if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = Action.objects.get(pk=target_entity.id)
+            action_query, params = format_action_filter(action, prepend=prepend, use_loop=True)
+            condition = "e.uuid IN ({})".format(action_query)
+        elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
+            condition = "e.event = %({}_event)s".format(prepend)
+            params = {"{}_event".format(prepend): target_entity.id}
+        else:
+            condition = "e.event = %({}_event)s".format(prepend)
+            params = {"{}_event".format(prepend): "$pageview"}
+        return condition, params
 
     def _get_trunc_func_ch(self, period: str) -> str:
         if period == "Hour":

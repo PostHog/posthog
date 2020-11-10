@@ -11,7 +11,7 @@ FROM (
     pdi.person_id as person_id
     FROM events e join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
     where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
-    AND e.team_id = %(team_id)s {target_query} {filters}
+    AND e.team_id = %(team_id)s {returning_query} {filters}
 ) event
 JOIN (
     SELECT DISTINCT 
