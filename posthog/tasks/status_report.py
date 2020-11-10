@@ -35,35 +35,42 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     }
 
     for team in Team.objects.all():
-        team_report: Dict[str, Any] = {}
-        events_considered_total = Event.objects.filter(team_id=team.id)
-        events_considered_new_in_period = events_considered_total.filter(
-            timestamp__gte=period_start, timestamp__lte=period_end,
-        )
-        persons_considered_total = Person.objects.filter(team_id=team.id)
-        persons_considered_total_new_in_period = persons_considered_total.filter(
-            created_at__gte=period_start, created_at__lte=period_end,
-        )
-        team_report["events_count_total"] = events_considered_total.count()
-        team_report["events_count_new_in_period"] = events_considered_new_in_period.count()
-        team_report["persons_count_total"] = persons_considered_total.count()
-        team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
+        try:
+            team_report: Dict[str, Any] = {}
+            events_considered_total = Event.objects.filter(team_id=team.id)
+            events_considered_new_in_period = events_considered_total.filter(
+                timestamp__gte=period_start, timestamp__lte=period_end,
+            )
+            persons_considered_total = Person.objects.filter(team_id=team.id)
+            persons_considered_total_new_in_period = persons_considered_total.filter(
+                created_at__gte=period_start, created_at__lte=period_end,
+            )
+            team_report["events_count_total"] = events_considered_total.count()
+            team_report["events_count_new_in_period"] = events_considered_new_in_period.count()
+            team_report["persons_count_total"] = persons_considered_total.count()
+            team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
 
-        params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
+            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
 
-        team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
-        team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
-        team_report["events_count_by_name"] = fetch_events_count_by_name(params)
+            team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
+            team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
+            team_report["events_count_by_name"] = fetch_events_count_by_name(params)
 
-        report["teams"][team.id] = team_report
+            report["teams"][team.id] = team_report
+        except Exception as err:
+            capture_event("instance status report failure", {"error": str(err)}, dry_run=dry_run)
 
+    capture_event("instance status report", report, dry_run=dry_run)
+    return report
+
+
+def capture_event(name, report, dry_run):
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         disabled = posthoganalytics.disabled
         posthoganalytics.disabled = False
         posthoganalytics.capture(get_machine_id(), "instance status report", report)
         posthoganalytics.disabled = disabled
-    return report
 
 
 def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
