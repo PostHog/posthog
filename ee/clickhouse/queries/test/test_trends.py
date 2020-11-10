@@ -105,6 +105,64 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[1]["data"]), 1)
         self.assertEqual(response[1]["breakdown_value"], "other_value")
 
+    def test_breakdown_filtering_with_properties(self):
+        with freeze_time("2020-01-03T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Chrome", "$os": "Windows"},
+            )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Chrome", "$os": "Windows"},
+            )
+
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$current_url",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "$os", "value": "Mac"}],
+                            },
+                        ],
+                        "properties": [{"key": "$browser", "value": "Firefox"}],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up - second url")
+        self.assertEqual(response[1]["label"], "sign up - first url")
+
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "second url")
+
+        self.assertEqual(sum(response[1]["data"]), 1)
+        self.assertEqual(response[1]["breakdown_value"], "first url")
+
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):

@@ -214,6 +214,7 @@ class ClickhouseTrends(BaseQuery):
                 actions_query="AND {}".format(action_query) if action_query else "",
                 event_filter="AND event = %(event)s" if not action_query else "",
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+                filters="{filters}".format(filters=prop_filters) if props_to_filter else "",
             )
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 null_sql=null_sql,
@@ -251,6 +252,7 @@ class ClickhouseTrends(BaseQuery):
                 aggregate_operation=aggregate_operation,
                 interval_annotation=interval_annotation,
             )
+
         try:
             result = sync_execute(breakdown_query, params)
         except:
