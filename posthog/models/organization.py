@@ -163,7 +163,7 @@ class OrganizationInvite(UUIDModel):
         return self.created_at < timezone.now() - timezone.timedelta(3)
 
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}/"
+        return f"{settings.SITE_URL}/signup/{self.id}"
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

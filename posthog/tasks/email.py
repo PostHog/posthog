@@ -118,7 +118,7 @@ def send_invite(invite_id: str) -> None:
     ).get(id=invite_id)
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"{invite.created_by.first_name} invited you to PostHog organization {invite.organization.name}",
+        subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
         template_context={"invite": invite},
     )
