@@ -17,7 +17,7 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
-    are_invite_emails_available: boolean
+    email_available: boolean
 }
 
 export interface UserUpdateType {

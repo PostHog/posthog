@@ -163,8 +163,16 @@ style files without adding already imported styles. */
     background-color: $primary;
 }
 
+.text-success {
+    color: $success !important;
+}
+
 .text-danger {
     color: $danger !important;
+}
+
+.text-warning {
+    color: $warning !important;
 }
 
 // Random general styles

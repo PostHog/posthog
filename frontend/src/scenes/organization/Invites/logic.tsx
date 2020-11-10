@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from 'types/scenes/organization/invitesLogicType'
+import { copyToClipboard } from 'lib/utils'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({
@@ -17,12 +18,19 @@ export const invitesLogic = kea<invitesLogicType>({
                 const newInvite: OrganizationInviteType = await api.create('api/organizations/@current/invites/', {
                     target_email: targetEmail,
                 })
-                toast(
-                    <div className="text-success">
-                        <CheckCircleOutlined /> Invite for {targetEmail}{' '}
-                        {newInvite.emailing_attempt_made ? 'sent by email' : 'created'}!
-                    </div>
-                )
+
+                if (newInvite.emailing_attempt_made) {
+                    toast(
+                        <div>
+                            <h1>Invite sent!</h1>
+                            <p>{targetEmail} can now join PostHog by clicking the link on the sent email.</p>
+                        </div>
+                    )
+                } else {
+                    const inviteLink = new URL(`/signup/${newInvite.id}`, document.baseURI).href
+                    copyToClipboard(inviteLink, `invite link for ${targetEmail}`)
+                }
+
                 return [newInvite, ...values.invites]
             },
             deleteInvite: async (invite: OrganizationInviteType) => {
