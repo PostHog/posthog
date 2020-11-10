@@ -114,11 +114,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         filters: [
             props.filters
                 ? {
-                      startEntity: props.filters.target || {
+                      startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
                       selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
-                      returningEntity: {
+                      returningEntity: props.filters.returningEntity || {
                           events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                           actions: [],
                       },
@@ -208,8 +208,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
                 const cleanSearchParams = cleanFilters(searchParams)
-
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                const cleanedFilters = cleanFilters(values.filters)
+                if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
                     actions.setFilters(cleanSearchParams)
                 }
                 if (!objectsEqual(searchParams.properties, values.properties)) {

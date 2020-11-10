@@ -43,7 +43,6 @@ class Retention(BaseQuery):
 
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
-
         entity = (
             Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
             if not filter.target_entity
@@ -59,7 +58,6 @@ class Retention(BaseQuery):
             if first_time_retention
             else entity
         )
-
         # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
         return filter, entity, returning_entity, first_time_retention, date_from, date_to
 
@@ -110,18 +108,21 @@ class Retention(BaseQuery):
         entity_condition = get_entity_condition(target_entity)
         returning_condition = get_entity_condition(returning_entity)
         events = (
-            Event.objects.filter(team_id=team.pk).filter(returning_condition | entity_condition).add_person_id(team.pk)
+            Event.objects.filter(team_id=team.pk)
+            .filter(returning_condition | entity_condition)
+            .add_person_id(team.pk)
+            .annotate(event_date=F("timestamp"))
         )
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
+
         if is_first_time_retention:
             first_date = (
                 filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
             )
             final_query = (
                 filtered_events.filter(returning_condition)
-                .annotate(event_date=F("timestamp"))
                 .values_list("person_id", "event_date")
                 .union(first_date.values_list("first_date", "person_id"))
             )
