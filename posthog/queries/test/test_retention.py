@@ -101,7 +101,13 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
 
             self._create_events(
-                [("person1", self._date(-1)), ("person1", self._date(1)), ("person2", self._date(-1)),],
+                [
+                    ("person1", self._date(-1)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(3)),
+                    ("person2", self._date(-1)),
+                ],
                 "$user_signed_up",
             )
 

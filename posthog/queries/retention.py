@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import Min
+from django.db.models.expressions import F
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
@@ -108,23 +109,21 @@ class Retention(BaseQuery):
 
         entity_condition = get_entity_condition(target_entity)
         returning_condition = get_entity_condition(returning_entity)
-
         events = (
-            Event.objects.filter(team_id=team.pk).filter(entity_condition | returning_condition).add_person_id(team.pk)
+            Event.objects.filter(team_id=team.pk).filter(returning_condition | entity_condition).add_person_id(team.pk)
         )
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
         if is_first_time_retention:
             first_date = (
-                filtered_events.filter(entity_condition)
-                .values("person_id")
-                .annotate(first_date=Min(trunc))
-                .values("first_date", "person_id")
-                .distinct()
+                filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
             )
-            final_query = filtered_events.values_list("timestamp", "person_id").union(
-                first_date.values_list("first_date", "person_id")
+            final_query = (
+                filtered_events.filter(returning_condition)
+                .annotate(event_date=F("timestamp"))
+                .values_list("person_id", "event_date")
+                .union(first_date.values_list("first_date", "person_id"))
             )
         else:
             first_date = (
@@ -133,7 +132,7 @@ class Retention(BaseQuery):
                 .values("first_date", "person_id")
                 .distinct()
             )
-            final_query = filtered_events
+            final_query = filtered_events.filter(returning_condition)
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
@@ -145,7 +144,7 @@ class Retention(BaseQuery):
             FROM ({event_query}) events
             LEFT JOIN ({reference_event_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp >= first_date
+            WHERE event_date >= first_date
             GROUP BY date, first_date
         """.format(
             event_query=event_query, reference_event_query=reference_event_query, fields=fields
@@ -225,25 +224,25 @@ class Retention(BaseQuery):
         if period == "Hour":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s) * 24 + DATE_PART('hour', first_date - %s)) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date) * 24 + DATE_PART('hour', timestamp - first_date)) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date) * 24 + DATE_PART('hour', event_date - first_date)) AS date,
             """
             return TruncHour(subject), fields
         elif period == "Day":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s)) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date)) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date)) AS date,
             """
             return TruncDay(subject), fields
         elif period == "Week":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s) / 7) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date) / 7) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date) / 7) AS date,
             """
             return TruncWeek(subject), fields
         elif period == "Month":
             fields = """
             FLOOR((DATE_PART('year', first_date) - DATE_PART('year', %s)) * 12 + DATE_PART('month', first_date) - DATE_PART('month', %s)) AS first_date,
-            FLOOR((DATE_PART('year', timestamp) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', timestamp) - DATE_PART('month', first_date)) AS date,
+            FLOOR((DATE_PART('year', event_date) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', event_date) - DATE_PART('month', first_date)) AS date,
             """
             return TruncMonth(subject), fields
         else:
