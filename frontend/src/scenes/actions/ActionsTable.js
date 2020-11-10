@@ -12,7 +12,6 @@ import moment from 'moment'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { PageHeader } from 'lib/components/PageHeader'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
@@ -108,35 +107,50 @@ export function ActionsTable() {
         },
     ]
 
-    const Caption = () => {
-        return (
-            <>
-                {featureFlags['actions-ux-201012'] && (
-                    <div>
-                        Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
-                        <a href="https://posthog.com/docs/features/actions" target="_blank">
-                            <QuestionCircleOutlined />
-                        </a>
-                    </div>
-                )}
-                {!featureFlags['actions-ux-201012'] && (
-                    <div>
-                        Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of
-                        one or more events that you have decided to put into a manually-labelled bucket. They're used in
-                        Funnels, Live actions and Trends.
-                        <br />
-                        <br />
-                        <a href="https://posthog.com/docs/features/actions" target="_blank" rel="noopener noreferrer">
-                            See documentation
-                        </a>
-                    </div>
-                )}
-            </>
-        )
-    }
-
     return (
         <div>
+            <div>
+                <div>
+                    Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
+                    <a href="https://posthog.com/docs/features/actions" target="_blank">
+                        <QuestionCircleOutlined />
+                    </a>
+                </div>
+                <div className="tutorial-container">
+                    <div className="t-element">
+                        <div>
+                            <img src={imgGrouping} alt="" />
+                        </div>
+                        <div>
+                            <div className="title">Multiple grouping</div>
+                            <div className="description">Group multiple sets of events into a single action.</div>
+                        </div>
+                    </div>
+                    <div className="t-element">
+                        <div>
+                            <img src={imgStandardized} alt="" />
+                        </div>
+                        <div>
+                            <div className="title">Clean &amp; standardized data</div>
+                            <div className="description">
+                                Keep your actions the same, even if your product or data changes.
+                            </div>
+                        </div>
+                    </div>
+                    <div className="t-element">
+                        <div>
+                            <img src={imgRetroactive} alt="" />
+                        </div>
+                        <div>
+                            <div className="title">Retroactive</div>
+                            <div className="description">
+                                We'll retroactive update your actions to match any past events.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="mb text-right">
                 <NewActionButton />
             </div>

@@ -10,8 +10,6 @@ import {
     CloudServerOutlined,
     UserOutlined,
     RiseOutlined,
-    SyncOutlined,
-    AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
     LineChartOutlined,
@@ -164,44 +162,17 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
                     </Menu.Item>
 
-                    <Menu.SubMenu
-                        key="events"
-                        title={
-                            <span style={itemStyle} data-attr="menu-item-events">
-                                <ContainerOutlined />
-                                <span className="sidebar-label">
-                                    {!featureFlags['actions-ux-201012'] ? 'Events' : 'Events & Actions'}
-                                </span>
-                            </span>
-                        }
-                        onTitleClick={() => {
-                            collapseSidebar()
-                            location.pathname !== '/events' && push('/events')
-                        }}
-                    >
-                        <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
-                            <ContainerOutlined />
-                            {!featureFlags['actions-ux-201012'] ? 'All Events' : 'Raw Events'}
-                            <Link to={'/events'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
-                            <AimOutlined />
-                            <span className="sidebar-label">{'Actions'}</span>
-                            <Link to={'/actions'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        {!featureFlags['actions-ux-201012'] && (
-                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                                <SyncOutlined />
-                                <span className="sidebar-label">{'Live Actions'}</span>
-                                <Link to={'/actions/live'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
-                        <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
-                            <ClockCircleOutlined />
-                            <span className="sidebar-label">{'Sessions'}</span>
-                            <Link to={'/sessions'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                    </Menu.SubMenu>
+                    <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
+                        <ContainerOutlined />
+                        Events
+                        <Link to={'/events'} onClick={collapseSidebar} />
+                    </Menu.Item>
+
+                    <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
+                        <ClockCircleOutlined />
+                        <span className="sidebar-label">{'Sessions'}</span>
+                        <Link to={'/sessions'} onClick={collapseSidebar} />
+                    </Menu.Item>
 
                     <Menu.SubMenu
                         key="persons"

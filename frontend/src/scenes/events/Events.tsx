@@ -7,17 +7,18 @@ import { Button, Table, Tabs, Tooltip } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { EventUsageType } from '~/types'
+import { EventUsageType, PropertyUsageType } from '~/types'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { EventsTable } from './EventsTable'
 
 function PropertiesVolumeTable(): JSX.Element {
     const columns = [
         {
             title: 'Property',
-            render: function PropName(item: EventUsageType) {
+            render: function PropName(item: PropertyUsageType) {
                 return <PropertyKeyInfo value={item.key} />
             },
-            sorter: (a: EventUsageType, b: EventUsageType) => ('' + a.key).localeCompare(b.key),
+            sorter: (a: PropertyUsageType, b: PropertyUsageType) => ('' + a.key).localeCompare(b.key),
             defaultSortOrder: 'ascend',
         },
         {
@@ -34,7 +35,7 @@ function PropertiesVolumeTable(): JSX.Element {
             },
             dataIndex: 'volume',
 
-            sorter: (a: EventUsageType, b: EventUsageType) =>
+            sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
                 a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
         {
@@ -50,7 +51,7 @@ function PropertiesVolumeTable(): JSX.Element {
                 )
             },
             dataIndex: 'usage_count',
-            sorter: (a: EventUsageType, b: EventUsageType) =>
+            sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
     ]
@@ -69,8 +70,10 @@ function PropertiesVolumeTable(): JSX.Element {
             <br />
             <Table
                 dataSource={user?.team.event_properties_with_usage
-                    .filter((item) => (keyMapping.event[item.key] ? showPostHogProps : true))
-                    .filter((item) => (keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true))}
+                    .filter((item: PropertyUsageType) => (keyMapping.event[item.key] ? showPostHogProps : true))
+                    .filter((item: PropertyUsageType) =>
+                        keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true
+                    )}
                 columns={columns}
                 size="small"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
@@ -135,13 +138,25 @@ function _ManageEvents({}): JSX.Element {
         <div className="manage-events" data-attr="manage-events-table">
             <PageHeader title="Manage Events" />
             <Tabs tabPosition="top" animated={false}>
-                <Tabs.TabPane tab="Synthetic Events" key="synthetic">
+                <Tabs.TabPane tab="Live Events" key="live">
+                    <i>See all events that are being sent to this team in real time.</i>
+                    <EventsTable />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="Actions" key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Events" key="events">
+                    <i>
+                        See all event names that have every been sent to this team, including the volume and how often
+                        queries where made using this event.
+                    </i>
                     <EventsVolumeTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties" key="properties">
+                    <i>
+                        See all property keys that have every been sent to this team, including the volume and how often
+                        queries where made using this property key.
+                    </i>
                     <PropertiesVolumeTable />
                 </Tabs.TabPane>
             </Tabs>

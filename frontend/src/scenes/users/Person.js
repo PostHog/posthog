@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { Events } from '../events/Events'
 import api from 'lib/api'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
@@ -13,6 +12,7 @@ import { SessionsTable } from '../sessions/SessionsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { EventsTable } from 'scenes/events'
 
 const { TabPane } = Tabs
 
@@ -150,7 +150,7 @@ function _Person({ _: distinctId, id }) {
                 )}
             </Tabs>
             {activeTab === 'events' ? (
-                <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+                <EventsTable isPersonPage={true} fixedFilters={{ person_id: person.id }} />
             ) : (
                 <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
             )}

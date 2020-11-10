@@ -1,5 +1,4 @@
 import React from 'react'
-import { Events } from '../events/Events'
 import { ActionEdit } from './ActionEdit'
 import { ActionEdit as ActionEditV2 } from './ActionEditV2'
 import { useActions, useValues } from 'kea'
@@ -12,6 +11,7 @@ import { Spin } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { EventsTable } from 'scenes/events'
 
 let actionLogic = kea({
     key: (props) => props.id || 'new',
@@ -112,7 +112,7 @@ function _Action({ id }) {
             )}
             {isComplete && (
                 <div style={{ marginTop: 64 }}>
-                    <Events key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />
+                    <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />
                 </div>
             )}
         </div>
