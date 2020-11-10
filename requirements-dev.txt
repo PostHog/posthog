@@ -11,7 +11,7 @@ black==19.10b0            # via -r requirements-dev.in
 click==7.1.1              # via black, pip-tools
 django-debug-toolbar==2.2  # via -r requirements-dev.in
 django-stubs==1.5.0       # via -r requirements-dev.in, djangorestframework-stubs
-django==3.0.6             # via django-debug-toolbar, django-stubs
+django==3.0.7             # via django-debug-toolbar, django-stubs
 djangorestframework-stubs==1.1.0  # via -r requirements-dev.in
 entrypoints==0.3          # via flake8
 flake8-bugbear==20.1.4    # via -r requirements-dev.in
