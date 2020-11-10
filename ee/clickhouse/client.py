@@ -26,7 +26,6 @@ from posthog.settings import (
     TEST,
 )
 
-
 CACHE_TTL = 60  # seconds
 
 
@@ -40,7 +39,7 @@ if PRIMARY_DB != CLICKHOUSE:
     def sync_execute(query, args=None):
         return
 
-    def cache_sync_execute(query, args=None, redis_client=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None):
         return
 
 
@@ -115,7 +114,7 @@ def _key_hash(query: str, args: Any) -> bytes:
     key = hashlib.md5(query.encode("utf-8") + pickle.dumps(args)).digest()
     return key
 
-  
+
 def format_sql(sql, params):
     sql = ch_client.substitute_params(sql, params)
     sql = sqlparse.format(sql, reindent_aligned=True)
@@ -128,4 +127,3 @@ def format_sql(sql, params):
         pass
 
     return sql
-
