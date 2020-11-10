@@ -25,7 +25,10 @@ export function ActionsTable() {
             key: 'name',
             render: function RenderName(_, action, index) {
                 return (
-                    <Link data-attr={'action-link-' + index} to={'/action/' + action.id}>
+                    <Link
+                        data-attr={'action-link-' + index}
+                        to={'/action/' + action.id + '#backTo=Feature Flags&backToURL=' + window.location.pathname}
+                    >
                         {action.name}
                     </Link>
                 )
@@ -151,7 +154,7 @@ export function ActionsTable() {
                 </div>
             </div>
 
-            <div className="mb text-right">
+            <div className="mb">
                 <NewActionButton />
             </div>
             <Table
