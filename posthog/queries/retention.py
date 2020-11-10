@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple, Union
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
+from django.db.models import Min
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
@@ -114,14 +115,26 @@ class Retention(BaseQuery):
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
-        first_date = (
-            filtered_events.filter(entity_condition)
-            .annotate(first_date=trunc)
-            .values("first_date", "person_id")
-            .distinct()
-        )
-
-        event_query, events_query_params = filtered_events.query.sql_with_params()
+        if is_first_time_retention:
+            first_date = (
+                filtered_events.filter(entity_condition)
+                .values("person_id")
+                .annotate(first_date=Min(trunc))
+                .values("first_date", "person_id")
+                .distinct()
+            )
+            final_query = filtered_events.values_list("timestamp", "person_id").union(
+                first_date.values_list("first_date", "person_id")
+            )
+        else:
+            first_date = (
+                filtered_events.filter(entity_condition)
+                .annotate(first_date=trunc)
+                .values("first_date", "person_id")
+                .distinct()
+            )
+            final_query = filtered_events
+        event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
         final_query = """
