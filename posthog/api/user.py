@@ -135,7 +135,7 @@ def user(request):
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": user.ee_available,
-            "email_available": is_email_available(with_absolute_urls=True),
+            "email_service_available": is_email_available(with_absolute_urls=True),
             "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
         }
     )

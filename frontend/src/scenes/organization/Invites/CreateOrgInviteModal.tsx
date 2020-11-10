@@ -34,7 +34,8 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/invites') push('/organization/invites')
+            if (location.pathname !== '/organization/invites' && !user?.email_service_available)
+                push('/organization/invites')
         }
     }
 
@@ -65,7 +66,7 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
 
             <Modal
                 title="Inviting Team member"
-                okText={user?.email_available ? 'Send Invite' : 'Create Invite Link'}
+                okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}
                 onCancel={closeModal}
@@ -92,7 +93,7 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                 </form>
                 {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
 
-                {!user?.email_available && (
+                {!user?.email_service_available && (
                     <div>
                         Emails are not enabled in your PostHog instance. Remember to <b>share the invite link</b> with
                         the team member you want to invite.
