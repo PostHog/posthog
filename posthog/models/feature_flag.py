@@ -31,23 +31,6 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
-    def _query_postgres(self, distinct_id: str) -> bool:
-        return (
-            Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-            .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
-            .exists()
-        )
-
-    def _query_clickhouse(self, distinct_id: str) -> bool:
-        from ee.clickhouse.models.person import get_person_by_distinct_id
-
-        return len(get_person_by_distinct_id(self.team, distinct_id, Filter(data=self.filters))) > 0
-
-    def _match_distinct_id(self, distinct_id: str) -> bool:
-        if check_ee_enabled():
-            return self._query_clickhouse(distinct_id)
-        return self._query_postgres(distinct_id)
-
     def distinct_id_matches(self, distinct_id: str) -> bool:
         if len(self.filters.get("properties", [])) > 0:
             if not self._match_distinct_id(distinct_id):
@@ -60,6 +43,13 @@ class FeatureFlag(models.Model):
             if hash <= (self.rollout_percentage / 100):
                 return True
         return False
+
+    def _match_distinct_id(self, distinct_id: str) -> bool:
+        return (
+            Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+            .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
+            .exists()
+        )
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are
