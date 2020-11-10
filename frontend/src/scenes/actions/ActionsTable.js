@@ -121,9 +121,9 @@ export function ActionsTable() {
                 )}
                 {!featureFlags['actions-ux-201012'] && (
                     <div>
-                        Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of
-                        one or more events that you have decided to put into a manually-labelled bucket. They're used in
-                        Funnels, Live actions and Trends.
+                        Actions are PostHog’s way of easily sorting through events. Actions consist of one or more
+                        events that you have decided to put into a manually-labelled bucket. They're used in Insights
+                        and Cohorts.
                         <br />
                         <br />
                         <a href="https://posthog.com/docs/features/actions" target="_blank" rel="noopener noreferrer">
