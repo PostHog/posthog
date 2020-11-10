@@ -12,6 +12,7 @@ interface BadgeProps {
 
 export function Badge({ icon, type, className, onClick, tooltip }: BadgeProps): JSX.Element {
     const getTypeIcon = (): JSX.Element | undefined => {
+        // By default the badge has no icon unless it's a badge of a specific type.
         if (type === 'success') {
             return <CheckOutlined />
         } else if (type === 'warning') {

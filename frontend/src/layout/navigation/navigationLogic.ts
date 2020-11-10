@@ -45,7 +45,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
                 const aliveMetrics = ['redis_alive', 'db_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {
-                    if (aliveMetrics.indexOf(metric.key) > -1 && metric.value) {
+                    if (aliveMetrics.includes(metric.key) && metric.value) {
                         aliveSignals = aliveSignals + 1
                     }
                     if (aliveSignals >= aliveMetrics.length) {
