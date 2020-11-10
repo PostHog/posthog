@@ -4,7 +4,7 @@ from typing import Any, Dict, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.sql.retention.retention import RETENTION_SQL
+from ee.clickhouse.sql.retention.retention import REFERENCE_EVENT_SQL, REFERENCE_EVENT_UNIQUE_SQL, RETENTION_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -34,6 +34,7 @@ class ClickhouseRetention(Retention):
 
         target_query = ""
         target_params: Dict = {}
+        trunc_func = self._get_trunc_func_ch(period)
 
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=target_entity.id)
@@ -50,14 +51,16 @@ class ClickhouseRetention(Retention):
 
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
         returning_query_formatted = (
-            "AND ({target_query} OR {returning_query})".format(
-                target_query=target_query, returning_query=returning_query
-            )
+            "AND {returning_query}".format(returning_query=returning_query)
             if is_first_time_retention
             else "AND {target_query}".format(target_query=target_query)
         )
 
-        trunc_func = self._get_trunc_func_ch(period)
+        reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
+            target_query=target_query_formatted,
+            filters=prop_filters if filter.properties else "",
+            trunc_func=trunc_func,
+        )
 
         result = sync_execute(
             RETENTION_SQL.format(
@@ -65,6 +68,8 @@ class ClickhouseRetention(Retention):
                 returning_query=returning_query_formatted,
                 filters=prop_filters if filter.properties else "",
                 trunc_func=trunc_func,
+                extra_union="UNION ALL {}".format(reference_event_sql) if is_first_time_retention else "",
+                reference_event_sql=reference_event_sql,
             ),
             {
                 "team_id": team.pk,
