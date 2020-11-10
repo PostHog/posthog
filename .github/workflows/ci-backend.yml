@@ -210,9 +210,7 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   REDIS_URL: 'redis://localhost'
               run: |
-                  cd deploy
-                  python manage.py migrate
-                  cd ..
+                  python deploy/manage.py migrate
                   rm -rf deploy
 
             - name: Checkout current branch
@@ -263,6 +261,19 @@ jobs:
               run: |
                   cd deploy
                   python manage.py test multi_tenancy messaging --keepdb -v 2 --exclude-tag=skip_on_multitenancy
+            - name: Run EE tests
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+                  PRIMARY_DB: 'clickhouse'
+                  CLICKHOUSE_HOST: 'localhost'
+                  CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_SECURE: 'False'
+                  CLICKHOUSE_VERIFY: 'False'
+              run: |
+                  cd deploy
+                  python manage.py test ee
 
     foss:
         name: Django tests – FOSS
