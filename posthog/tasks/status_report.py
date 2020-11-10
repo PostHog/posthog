@@ -64,7 +64,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     return report
 
 
-def capture_event(name, report, dry_run):
+def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         disabled = posthoganalytics.disabled
@@ -87,7 +87,7 @@ def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
     results = fetch_sql(
         """
-        SELECT properties->>'$lib' as lib, COUNT(*) as count
+        SELECT properties->>'$lib' as lib, COUNT(1) as count
         FROM posthog_event WHERE team_id = %s AND timestamp >= %s AND timestamp <= %s
         GROUP BY lib
         """,
@@ -99,7 +99,7 @@ def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
 def fetch_events_count_by_name(params: Tuple[Any, ...]) -> dict:
     results = fetch_sql(
         """
-        SELECT event as name, COUNT(*) as count
+        SELECT event as name, COUNT(1) as count
         FROM posthog_event WHERE team_id = %s AND timestamp >= %s AND timestamp <= %s
         GROUP BY name
         """,
