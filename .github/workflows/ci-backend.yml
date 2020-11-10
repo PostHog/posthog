@@ -273,7 +273,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy
-                  python manage.py test ee
+                  python manage.py test ee --keepdb
 
     foss:
         name: Django tests – FOSS
