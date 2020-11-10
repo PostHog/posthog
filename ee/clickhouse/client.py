@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import hashlib
 import pickle
+from typing import Any
 
 from aioch import Client
 from asgiref.sync import async_to_sync
@@ -33,6 +34,9 @@ if PRIMARY_DB != CLICKHOUSE:
         return
 
     def sync_execute(query, args=None):
+        return
+
+    def cache_sync_execute(query, args=None, redis_client=None):
         return
 
 
@@ -78,18 +82,24 @@ else:
         connections_max=100,
     )
 
-    def cache_sync_execute(query, args=None):
-        rc = redis.get_client()
-        key = hashlib.md5(query + pickle.dumps(args))
-        if rc.exists(key):
-            result = pickle.loads(rc.get(key))
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL):
+        if not redis_client:
+            redis_client = redis.get_client()
+        key = _key_hash(query, args)
+        if redis_client.exists(key):
+            result = pickle.loads(redis_client.get(key))
             return result
         else:
             result = sync_execute(query, args)
-            rc.set(key, result, ex=CACHE_TTL)
+            redis_client.set(key, pickle.dumps(result), ex=ttl)
             return result
 
     def sync_execute(query, args=None):
         with ch_sync_pool.get_client() as client:
             result = client.execute(query, args)
         return result
+
+
+def _key_hash(query: str, args: Any) -> bytes:
+    key = hashlib.md5(query.encode("utf-8") + pickle.dumps(args)).digest()
+    return key
