@@ -1,5 +1,5 @@
 {% if debug %}
-<div id="bottom-notice">
+<div id="bottom-notice" class="tricolor">
     <div>
         <span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b
         ><span>.</span>
@@ -27,8 +27,8 @@
         document.body.prepend(element)
     }
 </script>
+{% endif %}
 
-{% endif %} {% if not debug %}
 <script>
     window.Papercups = {
         config: {
@@ -47,4 +47,3 @@
     }
 </script>
 <script type="text/javascript" async defer src="https://app.papercups.io/widget.js"></script>
-{% endif %}

@@ -131,9 +131,9 @@ SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(p
 """
 
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM ({latest_person_sql}) as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+SELECT p.* FROM ({latest_person_sql}) as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND pid.distinct_id = %(distinct_id)s {distinct_query}
 """.format(
-    latest_person_sql=GET_LATEST_PERSON_SQL
+    latest_person_sql=GET_LATEST_PERSON_SQL, distinct_query="{distinct_query}"
 )
 
 GET_PERSONS_BY_DISTINCT_IDS = """
@@ -168,7 +168,7 @@ where person_distinct_id.team_id = %(team_id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(timestamp)s, %(team_id)s, %(properties)s, %(is_identified)s, %(timestamp)s, 0
+INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """

@@ -282,21 +282,25 @@ style files without adding already imported styles. */
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+    code {
+        color: inherit;
+        font-size: inherit;
+    }
     &.warning div {
         height: auto;
         background: $danger;
     }
-
-    div:nth-child(1) {
-        background: $purple_700;
+    &.tricolor {
+        div:nth-child(1) {
+            background: $brand_blue;
+        }
+        div:nth-child(2) {
+            background: $brand_red;
+        }
+        div:nth-child(3) {
+            background: $brand_yellow;
+        }
     }
-    div:nth-child(2) {
-        background: $purple_500;
-    }
-    div:nth-child(3) {
-        background: $purple_300;
-    }
-
     div {
         flex-basis: 0;
         flex-grow: 1;
@@ -309,6 +313,7 @@ style files without adding already imported styles. */
     button {
         border: none;
         background: transparent;
+        color: inherit;
         width: 1.5rem;
         height: 1.5rem;
         padding: 0;

@@ -40,7 +40,7 @@ class ClickhouseEvents(EventViewSet):
             filter._date_to = request.GET["before"]
         limit = "LIMIT 101"
         conditions, condition_params = determine_event_conditions(request.GET.dict())
-        prop_filters, prop_filter_params = parse_prop_clauses("uuid", filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
         if request.GET.get("action_id"):
             action = Action.objects.get(pk=request.GET["action_id"])
             if action.steps.count() == 0:

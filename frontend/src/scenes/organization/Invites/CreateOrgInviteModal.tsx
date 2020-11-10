@@ -6,8 +6,9 @@ import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
+import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateOrgInviteModalWithButton(): JSX.Element {
+export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
@@ -25,19 +26,31 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
 
     return (
         <>
-            <div className="mb text-right">
-                <Button
-                    type="primary"
-                    data-attr="invite-teammate-button"
+            {type === 'text' ? (
+                <span
                     onClick={() => {
                         setIsVisible(true)
                     }}
                 >
-                    + Invite Teammate
-                </Button>
-            </div>
+                    Invite Team Member
+                </span>
+            ) : (
+                <div className="mb text-right">
+                    <Button
+                        type="primary"
+                        data-attr="invite-teammate-button"
+                        onClick={() => {
+                            setIsVisible(true)
+                        }}
+                        icon={<PlusOutlined />}
+                    >
+                        Invite Team Member
+                    </Button>
+                </div>
+            )}
+
             <Modal
-                title="Inviting Teammate"
+                title="Inviting Team member"
                 okText="Create Invite Link"
                 cancelText="Cancel"
                 onOk={() => {
@@ -57,9 +70,15 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
                 visible={isVisible}
             >
                 <p>
-                    {user?.are_invite_emails_available
-                        ? "Your teammate will be able to join from the email they'll receive."
-                        : <>We'll create an invite link for your teammate. <b>Share it</b> with them so they're able to join you.</>}
+                    {user?.are_invite_emails_available ? (
+                        "Your teammate will be able to join from the email they'll receive."
+                    ) : (
+                        <>
+                            We'll create an invite link for your teammate. <b>Share it</b> with them so they're able to
+                            join you.
+                        </>
+                    )}
+                    Create an invite link for a team member with a specific email address.
                 </p>
                 <Input
                     data-attr="invite-email-input"

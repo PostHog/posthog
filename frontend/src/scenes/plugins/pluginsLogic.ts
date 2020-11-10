@@ -3,7 +3,6 @@ import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
-import { parseGithubRepoURL } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export const pluginsLogic = kea<
@@ -33,58 +32,15 @@ export const pluginsLogic = kea<
                     return plugins
                 },
                 installPlugin: async ({ pluginUrl, type }) => {
-                    const { plugins } = values
-
-                    if (type === 'local') {
-                        const response = await api.create('api/plugin', {
-                            url: `file:${pluginUrl}`,
-                        })
-                        return { ...plugins, [response.id]: response }
-                    }
-
-                    const { user, repo } = parseGithubRepoURL(pluginUrl)
-
-                    const repoCommitsUrl = `https://api.github.com/repos/${user}/${repo}/commits`
-                    const repoCommits: Record<string, any>[] | null = await window
-                        .fetch(repoCommitsUrl)
-                        .then((response) => response?.json())
-                        .catch(() => null)
-
-                    if (!repoCommits || repoCommits.length === 0) {
-                        throw new Error(`Could not find repository: ${pluginUrl}`)
-                    }
-
-                    const tag: string = repoCommits[0].sha
-                    const jsonUrl = `https://raw.githubusercontent.com/${user}/${repo}/${tag}/plugin.json`
-                    const json: PluginRepositoryEntry | null = await window
-                        .fetch(jsonUrl)
-                        .then((response) => response?.json())
-                        .catch(() => null)
-
-                    if (!json) {
-                        throw new Error(`Could not find plugin.json in repository: ${pluginUrl}`)
-                    }
-
-                    if (Object.values(values.plugins).find((p) => p.name === json.name)) {
-                        throw new Error(`Plugin with the name "${json.name}" already installed!`)
-                    }
-
-                    const response = await api.create('api/plugin', {
-                        name: json.name,
-                        description: json.description,
-                        url: json.url,
-                        tag,
-                        config_schema: json.config,
-                    })
-
-                    return { ...plugins, [response.id]: response }
+                    const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
+                    const response = await api.create('api/plugin', { url })
+                    return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
                     const { plugins, editingPlugin } = values
                     if (!editingPlugin) {
                         return plugins
                     }
-
                     await api.delete(`api/plugin/${editingPlugin.id}`)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest

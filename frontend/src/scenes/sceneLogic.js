@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
 
 export const scenes = {
@@ -147,19 +148,19 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
-            window.posthog?.capture('upgrade modal shown', { featureName })
+            posthog.capture('upgrade modal shown', { featureName })
         },
         hideUpgradeModal: () => {
-            window.posthog?.capture('upgrade modal cancellation')
+            posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
             window.open(
                 `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
             )
-            window.posthog?.capture('upgrade modal pricing interaction')
+            posthog.capture('upgrade modal pricing interaction')
         },
         setScene: () => {
-            window.posthog?.capture('$pageview')
+            posthog.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {

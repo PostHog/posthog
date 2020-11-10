@@ -34,7 +34,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             from ee.clickhouse.models.property import parse_prop_clauses
 
             prop_query, prop_params = parse_prop_clauses(
-                "uuid", Filter(data={"properties": step.properties}).properties, action.team
+                Filter(data={"properties": step.properties}).properties, action.team
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -46,7 +46,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND ".join(or_queries)
         )
     else:
-        formatted_query = "({})".format(") OR (".join(or_queries))
+        formatted_query = "(({}))".format(") OR (".join(or_queries))
     return formatted_query, params
 
 
