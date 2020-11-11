@@ -24,6 +24,12 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                         "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
                     },
                 )
+                create_event(
+                    distinct_id="test",
+                    team=self.team,
+                    event="$pageview",
+                    properties={"$current_url": "https://posthog.com"},
+                )
             with freeze_time("2020-10-01"):
                 DashboardItem.objects.create(
                     team=self.team,
@@ -46,12 +52,27 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                 DashboardItem.objects.create(team=self.team, filters={"events": [{"id": "event that doesnt exist"}]})
                 # broken dashboard item
                 DashboardItem.objects.create(team=self.team, filters={})
-                create_event(team=self.team, event="$pageview", properties={"$current_url": "https://posthog.com"})
-                create_event(team=self.team, event="$pageview", properties={"$current_url": "https://posthog2.com"})
-                create_event(team=self.team, event="custom event", properties={"team_id": "3"})
+                create_event(
+                    distinct_id="test",
+                    team=self.team,
+                    event="$pageview",
+                    properties={"$current_url": "https://posthog.com"},
+                )
+                create_event(
+                    distinct_id="test",
+                    team=self.team,
+                    event="$pageview",
+                    properties={"$current_url": "https://posthog2.com"},
+                )
+                create_event(distinct_id="test", team=self.team, event="custom event", properties={"team_id": "3"})
 
                 # team leakage
-                create_event(team=team2, event="$pageview", properties={"$current_url": "https://posthog.com"})
+                create_event(
+                    distinct_id="test",
+                    team=team2,
+                    event="$pageview",
+                    properties={"$current_url": "https://posthog.com"},
+                )
                 DashboardItem.objects.create(
                     team=team2,
                     filters={

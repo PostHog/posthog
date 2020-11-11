@@ -5,6 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { PropertyUsageType } from '~/types'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { humanizeNumber } from 'lib/utils'
 
 export function PropertiesVolumeTable(): JSX.Element {
     const columns = [
@@ -28,8 +29,7 @@ export function PropertiesVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            dataIndex: 'volume',
-
+            render: (item: PropertyUsageType) => humanizeNumber(item.volume),
             sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
                 a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
@@ -45,7 +45,7 @@ export function PropertiesVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            dataIndex: 'usage_count',
+            render: (item: PropertyUsageType) => humanizeNumber(item.usage_count),
             sorter: (a: PropertyUsageType, b: PropertyUsageType) =>
                 a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },

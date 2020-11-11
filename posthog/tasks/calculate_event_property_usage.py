@@ -6,6 +6,7 @@ from django.db import connection
 from django.db.models import Count
 from django.utils.timezone import now
 
+from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
@@ -60,16 +61,37 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 
 def _get_properties_volume(team: Team) -> List[Tuple[str, int]]:
+    timestamp = now() - timedelta(days=30)
+    if check_ee_enabled():
+        from ee.clickhouse.client import sync_execute
+
+        return sync_execute(
+            "SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC",
+            {"team_id": team.pk, "timestamp": timestamp},
+        )
     cursor = connection.cursor()
     cursor.execute(
-        "SELECT json_build_array(jsonb_object_keys(properties)) ->> 0 as key1, count(1) FROM posthog_event WHERE team_id = %s group by key1 order by count desc",
-        [team.pk],
+        "SELECT json_build_array(jsonb_object_keys(properties)) ->> 0 as key1, count(1) FROM posthog_event WHERE team_id = %s AND timestamp > %s group by key1 order by count desc",
+        [team.pk, timestamp],
     )
     return cursor.fetchall()
 
 
 def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
-    return Event.objects.filter(team=team).values("event").annotate(count=Count("id")).values_list("event", "count")
+    timestamp = now() - timedelta(days=30)
+    if check_ee_enabled():
+        from ee.clickhouse.client import sync_execute
+
+        return sync_execute(
+            "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC",
+            {"team_id": team.pk, "timestamp": timestamp},
+        )
+    return (
+        Event.objects.filter(team=team, timestamp__gt=timestamp)
+        .values("event")
+        .annotate(count=Count("id"))
+        .values_list("event", "count")
+    )
 
 
 def _extract_count(events_volume: List[Tuple[str, int]], event: str) -> int:

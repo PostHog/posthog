@@ -4,6 +4,7 @@ import { Table, Tooltip } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventUsageType } from '~/types'
+import { humanizeNumber } from 'lib/utils'
 
 export function EventsVolumeTable(): JSX.Element {
     const columns = [
@@ -25,8 +26,9 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            dataIndex: 'volume',
-            sorter: (a, b) => (a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume),
+            render: (item: EventUsageType) => humanizeNumber(item.volume),
+            sorter: (a: EventUsageType, b: EventUsageType) =>
+                a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
         {
             title: function QueriesTitle() {
@@ -40,8 +42,9 @@ export function EventsVolumeTable(): JSX.Element {
                     </Tooltip>
                 )
             },
-            dataIndex: 'usage_count',
-            sorter: (a, b) => (a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count),
+            render: (item: EventUsageType) => humanizeNumber(item.usage_count),
+            sorter: (a: EventUsageType, b: EventUsageType) =>
+                a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
     ]
     const { user } = useValues(userLogic)
