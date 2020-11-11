@@ -9,6 +9,10 @@ import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
 import { ActionsTable } from 'scenes/insights/ActionsTable'
 import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
+import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+import { Paths } from 'scenes/paths/Paths'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 import {
     EllipsisOutlined,
     EditOutlined,
@@ -77,6 +81,32 @@ const typeMap = {
             ).url
         },
     },
+    RetentionTable: {
+        className: 'retention',
+        element: RetentionTable,
+        icon: TableOutlined,
+        viewText: 'View table',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.Retention, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    PathsViz: {
+        className: 'paths-viz',
+        element: Paths,
+        icon: FunnelPlotOutlined,
+        viewText: 'View graph',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.PATHS, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
 }
 
 export function DashboardItem({
@@ -117,8 +147,16 @@ export function DashboardItem({
         cachedResults: item.result,
         funnelId: item.funnel || item.filters.funnel_id,
     }
-    const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
-    const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+
+    const determineLogic = () => {
+        if (className === 'funnel') return funnelVizLogic(logicProps)
+        else if (className === 'retention') return retentionTableLogic(logicProps)
+        else if (className === 'paths') return pathsLogic(logicProps)
+        else return trendsLogic(logicProps)
+    }
+
+    const { loadResults } = useActions(determineLogic())
+    const { resultsLoading } = useValues(determineLogic())
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp

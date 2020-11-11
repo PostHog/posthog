@@ -8,7 +8,7 @@ import './RetentionTable.scss'
 import moment from 'moment'
 import posthog from 'posthog-js'
 
-export function RetentionTable() {
+export function RetentionTable({ dashboardItemId = null }) {
     const {
         retention,
         retentionLoading,
@@ -16,8 +16,8 @@ export function RetentionTable() {
         people,
         loadingMore,
         filters: { period },
-    } = useValues(retentionTableLogic)
-    const { loadPeople, loadMore } = useActions(retentionTableLogic)
+    } = useValues(retentionTableLogic({ dashboardItemId }))
+    const { loadPeople, loadMore } = useActions(retentionTableLogic({ dashboardItemId }))
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 

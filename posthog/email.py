@@ -25,11 +25,12 @@ def inline_css(value: str) -> str:
     return lxml.html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
 
 
-def is_email_available() -> bool:
+def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
+    Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
-    return bool(settings.EMAIL_HOST)
+    return bool(settings.EMAIL_HOST) and (not with_absolute_urls or settings.SITE_URL is not None)
 
 
 @app.task(ignore_result=True, max_retries=3)

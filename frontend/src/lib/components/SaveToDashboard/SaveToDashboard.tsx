@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 
 interface Props {
     item: DashboardItemAttributes
-    disabled: boolean
 }
 
 interface DashboardItemAttributes {
@@ -23,7 +22,7 @@ interface FunnelPayload {
 }
 
 export function SaveToDashboard(props: Props): JSX.Element {
-    const { item, disabled } = props
+    const { item } = props
     const [openModal, setOpenModal] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
     let _name: string
@@ -53,12 +52,7 @@ export function SaveToDashboard(props: Props): JSX.Element {
                     annotations={_annotations}
                 />
             )}
-            <Button
-                disabled={disabled}
-                onClick={(): void => setOpenModal(true)}
-                type="primary"
-                data-attr="save-to-dashboard-button"
-            >
+            <Button onClick={(): void => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
                 {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>

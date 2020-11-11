@@ -14,9 +14,11 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
         if group.get("action_id"):
             action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
             action_filter_query, action_params = format_action_filter(action)
-            extract_person = "SELECT distinct_id FROM events WHERE {query}".format(query=action_filter_query)
+            extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s AND {query}".format(
+                query=action_filter_query
+            )
             params = {**params, **action_params}
-            filters.append("(" + extract_person + ")")
+            filters.append("distinct_id IN (" + extract_person + ")")
 
         elif group.get("properties"):
             from ee.clickhouse.models.property import prop_filter_json_extract
@@ -29,9 +31,9 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
                 )
                 params = {**params, **filter_params}
                 query += " {}".format(filter_query)
-            filters.append(GET_LATEST_PERSON_ID_SQL.format(query=query))
+            filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
-    joined_filter = " OR person_id IN ".join(filters)
+    joined_filter = " OR ".join(filters)
     return joined_filter, params
 
 

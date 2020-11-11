@@ -15,11 +15,11 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
         ENDPOINT = "event"
 
         def test_filter_events(self):
-            person = person_factory(
+            person_factory(
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
 
-            event1 = event_factory(
+            event_factory(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="2",
@@ -41,11 +41,13 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
         def test_filter_events_by_event_name(self):
-            person = person_factory(
+            person_factory(
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
-            event1 = event_factory(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},)
-            event1 = event_factory(
+            event_factory(
+                event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
+            )
+            event_factory(
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
             with self.assertNumQueries(7):
@@ -53,7 +55,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response["results"][0]["event"], "event_name")
 
         def test_filter_events_by_properties(self):
-            person = person_factory(
+            person_factory(
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
             event_factory(
@@ -126,75 +128,6 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             return sign_up
 
-        def test_live_action_events(self):
-            action_sign_up = Action.objects.create(team=self.team, name="signed up")
-            ActionStep.objects.create(event="$autocapture", action=action_sign_up, tag_name="button", text="Sign up!")
-            # 2 steps that match same element might trip stuff up
-            ActionStep.objects.create(event="$autocapture", action=action_sign_up, tag_name="button", text="Sign up!")
-
-            action_credit_card = Action.objects.create(team=self.team, name="paid")
-            ActionStep.objects.create(
-                event="$autocapture", action=action_credit_card, tag_name="button", text="Pay $10"
-            )
-
-            action_watch_movie = Action.objects.create(team=self.team, name="watch movie")
-            ActionStep.objects.create(
-                event="$autocapture", action=action_watch_movie, text="Watch now", selector="div > a.watch_movie"
-            )
-
-            # events
-            person_stopped_after_signup = person_factory(distinct_ids=["stopped_after_signup"], team=self.team)
-            event_sign_up_1 = self._signup_event("stopped_after_signup")
-
-            person_stopped_after_pay = person_factory(distinct_ids=["stopped_after_pay"], team=self.team)
-            self._signup_event("stopped_after_pay")
-            self._pay_event("stopped_after_pay")
-            self._movie_event("stopped_after_pay")
-
-            # Test filtering of deleted actions
-            deleted_action_watch_movie = Action.objects.create(team=self.team, name="watch movie", deleted=True)
-            ActionStep.objects.create(
-                event="$autocapture",
-                action=deleted_action_watch_movie,
-                text="Watch now",
-                selector="div > a.watch_movie",
-            )
-            deleted_action_watch_movie.calculate_events()
-
-            # non matching events
-            non_matching = event_factory(
-                event="$autocapture",
-                distinct_id="stopped_after_pay",
-                properties={"$current_url": "http://whatever.com"},
-                team=self.team,
-                elements=[Element(tag_name="blabla", href="/moviedd"), Element(tag_name="blabla", href="/moviedd"),],
-            )
-            last_event = event_factory(
-                event="$autocapture",
-                distinct_id="stopped_after_pay",
-                properties={"$current_url": "http://whatever.com"},
-                team=self.team,
-            )
-
-            # with self.assertNumQueries(8):
-            response = self.client.get("/api/event/actions/").json()
-            self.assertEqual(len(response["results"]), 4)
-            self.assertEqual(response["results"][3]["action"]["name"], "signed up")
-            self.assertEqual(response["results"][3]["event"]["id"], event_sign_up_1.pk)
-            self.assertEqual(response["results"][3]["action"]["id"], action_sign_up.pk)
-
-            self.assertEqual(response["results"][2]["action"]["id"], action_sign_up.pk)
-            self.assertEqual(response["results"][1]["action"]["id"], action_credit_card.pk)
-
-            self.assertEqual(response["results"][0]["action"]["id"], action_watch_movie.pk)
-
-            # test after
-            sign_up_event = self._signup_event("stopped_after_pay")
-            response = self.client.get(
-                "/api/event/actions/?after=%s" % last_event.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-            ).json()
-            self.assertEqual(len(response["results"]), 1)
-
         def test_event_property_values(self):
             event_factory(
                 distinct_id="bla",
@@ -235,7 +168,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
         def test_before_and_after(self):
             user = self._create_user("tim")
             self.client.force_login(user)
-            person = person_factory(
+            person_factory(
                 properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
             )
 

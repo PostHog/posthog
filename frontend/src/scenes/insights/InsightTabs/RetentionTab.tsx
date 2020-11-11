@@ -11,8 +11,8 @@ import { Button, DatePicker, Select } from 'antd'
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const [open, setOpen] = useState<boolean>(false)
-    const { filters, startEntity, selectedDate, period } = useValues(retentionTableLogic)
-    const { setFilters } = useActions(retentionTableLogic)
+    const { filters, startEntity, selectedDate, period } = useValues(retentionTableLogic({ dashboardItemId: null }))
+    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
