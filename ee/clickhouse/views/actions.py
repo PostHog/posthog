@@ -75,8 +75,6 @@ class ClickhouseActions(ActionViewSet):
             filter._date_to = date_from + relativedelta(hours=1)
         elif filter.interval == "minute":
             filter._date_to = date_from + relativedelta(minutes=1)
-        else:
-            filter._date_to = date_from + relativedelta(day=1)
 
         current_url = request.get_full_path()
 

@@ -100,12 +100,19 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "date_from": "2020-01-04",
                     "date_to": "2020-01-04",
                     "type": "actions",
+                    "interval": "day",
                     "entityId": sign_up_action.id,
                 },
             ).json()
             event_response = self.client.get(
                 "/api/action/people/",
-                data={"date_from": "2020-01-04", "date_to": "2020-01-04", "type": "events", "entityId": "sign up",},
+                data={
+                    "date_from": "2020-01-04",
+                    "date_to": "2020-01-04",
+                    "type": "events",
+                    "entityId": "sign up",
+                    "interval": "day",
+                },
             ).json()
 
             self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
