@@ -286,9 +286,8 @@ class Trends(BaseQuery):
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
-                    db_action = [action for action in actions if action.id == entity.id][0]
-                    entity.name = db_action.name
-                except IndexError:
+                    entity.name = actions.get(id=entity.id).name
+                except Action.DoesNotExist:
                     continue
             entities_list.extend(
                 handle_compare(entity=entity, filter=filter, func=self._serialize_entity, team_id=team_id)

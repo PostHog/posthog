@@ -1,5 +1,3 @@
-import json
-
 from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action

@@ -4,7 +4,6 @@ from typing import Any, Dict, Tuple
 import sqlparse
 from pypika import CustomFunction, Field, PyformatParameter, Query, Table
 from pypika import functions as fn
-from typing_extensions import final
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -46,7 +45,7 @@ class ClickhouseRetention(Retention):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
-        trunc_func = self._get_trunc_func(period)
+        trunc_func = self._get_trunc_func_ch(period)
         final_query = self.final_query(trunc_func)
         result = sync_execute(
             final_query,
@@ -150,9 +149,7 @@ class ClickhouseRetention(Retention):
                 fn.Count(event_query.person_id).distinct().as_("count"),
             )
             .where(truncFunc(event_query.event_date) >= truncFunc(reference_event.event_date))
-            .where(event_query.event_date.isin(Query.from_(Table("events")).select("*")))
             .groupby(Field("period_to_event_days"), Field("period_between_events_days"))
         )
 
-        print(sqlparse.format(str(final_query), reindent_aligned=True))
         return str(final_query)

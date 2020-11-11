@@ -10,6 +10,7 @@ export function OptInSessionRecording(): JSX.Element {
     return (
         <div>
             <Switch
+                data-attr="opt-in-session-recording-switch"
                 onChange={(checked) => {
                     userUpdateRequest({ team: { session_recording_opt_in: checked } })
                 }}
