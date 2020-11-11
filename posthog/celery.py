@@ -61,8 +61,9 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
+    sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
+
     if not check_ee_enabled():
-        sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
     else:
         # ee enabled scheduled tasks
