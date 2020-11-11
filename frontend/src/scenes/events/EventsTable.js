@@ -139,7 +139,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             key: 'when',
             render: function renderWhen({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
-                return <Tooltip title={event.timestamp}>{moment(event.timestamp).fromNow()}</Tooltip>
+                return (
+                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                )
             },
         },
     ]
