@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, response
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 
 from . import (
     action,
@@ -64,7 +64,7 @@ organizations_router.register(
     parents_query_lookups=["organization_id"],
 )
 
-if check_ee_enabled():
+if is_ee_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActions
         from ee.clickhouse.views.element import ClickhouseElement

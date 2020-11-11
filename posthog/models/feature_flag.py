@@ -7,7 +7,7 @@ from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 
 from .filter import Filter
 from .person import Person
@@ -44,7 +44,7 @@ class FeatureFlag(models.Model):
         return len(get_person_by_distinct_id(self.team, distinct_id, Filter(data=self.filters))) > 0
 
     def _match_distinct_id(self, distinct_id: str) -> bool:
-        if check_ee_enabled():
+        if is_ee_enabled():
             return self._query_clickhouse(distinct_id)
         return self._query_postgres(distinct_id)
 
