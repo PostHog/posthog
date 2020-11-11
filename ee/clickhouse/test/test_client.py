@@ -1,5 +1,5 @@
 import datetime
-import pickle
+import json
 
 import fakeredis
 from django.test import TestCase
@@ -18,7 +18,7 @@ class ClickhouseClientTestCase(TestCase):
         args = None
         res = cache_sync_execute(query, args=args, redis_client=self.redis_client)
         cache = self.redis_client.get(_key_hash(query, args=args))
-        cache_res = pickle.loads(cache)
+        cache_res = json.loads(cache)
         self.assertEqual(res, cache_res)
         ts_end = datetime.datetime.now()
         dur = (ts_end - ts_start).microseconds
