@@ -61,14 +61,13 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
-
-    if not check_ee_enabled():
-        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-    else:
-        # ee enabled scheduled tasks
+    if check_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse event table lag")
         sender.add_periodic_task(120, clickhouse_events_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(60 * 60, calculate_cohort.s(), name="recalculate cohorts")
+    else:
+        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+        sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
