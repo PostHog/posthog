@@ -109,6 +109,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url", selector="a")
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
+            team2 = Team.objects.create()
             event1 = _create_event(
                 team=self.team,
                 event="$autocapture",
@@ -143,6 +144,20 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     # make sure elements don't get double counted if they're part of the same event
                     Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
                 ],
+            )
+
+            # team leakage
+            _create_event(
+                team=team2,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[Element(tag_name="a", href="/a-url", text="some_other_text", nth_child=0, nth_of_type=0,),],
+            )
+            _create_event(
+                team=team2,
+                event="$autocapture",
+                distinct_id="whatever2",
+                elements=[Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),],
             )
 
             events = _get_events_for_action(action1)
@@ -609,4 +624,22 @@ class TestSelectors(BaseTest):
 
         self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
         self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 1)
+
+    def test_asterisk_in_query(self):
+        # Sometimes people randomly add * but they don't do very much, so just remove them
+        selector1 = Selector("div > *")
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+        self.assertEqual(len(selector1.parts), 1)
+
+    def test_asterisk_in_middle_of_query(self):
+        selector1 = Selector("div > * > div")
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
+        self.assertEqual(selector1.parts[1].direct_descendant, False)
         self.assertEqual(selector1.parts[1].unique_order, 1)

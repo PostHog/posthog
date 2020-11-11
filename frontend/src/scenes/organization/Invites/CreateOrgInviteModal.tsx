@@ -5,11 +5,14 @@ import { invitesLogic } from './logic'
 import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
+import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateOrgInviteModalWithButton(): JSX.Element {
+export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -21,54 +24,81 @@ export function CreateOrgInviteModalWithButton(): JSX.Element {
         if (emailRef.current) emailRef.current.setValue('')
     }, [setIsVisible, setErrorMessage])
 
+    const handleSubmit = (): void => {
+        setErrorMessage(null)
+        const potentialEmail = emailRef.current?.state.value
+        if (!potentialEmail?.length) {
+            setErrorMessage('You must specify the email address for which this invite is intended.')
+        } else if (!isEmail(potentialEmail)) {
+            setErrorMessage('This does not look like a valid email address.')
+        } else {
+            createInvite({ targetEmail: potentialEmail })
+            closeModal()
+            if (location.pathname !== '/organization/invites' && !user?.email_service_available)
+                push('/organization/invites')
+        }
+    }
+
     return (
         <>
-            <div className="mb text-right">
-                <Button
-                    type="primary"
-                    data-attr="invite-teammate-button"
+            {type === 'text' ? (
+                <span
                     onClick={() => {
                         setIsVisible(true)
                     }}
                 >
-                    + Invite Teammate
-                </Button>
-            </div>
+                    Invite Team Member
+                </span>
+            ) : (
+                <div className="mb text-right">
+                    <Button
+                        type="primary"
+                        data-attr="invite-teammate-button"
+                        onClick={() => {
+                            setIsVisible(true)
+                        }}
+                        icon={<PlusOutlined />}
+                    >
+                        Invite Team Member
+                    </Button>
+                </div>
+            )}
+
             <Modal
-                title="Inviting Teammate"
-                okText="Create Invite Link"
+                title="Inviting Team member"
+                okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
-                onOk={() => {
-                    setErrorMessage(null)
-                    const potentialEmail = emailRef.current?.state.value
-                    if (!potentialEmail?.length) {
-                        setErrorMessage('You must specify the email address this invite is intended for.')
-                    } else if (!isEmail(potentialEmail)) {
-                        setErrorMessage("This doesn't look like a valid email address.")
-                    } else {
-                        createInvite({ targetEmail: potentialEmail })
-                        closeModal()
-                        if (location.pathname !== '/organization/invites') push('/organization/invites')
-                    }
-                }}
+                onOk={handleSubmit}
                 onCancel={closeModal}
                 visible={isVisible}
             >
-                <p>
-                    Create an invite link for a teammate with a specific email address.
-                    <br />
-                    Remember to send the link to the teammate.
-                    <br />
-                    <i>Invites emailed by PostHog coming soon.</i>
-                </p>
-                <Input
-                    data-attr="invite-email-input"
-                    addonBefore="Email address"
-                    ref={emailRef}
-                    maxLength={254}
-                    type="email"
-                />
-                {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
+                <form
+                    onSubmit={(e) => {
+                        e.preventDefault()
+                        handleSubmit()
+                    }}
+                    data-attr="invite-teammate-form"
+                >
+                    <div className="input-set">
+                        <label htmlFor="invitee-email">Email address</label>
+                        <Input
+                            data-attr="invite-email-input"
+                            ref={emailRef}
+                            maxLength={254}
+                            autoFocus
+                            type="email"
+                            name="invitee-email"
+                        />
+                    </div>
+                </form>
+                {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
+
+                {!user?.email_service_available && (
+                    <div>
+                        Emails are not enabled in your PostHog instance. Remember to <b>share the invite link</b> with
+                        the team member you want to invite.
+                    </div>
+                )}
             </Modal>
         </>
     )

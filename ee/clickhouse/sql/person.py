@@ -168,7 +168,7 @@ where person_distinct_id.team_id = %(team_id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(timestamp)s, %(team_id)s, %(properties)s, %(is_identified)s, %(timestamp)s, 0
+INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """

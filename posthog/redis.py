@@ -1,8 +1,8 @@
 from typing import Optional
 
-import fakeredis
 import redis
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 _client = None  # type: Optional[redis.Redis]
 
@@ -14,11 +14,13 @@ def get_client() -> redis.Redis:
         return _client
 
     if settings.TEST:
+        import fakeredis
+
         _client = fakeredis.FakeStrictRedis()
     elif settings.REDIS_URL:
         _client = redis.from_url(settings.REDIS_URL, db=0)
 
     if not _client:
-        raise Exception("Redis not configured!")
+        raise ImproperlyConfigured("Redis not configured!")
 
     return _client

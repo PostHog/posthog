@@ -16,13 +16,7 @@ import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
 
-export function EventsTable({
-    fixedFilters,
-    filtersEnabled = true,
-    logic,
-    isLiveActions = false,
-    isPersonPage = false,
-}) {
+export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPersonPage = false }) {
     const {
         properties,
         eventsFormatted,
@@ -53,7 +47,7 @@ export function EventsTable({
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: isLiveActions ? 6 : 5,
+                            colSpan: 5,
                             style: {
                                 cursor: 'pointer',
                             },
@@ -145,34 +139,19 @@ export function EventsTable({
             key: 'when',
             render: function renderWhen({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
-                return <Tooltip title={event.timestamp}>{moment(event.timestamp).fromNow()}</Tooltip>
+                return (
+                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                )
             },
         },
     ]
-    if (isLiveActions)
-        columns.splice(0, 0, {
-            title: 'Action',
-            key: 'action',
-            render: function renderAction(item) {
-                if (!item.event) return { props: { colSpan: 0 } }
-                return <Link to={'/action/' + item.event.actionId}>{item.event.actionName}</Link>
-            },
-        })
 
     return (
         <div className="events" data-attr="events-table">
             <PageHeader
-                title={
-                    isLiveActions
-                        ? 'Live Actions'
-                        : isPersonPage
-                        ? ''
-                        : !featureFlags['actions-ux-201012']
-                        ? 'Events'
-                        : 'Raw Events Stream'
-                }
+                title={isPersonPage ? '' : !featureFlags['actions-ux-201012'] ? 'Events' : 'Raw Events Stream'}
             />
-            {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
+            {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
                     type="default"

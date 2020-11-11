@@ -7,6 +7,7 @@ from posthog.api.test.test_action_people import action_people_test_factory
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
+from posthog.models.team import Team
 
 
 def _create_action(**kwargs):
@@ -59,10 +60,13 @@ class TestAction(
         self.assertFalse(patch_delay.called)
 
     def test_only_get_count_on_retrieve(self):
+        team2 = Team.objects.create(name="bla")
         action = Action.objects.create(team=self.team, name="bla")
         ActionStep.objects.create(action=action, event="custom event")
         _create_event(event="custom event", team=self.team, distinct_id="test")
         _create_event(event="another event", team=self.team, distinct_id="test")
+        # test team leakage
+        _create_event(event="custom event", team=team2, distinct_id="test")
         response = self.client.get("/api/action/").json()
         self.assertEqual(response["results"][0]["count"], None)
 
