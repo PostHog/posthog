@@ -440,70 +440,70 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 self._compare_entity_response(action_response["results"], event_response["results"], remove=[])
             )
 
-        # def test_breakdown_by_cohort_people_endpoint(self):
-        #     person1, person2, person3, person4 = self._create_multiple_people()
-        #     cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-        #     cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
-        #     cohort3 = cohort_factory(
-        #         name="cohort3",
-        #         team=self.team,
-        #         groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
-        #     )
-        #     action = action_factory(name="watched movie", team=self.team)
+        def test_breakdown_by_cohort_people_endpoint(self):
+            person1, person2, person3, person4 = self._create_multiple_people()
+            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
+            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+            cohort3 = cohort_factory(
+                name="cohort3",
+                team=self.team,
+                groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
+            )
+            action = action_factory(name="watched movie", team=self.team)
 
-        #     people = self.client.get(
-        #         "/api/action/people/",
-        #         data={
-        #             "date_from": "2020-01-01",
-        #             "date_to": "2020-01-07",
-        #             "type": "events",
-        #             "entityId": "watched movie",
-        #             "breakdown_type": "cohort",
-        #             "breakdown_value": cohort.pk,
-        #             "breakdown": [cohort.pk],  # this shouldn't do anything
-        #         },
-        #     ).json()
+            people = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    "type": "events",
+                    "entityId": "watched movie",
+                    "breakdown_type": "cohort",
+                    "breakdown_value": cohort.pk,
+                    "breakdown": [cohort.pk],  # this shouldn't do anything
+                },
+            ).json()
 
-        #     self.assertEqual(len(people["results"][0]["people"]), 1)
-        #     ordered_people = sorted(people["results"][0]["people"], key= lambda i: i['id'])
-        #     self.assertEqual(ordered_people[0]["id"], person1)
+            self.assertEqual(len(people["results"][0]["people"]), 1)
+            ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["id"])
+            self.assertEqual(ordered_people[0]["id"], person1.pk)
 
-        #     # all people
-        #     people = self.client.get(
-        #         "/api/action/people/",
-        #         data={
-        #             "date_from": "2020-01-01",
-        #             "date_to": "2020-01-07",
-        #             "type": "events",
-        #             "entityId": "watched movie",
-        #             "breakdown_type": "cohort",
-        #             "breakdown_value": "all",
-        #             "breakdown": [cohort.pk],
-        #         },
-        #     ).json()
+            # all people
+            people = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    "type": "events",
+                    "entityId": "watched movie",
+                    "breakdown_type": "cohort",
+                    "breakdown_value": "all",
+                    "breakdown": [cohort.pk],
+                },
+            ).json()
 
-        #     self.assertEqual(len(people["results"][0]["people"]), 4)
-        #     ordered_people = sorted(people["results"][0]["people"], key= lambda i: i['id'])
-        #     self.assertEqual(ordered_people[0]["id"], person1)
+            self.assertEqual(len(people["results"][0]["people"]), 4)
+            ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["id"])
+            self.assertEqual(ordered_people[0]["id"], person1.pk)
 
-        # def test_breakdown_by_person_property_people_endpoint(self):
-        #     person1, person2, person3, person4 = self._create_multiple_people()
-        #     action = action_factory(name="watched movie", team=self.team)
+        def test_breakdown_by_person_property_people_endpoint(self):
+            person1, person2, person3, person4 = self._create_multiple_people()
+            action = action_factory(name="watched movie", team=self.team)
 
-        #     people = self.client.get(
-        #         "/api/action/people/",
-        #         data={
-        #             "date_from": "2020-01-01",
-        #             "date_to": "2020-01-07",
-        #             "type": "events",
-        #             "entityId": "watched movie",
-        #             "breakdown_type": "person",
-        #             "breakdown_value": "person3",
-        #             "breakdown": "name",
-        #         },
-        #     ).json()
-        #     self.assertEqual(len(people["results"][0]["people"]), 1)
-        #     self.assertEqual(people["results"][0]["people"][0]["name"], "person3")
+            people = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    "type": "events",
+                    "entityId": "watched movie",
+                    "breakdown_type": "person",
+                    "breakdown_value": "person3",
+                    "breakdown": "name",
+                },
+            ).json()
+            self.assertEqual(len(people["results"][0]["people"]), 1)
+            self.assertEqual(people["results"][0]["people"][0]["id"], person3.pk)
 
     return TestActionPeople
 

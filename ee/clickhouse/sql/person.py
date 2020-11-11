@@ -204,7 +204,7 @@ ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
 """
 
 PERSON_TREND_SQL = """
-SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to}
+SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to} {person_filter}
 """
 
 PEOPLE_THROUGH_DISTINCT_SQL = """
