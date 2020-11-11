@@ -4,9 +4,14 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilterDropdown } from '../ActionFilter/ActionFilterDropdown'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
-import { DownOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions, retentionOptions } from 'scenes/retention/retentionTableLogic'
-import { Button, DatePicker, Select } from 'antd'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import {
+    retentionTableLogic,
+    dateOptions,
+    retentionOptions,
+    retentionOptionDescriptions,
+} from 'scenes/retention/retentionTableLogic'
+import { Button, DatePicker, Select, Tooltip } from 'antd'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
@@ -49,6 +54,9 @@ export function RetentionTab(): JSX.Element {
                     {Object.entries(retentionOptions).map(([key, value]) => (
                         <Select.Option key={key} value={key}>
                             {value}
+                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
                         </Select.Option>
                     ))}
                 </Select>
@@ -56,6 +64,15 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">
                 {retentionType === 'retention_first_time' ? 'Cohortizing Event' : 'Target Event'}
+                {retentionType === 'retention_first_time' && (
+                    <Tooltip
+                        key="2"
+                        placement="right"
+                        title="Choose the event that will determine which users are considered in the cohort at the start period"
+                    >
+                        <InfoCircleOutlined className="info-indicator" />
+                    </Tooltip>
+                )}
             </h4>
 
             <Button ref={node} data-attr="retention-action" onClick={(): void => setOpen(!open)}>
@@ -77,6 +94,15 @@ export function RetentionTab(): JSX.Element {
                 <>
                     <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                         {'Retained event'}
+                        {retentionType === 'retention_first_time' && (
+                            <Tooltip
+                                key="3"
+                                placement="right"
+                                title="Choose the event that will determine if users in a cohort come back"
+                            >
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
+                        )}
                     </h4>
 
                     <Button

@@ -22,6 +22,11 @@ export const retentionOptions = {
     [`${RETENTION_FIRST_TIME}`]: 'First Time',
 }
 
+export const retentionOptionDescriptions = {
+    [`${RETENTION_RECURRING}`]: 'Track an event and show the specific days that users who performed the event in the initial period come back',
+    [`${RETENTION_FIRST_TIME}`]: 'Determine a cohort of users by an initial event and track a second event that will determine if a user returns',
+}
+
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
