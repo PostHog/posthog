@@ -14,11 +14,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="event_names_with_usage",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
         migrations.AddField(
             model_name="team",
             name="event_properties_with_usage",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
     ]
