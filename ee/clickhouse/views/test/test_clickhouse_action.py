@@ -28,7 +28,7 @@ def _create_cohort(**kwargs):
 
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+    return Person(id=str(person.uuid))
 
 
 def _create_event(**kwargs):
