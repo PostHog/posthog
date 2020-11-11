@@ -5,8 +5,10 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.email import is_email_available
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.tasks.email import send_invite
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
@@ -26,6 +28,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_by_first_name",
             "created_at",
             "updated_at",
+            "emailing_attempt_made",
         ]
         read_only_fields = [
             "id",
@@ -34,6 +37,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_by_first_name",
             "created_at",
             "updated_at",
+            "emailing_attempt_made",
         ]
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
@@ -45,13 +49,18 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
         ).exists():
             raise exceptions.ValidationError(
-                "An invite intended for this emails already is active in this organization."
+                "An invite intended for this email already is active in this organization."
             )
-        return OrganizationInvite.objects.create(
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
             target_email=validated_data["target_email"],
         )
+        if is_email_available(with_absolute_urls=True):
+            invite.emailing_attempt_made = True
+            send_invite.delay(invite_id=invite.id)
+            invite.save()
+        return invite
 
 
 class OrganizationInviteViewSet(

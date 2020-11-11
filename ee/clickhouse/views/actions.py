@@ -2,6 +2,7 @@
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
@@ -10,6 +11,7 @@ from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
@@ -18,8 +20,10 @@ from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
+from posthog.models.property import Property
 from posthog.models.team import Team
 
 
@@ -65,12 +69,15 @@ class ClickhouseActions(ActionViewSet):
             entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
 
         # adhoc date handling. parsed differently with django orm
+        date_from = filter.date_from or timezone.now()
         if filter.interval == "month":
-            filter._date_to = (
-                timezone.now()
-                if not filter.date_from
-                else (filter.date_from + timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
-            )
+            filter._date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        elif filter.interval == "week":
+            filter._date_to = date_from + timedelta(weeks=1)
+        elif filter.interval == "hour":
+            filter._date_to = date_from + timedelta(hours=1)
+        elif filter.interval == "minute":
+            filter._date_to = date_from + timedelta(minutes=1)
 
         current_url = request.get_full_path()
 
@@ -149,22 +156,39 @@ class ClickhouseActions(ActionViewSet):
 
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
+        person_filter = ""
+        person_filter_params: Dict[str, Any] = {}
+
+        if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+            cohort = Cohort.objects.get(pk=filter.breakdown_value)
+            person_filter, person_filter_params = format_filter_query(cohort)
+            person_filter = "AND distinct_id IN ({})".format(person_filter)
+        elif (
+            filter.breakdown_type == "person"
+            and isinstance(filter.breakdown, str)
+            and isinstance(filter.breakdown_value, str)
+        ):
+            person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
+            filter.properties.append(person_prop)
+
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
         params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
         content_sql = PERSON_TREND_SQL.format(
             entity_filter=entity_sql,
             parsed_date_from=(parsed_date_from or ""),
             parsed_date_to=(parsed_date_to or ""),
-            filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+            filters=prop_filters,
             breakdown_filter="",
+            person_filter=person_filter,
         )
+
         people = sync_execute(
             PEOPLE_THROUGH_DISTINCT_SQL.format(
                 content_sql=content_sql, latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
             ),
-            params,
+            {**params, **person_filter_params},
         )
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 

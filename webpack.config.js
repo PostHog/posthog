@@ -6,6 +6,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
+const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 // main = app
 // toolbar = toolbar
@@ -41,7 +42,7 @@ function createEntry(entry) {
                     ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                     : process.env.IS_PORTER
                     ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
-                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
+                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.ts', '.tsx'],
@@ -196,7 +197,7 @@ function createEntry(entry) {
                 ? new URL(process.env.JS_URL).host
                 : process.env.IS_PORTER
                 ? `${process.env.PORTER_WEBPACK_HOST}`
-                : `${webpackDevServerHost}:8234`,
+                : `${webpackDevServerFrontendAddr}:8234`,
             allowedHosts: process.env.IS_PORTER
                 ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
                 : [],
