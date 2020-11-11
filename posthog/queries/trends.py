@@ -309,6 +309,8 @@ class Trends(BaseQuery):
         actions = Action.objects.filter(team_id=team_id).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
+            if not actions:
+                return []
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
         # format default dates
