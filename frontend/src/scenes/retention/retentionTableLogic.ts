@@ -93,7 +93,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         filters: [
             props.filters
                 ? {
-                      startEntity: props.filters.target || {
+                      startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
                       selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
