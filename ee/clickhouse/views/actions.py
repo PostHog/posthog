@@ -70,13 +70,11 @@ class ClickhouseActions(ActionViewSet):
         if filter.interval == "month":
             filter._date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         elif filter.interval == "week":
-            filter._date_to = date_from + relativedelta(weeks=1)
-        elif filter.interval == "day":
-            filter._date_to = date_from + relativedelta(day=1)
+            filter._date_to = date_from + timedelta(weeks=1)
         elif filter.interval == "hour":
-            filter._date_to = date_from + relativedelta(hours=1)
+            filter._date_to = date_from + timedelta(hours=1)
         elif filter.interval == "minute":
-            filter._date_to = date_from + relativedelta(minutes=1)
+            filter._date_to = date_from + timedelta(minutes=1)
 
         current_url = request.get_full_path()
 
