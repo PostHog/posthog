@@ -157,13 +157,18 @@ class ClickhouseActions(ActionViewSet):
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
-        person_filter, person_filter_params = "", {}
+        person_filter = ""
+        person_filter_params: Dict[str, Any] = {}
 
         if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=filter.breakdown_value)
             person_filter, person_filter_params = format_filter_query(cohort)
             person_filter = "AND distinct_id IN ({})".format(person_filter)
-        elif filter.breakdown_type == "person":
+        elif (
+            filter.breakdown_type == "person"
+            and isinstance(filter.breakdown, str)
+            and isinstance(filter.breakdown_value, str)
+        ):
             person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
             filter.properties.append(person_prop)
 
@@ -174,7 +179,7 @@ class ClickhouseActions(ActionViewSet):
             entity_filter=entity_sql,
             parsed_date_from=(parsed_date_from or ""),
             parsed_date_to=(parsed_date_to or ""),
-            filters=prop_filters if filter.properties else "",
+            filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,
         )
