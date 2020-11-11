@@ -1,7 +1,6 @@
 import asyncio
-import datetime
 import hashlib
-import pickle
+import json
 from time import time
 from typing import Any
 
@@ -90,11 +89,11 @@ else:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
         if redis_client.exists(key):
-            result = pickle.loads(redis_client.get(key))
+            result = json.loads(redis_client.get(key))
             return result
         else:
             result = sync_execute(query, args)
-            redis_client.set(key, pickle.dumps(result), ex=ttl)
+            redis_client.set(key, json.dumps(result), ex=ttl)
             return result
 
     def sync_execute(query, args=None):
@@ -111,7 +110,7 @@ else:
 
 
 def _key_hash(query: str, args: Any) -> bytes:
-    key = hashlib.md5(query.encode("utf-8") + pickle.dumps(args)).digest()
+    key = hashlib.md5(query.encode("utf-8") + json.dumps(args)).digest()
     return key
 
 
