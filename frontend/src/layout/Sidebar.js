@@ -161,7 +161,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
                     </Menu.Item>
 
-                    <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
+                    <Menu.Item key="events" style={itemStyle} data-attr="menu-item-events">
                         <ContainerOutlined />
                         Events
                         <Link to={'/events'} onClick={collapseSidebar} />
@@ -218,6 +218,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                                 <span className="sidebar-label">Settings</span>
                             </span>
                         }
+                        data-attr="menu-item-settings"
                         onTitleClick={() => {
                             collapseSidebar()
                             location.pathname !== '/project/settings' && push('/project/settings')
