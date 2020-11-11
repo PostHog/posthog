@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 from time import time
-from typing import Any
+from typing import Any, List, Tuple
 
 import sqlparse
 from aioch import Client
@@ -89,11 +89,11 @@ else:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
         if redis_client.exists(key):
-            result = json.loads(redis_client.get(key))
+            result = _deserialize(redis_client.get(key))
             return result
         else:
             result = sync_execute(query, args)
-            redis_client.set(key, json.dumps(result).encode("utf-8"), ex=ttl)
+            redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
     def sync_execute(query, args=None):
@@ -107,6 +107,17 @@ else:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
         return result
+
+
+def _deserialize(result_bytes: bytes) -> List[Tuple]:
+    results = []
+    for x in json.loads(result_bytes):
+        results.append(tuple(x))
+    return results
+
+
+def _serialize(result: Any) -> bytes:
+    return json.dumps(result).encode("utf-8")
 
 
 def _key_hash(query: str, args: Any) -> bytes:

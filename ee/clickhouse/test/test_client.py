@@ -1,11 +1,10 @@
 import datetime
-import json
 
 import fakeredis
 from django.test import TestCase
 from freezegun import freeze_time
 
-from ee.clickhouse.client import CACHE_TTL, _key_hash, cache_sync_execute
+from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute
 
 
 class ClickhouseClientTestCase(TestCase):
@@ -18,7 +17,7 @@ class ClickhouseClientTestCase(TestCase):
         args = None
         res = cache_sync_execute(query, args=args, redis_client=self.redis_client)
         cache = self.redis_client.get(_key_hash(query, args=args))
-        cache_res = json.loads(cache)
+        cache_res = _deserialize(cache)
         self.assertEqual(res, cache_res)
         ts_end = datetime.datetime.now()
         dur = (ts_end - ts_start).microseconds
