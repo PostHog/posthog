@@ -54,7 +54,9 @@ export function RetentionTab(): JSX.Element {
                 </Select>
             </div>
             <hr />
-            <h4 className="secondary">{retentionType === 'retention_first_time' ? 'First Event' : 'Target Event'}</h4>
+            <h4 className="secondary">
+                {retentionType === 'retention_first_time' ? 'Cohortizing Event' : 'Target Event'}
+            </h4>
 
             <Button ref={node} data-attr="retention-action" onClick={(): void => setOpen(!open)}>
                 {startEntity?.name || 'Select action'}

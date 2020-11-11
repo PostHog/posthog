@@ -100,6 +100,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
         updateRetention: (retention) => ({ retention }),
+        clearPeople: true,
     }),
     reducers: ({ props }) => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -131,6 +132,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             },
         ],
         people: {
+            clearPeople: () => ({}),
             updatePeople: (state, { selectedIndex, people }) => ({
                 ...state,
                 [`${selectedIndex}`]: [...state[selectedIndex], ...people],
@@ -226,6 +228,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             actions.loadRetention(true)
         },
         loadRetention: () => {
+            actions.clearPeople()
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
