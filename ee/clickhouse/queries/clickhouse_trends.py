@@ -1,6 +1,4 @@
-import copy
 from datetime import timedelta
-from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models.manager import BaseManager
@@ -30,43 +28,21 @@ from ee.clickhouse.sql.trends.breakdown import (
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
-from posthog.models.team import Team
-from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.queries.trends import Trends
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(Trends):
-    def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-
-        # format default dates
+    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
         if not filter._date_from:
             filter._date_from = relative_date_parse("-7d")
         if not filter._date_to:
             filter._date_to = timezone.now()
-
-        result = []
-        for entity in filter.entities:
-            if filter.compare:
-                compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
-                result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team_id)
-                previous_entity_result = convert_to_comparison(
-                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
-                )
-                result.extend(previous_entity_result)
-            else:
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                result.extend(entity_result)
-
-        return result
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int):
         if isinstance(filter.breakdown, list) and "all" in filter.breakdown:

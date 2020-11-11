@@ -254,6 +254,18 @@ class Trends(BaseQuery):
 
         return serialized_data
 
+    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+        # format default dates
+        if not filter.date_from:
+            filter._date_from = (
+                Event.objects.filter(team_id=team_id)
+                .order_by("timestamp")[0]
+                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+            )
+        if not filter.date_to:
+            filter._date_to = now().isoformat()
+
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
@@ -309,23 +321,17 @@ class Trends(BaseQuery):
         actions = Action.objects.filter(team_id=team_id).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
-            if not actions:
-                return []
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        # format default dates
-        if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team_id)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
+        self._set_default_dates(filter, team_id)
 
         result = []
         for entity in filter.entities:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                try:
+                    entity.name = actions.get(id=entity.id).name
+                except Action.DoesNotExist:
+                    continue
             if filter.compare:
                 compare_filter = determine_compared_filter(filter=filter)
                 entity_result = self._serialize_entity(entity, filter, team_id)
