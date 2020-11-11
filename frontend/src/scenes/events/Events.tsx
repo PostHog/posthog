@@ -44,7 +44,7 @@ function _ManageEvents({}): JSX.Element {
                     <i>See all events that are being sent to this team in real time.</i>
                     <EventsTable />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Actions" key="actions">
+                <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Events" key="events">
