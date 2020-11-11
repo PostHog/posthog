@@ -5,7 +5,7 @@ describe('Actions', () => {
     })
 
     it('Actions loaded', () => {
-        cy.get('h1').should('contain', 'Actions')
+        cy.get('[data-attr=actions-table]').should('exist')
     })
 
     it('Click on an action', () => {

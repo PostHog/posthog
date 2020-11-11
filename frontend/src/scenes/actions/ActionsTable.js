@@ -163,6 +163,7 @@ export function ActionsTable() {
                 loading={actionsLoading}
                 rowKey={(action) => action.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                data-attr="actions-table"
                 dataSource={actions}
                 locale={
                     featureFlags['actions-ux-201012']
