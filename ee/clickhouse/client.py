@@ -93,7 +93,7 @@ else:
             return result
         else:
             result = sync_execute(query, args)
-            redis_client.set(key, json.dumps(result), ex=ttl)
+            redis_client.set(key, json.dumps(result).encode("utf-8"), ex=ttl)
             return result
 
     def sync_execute(query, args=None):
@@ -110,7 +110,7 @@ else:
 
 
 def _key_hash(query: str, args: Any) -> bytes:
-    key = hashlib.md5(query.encode("utf-8") + json.dumps(args)).digest()
+    key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
     return key
 
 
