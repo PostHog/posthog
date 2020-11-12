@@ -23,6 +23,25 @@ PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
 class ClickhouseRetention(Retention):
+    person_distinct_id = Table("person_distinct_id")
+    events = Table("events").as_("e")
+    toDateTime = CustomFunction("toDateTime", ["date"])
+    partFunc = lambda self, part, first_date, second_date: CustomFunction(
+        "datediff", ["period", "start_date", "end_date"]
+    )(part, second_date, first_date)
+
+    def trunc_func(self, period: str, arg: Any) -> str:
+        if period == "Hour":
+            return CustomFunction(PERIOD_TRUNC_HOUR, ["date"])(arg)
+        elif period == "Week":
+            return CustomFunction(PERIOD_TRUNC_WEEK, ["date"])(arg)
+        elif period == "Day":
+            return CustomFunction(PERIOD_TRUNC_DAY, ["date"])(arg)
+        elif period == "Month":
+            return CustomFunction(PERIOD_TRUNC_MONTH, ["date"])(arg)
+        else:
+            raise ValueError(f"Period {period} is unsupported.")
+
     def _execute_sql(
         self,
         filter: Filter,
@@ -45,8 +64,8 @@ class ClickhouseRetention(Retention):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
-        trunc_func = self._get_trunc_func_ch(period)
-        final_query = self.final_query(trunc_func)
+        final_query = self.final_query(period)
+        print(sqlparse.format(str(final_query), reindent_aligned=True))
         result = sync_execute(
             final_query,
             {
@@ -70,66 +89,13 @@ class ClickhouseRetention(Retention):
 
         return result_dict
 
-    def _get_trunc_func_ch(self, period: str) -> str:
-        if period == "Hour":
-            return PERIOD_TRUNC_HOUR
-        elif period == "Week":
-            return PERIOD_TRUNC_WEEK
-        elif period == "Day":
-            return PERIOD_TRUNC_DAY
-        elif period == "Month":
-            return PERIOD_TRUNC_MONTH
-        else:
-            raise ValueError(f"Period {period} is unsupported.")
+    def final_query(self, period: str):
 
-    def person_query(self):
-        person_distinct_id = Table("person_distinct_id")
-
-        q = (
-            Query.from_(person_distinct_id)
-            .select(person_distinct_id.person_id, person_distinct_id.distinct_id)
-            .where(person_distinct_id.team_id == PyformatParameter("team_id"))
-        )
-        return q
-
-    def reference_query(self, trunc: str):
-        events = Table("events").as_("e")
-        person_query = self.person_query().as_("pdi")
         toDateTime = CustomFunction("toDateTime", ["date"])
-        truncFunc = CustomFunction(trunc, ["date"])
-        return (
-            Query.from_(events)
-            .join(person_query)
-            .on(person_query.distinct_id == events.distinct_id)
-            .select(truncFunc(events.timestamp).as_("event_date"), person_query.person_id.as_("person_id"),)
-            .distinct()
-            .where(toDateTime(events.timestamp) >= PyformatParameter("start_date"))
-            .where(toDateTime(events.timestamp) <= PyformatParameter("end_date"))
-            .where(events.team_id >= PyformatParameter("team_id"))
-        )
-
-    def event_query(self):
-        events = Table("events").as_("e")
-        person_query = self.person_query().as_("pdi")
-        toDateTime = CustomFunction("toDateTime", ["date"])
-
-        return (
-            Query.from_(events)
-            .join(person_query)
-            .on(person_query.distinct_id == events.distinct_id)
-            .select(events.timestamp.as_("event_date"), person_query.person_id.as_("person_id"),)
-            .where(toDateTime(events.timestamp) >= PyformatParameter("start_date"))
-            .where(toDateTime(events.timestamp) <= PyformatParameter("end_date"))
-            .where(events.team_id >= PyformatParameter("team_id"))
-        )
-
-    def final_query(self, trunc: str):
-        toDateTime = CustomFunction("toDateTime", ["date"])
-        truncFunc = CustomFunction(trunc, ["date"])
         dateDiff = CustomFunction("datediff", ["period", "start_date", "end_date"])
 
         event_query = self.event_query().as_("event")
-        reference_event = self.reference_query(trunc).as_("reference_event")
+        reference_event = self.reference_query(period).as_("reference_event")
 
         final_query = (
             Query.from_(event_query)
@@ -138,17 +104,19 @@ class ClickhouseRetention(Retention):
             .select(
                 dateDiff(
                     PyformatParameter("period"),
-                    truncFunc(toDateTime(PyformatParameter("start_date"))),
+                    self.trunc_func(period, toDateTime(PyformatParameter("start_date"))),
                     reference_event.event_date,
                 ).as_("period_to_event_days"),
                 dateDiff(
                     PyformatParameter("period"),
                     reference_event.event_date,
-                    truncFunc(toDateTime(event_query.event_date)),
+                    self.trunc_func(period, toDateTime(event_query.event_date)),
                 ).as_("period_between_events_days"),
                 fn.Count(event_query.person_id).distinct().as_("count"),
             )
-            .where(truncFunc(event_query.event_date) >= truncFunc(reference_event.event_date))
+            .where(
+                self.trunc_func(period, event_query.event_date) >= self.trunc_func(period, reference_event.event_date)
+            )
             .groupby(Field("period_to_event_days"), Field("period_between_events_days"))
         )
 

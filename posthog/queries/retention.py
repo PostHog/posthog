@@ -4,12 +4,15 @@ import string
 from datetime import timedelta
 from typing import Any, Dict, List, Tuple, Union
 
+import sqlparse
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import QuerySet
 from django.utils.timezone import now
+from pypika import CustomFunction, Field, PyformatParameter, Query, Table
+from pypika import functions as fn
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Event, Filter, Team
@@ -20,6 +23,15 @@ from posthog.utils import generate_cache_key
 
 
 class Retention(BaseQuery):
+    person_distinct_id = Table("posthog_persondistinctid")
+    events = Table("posthog_event").as_("e")
+    toDateTime = lambda self, v: v
+    array_agg = CustomFunction("array_agg", ["arg"])
+    distinct = CustomFunction("DISTINCT", ["arg"])
+
+    def trunc_func(self, period: str, arg: Any):
+        return CustomFunction("DATE_TRUNC", ["period", "date"])(period, arg)
+
     def preprocess_params(self, filter: Filter, total_intervals=11):
         period = filter.period or "Day"
         tdelta, t1 = self.determineTimedelta(total_intervals, period)
@@ -109,16 +121,24 @@ class Retention(BaseQuery):
         )
 
         start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        print(sqlparse.format(str(final_query), reindent_aligned=True))
+        test_query = self.final_query(period)
+        print(sqlparse.format(str(test_query), reindent_aligned=True))
+        test_params = {
+            "team_id": team.pk,
+            "start_date": filter.date_from,
+            "end_date": filter.date_to,
+            "target_event": target_entity.id,
+            "period": period,
+        }
 
         with connection.cursor() as cursor:
-            cursor.execute(
-                final_query, start_params + events_query_params + first_date_params,
-            )
+            cursor.execute(test_query, test_params)
             data = namedtuplefetchall(cursor)
 
             scores: dict = {}
             for datum in data:
-                key = round(datum.first_date, 1)
+                key = round(datum.period_to_event_days, 1)
                 if not scores.get(key, None):
                     scores.update({key: {}})
                 for person in datum.people:
@@ -129,18 +149,20 @@ class Retention(BaseQuery):
 
         by_dates = {}
         for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
+            people = sorted(row.people, key=lambda p: scores[round(row.period_to_event_days, 1)][int(p)], reverse=True,)
 
             random_key = "".join(
                 random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
             )
-            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
+            cache_key = generate_cache_key(
+                "{}{}{}".format(random_key, str(round(row.period_to_event_days, 0)), str(team.pk))
+            )
             cache.set(
                 cache_key, people, 600,
             )
             by_dates.update(
                 {
-                    (int(row.first_date), int(row.date)): {
+                    (int(row.period_to_event_days), int(row.period_between_events_days)): {
                         "count": row.count,
                         "people": people[0:100],
                         "offset": 100,
@@ -201,3 +223,76 @@ class Retention(BaseQuery):
             return TruncMonth(subject), fields
         else:
             raise ValueError(f"Period {period} is unsupported.")
+
+    def person_query(self):
+        person_distinct_id = self.person_distinct_id
+        q = (
+            Query.from_(person_distinct_id)
+            .select(person_distinct_id.person_id, person_distinct_id.distinct_id)
+            .where(person_distinct_id.team_id == PyformatParameter("team_id"))
+        )
+        return q
+
+    def reference_query(self, period: str):
+        events = self.events
+        person_query = self.person_query().as_("pdi")
+        toDateTime = self.toDateTime
+
+        return (
+            Query.from_(events)
+            .join(person_query)
+            .on(person_query.distinct_id == events.distinct_id)
+            .select(
+                self.trunc_func(period, events.timestamp).as_("event_date"), person_query.person_id.as_("person_id"),
+            )
+            .distinct()
+            .where(toDateTime(events.timestamp) >= PyformatParameter("start_date"))
+            .where(toDateTime(events.timestamp) <= PyformatParameter("end_date"))
+            .where(events.team_id >= PyformatParameter("team_id"))
+            .where(events.event == PyformatParameter("target_event"))
+        )
+
+    def event_query(self):
+        events = self.events
+        person_query = self.person_query().as_("pdi")
+        toDateTime = self.toDateTime
+
+        return (
+            Query.from_(events)
+            .join(person_query)
+            .on(person_query.distinct_id == events.distinct_id)
+            .select(events.timestamp.as_("event_date"), person_query.person_id.as_("person_id"),)
+            .where(toDateTime(events.timestamp) >= PyformatParameter("start_date"))
+            .where(toDateTime(events.timestamp) <= PyformatParameter("end_date"))
+            .where(events.team_id >= PyformatParameter("team_id"))
+            .where(events.event == PyformatParameter("target_event"))
+        )
+
+    def final_query(self, period: str, *fields):
+
+        floor = CustomFunction("FLOOR", ["arg"])
+        partFunc = CustomFunction("DATE_PART", ["period", "date"])
+        event_query = self.event_query().as_("event")
+        reference_event = self.reference_query(period).as_("reference_event")
+
+        final_query = (
+            Query.from_(event_query)
+            .join(reference_event)
+            .on(event_query.person_id == reference_event.person_id)
+            .select(
+                floor(
+                    partFunc(PyformatParameter("period"), reference_event.event_date - PyformatParameter("start_date"))
+                ).as_("period_to_event_days"),
+                floor(partFunc(PyformatParameter("period"), event_query.event_date - reference_event.event_date)).as_(
+                    "period_between_events_days"
+                ),
+                fn.Count(event_query.person_id).distinct().as_("count"),
+                self.array_agg(self.distinct(event_query.person_id)).as_("people"),
+            )
+            .where(
+                self.trunc_func(period, event_query.event_date) >= self.trunc_func(period, reference_event.event_date)
+            )
+            .groupby(Field("period_to_event_days"), Field("period_between_events_days"))
+        )
+
+        return str(final_query)
