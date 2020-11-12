@@ -11,7 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.celery import app as celery_app
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 from posthog.models import Team
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -165,7 +165,7 @@ def get_event(request):
                 ),
             )
 
-        if check_ee_enabled():
+        if is_ee_enabled():
             process_event_ee(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
@@ -196,7 +196,7 @@ def get_event(request):
                 ],
             )
 
-        if check_ee_enabled() and settings.LOG_TO_WAL:
+        if is_ee_enabled() and settings.LOG_TO_WAL:
             # log the event to kafka write ahead log for processing
             log_event(
                 distinct_id=distinct_id,

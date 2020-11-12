@@ -9,7 +9,7 @@ from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 from posthog.models import (
     Action,
     ActionStep,
@@ -217,7 +217,7 @@ def demo(request):
         team.event_names.append("$pageview")
         team.save()
 
-    if check_ee_enabled():
+    if is_ee_enabled():
         from ee.clickhouse.demo import create_anonymous_users_ch
         from ee.clickhouse.models.event import get_events_by_team
 

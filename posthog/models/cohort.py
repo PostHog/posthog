@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 
 from .action import Action
 from .event import Event
@@ -55,7 +55,7 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    def calculate_people(self, use_clickhouse=check_ee_enabled()):
+    def calculate_people(self, use_clickhouse=is_ee_enabled()):
         try:
             self.is_calculating = True
             self.save()
