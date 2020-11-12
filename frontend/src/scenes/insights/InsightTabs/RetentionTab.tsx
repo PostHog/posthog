@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilterDropdown } from '../ActionFilter/ActionFilterDropdown'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined, ExportOutlined } from '@ant-design/icons'
 import {
     retentionTableLogic,
     dateOptions,
@@ -12,6 +12,7 @@ import {
     retentionOptionDescriptions,
 } from 'scenes/retention/retentionTableLogic'
 import { Button, DatePicker, Select, Tooltip } from 'antd'
+import { Link } from 'lib/components/Link'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
@@ -91,7 +92,6 @@ export function RetentionTab(): JSX.Element {
                     }}
                 />
             )}
-            <hr />
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -122,6 +122,15 @@ export function RetentionTab(): JSX.Element {
                     }}
                 />
             )}
+            <div className="mt-05">
+                <Link
+                    to="https://posthog.com/docs/features/retention?utm_campaign=learn-more&utm_medium=in-product"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                >
+                    More info on retention <ExportOutlined />
+                </Link>
+            </div>
 
             <hr />
             <h4 className="secondary">Filters</h4>
