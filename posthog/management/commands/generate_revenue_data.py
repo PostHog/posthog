@@ -20,7 +20,7 @@ def _deterministic_random_value(payload, max_val=3):
 
 
 class Command(BaseCommand):
-    help = "Set up the instance for development/review with demo data"
+    help = "Generate 10,000 revenue data points"
 
     def add_arguments(self, parser):
         parser.add_argument("--org", nargs="+", type=str, help="Name of the organization to create data for")
