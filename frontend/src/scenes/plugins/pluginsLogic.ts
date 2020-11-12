@@ -85,7 +85,7 @@ export const pluginsLogic = kea<
                     for (const [key, value] of Object.entries(config)) {
                         if (configSchema[key]?.type === 'attachment') {
                             if (value && !value.saved) {
-                                formData.append(`attachments[${key}]`, value)
+                                formData.append(`add_attachment[${key}]`, value)
                             }
                             if (!value && editingPlugin.pluginConfig.config[key]) {
                                 formData.append(`remove_attachment[${key}]`, 'true')
