@@ -96,7 +96,6 @@ export const pluginsLogic = kea<
                     }
                     formData.append('config', JSON.stringify(otherConfig))
 
-                    // debugger
                     let response
                     if (editingPlugin.pluginConfig.id) {
                         response = await api.update(
