@@ -79,14 +79,12 @@ class Command(BaseCommand):
 
         for i in range(0, 10000):
             event_uuid = uuid4()
+            plan = random.choice(PRICING_TIERS)
             create_event(
                 event="$purchase",
                 team=team,
                 distinct_id=distinct_ids[i],
-                properties={
-                    "plan": PRICING_TIERS[_deterministic_random_value(distinct_ids[i])][0],
-                    "purchase_value": PRICING_TIERS[_deterministic_random_value(distinct_ids[i])][1],
-                },
+                properties={"plan": plan[0], "purchase_value": plan[1],},
                 timestamp=now() - relativedelta(days=random.randint(0, 100)),
                 event_uuid=event_uuid,
             )
