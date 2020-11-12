@@ -17,7 +17,7 @@ from ee.clickhouse.sql.sessions.list import SESSION_SQL
 from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import Filter, Person, Team
-from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.utils import append_data, friendly_time, relative_date_parse
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -217,12 +217,12 @@ class ClickhouseSessions(BaseQuery):
 
             if filter.compare:
                 current_response = self.calculate_avg(filter, team)
-                parsed_response = convert_to_comparison(current_response, "current", filter)
+                parsed_response = convert_to_comparison(current_response, filter, "current")
                 result.extend(parsed_response)
 
                 compared_filter = determine_compared_filter(filter)
                 compared_result = self.calculate_avg(compared_filter, team)
-                compared_res = convert_to_comparison(compared_result, "previous", filter)
+                compared_res = convert_to_comparison(compared_result, filter, "previous")
                 result.extend(compared_res)
             else:
                 result = self.calculate_avg(filter, team)
@@ -233,19 +233,3 @@ class ClickhouseSessions(BaseQuery):
             result = self.calculate_list(filter, team, limit, offset)
 
         return result
-
-
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], label: str, filter: Filter) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
-        days = [i for i in range(len(entity["days"]))]
-        labels = ["{} {}".format(filter.interval or "Day", i) for i in range(len(entity["labels"]))]
-        entity.update(
-            {
-                "labels": labels,
-                "days": days,
-                "chartLabel": "{} - {}".format(entity["label"], label),
-                "dates": entity["days"],
-                "compare": True,
-            }
-        )
-    return trend_entity
