@@ -12,6 +12,8 @@ from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquer
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
+from posthog.ee import is_ee_enabled
+
 from .action import Action
 from .action_step import ActionStep
 from .element import Element
@@ -244,7 +246,9 @@ class EventManager(models.QuerySet):
                         should_post_webhook = True
                 Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
                 team = kwargs.get("team", event.team)
-                if should_post_webhook and team and team.slack_incoming_webhook:
+                if (
+                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
+                ):  # ee will handle separately
                     celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
 
             return event

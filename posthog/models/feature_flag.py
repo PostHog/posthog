@@ -7,8 +7,6 @@ from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from posthog.ee import check_ee_enabled
-
 from .filter import Filter
 from .person import Person
 
