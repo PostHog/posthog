@@ -77,6 +77,8 @@ function NoData() {
     )
 }
 
+const DEFAULT_PATHS_ID = 'default_paths'
+
 export function Paths({ dashboardItemId = null, filters = null }) {
     const canvas = useRef(null)
     const size = useWindowSize()
@@ -92,7 +94,9 @@ export function Paths({ dashboardItemId = null, filters = null }) {
     }, [paths, !pathsLoading, size])
 
     function renderPaths() {
-        const elements = document.querySelectorAll('.paths svg')
+        const elements = document
+            .getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
+            .querySelectorAll(`.paths svg`)
         elements.forEach((node) => node.parentNode.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
@@ -241,6 +245,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                 style={{
                     position: 'relative',
                 }}
+                id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
             >
                 {pathsLoading && <Loading />}
                 <div ref={canvas} className="paths" data-attr="paths-viz">
