@@ -8,10 +8,19 @@ from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
+from posthog.ee import check_ee_enabled
+
 from .action import Action
 from .event import Event
 from .filter import Filter
 from .person import Person
+
+UPDATE_QUERY = """
+DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id};
+INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
+{values_query}
+ON CONFLICT DO NOTHING
+"""
 
 
 class Group(object):
@@ -46,7 +55,42 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    def people_filter(self, extra_filter=None):
+    def calculate_people(self, use_clickhouse=check_ee_enabled()):
+        try:
+            self.is_calculating = True
+            self.save()
+
+            persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
+            sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+
+            query = UPDATE_QUERY.format(
+                cohort_id=self.pk,
+                values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+            )
+
+            cursor = connection.cursor()
+            with transaction.atomic():
+                cursor.execute(query, params)
+
+                self.is_calculating = False
+                self.last_calculation = timezone.now()
+                self.save()
+        except:
+            capture_exception()
+
+    def __str__(self):
+        return self.name
+
+    def _clickhouse_persons_query(self):
+        from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id
+
+        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk)
+        return Person.objects.filter(uuid__in=uuids, team=self.team)
+
+    def _postgres_persons_query(self):
+        return Person.objects.filter(self._people_filter(), team=self.team)
+
+    def _people_filter(self, extra_filter=None):
         filters = Q()
         for group in self.groups:
             if group.get("action_id"):
@@ -72,39 +116,6 @@ class Cohort(models.Model):
                 filter = Filter(data=group)
                 filters |= Q(filter.properties_to_Q(team_id=self.team_id, is_person_query=True))
         return filters
-
-    def calculate_people(self):
-        try:
-            self.is_calculating = True
-            self.save()
-            event_query, params = (
-                Person.objects.filter(self.people_filter(), team=self.team)
-                .distinct("pk")
-                .only("pk")
-                .query.sql_with_params()
-            )
-
-            query = """
-            DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {};
-            INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
-            {}
-            ON CONFLICT DO NOTHING
-            """.format(
-                self.pk, event_query.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
-            )
-
-            cursor = connection.cursor()
-            with transaction.atomic():
-                cursor.execute(query, params)
-
-                self.is_calculating = False
-                self.last_calculation = timezone.now()
-                self.save()
-        except:
-            capture_exception()
-
-    def __str__(self):
-        return self.name
 
 
 class CohortPeople(models.Model):

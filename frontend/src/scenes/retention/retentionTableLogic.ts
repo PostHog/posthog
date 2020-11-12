@@ -14,6 +14,8 @@ export const dateOptions = {
     m: 'Month',
 }
 
+const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
+
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
@@ -35,7 +37,7 @@ function cleanFilters(filters): any {
 
 export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     key: (props) => {
-        return props.dashboardItemId || 'some_retention'
+        return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     loaders: ({ values }) => ({
         retention: {
@@ -93,7 +95,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         filters: [
             props.filters
                 ? {
-                      startEntity: props.filters.target || {
+                      startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
                       selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
@@ -162,9 +164,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             return ['/insights', values.propertiesForUrl]
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, key }) => ({
         '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
+                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
+                    return
+                }
                 const cleanSearchParams = cleanFilters(searchParams)
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {

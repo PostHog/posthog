@@ -28,7 +28,7 @@ class ClickhouseRetention(Retention):
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         target_query = ""
         target_params: Dict = {}

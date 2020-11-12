@@ -34,7 +34,12 @@ function cleanPathParams(filters) {
     }
 }
 
+const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
+
 export const pathsLogic = kea({
+    key: (props) => {
+        return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
+    },
     connect: {
         actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
@@ -140,9 +145,12 @@ export const pathsLogic = kea({
             return ['/insights', values.propertiesForUrl]
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, key }) => ({
         '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.PATHS) {
+                if (key != DEFAULT_PATH_LOGIC_KEY) {
+                    return
+                }
                 const cleanedPathParams = cleanPathParams(searchParams)
 
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
