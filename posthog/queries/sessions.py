@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
-from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, handle_compare
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 

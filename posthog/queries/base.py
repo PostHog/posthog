@@ -63,13 +63,13 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
 
 def handle_compare(filter: Filter, func: Callable, team: Team, **kwargs) -> List:
     entities_list = []
-    trend_entity = func(filter=filter, team=team, **kwargs)
+    trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
     if filter.compare:
         trend_entity = convert_to_comparison(trend_entity, filter, "current")
         entities_list.extend(trend_entity)
 
         compared_filter = determine_compared_filter(filter)
-        compared_trend_entity = func(filter=compared_filter, team=team, **kwargs)
+        compared_trend_entity = func(filter=compared_filter, team_id=team.pk, **kwargs)
 
         compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous",)
         entities_list.extend(compared_trend_entity)

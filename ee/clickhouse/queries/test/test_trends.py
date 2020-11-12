@@ -3,7 +3,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
