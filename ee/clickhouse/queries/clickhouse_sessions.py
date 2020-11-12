@@ -18,6 +18,7 @@ from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import Filter, Person, Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
+from posthog.queries.sessions import DIST_LABELS
 from posthog.utils import append_data, friendly_time, relative_date_parse
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -35,10 +36,7 @@ class ClickhouseSessions(BaseQuery):
         date_from, date_to = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
         query = SESSION_SQL.format(
-            date_from=date_from,
-            date_to=date_to,
-            filters="{}".format(filters) if filter.properties else "",
-            sessions_limit="LIMIT %(offset)s, %(limit)s",
+            date_from=date_from, date_to=date_to, filters=filters, sessions_limit="LIMIT %(offset)s, %(limit)s",
         )
         query_result = sync_execute(query, params)
         result = self._parse_list_results(query_result)
@@ -117,11 +115,7 @@ class ClickhouseSessions(BaseQuery):
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
 
         avg_query = SESSIONS_NO_EVENTS_SQL.format(
-            team_id=team.pk,
-            date_from=parsed_date_from,
-            date_to=parsed_date_to,
-            filters="{}".format(filters) if filter.properties else "",
-            sessions_limit="",
+            team_id=team.pk, date_from=parsed_date_from, date_to=parsed_date_to, filters=filters, sessions_limit="",
         )
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
@@ -183,7 +177,7 @@ class ClickhouseSessions(BaseQuery):
             team_id=team.pk,
             date_from=parsed_date_from,
             date_to=parsed_date_to,
-            filters="{}".format(filters) if filter.properties else "",
+            filters=filters if filter.properties else "",
             sessions_limit="",
         )
 
@@ -191,20 +185,7 @@ class ClickhouseSessions(BaseQuery):
 
         result = sync_execute(dist_query, params)
 
-        dist_labels = [
-            "0 seconds (1 event)",
-            "0-3 seconds",
-            "3-10 seconds",
-            "10-30 seconds",
-            "30-60 seconds",
-            "1-3 minutes",
-            "3-10 minutes",
-            "10-30 minutes",
-            "30-60 minutes",
-            "1+ hours",
-        ]
-
-        res = [{"label": dist_labels[index], "count": result[0][index]} for index in range(len(dist_labels))]
+        res = [{"label": DIST_LABELS[index], "count": result[0][index]} for index in range(len(DIST_LABELS))]
 
         return res
 

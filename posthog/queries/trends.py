@@ -39,14 +39,7 @@ from posthog.models import (
 )
 from posthog.utils import append_data
 
-from .base import (
-    BaseQuery,
-    convert_to_comparison,
-    determine_compared_filter,
-    filter_events,
-    handle_compare,
-    process_entity_for_events,
-)
+from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
 
@@ -332,19 +325,8 @@ class Trends(BaseQuery):
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     continue
-            if filter.compare:
-                compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
-                result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team_id)
-                previous_entity_result = convert_to_comparison(
-                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
-                )
-                result.extend(previous_entity_result)
-            else:
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                result.extend(entity_result)
+            entities_list = handle_compare(entity, filter, self._serialize_entity, team_id)
+            result.extend(entities_list)
 
         return result
 

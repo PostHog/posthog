@@ -16,6 +16,18 @@ from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
+DIST_LABELS = [
+    "0 seconds (1 event)",
+    "0-3 seconds",
+    "3-10 seconds",
+    "10-30 seconds",
+    "30-60 seconds",
+    "1-3 minutes",
+    "3-10 minutes",
+    "10-30 minutes",
+    "30-60 minutes",
+    "1+ hours",
+]
 
 
 class Sessions(BaseQuery):
@@ -264,22 +276,10 @@ class Sessions(BaseQuery):
             base_query
         )
 
-        dist_labels = [
-            "0 seconds (1 event)",
-            "0-3 seconds",
-            "3-10 seconds",
-            "10-30 seconds",
-            "30-60 seconds",
-            "1-3 minutes",
-            "3-10 minutes",
-            "10-30 minutes",
-            "30-60 minutes",
-            "1+ hours",
-        ]
         cursor = connection.cursor()
         cursor.execute(distribution, params)
         calculated = cursor.fetchall()
-        result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
+        result = [{"label": DIST_LABELS[index], "count": calculated[0][index]} for index in range(len(DIST_LABELS))]
         return result
 
     def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
