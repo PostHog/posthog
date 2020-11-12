@@ -14,7 +14,7 @@ from posthog.models.utils import UUIDT
 PRICING_TIERS = [("basic", 10), ("growth", 20), ("premium", 30)]
 
 # Note: Python's built-in hash function is not deterministic across runtimes
-# It is enough for this implementation
+# But it is enough for this implementation
 def _deterministic_random_value(payload, max_val=3):
     return hash(payload) % max_val
 
@@ -44,6 +44,11 @@ class Command(BaseCommand):
         else:
             self._generate_psql_data(team)
 
+        team.event_names.append("$purchase")
+        team.event_properties.append("plan")
+        team.event_properties_numerical.append("purchase_value")
+        team.save()
+
     def _generate_psql_data(self, team):
         distinct_ids = []
         for i in range(0, 10000):
@@ -64,10 +69,6 @@ class Command(BaseCommand):
             )
             for i in range(0, 10000)
         )
-        team.event_names.append("$purchase")
-        team.event_properties.append("plan")
-        team.event_properties_numerical.append("purchase_value")
-        team.save()
 
     def _generate_ch_data(self, team):
         distinct_ids = []
@@ -89,10 +90,6 @@ class Command(BaseCommand):
                 timestamp=now() - relativedelta(days=random.randint(0, 100)),
                 event_uuid=event_uuid,
             )
-        team.event_names.append("$purchase")
-        team.event_properties.append("plan")
-        team.event_properties_numerical.append("purchase_value")
-        team.save()
 
     def _get_team(self, org, team_name, team_id):
         organization = Organization.objects.filter(name=org)[0]
