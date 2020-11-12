@@ -177,8 +177,8 @@ class ClickhouseActions(ActionViewSet):
 
         content_sql = PERSON_TREND_SQL.format(
             entity_filter=entity_sql,
-            parsed_date_from=(parsed_date_from or ""),
-            parsed_date_to=(parsed_date_to or ""),
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
             filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,
