@@ -216,9 +216,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
-            from posthog.ee import check_ee_enabled
+            from posthog.ee import is_ee_enabled
 
-            if check_ee_enabled():
+            if is_ee_enabled():
                 from ee.clickhouse.client import sync_execute
 
                 self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
