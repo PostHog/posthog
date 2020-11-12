@@ -29,7 +29,7 @@ export function RetentionTable({ dashboardItemId = null }) {
             align: 'center',
         },
         {
-            title: 'Users',
+            title: 'Cohort Size',
             key: 'users',
             render: (row) => row.values[0]['count'],
             align: 'center',

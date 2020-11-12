@@ -7,11 +7,14 @@ from typing import Any, Dict, List, Tuple, Union
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
+from django.db.models import Min
+from django.db.models.expressions import F
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.utils.timezone import now
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.utils import namedtuplefetchall
@@ -24,6 +27,8 @@ class Retention(BaseQuery):
         period = filter.period or "Day"
         tdelta, t1 = self.determineTimedelta(total_intervals, period)
         filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
+
+        first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
 
         if period == "Hour":
             date_to = filter.date_to if filter.date_to else now()
@@ -38,15 +43,23 @@ class Retention(BaseQuery):
 
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
-
         entity = (
             Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
             if not filter.target_entity
             else filter.target_entity
         )
 
+        returning_entity = (
+            (
+                Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+                if not len(filter.entities) > 0
+                else filter.entities[0]
+            )
+            if first_time_retention
+            else entity
+        )
         # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
-        return filter, entity, date_from, date_to
+        return filter, entity, returning_entity, first_time_retention, date_from, date_to
 
     def process_result(
         self,
@@ -76,22 +89,52 @@ class Retention(BaseQuery):
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         target_entity: Entity,
+        returning_entity: Entity,
+        is_first_time_retention: bool,
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
         period = filter.period
         events: QuerySet = QuerySet()
 
-        if target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=target_entity.id, team_id=team.id)
-        elif target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=target_entity.id).add_person_id(team.id)
+        def get_entity_condition(entity: Entity) -> Q:
+            if entity.type == TREND_FILTER_TYPE_EVENTS:
+                return Q(event=entity.id)
+            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+                return Q(action__pk=entity.id)
+            else:
+                raise ValueError(f"Entity type not supported")
+
+        entity_condition = get_entity_condition(target_entity)
+        returning_condition = get_entity_condition(returning_entity)
+        events = (
+            Event.objects.filter(team_id=team.pk)
+            .filter(returning_condition | entity_condition)
+            .add_person_id(team.pk)
+            .annotate(event_date=F("timestamp"))
+        )
 
         filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
-        first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
 
-        event_query, events_query_params = filtered_events.query.sql_with_params()
+        if is_first_time_retention:
+            first_date = (
+                filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
+            )
+            final_query = (
+                filtered_events.filter(returning_condition)
+                .values_list("person_id", "event_date")
+                .union(first_date.values_list("first_date", "person_id"))
+            )
+        else:
+            first_date = (
+                filtered_events.filter(entity_condition)
+                .annotate(first_date=trunc)
+                .values("first_date", "person_id")
+                .distinct()
+            )
+            final_query = filtered_events.filter(returning_condition)
+        event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
         final_query = """
@@ -102,7 +145,7 @@ class Retention(BaseQuery):
             FROM ({event_query}) events
             LEFT JOIN ({reference_event_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
-            WHERE timestamp >= first_date
+            WHERE event_date >= first_date
             GROUP BY date, first_date
         """.format(
             event_query=event_query, reference_event_query=reference_event_query, fields=fields
@@ -153,8 +196,12 @@ class Retention(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         total_intervals = kwargs.get("total_intervals", 11)
-        filter, entity, date_from, date_to = self.preprocess_params(filter, total_intervals)
-        resultset = self._execute_sql(filter, date_from, date_to, entity, team)
+        filter, entity, returning_entity, is_first_time_retention, date_from, date_to = self.preprocess_params(
+            filter, total_intervals
+        )
+        resultset = self._execute_sql(
+            filter, date_from, date_to, entity, returning_entity, is_first_time_retention, team
+        )
         result = self.process_result(resultset, filter, date_from, total_intervals)
         return result
 
@@ -178,25 +225,25 @@ class Retention(BaseQuery):
         if period == "Hour":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s) * 24 + DATE_PART('hour', first_date - %s)) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date) * 24 + DATE_PART('hour', timestamp - first_date)) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date) * 24 + DATE_PART('hour', event_date - first_date)) AS date,
             """
             return TruncHour(subject), fields
         elif period == "Day":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s)) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date)) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date)) AS date,
             """
             return TruncDay(subject), fields
         elif period == "Week":
             fields = """
             FLOOR(DATE_PART('day', first_date - %s) / 7) AS first_date,
-            FLOOR(DATE_PART('day', timestamp - first_date) / 7) AS date,
+            FLOOR(DATE_PART('day', event_date - first_date) / 7) AS date,
             """
             return TruncWeek(subject), fields
         elif period == "Month":
             fields = """
             FLOOR((DATE_PART('year', first_date) - DATE_PART('year', %s)) * 12 + DATE_PART('month', first_date) - DATE_PART('month', %s)) AS first_date,
-            FLOOR((DATE_PART('year', timestamp) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', timestamp) - DATE_PART('month', first_date)) AS date,
+            FLOOR((DATE_PART('year', event_date) - DATE_PART('year', first_date)) * 12 + DATE_PART('month', event_date) - DATE_PART('month', first_date)) AS date,
             """
             return TruncMonth(subject), fields
         else:

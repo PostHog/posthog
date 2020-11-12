@@ -2,10 +2,9 @@ import json
 from datetime import datetime
 
 import pytz
-from django.forms.models import model_to_dict
 
 from posthog.api.test.base import BaseTest
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import RETENTION_FIRST_TIME, RETENTION_TYPE, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, ActionStep, Event, Filter, Person
 from posthog.queries.retention import Retention
 
@@ -17,7 +16,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(0)),
                     ("person1", self._date(1)),
@@ -54,7 +53,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(0)),
                     ("person1", self._date(1)),
@@ -95,12 +94,85 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
+        def test_first_user_retention(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person3"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person4"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(-1)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(3)),
+                    ("person2", self._date(-1)),
+                ],
+                "$user_signed_up",
+            )
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+
+            self._create_events([("person3", self._date(0))], "$user_signed_up")
+
+            self._create_events(
+                [
+                    ("person3", self._date(1)),
+                    ("person3", self._date(3)),
+                    ("person3", self._date(4)),
+                    ("person3", self._date(5)),
+                ]
+            )
+
+            self._create_events([("person4", self._date(2))], "$user_signed_up")
+
+            self._create_events(
+                [("person4", self._date(3)), ("person4", self._date(5)),]
+            )
+
+            target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
+            result = retention().run(
+                Filter(
+                    data={
+                        "date_to": self._date(5, hour=6),
+                        RETENTION_TYPE: RETENTION_FIRST_TIME,
+                        "target_entity": target_entity,
+                        "events": [{"id": "$pageview", "type": "events"},],
+                    }
+                ),
+                self.team,
+                total_intervals=7,
+            )
+
+            self.assertEqual(len(result), 7)
+            self.assertEqual(
+                self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [[2, 1, 2, 2, 1, 0, 1], [1, 1, 0, 1, 1, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [0, 0, 0], [0, 0], [0]],
+            )
+
         def test_retention_with_properties(self):
 
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(0)),
                     ("person1", self._date(1)),
@@ -156,7 +228,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@test.com"},
             )
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(0)),
                     ("person1", self._date(1)),
@@ -237,7 +309,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
             )
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(day=0, month=-5)),
                     ("person2", self._date(day=0, month=-5)),
@@ -317,7 +389,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
             )
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(0)),
                     ("person2", self._date(0)),
@@ -370,7 +442,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
             )
 
-            self._create_pageviews(
+            self._create_events(
                 [
                     ("person1", self._date(day=0, hour=0)),
                     ("person2", self._date(day=0, hour=0)),
@@ -442,16 +514,12 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
-        def _create_pageviews(self, user_and_timestamps):
+        def _create_events(self, user_and_timestamps, event="$pageview"):
             i = 0
             for distinct_id, timestamp in user_and_timestamps:
                 properties = {"$some_property": "value"} if i % 2 == 0 else {}
                 event_factory(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id=distinct_id,
-                    timestamp=timestamp,
-                    properties=properties,
+                    team=self.team, event=event, distinct_id=distinct_id, timestamp=timestamp, properties=properties,
                 )
                 i += 1
 
