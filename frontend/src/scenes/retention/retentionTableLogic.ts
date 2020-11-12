@@ -18,13 +18,13 @@ const RETENTION_RECURRING = 'retention_recurring'
 const RETENTION_FIRST_TIME = 'retention_first_time'
 
 export const retentionOptions = {
-    [`${RETENTION_RECURRING}`]: 'Recurring',
     [`${RETENTION_FIRST_TIME}`]: 'First Time',
+    [`${RETENTION_RECURRING}`]: 'Recurring',
 }
 
 export const retentionOptionDescriptions = {
-    [`${RETENTION_RECURRING}`]: 'Track an event and show the specific days that users who performed the event in the initial period come back',
-    [`${RETENTION_FIRST_TIME}`]: 'Determine a cohort of users by an initial event and track a second event that will determine if a user returns',
+    [`${RETENTION_RECURRING}`]: 'A user will belong to any cohort where they have performed the event in its Period 0.',
+    [`${RETENTION_FIRST_TIME}`]: 'A user will only belong to the cohort for which they performed the event for the first time.',
 }
 
 function cleanRetentionParams(filters, properties): any {
@@ -44,7 +44,7 @@ function cleanFilters(filters): any {
         returningEntity: filters.returningEntity || {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
-        retentionType: filters.retentionType || RETENTION_RECURRING,
+        retentionType: filters.retentionType || RETENTION_FIRST_TIME,
         selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
         period: filters.period || 'd',
     }
@@ -129,7 +129,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                           actions: [],
                       },
                       period: props.filters.period || 'd',
-                      retentionType: props.filters.retentionType || RETENTION_RECURRING,
+                      retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
                   }
                 : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
