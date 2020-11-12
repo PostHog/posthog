@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -97,4 +98,4 @@ def system_status(request):
 
 @never_cache
 def preflight_check(request):
-    return JsonResponse({"django": True, "redis": is_redis_alive(), "db": is_postgres_alive()})
+    return JsonResponse({"django": True, "redis": is_redis_alive() or TEST, "db": is_postgres_alive()})

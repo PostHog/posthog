@@ -58,7 +58,7 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv  # type: bool
+TEST = "test" in sys.argv or get_bool_from_env("TEST", False)  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
 SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 
@@ -466,6 +466,11 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+    import celery
+
+    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
+    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
 
 if DEBUG and not TEST:
     print_warning(
