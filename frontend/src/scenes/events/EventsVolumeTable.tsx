@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { Table, Tooltip } from 'antd'
+import { Alert, Table, Tooltip } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventUsageType } from '~/types'
@@ -49,11 +49,22 @@ export function EventsVolumeTable(): JSX.Element {
     ]
     const { user } = useValues(userLogic)
     return (
-        <Table
-            dataSource={user?.team.event_names_with_usage}
-            columns={columns}
-            size="small"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-        />
+        <>
+            {user?.team.event_names_with_usage[0]?.volume === null && (
+                <>
+                    <Alert
+                        type="warning"
+                        description="We haven't been able to get usage and volume data yet. Please check back later"
+                    />
+                    <br />
+                </>
+            )}
+            <Table
+                dataSource={user?.team.event_names_with_usage}
+                columns={columns}
+                size="small"
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+            />
+        </>
     )
 }

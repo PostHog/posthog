@@ -64,11 +64,9 @@ def _get_properties_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
     if check_ee_enabled():
         from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.sql.events import GET_PROPERTIES_VOLUME
 
-        return sync_execute(
-            "SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC",
-            {"team_id": team.pk, "timestamp": timestamp},
-        )
+        return sync_execute(GET_PROPERTIES_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
     cursor = connection.cursor()
     cursor.execute(
         "SELECT json_build_array(jsonb_object_keys(properties)) ->> 0 as key1, count(1) FROM posthog_event WHERE team_id = %s AND timestamp > %s group by key1 order by count desc",
@@ -81,11 +79,9 @@ def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
     if check_ee_enabled():
         from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
 
-        return sync_execute(
-            "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC",
-            {"team_id": team.pk, "timestamp": timestamp},
-        )
+        return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
     return (
         Event.objects.filter(team=team, timestamp__gt=timestamp)
         .values("event")

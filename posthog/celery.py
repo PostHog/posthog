@@ -49,8 +49,7 @@ def setup_periodic_tasks(sender, **kwargs):
     )
 
     # Update usage information on the team model
-    sender.add_periodic_task(crontab(minute=0, hour="*/12"), calculate_event_property_usage.s())
-    calculate_event_property_usage.delay()
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_event_property_usage.s())
 
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
 
