@@ -1,5 +1,5 @@
 from posthog.api.test.base import BaseTest
-from posthog.models import FeatureFlag, Person
+from posthog.models import Cohort, FeatureFlag, Person
 
 
 class TestFeatureFlag(BaseTest):
@@ -52,3 +52,25 @@ class TestFeatureFlag(BaseTest):
             self.assertTrue(feature_flag.distinct_id_matches("example_id"))
         self.assertFalse(feature_flag.distinct_id_matches("another_id"))
         self.assertFalse(feature_flag.distinct_id_matches("id_number_3"))
+
+    def test_user_in_cohort(self):
+        user = self._create_user("tim")
+
+        person1 = Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "something"}
+        )
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+        )
+        cohort.calculate_people(use_clickhouse=False)
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+        )
+
+        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        self.assertFalse(feature_flag.distinct_id_matches("another_id"))

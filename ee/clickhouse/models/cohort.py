@@ -1,10 +1,11 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.util import get_operator
 from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_ID_SQL
-from posthog.models import Action, Cohort, Filter
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_ID_SQL, GET_PERSON_IDS_BY_FILTER
+from posthog.models import Action, Cohort, Filter, Team
 
 
 def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
@@ -41,3 +42,14 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     person_query, params = format_person_query(cohort)
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(query=person_query)
     return person_id_query, params
+
+
+def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
+    from ee.clickhouse.models.property import parse_prop_clauses
+
+    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
+    filter_query, filter_params = parse_prop_clauses(filters.properties, team, table_name="pid")
+
+    results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params)
+
+    return [str(row[0]) for row in results]

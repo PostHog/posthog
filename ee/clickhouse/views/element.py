@@ -17,7 +17,7 @@ class ClickhouseElement(ElementViewSet):
 
         date_from, date_to = parse_timestamps(filter)
 
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, request.user.team)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, request.user.team.pk)
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
             {"team_id": request.user.team.id, **prop_filter_params},
