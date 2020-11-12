@@ -98,15 +98,11 @@ export const pluginsLogic = kea<
 
                     let response
                     if (editingPlugin.pluginConfig.id) {
-                        response = await api.update(
-                            `api/plugin_config/${editingPlugin.pluginConfig.id}`,
-                            formData,
-                            true
-                        )
+                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
                         formData.append('plugin', editingPlugin.id.toString())
                         formData.append('order', '0')
-                        response = await api.create(`api/plugin_config/`, formData, true)
+                        response = await api.create(`api/plugin_config/`, formData)
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }
