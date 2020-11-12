@@ -30,7 +30,7 @@ class ClickhouseSessionsAvg:
         per_period_query = AVERAGE_PER_PERIOD_SQL.format(sessions=avg_query, interval=interval_notation)
 
         null_sql = NULL_SQL.format(
-            date_to=(filter.date_to or timezone.now()).strftime("%Y-%m-%d 00:00:00"),
+            date_to=filter.date_to.strftime("%Y-%m-%d 00:00:00"),
             interval=interval_notation,
             num_intervals=num_intervals,
             seconds_in_interval=seconds_in_interval,

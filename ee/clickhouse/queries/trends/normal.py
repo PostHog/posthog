@@ -57,7 +57,7 @@ class ClickhouseTrendsNormal:
             interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
+            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
         )
         content_sql = content_sql.format(**content_sql_params)
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)

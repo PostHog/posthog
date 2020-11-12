@@ -256,8 +256,6 @@ class Trends(BaseQuery):
                 .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
             )
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)

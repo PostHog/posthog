@@ -42,8 +42,6 @@ class Sessions(BaseQuery):
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = filter.offset
 
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
         calculated = []
 
         # get compared period

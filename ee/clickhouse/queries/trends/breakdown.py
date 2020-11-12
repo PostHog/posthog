@@ -69,7 +69,7 @@ class ClickhouseTrendsBreakdown:
             interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
+            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         params = {
@@ -137,7 +137,7 @@ class ClickhouseTrendsBreakdown:
             interval=interval_annotation,
             seconds_in_interval=seconds_in_interval,
             num_intervals=num_intervals,
-            date_to=((filter.date_to or timezone.now())).strftime("%Y-%m-%d %H:%M:%S"),
+            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
         )
         breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
         breakdown_query = breakdown_query.format(
