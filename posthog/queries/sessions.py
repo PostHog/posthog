@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
-from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter, handle_compare
 from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
@@ -48,6 +48,7 @@ class Sessions(BaseQuery):
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
+
             calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, limit, offset)
             calculated = convert_to_comparison(calculated, filter, "current")
 

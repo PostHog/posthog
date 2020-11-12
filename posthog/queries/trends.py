@@ -310,13 +310,13 @@ class Trends(BaseQuery):
             metrics.update(data=list(accumulate(metrics["data"])))
         return entity_metrics
 
-    def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        actions = Action.objects.filter(team_id=team_id).order_by("-id")
+    def calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
-            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
+            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        self._set_default_dates(filter, team_id)
+        self._set_default_dates(filter, team.pk)
 
         result = []
         for entity in filter.entities:
@@ -325,10 +325,10 @@ class Trends(BaseQuery):
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     continue
-            entities_list = handle_compare(entity, filter, self._serialize_entity, team_id)
+            entities_list = handle_compare(filter, self._serialize_entity, team, entity=entity)
             result.extend(entities_list)
 
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_trends(filter, team.pk)
+        return self.calculate_trends(filter, team)
