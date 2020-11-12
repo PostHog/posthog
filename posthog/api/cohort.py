@@ -40,7 +40,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.deleted = validated_data.get("deleted", cohort.deleted)
         cohort.is_calculating = True
         cohort.save()
-        calculate_cohort.delay(cohort_id=cohort.pk)
+        calculate_cohort.delay(cohort_id=cohort.pk, max_age_minutes=0)
         return cohort
 
     def get_count(self, action: Cohort) -> Optional[int]:
