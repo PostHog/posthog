@@ -25,7 +25,7 @@ SESSIONS_LIST_DEFAULT_LIMIT = 50
 # TODO: handle date and defaults
 class ClickhouseSessions(BaseQuery):
     def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
-        filters, params = parse_prop_clauses(filter.properties, team)
+        filters, params = parse_prop_clauses(filter.properties, team.pk)
 
         if not filter._date_from:
             filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -111,7 +111,7 @@ class ClickhouseSessions(BaseQuery):
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
-        filters, params = parse_prop_clauses(filter.properties, team)
+        filters, params = parse_prop_clauses(filter.properties, team.pk)
 
         interval_notation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
@@ -178,7 +178,7 @@ class ClickhouseSessions(BaseQuery):
 
         parsed_date_from, parsed_date_to = parse_timestamps(filter)
 
-        filters, params = parse_prop_clauses(filter.properties, team)
+        filters, params = parse_prop_clauses(filter.properties, team.pk)
         dist_query = DIST_SQL.format(
             team_id=team.pk,
             date_from=parsed_date_from,

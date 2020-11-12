@@ -117,7 +117,7 @@ def get_person_by_distinct_id(team: Team, distinct_id: str, filter: Optional[Fil
     params = {"team_id": team.pk, "distinct_id": distinct_id.__str__()}
     filter_query = ""
     if filter:
-        filter_query, filter_params = parse_prop_clauses(filter.properties, team, table_name="pid")
+        filter_query, filter_params = parse_prop_clauses(filter.properties, team.pk, table_name="pid")
         params = {**params, **filter_params}
     result = sync_execute(GET_PERSON_BY_DISTINCT_ID.format(distinct_query=filter_query, query=""), params)
     if len(result) > 0:
