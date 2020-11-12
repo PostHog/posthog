@@ -8,7 +8,7 @@ from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filter import Filter
 
 
-def parse_timestamps(filter: Filter, table: str = "") -> Tuple[Optional[str], Optional[str]]:
+def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
     date_from = None
     date_to = None
 
@@ -49,7 +49,7 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[Optional[str], Op
         ),
         table=table,
     )
-    return date_from, date_to
+    return date_from or "", date_to or ""
 
 
 def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:

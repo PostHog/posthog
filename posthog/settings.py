@@ -453,9 +453,6 @@ EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
 
 
-# You can pass a comma deliminated list of domains with which users can sign up to this service
-RESTRICT_SIGNUPS = get_bool_from_env("RESTRICT_SIGNUPS", False)
-
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",

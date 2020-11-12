@@ -27,6 +27,8 @@ export const retentionOptionDescriptions = {
     [`${RETENTION_FIRST_TIME}`]: 'A user will only belong to the cohort for which they performed the event for the first time.',
 }
 
+const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
+
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
@@ -52,7 +54,7 @@ function cleanFilters(filters): any {
 
 export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     key: (props) => {
-        return props.dashboardItemId || 'some_retention'
+        return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     loaders: ({ values }) => ({
         retention: {
@@ -211,9 +213,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             return ['/insights', values.propertiesForUrl]
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, key }) => ({
         '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
+                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
+                    return
+                }
                 const cleanSearchParams = cleanFilters(searchParams)
                 const cleanedFilters = cleanFilters(values.filters)
                 if (!objectsEqual(cleanSearchParams, cleanedFilters)) {

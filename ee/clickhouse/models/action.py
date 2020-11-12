@@ -34,7 +34,7 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             from ee.clickhouse.models.property import parse_prop_clauses
 
             prop_query, prop_params = parse_prop_clauses(
-                Filter(data={"properties": step.properties}).properties, action.team
+                Filter(data={"properties": step.properties}).properties, action.team.pk
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}

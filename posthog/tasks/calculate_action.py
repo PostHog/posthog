@@ -4,7 +4,7 @@ import time
 from celery import shared_task
 
 from posthog.celery import app
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 from posthog.models import Action
 
 logger = logging.getLogger(__name__)
