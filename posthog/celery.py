@@ -61,13 +61,13 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not check_ee_enabled():
-        sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
-        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-    else:
-        # ee enabled scheduled tasks
+    if check_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse event table lag")
         sender.add_periodic_task(120, clickhouse_events_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(60 * 60, calculate_cohort.s(), name="recalculate cohorts")
+    else:
+        sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+        sender.add_periodic_task(15 * 60, calculate_cohort.s(15), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
@@ -159,10 +159,10 @@ def calculate_event_action_mappings():
 
 
 @app.task(ignore_result=True)
-def calculate_cohort():
+def calculate_cohort(max_age_minutes):
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts()
+    calculate_cohorts(max_age_minutes)
 
 
 @app.task(ignore_result=True)
