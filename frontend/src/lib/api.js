@@ -35,10 +35,11 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async update(url, data, isFormData = false) {
+    async update(url, data) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
+        const isFormData = data instanceof FormData
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
@@ -56,10 +57,11 @@ class Api {
         }
         return await getJSONOrThrow(response)
     }
-    async create(url, data, isFormData = false) {
+    async create(url, data) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
+        const isFormData = data instanceof FormData
         const response = await fetch(url, {
             method: 'POST',
             headers: {
