@@ -45,14 +45,13 @@ def system_status(request):
 
     metrics = list()
 
-    metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
-    metrics.append({"key": "db_alive", "metric": "Postgres DB alive", "value": postgres_alive})
+    metrics.append({"metric": "Redis alive", "value": redis_alive})
+    metrics.append({"metric": "Postgres DB alive", "value": postgres_alive})
 
     if postgres_alive:
         postgres_version = connection.cursor().connection.server_version
         metrics.append(
             {
-                "key": "pg_version",
                 "metric": "Postgres server version",
                 "value": "{}.{}.{}".format(
                     int(postgres_version / 100 / 100), int(postgres_version / 100) % 100, postgres_version % 100

@@ -1,5 +1,3 @@
-// DEPRECATED: this logic is now found in TopNavigation.tsx
-
 import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { Button } from 'antd'
