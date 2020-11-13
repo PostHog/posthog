@@ -52,6 +52,18 @@ export interface OrganizationType {
     teams: TeamType[]
 }
 
+export interface EventUsageType {
+    event: string
+    usage_count: number
+    volume: number
+}
+
+export interface PropertyUsageType {
+    key: string
+    usage_count: number
+    volume: number
+}
+
 export interface TeamType {
     id: number
     name: string
@@ -62,6 +74,8 @@ export interface TeamType {
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
+    event_names_with_usage: EventUsageType[]
+    event_properties_with_usage: PropertyUsageType[]
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean

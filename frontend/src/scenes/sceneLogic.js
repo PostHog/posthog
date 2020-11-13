@@ -17,7 +17,6 @@ export const scenes = {
     sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
-    actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     organizationSettings: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
@@ -41,6 +40,7 @@ export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 export const redirects = {
     '/': '/insights',
     '/plugins': '/project/plugins',
+    '/actions': '/events/actions',
 }
 
 export const routes = {
@@ -48,9 +48,9 @@ export const routes = {
     '/dashboard/:id': 'dashboard',
     '/action/:id': 'action',
     '/action': 'action',
-    '/actions': 'actions',
     '/insights': 'insights',
     '/events': 'events',
+    '/events/*': 'events',
     '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
