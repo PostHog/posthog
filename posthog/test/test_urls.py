@@ -67,17 +67,12 @@ class TestUrlsLoggedIn(BaseTest):
     TESTS_API = True
 
     def test_invitation_join(self):
-        organization, team, user = User.objects.bootstrap(
-            "test", "adminuser@posthog.com", None
+        organization, team, user = User.objects.bootstrap("test", "adminuser@posthog.com", None)
+        invite = OrganizationInvite.objects.create(
+            organization=organization, target_email=self.TESTS_EMAIL, created_by=user
         )
-        invite = OrganizationInvite.objects.create(organization=organization, target_email=self.TESTS_EMAIL, created_by=user)
         with self.settings(TEST=False):
-            response = self.client.post(
-                f"/signup/{invite.id}",
-                follow=True,
-            )
+            response = self.client.post(f"/signup/{invite.id}", follow=True,)
         self.assertRedirects(response, "/")
         self.assertEqual(organization.members.count(), 2)
-        self.assertTrue(
-            OrganizationMembership.objects.filter(organization=organization, user=self.user).exists()
-        )
+        self.assertTrue(OrganizationMembership.objects.filter(organization=organization, user=self.user).exists())

@@ -155,7 +155,9 @@ def signup_to_organization_view(request, invite_id):
             )
             return redirect("/")
     return render_template(
-        "signup_to_organization.html", request, context={"organization": organization, "user": user, "invite_id": invite_id}
+        "signup_to_organization.html",
+        request,
+        context={"organization": organization, "user": user, "invite_id": invite_id},
     )
 
 
