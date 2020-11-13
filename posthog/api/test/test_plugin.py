@@ -198,15 +198,11 @@ class TestPluginAPI(APIBaseTest):
     def test_plugin_status(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             response = self.client.get("/api/plugin/status/")
-            print(response.data)
-            print(response)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, {"status": "offline"})
 
             get_client().set("@posthog-plugin-server/ping", now().isoformat())
             response = self.client.get("/api/plugin/status/")
-            print(response.data)
-            print(response)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, {"status": "online"})
 
