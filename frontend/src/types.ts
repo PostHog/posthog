@@ -19,6 +19,7 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    email_service_available: boolean
 }
 
 export interface UserUpdateType {
@@ -211,6 +212,17 @@ export interface DashboardType {
     is_shared: boolean
     share_token: string
     deleted: boolean
+}
+
+export interface OrganizationInviteType {
+    created_at: string
+    created_by_email: string
+    created_by_first_name: string
+    created_by_id: number
+    emailing_attempt_made: boolean
+    id: string
+    target_email: string
+    updated_at: string
 }
 
 export interface PluginType {
