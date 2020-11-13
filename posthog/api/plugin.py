@@ -226,8 +226,10 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
             return queryset.filter(team_id=self.request.user.team.pk)
         return queryset.none()
 
-    # we don't use this endpoint, but have something anyway to prevent team leakage
+    # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
+        if not can_configure_plugins_via_api():
+            return Response(status=404)
         plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()

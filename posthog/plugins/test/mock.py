@@ -1,4 +1,5 @@
 import base64
+import json
 
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_OTHER_ZIP,
@@ -16,6 +17,14 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
         def json(self):
             return self.json_data
+
+        def ok(self):
+            return self.status_code < 300
+
+    class MockTextResponse:
+        def __init__(self, text, status_code):
+            self.text = text
+            self.status_code = status_code
 
         def ok(self):
             return self.status_code < 300
@@ -56,5 +65,28 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
+
+    if args[0] == "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json":
+        return MockTextResponse(
+            json.dumps(
+                [
+                    {
+                        "name": "posthog-currency-normalization-plugin",
+                        "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
+                        "description": "Normalise monerary values into a base currency",
+                        "verified": False,
+                        "maintainer": "official",
+                    },
+                    {
+                        "name": "helloworldplugin",
+                        "url": "https://github.com/posthog/helloworldplugin",
+                        "description": "Greet the World and Foo a Bar",
+                        "verified": True,
+                        "maintainer": "community",
+                    },
+                ]
+            ),
+            200,
+        )
 
     return MockJSONResponse(None, 404)
