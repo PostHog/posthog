@@ -1,6 +1,8 @@
+@import '~/vars';
+
 // ActionsTable.js
 .tutorial-container {
-    color: #c4c4c4;
+    color: $text_muted;
     margin-top: 32px;
     margin-bottom: 2rem;
     display: flex;
@@ -8,7 +10,7 @@
 .t-element {
     display: flex;
     align-items: flex-start;
-    border-right: 0.75px solid #c4c4c4;
+    border-right: 0.75px solid $border;
     padding-left: 32px;
 
     &:last-of-type {
