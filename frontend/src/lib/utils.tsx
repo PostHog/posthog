@@ -566,5 +566,5 @@ export function camelCaseToTitle(camelCase: string): string {
         }
     }
     if (currentWord) words.push(currentWord)
-    return words.map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
+    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }

@@ -16,23 +16,23 @@ export enum Scene {
     Events = 'events',
     Sessions = 'sessions',
     Person = 'person',
-    Persons ='persons',
+    Persons = 'persons',
     Actions = 'actions',
     Action = 'action',
-    FeatureFlags ='featureFlags',
-    OrganizationSettings ='organizationSettings',
-    OrganizationMembers='organizationMembers',
-    OrganizationInvites='organizationInvites',
-    ProjectSettings='projectSettings',
-    InstanceStatus='instanceStatus',
-    InstanceLicenses='instanceLicenses',
-    MySettings='mySettings',
-    Annotations='annotations',
-    PreflightCheck='preflightCheck',
-    Signup='signup',
-    Ingestion='ingestion',
-    Billing='billing',
-    Plugins='plugins'
+    FeatureFlags = 'featureFlags',
+    OrganizationSettings = 'organizationSettings',
+    OrganizationMembers = 'organizationMembers',
+    OrganizationInvites = 'organizationInvites',
+    ProjectSettings = 'projectSettings',
+    InstanceStatus = 'instanceStatus',
+    InstanceLicenses = 'instanceLicenses',
+    MySettings = 'mySettings',
+    Annotations = 'annotations',
+    PreflightCheck = 'preflightCheck',
+    Signup = 'signup',
+    Ingestion = 'ingestion',
+    Billing = 'billing',
+    Plugins = 'plugins',
 }
 
 interface LoadedScene {
@@ -44,7 +44,7 @@ interface Params {
     [param: string]: any
 }
 
-export const scenes: Record<Scene, () => any>= {
+export const scenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -56,7 +56,8 @@ export const scenes: Record<Scene, () => any>= {
     [Scene.Actions]: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
-    [Scene.OrganizationSettings]: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
+    [Scene.OrganizationSettings]: () =>
+        import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
     [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
@@ -100,7 +101,7 @@ export const routes: Record<string, Scene> = {
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
     '/organization/invites': Scene.OrganizationInvites,
-    '/organization/billing':Scene.Billing,
+    '/organization/billing': Scene.Billing,
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.InstanceStatus,
     '/me/settings': Scene.MySettings,
@@ -197,7 +198,7 @@ export const sceneLogic = kea<sceneLogicType>({
             posthog.capture('$pageview')
             document.title = values.scene ? `PostHog – ${camelCaseToTitle(values.scene)}` : 'PostHog'
         },
-        loadScene: async ({ scene, params = {} }: { scene: Scene, params: Params}, breakpoint) => {
+        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return
