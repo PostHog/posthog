@@ -20,7 +20,7 @@ def _deterministic_random_value(payload, max_val=3):
 
 
 class Command(BaseCommand):
-    help = "Generate 10,000 revenue data points"
+    help = "Bulk generate revenue data points for demos"
 
     def add_arguments(self, parser):
         parser.add_argument(
