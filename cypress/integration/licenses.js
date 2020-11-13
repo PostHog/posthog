@@ -3,6 +3,6 @@ describe('Licenses', () => {
         cy.get('[data-attr=menu-item-instance]').click()
         cy.get('[data-attr=menu-item-instance-licenses]').click()
         cy.get('h1').should('contain', 'Licenses')
-        cy.get('title').should('equal', 'PostHog – Instance Licenses')
+        cy.title().should('equal', 'PostHog – Instance Licenses')
     })
 })

@@ -6,7 +6,7 @@ describe('Cohorts', () => {
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
-        cy.get('title').should('equal', 'PostHog – Cohorts')
+        cy.title().should('equal', 'PostHog – Cohorts')
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
