@@ -1,12 +1,15 @@
 import base64
+import datetime
 import json
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils.timezone import now
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.redis import get_client
 
 from .base import APIBaseTest
 
@@ -188,6 +191,21 @@ class TestPluginAPI(APIBaseTest):
             )
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.get("/api/plugin/repository/")
+            self.assertEqual(response.status_code, 400)
+
+    def test_plugin_status(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            response = self.client.get("/api/plugin/status/")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, {"status": "offline"})
+
+            get_client().set("@posthog-plugin-server/ping", now().isoformat())
+            response = self.client.get("/api/plugin/status/")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, {"status": "online"})
+
+        with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
+            response = self.client.get("/api/plugin/status/")
             self.assertEqual(response.status_code, 400)
 
     def test_create_plugin_config(self, mock_get, mock_reload):
