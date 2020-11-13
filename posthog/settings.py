@@ -432,7 +432,7 @@ EXCEPTIONS_HOG = {
 
 # Email
 EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
 EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
