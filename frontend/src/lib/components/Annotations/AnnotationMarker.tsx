@@ -66,7 +66,7 @@ export function AnnotationMarker({
 
     useEscapeKey(closePopup, [focused])
 
-    const _color = color || '#1890ff'
+    const _color = color || 'var(--primary)'
     const _accessoryColor = accessoryColor || 'white'
 
     function deselect(e): void {

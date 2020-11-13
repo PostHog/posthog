@@ -5,6 +5,7 @@ import { systemStatusLogicType } from 'types/scenes/system_status/systemStatusLo
 interface SystemStatus {
     metric: string
     value: string
+    key?: string
 }
 
 export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
