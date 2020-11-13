@@ -54,9 +54,9 @@ class Organization(UUIDModel):
 
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
-            if self.billing is None:
+            if self.billing is None:  # type: ignore
                 return (None, None)
-            return (self.billing.get_plan_key(), "cloud")
+            return (self.billing.get_plan_key(), "cloud")  # type: ignore
 
         # Otherwise, try to find a valid license on this instance
         if License is not None:
@@ -71,7 +71,7 @@ class Organization(UUIDModel):
 
     @property
     def available_features(self) -> List[str]:
-        plan, realm = self.billing_plan
+        plan, realm = self._billing_plan_details
         if not plan:
             return []
 
@@ -80,7 +80,7 @@ class Organization(UUIDModel):
                 return []
             return License.PLANS[plan]
 
-        return self.billing.available_features
+        return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
