@@ -87,7 +87,8 @@ def redis_heartbeat():
 CLICKHOUSE_TABLES = [
     'events',
     'person',
-    'person_distinct_id'
+    'person_distinct_id',
+    'session_recording_events'
 ]
 
 
