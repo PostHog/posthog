@@ -435,6 +435,7 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
 }
 
 export function humanizeNumber(number: number, digits: number = 1): string {
+    if (number === null) return '-'
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {

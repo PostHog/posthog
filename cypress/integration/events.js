@@ -12,12 +12,6 @@ describe('Events', () => {
         cy.get('[data-attr=event-details]').should('exist')
     })
 
-    it('All events route works', () => {
-        cy.get('[data-attr=menu-item-all-events]').click()
-
-        cy.get('[data-attr=events-table]').should('exist')
-    })
-
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()

@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -11,12 +10,15 @@ import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
-import { PageHeader } from 'lib/components/PageHeader'
 import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
+import { eventsTableLogic } from './eventsTableLogic'
+import { hot } from 'react-hot-loader/root'
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPersonPage = false }) {
+export const EventsTable = hot(_EventsTable)
+function _EventsTable({ fixedFilters, filtersEnabled = true }) {
+    const logic = eventsTableLogic({ fixedFilters })
     const {
         properties,
         eventsFormatted,
@@ -31,7 +33,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
     const {
         location: { search },
     } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -148,9 +149,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
 
     return (
         <div className="events" data-attr="events-table">
-            <PageHeader
-                title={isPersonPage ? '' : !featureFlags['actions-ux-201012'] ? 'Events' : 'Raw Events Stream'}
-            />
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
