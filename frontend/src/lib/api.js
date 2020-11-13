@@ -39,14 +39,13 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        const isFormData = data instanceof FormData
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-            body: isFormData ? data : JSON.stringify(data),
+            body: JSON.stringify(data),
         })
         if (!response.ok) {
             const data = await getJSONOrThrow(response)
@@ -61,14 +60,13 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
-        const isFormData = data instanceof FormData
         const response = await fetch(url, {
             method: 'POST',
             headers: {
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-            body: isFormData ? data : JSON.stringify(data),
+            body: JSON.stringify(data),
         })
         if (!response.ok) {
             const data = await getJSONOrThrow(response)
