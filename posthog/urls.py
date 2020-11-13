@@ -65,7 +65,7 @@ class TeamInviteSurrogate:
         return True
 
     def use(self, user: Any, *args, **kwargs) -> None:
-        user.join(self.organization)
+        user.join(organization=self.organization)
 
 
 def signup_to_organization_view(request, invite_id):
@@ -136,9 +136,7 @@ def signup_to_organization_view(request, invite_id):
                         "invite_id": invite_id,
                     },
                 )
-            user = User.objects.create_and_join(
-                organization, None, email, password, first_name=first_name, email_opt_in=email_opt_in
-            )
+            user = User.objects.create_user(email, password, first_name=first_name, email_opt_in=email_opt_in)
             invite.use(user, prevalidated=True)
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             posthoganalytics.capture(
