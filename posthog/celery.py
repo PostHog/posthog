@@ -84,12 +84,7 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-CLICKHOUSE_TABLES = [
-    'events',
-    'person',
-    'person_distinct_id',
-    'session_recording_events'
-]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
