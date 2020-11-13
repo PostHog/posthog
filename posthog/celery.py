@@ -48,6 +48,9 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
+    # Update usage information on the team model
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_event_property_usage.s())
+
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
 
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
