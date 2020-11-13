@@ -6,6 +6,7 @@ import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
+import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
@@ -17,6 +18,7 @@ import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const darkerScenes: Record<string, boolean> = {
     dashboard: true,
@@ -37,7 +39,8 @@ function _App(): JSX.Element {
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991) // used for legacy navigation [Sidebar.js]
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
@@ -78,12 +81,22 @@ function _App(): JSX.Element {
         <>
             <UpgradeModal />
             <Layout>
-                <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+                {featureFlags['navigation-1775'] ? (
+                    <MainNavigation />
+                ) : (
+                    <Sidebar
+                        user={user}
+                        sidebarCollapsed={sidebarCollapsed}
+                        setSidebarCollapsed={setSidebarCollapsed}
+                    />
+                )}
                 <Layout
-                    className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
+                    className={`${darkerScenes[scene] && 'bg-mid'}${
+                        !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
+                    }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <TopContent />
+                    {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&

@@ -103,7 +103,7 @@
         "file-loader": "^6.1.0",
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.4.1",
-        "husky": "~4.2.5",
+        "husky": "^4.3.0",
         "kea-typegen": "^0.3.5",
         "less": "^3.12.2",
         "less-loader": "^7.0.2",

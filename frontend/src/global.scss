@@ -14,6 +14,7 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{purple_500};
@@ -113,6 +114,14 @@ style files without adding already imported styles. */
     margin-left: $default_spacing;
 }
 
+.mr-05 {
+    margin-right: $default_spacing * 0.5;
+}
+
+.ml-05 {
+    margin-left: $default_spacing * 0.5;
+}
+
 .pa {
     // Padding all
     padding: $default_spacing;
@@ -147,7 +156,8 @@ style files without adding already imported styles. */
 }
 
 .main-app-content {
-    padding: $default_spacing $default_spacing * 3;
+    /* top | horizontal | bottom */
+    padding: 0px $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;
@@ -275,6 +285,19 @@ style files without adding already imported styles. */
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+}
+
+// Badges styles
+.badge {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    background-color: $border_dark;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
 }
 
 // Overlays styles
