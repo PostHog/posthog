@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -74,13 +75,18 @@ def system_status(request):
         try:
             redis_info = get_redis_info()
             redis_queue_depth = get_redis_queue_depth()
-            metrics.append({"metric": "Redis version", "value": f"{redis_info['redis_version']}"})
+            metrics.append({"metric": "Redis version", "value": f"{redis_info.get('redis_version')}"})
             metrics.append({"metric": "Redis current queue depth", "value": f"{redis_queue_depth}"})
-            metrics.append({"metric": "Redis connected client count", "value": f"{redis_info['connected_clients']}"})
-            metrics.append({"metric": "Redis memory used", "value": f"{redis_info['used_memory_human']}"})
-            metrics.append({"metric": "Redis memory peak", "value": f"{redis_info['used_memory_peak_human']}"})
             metrics.append(
-                {"metric": "Redis total memory available", "value": f"{redis_info['total_system_memory_human']}"}
+                {"metric": "Redis connected client count", "value": f"{redis_info.get('connected_clients')}"}
+            )
+            metrics.append({"metric": "Redis memory used", "value": f"{redis_info.get('used_memory_human', '?')}"})
+            metrics.append({"metric": "Redis memory peak", "value": f"{redis_info.get('used_memory_peak_human', '?')}"})
+            metrics.append(
+                {
+                    "metric": "Redis total memory available",
+                    "value": f"{redis_info.get('total_system_memory_human', '?')}",
+                }
             )
         except redis.exceptions.ConnectionError as e:
             metrics.append(
@@ -92,4 +98,4 @@ def system_status(request):
 
 @never_cache
 def preflight_check(request):
-    return JsonResponse({"django": True, "redis": is_redis_alive(), "db": is_postgres_alive()})
+    return JsonResponse({"django": True, "redis": is_redis_alive() or TEST, "db": is_postgres_alive()})

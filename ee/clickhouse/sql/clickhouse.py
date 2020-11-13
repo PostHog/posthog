@@ -17,6 +17,16 @@ TABLE_MERGE_ENGINE = (
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
+KAFKA_PROTO_ENGINE = """
+    Kafka () SETTINGS
+    kafka_broker_list = '{kafka_host}',
+    kafka_topic_list = '{topic}',
+    kafka_group_name = '{group}',
+    kafka_format = 'Protobuf',
+    kafka_schema = '{proto_schema}',
+    kafka_skip_broken_messages = {skip_broken_messages} 
+    """
+
 GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
@@ -34,8 +44,24 @@ def table_engine(table: str, ver: Optional[str] = None) -> str:
         return TABLE_MERGE_ENGINE.format(table=table)
 
 
-def kafka_engine(topic: str, kafka_host=KAFKA_HOSTS, group="group1", serialization="JSONEachRow"):
-    return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
+def kafka_engine(
+    topic: str,
+    kafka_host=KAFKA_HOSTS,
+    group="group1",
+    serialization="JSONEachRow",
+    proto_schema=None,
+    skip_broken_messages=100,
+):
+    if serialization == "JSONEachRow":
+        return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
+    elif serialization == "Protobuf":
+        return KAFKA_PROTO_ENGINE.format(
+            topic=topic,
+            kafka_host=kafka_host,
+            group=group,
+            proto_schema=proto_schema,
+            skip_broken_messages=skip_broken_messages,
+        )
 
 
 def ttl_period():

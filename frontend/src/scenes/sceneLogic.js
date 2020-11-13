@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
 
 export const scenes = {
@@ -18,7 +19,6 @@ export const scenes = {
     persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
-    liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     organizationSettings: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     organizationMembers: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
@@ -48,7 +48,6 @@ export const routes = {
     '/dashboard/:id': 'dashboard',
     '/action/:id': 'action',
     '/action': 'action',
-    '/actions/live': 'liveActions',
     '/actions': 'actions',
     '/insights': 'insights',
     '/events': 'events',
@@ -147,19 +146,19 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
-            window.posthog?.capture('upgrade modal shown', { featureName })
+            posthog.capture('upgrade modal shown', { featureName })
         },
         hideUpgradeModal: () => {
-            window.posthog?.capture('upgrade modal cancellation')
+            posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
             window.open(
                 `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
             )
-            window.posthog?.capture('upgrade modal pricing interaction')
+            posthog.capture('upgrade modal pricing interaction')
         },
         setScene: () => {
-            window.posthog?.capture('$pageview')
+            posthog.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {

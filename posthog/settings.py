@@ -58,8 +58,9 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv  # type: bool
+TEST = "test" in sys.argv or get_bool_from_env("TEST", False)  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
+SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -371,6 +372,15 @@ if not REDIS_URL:
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
+
+if PRIMARY_DB == CLICKHOUSE:
+    try:
+        from ee.apps import EnterpriseConfig  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
+
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
@@ -443,9 +453,6 @@ EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
 
 
-# You can pass a comma deliminated list of domains with which users can sign up to this service
-RESTRICT_SIGNUPS = get_bool_from_env("RESTRICT_SIGNUPS", False)
-
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -459,6 +466,11 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+    import celery
+
+    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
+    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
 
 if DEBUG and not TEST:
     print_warning(
@@ -503,3 +515,13 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler",},},
+    "root": {"handlers": ["console"], "level": "WARNING",},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
+    },
+}

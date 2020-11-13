@@ -57,7 +57,7 @@ function _App(): JSX.Element {
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (
-            <Layout>
+            <Layout style={{ minHeight: '100vh' }}>
                 <Scene {...params} /> <Toast />
             </Layout>
         ) : (
@@ -67,10 +67,10 @@ function _App(): JSX.Element {
 
     if (scene === 'ingestion' || !scene) {
         return (
-            <>
+            <Layout style={{ minHeight: '100vh' }}>
                 <Scene user={user} {...params} />
                 <Toast />
-            </>
+            </Layout>
         )
     }
 

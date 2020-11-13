@@ -14,16 +14,48 @@ export const dateOptions = {
     m: 'Month',
 }
 
+const RETENTION_RECURRING = 'retention_recurring'
+const RETENTION_FIRST_TIME = 'retention_first_time'
+
+export const retentionOptions = {
+    [`${RETENTION_FIRST_TIME}`]: 'First Time',
+    [`${RETENTION_RECURRING}`]: 'Recurring',
+}
+
+export const retentionOptionDescriptions = {
+    [`${RETENTION_RECURRING}`]: 'A user will belong to any cohort where they have performed the event in its Period 0.',
+    [`${RETENTION_FIRST_TIME}`]: 'A user will only belong to the cohort for which they performed the event for the first time.',
+}
+
+const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
+
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
-        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH') || moment().format('YYYY-MM-DD HH'),
+        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH:00') || moment().format('YYYY-MM-DD HH:00'),
         properties: properties,
         insight: ViewType.RETENTION,
     }
 }
 
+function cleanFilters(filters): any {
+    return {
+        startEntity: filters.startEntity || {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+        },
+        returningEntity: filters.returningEntity || {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+        },
+        retentionType: filters.retentionType || RETENTION_FIRST_TIME,
+        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
+        period: filters.period || 'd',
+    }
+}
+
 export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
+    key: (props) => {
+        return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
+    },
     loaders: ({ values }) => ({
         retention: {
             __default: {},
@@ -33,6 +65,15 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
                 if (values.startEntity) params['target_entity'] = values.startEntity
+                if (values.retentionType) params['retention_type'] = values.retentionType
+                if (values.returningEntity) {
+                    params['actions'] = Array.isArray(values.filters.returningEntity.actions)
+                        ? values.filters.returningEntity.actions
+                        : []
+                    params['events'] = Array.isArray(values.filters.returningEntity.events)
+                        ? values.filters.returningEntity.events
+                        : []
+                }
                 const urlParams = toParams(params)
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
@@ -66,28 +107,39 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
         updateRetention: (retention) => ({ retention }),
+        clearPeople: true,
     }),
-    reducers: () => ({
+    reducers: ({ props }) => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
-            [],
+            props.filters
+                ? props.filters.properties || []
+                : (state) => router.selectors.searchParams(state).properties || [],
             {
                 setProperties: (_, { properties }) => properties,
             },
         ],
         filters: [
-            {
-                startEntity: {
-                    events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
-                },
-                selectedDate: moment().startOf('hour'),
-                period: 'd',
-            },
+            props.filters
+                ? {
+                      startEntity: props.filters.startEntity || {
+                          events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                      },
+                      selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
+                      returningEntity: props.filters.returningEntity || {
+                          events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
+                          actions: [],
+                      },
+                      period: props.filters.period || 'd',
+                      retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
+                  }
+                : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         people: {
+            clearPeople: () => ({}),
             updatePeople: (state, { selectedIndex, people }) => ({
                 ...state,
                 [`${selectedIndex}`]: [...state[selectedIndex], ...people],
@@ -121,10 +173,26 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
+        returningEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters.returningEntity).reduce(function (r, k) {
+                    return r.concat(filters.returningEntity[k])
+                }, [])
+
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
+            },
+        ],
         selectedDate: [
             () => [selectors.filters],
             (filters) => {
                 return filters.selectedDate
+            },
+        ],
+        retentionType: [
+            () => [selectors.filters],
+            (filters) => {
+                return filters.retentionType
             },
         ],
         period: [
@@ -138,43 +206,26 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         afterMount: actions.loadRetention,
     }),
     actionToUrl: ({ values }) => ({
-        setFilters: () => ['/insights', values.propertiesForUrl],
+        setFilters: () => {
+            return ['/insights', values.propertiesForUrl]
+        },
+        setProperties: () => {
+            return ['/insights', values.propertiesForUrl]
+        },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, key }) => ({
         '/insights': (_, searchParams: Record<string, any>) => {
-            try {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                if (router.values.location.pathname !== values.initialPathname) {
+            if (searchParams.insight === ViewType.RETENTION) {
+                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
                 }
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
-            if (searchParams.insight === ViewType.RETENTION) {
-                const paramsToCheck = {
-                    selectedDate: searchParams.selectedDate,
-                    startEntity: searchParams.startEntity,
-                    period: searchParams.period,
-                    properties: searchParams.properties,
+                const cleanSearchParams = cleanFilters(searchParams)
+                const cleanedFilters = cleanFilters(values.filters)
+                if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
+                    actions.setFilters(cleanSearchParams)
                 }
-                const _filters = {
-                    selectedDate: values.filters.selectedDate.toISOString(),
-                    startEntity: values.filters.startEntity,
-                    period: values.filters.period,
-                    properties: values.properties,
-                }
-
-                if (!objectsEqual(paramsToCheck, _filters)) {
+                if (!objectsEqual(searchParams.properties, values.properties)) {
                     actions.setProperties(searchParams.properties || [])
-                    actions.setFilters({
-                        selectedDate: searchParams.selectedDate
-                            ? moment(searchParams.selectedDate)
-                            : values.filters.selectedDate,
-                        startEntity: searchParams.startEntity || values.filters.startEntity,
-                        period: searchParams.period || values.filters.period,
-                    })
                 }
             }
         },
@@ -182,14 +233,14 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadRetention(true)
-            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
         setFilters: () => {
             actions.loadRetention(true)
-            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
-        loadRetentionSuccess: () => {
-            actions.createInsight(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        loadRetention: () => {
+            actions.clearPeople()
+            actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
+            actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []

@@ -12,14 +12,15 @@ RUN apt-get update \
     && yarn --frozen-lockfile
 
 COPY requirements.txt /code/
+COPY requirements-dev.txt /code/
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "psycopg2" requirements.txt) --compile\
+RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --compile\
     && pip install psycopg2-binary
 
 # install dev dependencies
 RUN mkdir /code/requirements/
-COPY requirements/dev.txt /code/requirements/
-RUN pip install -r requirements/dev.txt --compile
+COPY requirements-dev.txt /code/requirements/
+RUN pip install -r requirements-dev.txt --compile
 
 COPY package.json /code/
 COPY yarn.lock /code/

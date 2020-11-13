@@ -5,7 +5,7 @@ from typing import Any, Dict
 from sentry_sdk import capture_exception
 
 from .reload import reload_plugins_on_workers
-from .utils import download_plugin_github_zip, load_json_file, load_json_zip_bytes
+from .utils import download_plugin_archive, get_json_from_archive, load_json_file
 
 
 # def sync_plugin_config()
@@ -89,8 +89,8 @@ def create_plugin_from_config(config_plugin=None, raise_errors=False):
             return
         url = config_plugin["url"]
         tag = config_plugin["tag"]
-        archive = download_plugin_github_zip(url, tag)
-        json = load_json_zip_bytes(archive, "plugin.json")
+        archive = download_plugin_archive(url, tag)
+        json = get_json_from_archive(archive, "plugin.json")
         if json:
             description = json["description"]
             config_schema = json["config"]
@@ -146,8 +146,8 @@ def update_plugin_from_config(db_plugin, config_plugin):
                 db_plugin.description = json["description"]
                 db_plugin.config_schema = json["config"]
         else:
-            db_plugin.archive = download_plugin_github_zip(db_plugin.url, db_plugin.tag)
-            json = load_json_zip_bytes(db_plugin.archive, "plugin.json")
+            db_plugin.archive = download_plugin_archive(db_plugin.url, db_plugin.tag)
+            json = get_json_from_archive(db_plugin.archive, "plugin.json")
             if json:
                 db_plugin.description = json["description"]
                 db_plugin.config_schema = json["config"]

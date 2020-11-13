@@ -10,7 +10,6 @@ import {
     CloudServerOutlined,
     UserOutlined,
     RiseOutlined,
-    SyncOutlined,
     AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
@@ -25,6 +24,7 @@ import {
     WalletOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -37,6 +37,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CreateOrgInviteModalWithButton } from 'scenes/organization/Invites/CreateOrgInviteModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -59,7 +60,6 @@ const sceneOverride = {
 // to show the open submenu
 const submenuOverride = {
     actions: 'events',
-    liveActions: 'events',
     sessions: 'events',
     cohorts: 'persons',
     projectSettings: 'project',
@@ -189,13 +189,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Actions'}</span>
                             <Link to={'/actions'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        {!featureFlags['actions-ux-201012'] && (
-                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                                <SyncOutlined />
-                                <span className="sidebar-label">{'Live Actions'}</span>
-                                <Link to={'/actions/live'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>
@@ -345,6 +338,10 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <SmileOutlined />
                         <span className="sidebar-label">Me</span>
                         <Link to={'/me/settings'} onClick={collapseSidebar} />
+                    </Menu.Item>
+                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-inviteTeam">
+                        <PlusOutlined />
+                        <CreateOrgInviteModalWithButton type="text" />
                     </Menu.Item>
                 </Menu>
 

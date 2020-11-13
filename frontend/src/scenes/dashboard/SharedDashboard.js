@@ -1,4 +1,5 @@
-import './../../style.scss'
+import '~/global.scss' /* Contains PostHog's main styling configurations */
+import '~/antd.less' /* Imports Ant Design's components */
 import './DashboardItems.scss'
 import React from 'react'
 import ReactDOM from 'react-dom'
@@ -10,7 +11,9 @@ import { Dashboard } from './Dashboard'
 
 import PostHogLogo from 'public/posthog-logo.svg'
 import { Col, Row } from 'antd'
+import { loadPostHogJS } from '~/loadPostHogJS'
 
+loadPostHogJS()
 initKea()
 
 let dashboard = window.__SHARED_DASHBOARD__
@@ -30,7 +33,9 @@ ReactDOM.render(
                     <span style={{ paddingTop: 15, display: 'inline-block' }}>{dashboard.team_name}</span>
                 </Col>
             </Row>
-            <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
+            <div style={{ margin: '0 1rem' }}>
+                <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
+            </div>
 
             <div style={{ textAlign: 'center', paddingBottom: '4rem', marginTop: '1rem' }}>
                 Made with <a href="https://posthog.com">PostHog - Open Source Product Analytics</a>
