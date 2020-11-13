@@ -27,7 +27,7 @@ export function ActionsTable() {
                 return (
                     <Link
                         data-attr={'action-link-' + index}
-                        to={'/action/' + action.id + '#backTo=Feature Flags&backToURL=' + window.location.pathname}
+                        to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}
                     >
                         {action.name}
                     </Link>
