@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import sqlparse
 from django.db.models.manager import BaseManager
 from django.utils import timezone
 
@@ -337,7 +338,7 @@ class ClickhouseTrends(Trends):
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
 
         try:
-            result = sync_execute(final_query, params)
+            result = sync_execute(sqlparse.format(final_query, reindent_aligned=True), params)
 
         except:
             result = []
