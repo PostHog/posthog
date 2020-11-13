@@ -1,4 +1,5 @@
 import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 export function getConfigSchemaArray(
     configSchema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
@@ -26,4 +27,31 @@ export function getConfigSchemaObject(
     } else {
         return configSchema
     }
+}
+
+export function getPluginConfigFormData(
+    editingPlugin: PluginTypeWithConfig,
+    pluginConfigChanges: Record<string, any>
+): FormData {
+    const { __enabled: enabled, ...config } = pluginConfigChanges
+
+    const configSchema = getConfigSchemaObject(editingPlugin.config_schema)
+
+    const formData = new FormData()
+    const otherConfig: Record<string, any> = {}
+    formData.append('enabled', enabled)
+    for (const [key, value] of Object.entries(config)) {
+        if (configSchema[key]?.type === 'attachment') {
+            if (value && !value.saved) {
+                formData.append(`add_attachment[${key}]`, value)
+            }
+            if (!value && editingPlugin.pluginConfig.config[key]) {
+                formData.append(`remove_attachment[${key}]`, 'true')
+            }
+        } else {
+            otherConfig[key] = value
+        }
+    }
+    formData.append('config', JSON.stringify(otherConfig))
+    return formData
 }

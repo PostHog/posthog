@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject } from 'scenes/plugins/utils'
+import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 
 export const pluginsLogic = kea<
     pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
@@ -75,26 +75,7 @@ export const pluginsLogic = kea<
                         return pluginConfigs
                     }
 
-                    const { __enabled: enabled, ...config } = pluginConfigChanges
-
-                    const configSchema = getConfigSchemaObject(editingPlugin.config_schema)
-
-                    const formData = new FormData()
-                    const otherConfig: Record<string, any> = {}
-                    formData.append('enabled', enabled)
-                    for (const [key, value] of Object.entries(config)) {
-                        if (configSchema[key]?.type === 'attachment') {
-                            if (value && !value.saved) {
-                                formData.append(`add_attachment[${key}]`, value)
-                            }
-                            if (!value && editingPlugin.pluginConfig.config[key]) {
-                                formData.append(`remove_attachment[${key}]`, 'true')
-                            }
-                        } else {
-                            otherConfig[key] = value
-                        }
-                    }
-                    formData.append('config', JSON.stringify(otherConfig))
+                    const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
 
                     let response
                     if (editingPlugin.pluginConfig.id) {
