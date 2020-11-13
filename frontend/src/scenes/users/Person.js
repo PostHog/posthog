@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
 import { deletePersonData, savePersonData } from 'lib/utils'
@@ -10,8 +9,6 @@ import { Button, Modal, Tabs } from 'antd'
 import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 const { TabPane } = Tabs
@@ -26,8 +23,6 @@ function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (distinctId) {
@@ -141,13 +136,11 @@ function _Person({ _: distinctId, id }) {
                     key="events"
                     data-attr="people-types-tab"
                 />
-                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
-                    <TabPane
-                        tab={<span data-attr="people-types-tab">Sessions By Day</span>}
-                        key="sessions"
-                        data-attr="people-types-tab"
-                    />
-                )}
+                <TabPane
+                    tab={<span data-attr="people-types-tab">Sessions By Day</span>}
+                    key="sessions"
+                    data-attr="people-types-tab"
+                />
             </Tabs>
             {activeTab === 'events' ? (
                 <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />

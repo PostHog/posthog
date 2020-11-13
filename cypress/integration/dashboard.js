@@ -19,6 +19,7 @@ describe('Dashboards', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
+                cy.get('[data-attr="dashboard-item-title"').should('contain', 'popular browsers')
             })
     })
 
