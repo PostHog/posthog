@@ -8,24 +8,6 @@ import { PluginImage } from './PluginImage'
 import { Link } from 'lib/components/Link'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
-import { UploadField } from 'scenes/plugins/UploadField'
-import { getConfigSchemaArray } from 'scenes/plugins/utils'
-import Markdown from 'react-markdown'
-
-function EnabledDisabledSwitch({
-    value,
-    onChange,
-}: {
-    value?: boolean
-    onChange?: (value: boolean) => void
-}): JSX.Element {
-    return (
-        <>
-            <Switch checked={value} onChange={onChange} />{' '}
-            <strong style={{ paddingLeft: 8 }}>{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
-    )
-}
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -101,56 +83,37 @@ export function PluginDrawer(): JSX.Element {
                                         </Link>
                                     )}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
-                                    <Form.Item
-                                        fieldKey="__enabled"
-                                        name="__enabled"
-                                        style={{ display: 'inline-block', marginBottom: 0 }}
-                                    >
-                                        <EnabledDisabledSwitch />
-                                    </Form.Item>
-                                </div>
                             </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <b style={{ paddingRight: 8 }}>Enabled</b>
+                            <Form.Item
+                                fieldKey="__enabled"
+                                name="__enabled"
+                                valuePropName="checked"
+                                style={{ display: 'inline-block', marginBottom: 0 }}
+                            >
+                                <Switch />
+                            </Form.Item>
                         </div>
                         <h3 className="l3" style={{ marginTop: 32 }}>
                             Configuration
                         </h3>
-                        {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
-                            <React.Fragment key={fieldConfig.key || `__key__${index}`}>
-                                {fieldConfig.markdown ? (
-                                    <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                ) : null}
-                                {fieldConfig.type ? (
-                                    <Form.Item
-                                        label={fieldConfig.name || fieldConfig.key}
-                                        extra={
-                                            fieldConfig.hint ? (
-                                                <Markdown source={fieldConfig.hint} linkTarget="_blank" />
-                                            ) : null
-                                        }
-                                        name={fieldConfig.key}
-                                        required={fieldConfig.required}
-                                        rules={[
-                                            {
-                                                required: fieldConfig.required,
-                                                message: 'Please enter a value!',
-                                            },
-                                        ]}
-                                    >
-                                        {fieldConfig.type === 'attachment' ? (
-                                            <UploadField />
-                                        ) : fieldConfig.type === 'string' ? (
-                                            <Input />
-                                        ) : (
-                                            <strong style={{ color: 'var(--red)' }}>
-                                                Unknown field type "<code>{fieldConfig.type}</code>".
-                                                <br />
-                                                You may need to upgrade PostHog!
-                                            </strong>
-                                        )}
-                                    </Form.Item>
-                                ) : null}
-                            </React.Fragment>
+                        {Object.keys(editingPlugin.config_schema).map((configKey) => (
+                            <Form.Item
+                                key={configKey}
+                                label={editingPlugin.config_schema[configKey].name || configKey}
+                                name={configKey}
+                                required={editingPlugin.config_schema[configKey].required}
+                                rules={[
+                                    {
+                                        required: editingPlugin.config_schema[configKey].required,
+                                        message: 'Please enter a value!',
+                                    },
+                                ]}
+                            >
+                                <Input />
+                            </Form.Item>
                         ))}
                     </div>
                 ) : null}

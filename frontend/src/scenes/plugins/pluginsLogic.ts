@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 
 export const pluginsLogic = kea<
     pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
@@ -75,15 +74,21 @@ export const pluginsLogic = kea<
                         return pluginConfigs
                     }
 
-                    const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
+                    const { __enabled: enabled, ...config } = pluginConfigChanges
 
                     let response
                     if (editingPlugin.pluginConfig.id) {
-                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
+                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, {
+                            enabled,
+                            config,
+                        })
                     } else {
-                        formData.append('plugin', editingPlugin.id.toString())
-                        formData.append('order', '0')
-                        response = await api.create(`api/plugin_config/`, formData)
+                        response = await api.create(`api/plugin_config/`, {
+                            plugin: editingPlugin.id,
+                            enabled,
+                            config,
+                            order: 0,
+                        })
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }
@@ -180,11 +185,9 @@ export const pluginsLogic = kea<
                         let pluginConfig = pluginConfigs[plugin.id]
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
-                            Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
-                                ([key, { default: def }]) => {
-                                    config[key] = def
-                                }
-                            )
+                            Object.entries(plugin.config_schema).forEach(([key, { default: def }]) => {
+                                config[key] = def
+                            })
 
                             pluginConfig = {
                                 id: undefined,
