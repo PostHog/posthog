@@ -18,8 +18,6 @@ def mocked_plugin_reload(*args, **kwargs):
     pass
 
 
-# There's a fallback that disables all plugins under multi-tenancy. Removing the setting so tests could pass.
-@mock.patch("posthog.settings.MULTI_TENANCY", False)
 @mock.patch("posthog.api.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginAPI(APIBaseTest):
