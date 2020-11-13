@@ -8,7 +8,7 @@ import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 import { Button, Dropdown } from 'antd'
-import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined } from '@ant-design/icons'
+import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined, UpOutlined } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -130,11 +130,11 @@ export function _TopNavigation(): JSX.Element {
         <>
             <div className="navigation-spacer" />
             <div className="navigation-top">
-                <div>
+                <div style={{ justifyContent: 'flex-start' }}>
                     <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
                         <IconMenu />
                     </div>
-                    <div className="hide-lte-lg">
+                    <div className="hide-lte-lg ml-05">
                         {!user?.is_multi_tenancy && (
                             <Badge
                                 type={systemStatus ? 'success' : 'danger'}
@@ -146,14 +146,14 @@ export function _TopNavigation(): JSX.Element {
                         <Badge
                             type={updateAvailable ? 'warning' : undefined}
                             tooltip={updateAvailable ? 'New version available' : undefined}
-                            icon={<></>}
+                            icon={<UpOutlined />}
                             onClick={() => setChangelogModalOpen(true)}
                         />
                     </div>
                 </div>
                 <div className="project-chooser">
                     <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter">
-                        <div style={{ height: '100%' }} className="cursor-pointer">
+                        <div style={{ height: '100%' }} className="cursor-pointer flexed">
                             <ProjectOutlined className="mr-05" />
                             {user?.team.name} <DownOutlined className="ml-05" />
                         </div>

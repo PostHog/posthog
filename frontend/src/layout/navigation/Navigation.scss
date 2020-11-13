@@ -170,17 +170,24 @@ $top_nav_height: 50px;
         width: 100%;
     }
 
-    div {
+    > div {
         justify-content: center;
         align-items: center;
         display: flex;
         padding: 0 8px;
+        min-width: 124px; // to ensure side items are roughly the same size
     }
 
     .project-chooser {
         flex-grow: 1;
         height: 100%;
         font-weight: bold;
+
+        div {
+            justify-content: center;
+            align-items: center;
+            display: flex;
+        }
     }
 
     .menu-toggle {
