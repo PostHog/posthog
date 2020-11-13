@@ -1,97 +1,133 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
-import { delay } from 'lib/utils'
+import { camelCaseToTitle, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
+import { sceneLogicType } from 'types/scenes/sceneLogicType'
 
-export const scenes = {
+export enum Scene {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
+    Dashboards = 'dashboards',
+    Dashboard = 'dashboard',
+    Insights = 'insights',
+    Cohorts = 'cohorts',
+    Events = 'events',
+    Sessions = 'sessions',
+    Person = 'person',
+    Persons = 'persons',
+    Action = 'action',
+    FeatureFlags = 'featureFlags',
+    OrganizationSettings = 'organizationSettings',
+    OrganizationMembers = 'organizationMembers',
+    OrganizationInvites = 'organizationInvites',
+    ProjectSettings = 'projectSettings',
+    InstanceStatus = 'instanceStatus',
+    InstanceLicenses = 'instanceLicenses',
+    MySettings = 'mySettings',
+    Annotations = 'annotations',
+    PreflightCheck = 'preflightCheck',
+    Signup = 'signup',
+    Ingestion = 'ingestion',
+    Billing = 'billing',
+    Plugins = 'plugins',
+}
 
-    dashboards: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
-    dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
-    events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
-    sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
-    action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
-    featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
-    organizationSettings: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    organizationMembers: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    organizationInvites: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
-    projectSettings: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
-    instanceStatus: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
-    instanceLicenses: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
-    mySettings: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
-    annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
-    preflightCheck: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    signup: () => import(/* webpackChunkName: 'signup' */ './Signup'),
-    ingestion: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
-    billing: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
-    plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
+interface LoadedScene {
+    component: () => JSX.Element
+    logic?: BuiltLogic
+}
+
+interface Params {
+    [param: string]: any
+}
+
+export const scenes: Record<Scene, () => any> = {
+    [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
+    [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
+    [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
+    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+    [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
+    [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
+    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './users/Person'),
+    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './users/People'),
+    [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
+    [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
+    [Scene.OrganizationSettings]: () =>
+        import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
+    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
+    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
+    [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
+    [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
+    [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
+    [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
+    [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './Signup'),
+    [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
+    [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
+    [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedRoutes = ['preflightCheck', 'signup']
+export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
 
-export const redirects = {
+export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
 }
 
-export const routes = {
-    '/dashboard': 'dashboards',
-    '/dashboard/:id': 'dashboard',
-    '/action/:id': 'action',
-    '/action': 'action',
-    '/insights': 'insights',
-    '/events': 'events',
-    '/events/*': 'events',
-    '/sessions': 'sessions',
-    '/person_by_id/:id': 'person',
-    '/person/*': 'person',
-    '/persons': 'persons',
-    '/cohorts/new': 'persons',
-    '/cohorts': 'cohorts',
-    '/feature_flags': 'featureFlags',
-    '/annotations': 'annotations',
-    '/project/settings': 'projectSettings',
-    '/project/plugins': 'plugins',
-    '/organization/settings': 'organizationSettings',
-    '/organization/members': 'organizationMembers',
-    '/organization/invites': 'organizationInvites',
-    '/organization/billing': 'billing',
-    '/instance/licenses': 'instanceLicenses',
-    '/instance/status': 'instanceStatus',
-    '/me/settings': 'mySettings',
-    '/preflight': 'preflightCheck',
-    '/signup': 'signup',
-    '/ingestion': 'ingestion',
-    '/ingestion/*': 'ingestion',
+export const routes: Record<string, Scene> = {
+    '/dashboard': Scene.Dashboards,
+    '/dashboard/:id': Scene.Dashboard,
+    '/action/:id': Scene.Action,
+    '/action': Scene.Action,
+    '/insights': Scene.Insights,
+    '/events': Scene.Events,
+    '/events/*': Scene.Events,
+    '/sessions': Scene.Sessions,
+    '/person_by_id/:id': Scene.Person,
+    '/person/*': Scene.Person,
+    '/persons': Scene.Persons,
+    '/cohorts/new': Scene.Persons,
+    '/cohorts': Scene.Cohorts,
+    '/feature_flags': Scene.FeatureFlags,
+    '/annotations': Scene.Annotations,
+    '/project/settings': Scene.ProjectSettings,
+    '/project/plugins': Scene.Plugins,
+    '/organization/settings': Scene.OrganizationSettings,
+    '/organization/members': Scene.OrganizationMembers,
+    '/organization/invites': Scene.OrganizationInvites,
+    '/organization/billing': Scene.Billing,
+    '/instance/licenses': Scene.InstanceLicenses,
+    '/instance/status': Scene.InstanceStatus,
+    '/me/settings': Scene.MySettings,
+    '/preflight': Scene.PreflightCheck,
+    '/signup': Scene.Signup,
+    '/ingestion': Scene.Ingestion,
+    '/ingestion/*': Scene.Ingestion,
 }
 
-export const sceneLogic = kea({
+export const sceneLogic = kea<sceneLogicType>({
     actions: {
-        loadScene: (scene, params) => ({ scene, params }),
-        setScene: (scene, params) => ({ scene, params }),
-        setLoadedScene: (scene, loadedScene) => ({ scene, loadedScene }),
-        showUpgradeModal: (featureName) => ({ featureName }),
+        loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        setScene: (scene: Scene, params: Params) => ({ scene, params }),
+        setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
+        showUpgradeModal: (featureName: string) => ({ featureName }),
         hideUpgradeModal: true,
         takeToPricing: true,
     },
     reducers: ({ actions }) => ({
         scene: [
-            null,
+            null as Scene | null,
             {
                 [actions.setScene]: (_, payload) => payload.scene,
             },
         ],
         params: [
-            {},
+            {} as Params,
             {
                 [actions.setScene]: (_, payload) => payload.params || {},
             },
@@ -104,20 +140,20 @@ export const sceneLogic = kea({
                 '4xx': {
                     component: ErrorNetwork,
                 },
-            },
+            } as Record<string | number, LoadedScene>,
             {
                 [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
             },
         ],
         loadingScene: [
-            null,
+            null as Scene | null,
             {
                 [actions.loadScene]: (_, { scene }) => scene,
                 [actions.setScene]: () => null,
             },
         ],
         upgradeModalFeatureName: [
-            null,
+            null as string | null,
             {
                 [actions.showUpgradeModal]: (_, { featureName }) => featureName,
                 [actions.hideUpgradeModal]: () => null,
@@ -126,7 +162,7 @@ export const sceneLogic = kea({
         ],
     }),
     urlToAction: ({ actions }) => {
-        const mapping = {}
+        const mapping: Record<string, (params: Params) => any> = {}
 
         for (const [paths, redirect] of Object.entries(redirects)) {
             for (const path of paths.split('|')) {
@@ -159,8 +195,9 @@ export const sceneLogic = kea({
         },
         setScene: () => {
             posthog.capture('$pageview')
+            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
         },
-        loadScene: async ({ scene, params = {} }, breakpoint) => {
+        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return
@@ -211,7 +248,6 @@ export const sceneLogic = kea({
                 }
                 actions.setLoadedScene(scene, loadedScene)
             }
-
             const { logic } = loadedScene
 
             let unmount

@@ -266,9 +266,9 @@ export function delay(ms: number): Promise<number> {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
-// We need this so the dashboard resizes itself properly, as the available div width will still
-// change when the sidebar's expansion is animating.
+/**
+ * Trigger a resize event on window.
+ */
 export function triggerResize(): void {
     try {
         window.dispatchEvent(new Event('resize'))
@@ -276,6 +276,12 @@ export function triggerResize(): void {
         // will break on IE11
     }
 }
+
+/**
+ * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
+ * We need this so the dashboard resizes itself properly, as the available div width will still
+ * change when the sidebar's expansion is animating.
+ */
 export function triggerResizeAfterADelay(): void {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
         window.setTimeout(triggerResize, delay)
@@ -550,4 +556,20 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
         return true
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
+}
+
+/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
+export function camelCaseToTitle(camelCase: string): string {
+    const words: string[] = []
+    let currentWord: string = ''
+    for (const character of camelCase.trim()) {
+        if (character == character.toLowerCase() && character != character.toUpperCase()) {
+            currentWord += character
+        } else {
+            words.push(currentWord)
+            currentWord = character.toLowerCase()
+        }
+    }
+    if (currentWord) words.push(currentWord)
+    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }
