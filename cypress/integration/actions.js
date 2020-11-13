@@ -1,11 +1,11 @@
 describe('Actions', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-events]').click()
-        cy.get('[data-attr=menu-item-actions]').click()
+        cy.get('[data-attr=events-actions-tab]').click()
     })
 
     it('Actions loaded', () => {
-        cy.get('h1').should('contain', 'Actions')
+        cy.get('[data-attr=actions-table]').should('exist')
     })
 
     it('Click on an action', () => {
