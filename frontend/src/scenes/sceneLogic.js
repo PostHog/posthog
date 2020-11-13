@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import posthog from 'posthog-js'
 import { userLogic } from './userLogic'
 
 export const scenes = {
@@ -15,10 +16,8 @@ export const scenes = {
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     sessions: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    people: () => import(/* webpackChunkName: 'people' */ './users/People'),
-    actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
+    persons: () => import(/* webpackChunkName: 'persons' */ './users/People'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
-    liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     organizationSettings: () => import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     organizationMembers: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
@@ -35,12 +34,13 @@ export const scenes = {
     plugins: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
 export const unauthenticatedRoutes = ['preflightCheck', 'signup']
 
 export const redirects = {
     '/': '/insights',
     '/plugins': '/project/plugins',
+    '/actions': '/events/actions',
 }
 
 export const routes = {
@@ -48,16 +48,15 @@ export const routes = {
     '/dashboard/:id': 'dashboard',
     '/action/:id': 'action',
     '/action': 'action',
-    '/actions/live': 'liveActions',
-    '/actions': 'actions',
     '/insights': 'insights',
     '/events': 'events',
+    '/events/*': 'events',
     '/sessions': 'sessions',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
-    '/people/persons': 'people',
-    '/people/new_cohort': 'people',
-    '/people/cohorts': 'cohorts',
+    '/persons': 'persons',
+    '/cohorts/new': 'persons',
+    '/cohorts': 'cohorts',
     '/feature_flags': 'featureFlags',
     '/annotations': 'annotations',
     '/project/settings': 'projectSettings',
@@ -147,19 +146,19 @@ export const sceneLogic = kea({
     },
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
-            window.posthog?.capture('upgrade modal shown', { featureName })
+            posthog.capture('upgrade modal shown', { featureName })
         },
         hideUpgradeModal: () => {
-            window.posthog?.capture('upgrade modal cancellation')
+            posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
             window.open(
                 `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
             )
-            window.posthog?.capture('upgrade modal pricing interaction')
+            posthog.capture('upgrade modal pricing interaction')
         },
         setScene: () => {
-            window.posthog?.capture('$pageview')
+            posthog.capture('$pageview')
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {
@@ -180,20 +179,18 @@ export const sceneLogic = kea({
                     importedScene = await scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
-                        console.error('Error loading webpack chunk!')
-
                         if (scene !== null) {
-                            // we were on another page (not the first loaded scene)
-                            console.error('Reloading!')
+                            // We were on another page (not the first loaded scene)
+                            console.error('App assets regenerated. Reloading this page.')
                             window.location.reload()
                         } else {
-                            // first scene, show an error page
-                            console.error("Redirecting to the 'Network Error' page!")
+                            // First scene, show an error page
+                            console.error('App assets regenerated. Showing error page.')
                             actions.setScene('4xx', {})
-                            return
                         }
+                    } else {
+                        throw error
                     }
-                    throw error
                 }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene

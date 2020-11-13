@@ -3,20 +3,21 @@ import { useActions, useValues } from 'kea'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SearchOutlined } from '@ant-design/icons'
 import { platformCommandControlKey } from 'lib/utils'
+import { Button } from 'antd'
 
 export function CommandPaletteButton(): JSX.Element {
     const { isPaletteShown } = useValues(commandPaletteLogic)
     const { showPalette } = useActions(commandPaletteLogic)
 
     return (
-        <span
+        <Button
             data-attr="command-palette-toggle"
-            className="btn btn-sm btn-light btn-top hide-when-small"
+            className="hide-when-small"
             onClick={showPalette}
             title={isPaletteShown ? 'Hide Command Palette' : 'Show Command Palette'}
+            icon={<SearchOutlined />}
         >
-            <SearchOutlined size={1} style={{ marginRight: '0.5rem' }} />
             {platformCommandControlKey('K')}
-        </span>
+        </Button>
     )
 }

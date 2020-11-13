@@ -5,7 +5,7 @@ import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { userLogic } from 'scenes/userLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const columns = [
     {
@@ -43,21 +43,20 @@ function _Licenses(): JSX.Element {
     const [form] = Form.useForm()
     const { licenses, licensesLoading, error } = useValues(licenseLogic)
     const { createLicense } = useActions(licenseLogic)
-    const { user } = useValues(userLogic)
 
     return (
         <div>
-            <h1 className="page-header">Organization Licenses – {user?.organization.name}</h1>
-            <i>
-                <p>
-                    Here you can add and manage your PostHog enterprise licenses.
-                    <br />
-                    Activate a license key and enterprise functionality will be enabled immediately.
-                </p>
-                <p>
-                    Contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to buy a license.
-                </p>
-            </i>
+            <PageHeader
+                title="Licenses"
+                caption={
+                    <>
+                        Here you can add and manage your PostHog enterprise licenses. When you activate a license key,
+                        enterprise functionality will be enabled immediately. Contact{' '}
+                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> to buy a license or if you have any
+                        issues with a license.
+                    </>
+                }
+            />
             {error && (
                 <Alert
                     message={

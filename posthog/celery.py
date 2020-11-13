@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
@@ -45,8 +45,11 @@ def setup_periodic_tasks(sender, **kwargs):
 
     # update events table partitions twice a week
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
+        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
+
+    # Update usage information on the team model
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_event_property_usage.s())
 
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
 
@@ -54,16 +57,21 @@ def setup_periodic_tasks(sender, **kwargs):
 
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon"), status_report.s())
+        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
-    sender.add_periodic_task(crontab(day_of_week="mon", hour=15), send_weekly_email_report.s())
+    sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
-    sender.add_periodic_task(crontab(day_of_week="fri"), clean_stale_partials.s())
+    sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    if not check_ee_enabled():
-        sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
+    if not is_ee_enabled():
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+        sender.add_periodic_task(15 * 60, calculate_cohort.s(15), name="recalculate cohorts")
+    else:
+        # ee enabled scheduled tasks
+        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
+        sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(60 * 60, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
@@ -77,6 +85,39 @@ def setup_periodic_tasks(sender, **kwargs):
 @app.task(ignore_result=True)
 def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
+
+
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
+
+
+@app.task(ignore_result=True)
+def clickhouse_lag():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        for table in CLICKHOUSE_TABLES:
+            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+            query = QUERY.format(table=table)
+            lag = sync_execute(query)[0][2]
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_row_count():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        for table in CLICKHOUSE_TABLES:
+            QUERY = """select count(1) freq from {table};"""
+            query = QUERY.format(table=table)
+            rows = sync_execute(query)[0][0]
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+    else:
+        pass
 
 
 @app.task(ignore_result=True)
@@ -129,10 +170,10 @@ def calculate_event_action_mappings():
 
 
 @app.task(ignore_result=True)
-def calculate_cohort():
+def calculate_cohort(max_age_minutes):
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts()
+    calculate_cohorts(max_age_minutes)
 
 
 @app.task(ignore_result=True)
@@ -160,3 +201,10 @@ def send_weekly_email_report():
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))
+
+
+@app.task(ignore_result=True)
+def calculate_event_property_usage():
+    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
+
+    calculate_event_property_usage()

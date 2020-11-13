@@ -4,9 +4,11 @@ import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import './RetentionTable.scss'
 import moment from 'moment'
+import posthog from 'posthog-js'
 
-export function RetentionTable() {
+export function RetentionTable({ dashboardItemId = null }) {
     const {
         retention,
         retentionLoading,
@@ -14,8 +16,8 @@ export function RetentionTable() {
         people,
         loadingMore,
         filters: { period },
-    } = useValues(retentionTableLogic)
-    const { loadPeople, loadMore } = useActions(retentionTableLogic)
+    } = useValues(retentionTableLogic({ dashboardItemId }))
+    const { loadPeople, loadMore } = useActions(retentionTableLogic({ dashboardItemId }))
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
@@ -27,7 +29,7 @@ export function RetentionTable() {
             align: 'center',
         },
         {
-            title: 'Users',
+            title: 'Cohort Size',
             key: 'users',
             render: (row) => row.values[0]['count'],
             align: 'center',
@@ -59,14 +61,14 @@ export function RetentionTable() {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={window.posthog?.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
+                rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            if (window.posthog?.isFeatureEnabled('ch-retention-endpoint')) {
+                            if (posthog.isFeatureEnabled('ch-retention-endpoint')) {
                                 return
                             }
 
@@ -96,7 +98,7 @@ export function RetentionTable() {
                                 <span>No users during this period.</span>
                             ) : (
                                 <div>
-                                    <table className="table table-bordered table-fixed">
+                                    <table className="table-bordered full-width">
                                         <tbody>
                                             <tr>
                                                 <th />

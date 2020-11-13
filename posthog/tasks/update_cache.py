@@ -9,7 +9,7 @@ from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
-from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
+from posthog.decorators import CacheType
 from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
@@ -23,9 +23,9 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     filter = Filter(data=filter_dict)
-    if cache_type == TRENDS_ENDPOINT:
+    if cache_type == CacheType.TRENDS:
         result = _calculate_trends(filter, int(payload["team_id"]))
-    elif cache_type == FUNNEL_ENDPOINT:
+    elif cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, int(payload["team_id"]))
 
     if result:
@@ -53,7 +53,7 @@ def update_cached_items() -> None:
         if curr_data and curr_data.get("task_id", None):
             continue
 
-        cache_type = FUNNEL_ENDPOINT if filter.insight == "FUNNELS" else TRENDS_ENDPOINT
+        cache_type = CacheType.FUNNEL if filter.insight == "FUNNELS" else CacheType.TRENDS
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 

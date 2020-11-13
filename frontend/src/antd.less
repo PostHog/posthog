@@ -1,0 +1,34 @@
+/* This file sets theming configuration on Ant Design for PostHog. Ant uses LESS which is incompatible
+with SASS, which is why configuration is duplicated. To change any variable here, please update vars.scss too  */
+@import 'antd/lib/style/themes/default.less';
+@import 'antd/dist/antd.less';
+
+@text-color: #2d2d2d;
+@text-muted: #d9d9d9;
+@primary-color: #5375ff;
+@link-color: #5375ff;
+@success-color: #77b96c;
+@warning-color: #f7a501;
+@error-color: #f96132;
+@font-size-base: 14px;
+@heading-color: @text-color;
+@text-color-secondary: rgba(0, 0, 0, 0.45);
+@disabled-color: @text-muted;
+@border-radius-base: 2px;
+@border-color-base: #d9d9d9;
+@body-background:  #f2f2f2;
+@layout-body-background: #fff;
+
+.hide-gte-lg {
+    display: none !important;
+    @media (max-width: @screen-lg-min) {
+        display: inherit !important;
+    }
+}
+
+.hide-lte-lg {
+    display: none !important;
+    @media (min-width: @screen-lg-min) {
+        display: inherit !important;
+    }
+}

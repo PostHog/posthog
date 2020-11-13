@@ -1,0 +1,23 @@
+@import '~/vars';
+
+.events {
+    .event-day-separator {
+        background-color: darken($bg_mid, 10%);
+        font-weight: bold;
+        text-align: center;
+    }
+    .event-row {
+        transition: background-color 2s;
+        background-color: #fff;
+        cursor: pointer;
+    }
+    .event-row-new,
+    .event-new-events {
+        background-color: darken($bg_mid, 10%);
+        font-weight: bold;
+        transition: background-color 0.3s ease-out;
+    }
+    .event-row-is-exception {
+        background-color: lighten($danger, 40%);
+    }
+}

@@ -50,7 +50,9 @@ SAMPLE BY uuid
 )
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS), extra_fields=""
+    table_name="kafka_" + EVENTS_TABLE,
+    engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
+    extra_fields="",
 )
 
 EVENTS_TABLE_MV_SQL = """
@@ -213,12 +215,6 @@ SELECT
 FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
-EVENT_PROP_CLAUSE = """
-SELECT event_id
-FROM events_properties_view AS ep
-WHERE {filters} AND team_id = %(team_id)s
-"""
-
 GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events order by toDate(timestamp), timestamp limit 1
 """
@@ -261,3 +257,9 @@ LIMIT %(limit)s
 """.format(
     tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
+
+GET_PROPERTIES_VOLUME = """
+    SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC
+"""
+
+GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"

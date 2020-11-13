@@ -1,6 +1,7 @@
-import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
+// DEPRECATED in favor of TopNavigation.tsx & navigationLogic.ts
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { Alert, Dropdown, Input, Menu, Modal } from 'antd'
+import { Button, Dropdown, Menu } from 'antd'
 import {
     ProjectOutlined,
     SmileOutlined,
@@ -12,12 +13,12 @@ import {
 } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { red } from '@ant-design/colors'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Link } from 'lib/components/Link'
 import api from 'lib/api'
+import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
+import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 
 export function User(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -29,7 +30,7 @@ export function User(): JSX.Element {
                 <Menu>
                     <Menu.Item key="user-email">
                         <Link to="/me/settings" title="My Settings">
-                            <SettingOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                            <SettingOutlined style={{ marginRight: '0.5rem' }} />
                             {user ? user.email : <i>loading</i>}
                         </Link>
                     </Menu.Item>
@@ -38,66 +39,17 @@ export function User(): JSX.Element {
                     </Menu.Item>
                     <Menu.Item key="user-logout">
                         <a href="#" onClick={logout} data-attr="user-options-logout" style={{ color: red.primary }}>
-                            <LogoutOutlined color={red.primary} size={1} style={{ marginRight: '0.5rem' }} />
+                            <LogoutOutlined color={red.primary} style={{ marginRight: '0.5rem' }} />
                             Logout
                         </a>
                     </Menu.Item>
                 </Menu>
             }
         >
-            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light btn-top" title="Me">
-                <SmileOutlined size={1} style={{ marginRight: '0.5rem' }} />
+            <Button data-attr="user-options-dropdown" icon={<SmileOutlined />} style={{ fontWeight: 500 }}>
                 {user ? user.name || user.email : <i>loading</i>}
-            </div>
+            </Button>
         </Dropdown>
-    )
-}
-
-function CreateOrganizationModal({
-    isVisible,
-    setIsVisible,
-}: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
-}): JSX.Element {
-    const { createOrganization } = useActions(organizationLogic)
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
-
-    const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
-    }, [inputRef, setIsVisible])
-
-    return (
-        <Modal
-            title="Creating an Organization"
-            okText="Create Organization"
-            cancelText="Cancel"
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    setErrorMessage(null)
-                    createOrganization(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your organization needs a name!')
-                }
-            }}
-            onCancel={closeModal}
-            visible={isVisible}
-        >
-            <p>Organizations gather people building products together.</p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Acme Corporation"'
-                maxLength={64}
-                autoFocus
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
-        </Modal>
     )
 }
 
@@ -163,58 +115,6 @@ export function Organization(): JSX.Element {
     )
 }
 
-function CreateProjectModal({
-    isVisible,
-    setIsVisible,
-}: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
-}): JSX.Element {
-    const { createTeam } = useActions(teamLogic)
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
-
-    const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
-    }, [inputRef, setIsVisible])
-
-    return (
-        <Modal
-            title="Creating a Project"
-            okText="Create Project"
-            cancelText="Cancel"
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    setErrorMessage(null)
-                    createTeam(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your project needs a name!')
-                }
-            }}
-            onCancel={closeModal}
-            visible={isVisible}
-        >
-            <p>
-                Projects are a way of tracking multiple products under the umbrella of a single organization.
-                <br />
-                All organization members will be able to access the new project.
-            </p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Global Website"'
-                maxLength={64}
-                autoFocus
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
-        </Modal>
-    )
-}
-
 export function Projects(): JSX.Element {
     const { user } = useValues(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -262,22 +162,20 @@ export function Projects(): JSX.Element {
                                     )
                                 }}
                             >
-                                <PlusOutlined size={1} style={{ marginRight: '0.5rem' }} />
+                                <PlusOutlined style={{ marginRight: '0.5rem' }} />
                                 <i>New Project</i>
                             </a>
                         </Menu.Item>
                     </Menu>
                 }
             >
-                <div
+                <Button
                     data-attr="user-project-dropdown"
-                    className="btn btn-sm btn-light btn-top"
-                    style={{ marginRight: '0.75rem' }}
-                    title="Current Projects"
+                    style={{ marginRight: '0.75rem', fontWeight: 500 }}
+                    icon={<ProjectOutlined />}
                 >
-                    <ProjectOutlined size={1} style={{ marginRight: '0.5rem' }} />
                     {!user ? <i>loading</i> : user.team ? user.team.name : <i>none yet</i>}
-                </div>
+                </Button>
             </Dropdown>
         </>
     )

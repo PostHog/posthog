@@ -90,28 +90,6 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function CloseButton(props: Record<string, any>): JSX.Element {
-    return (
-        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
-            <span aria-hidden="true">&times;</span>
-        </span>
-    )
-}
-
-export function Card(props: Record<string, any>): JSX.Element {
-    return (
-        <div
-            {...props}
-            className={'card' + (props.className ? ` ${props.className}` : '')}
-            style={props.style}
-            title=""
-        >
-            {props.title && <div className="card-header">{props.title}</div>}
-            {props.children}
-        </div>
-    )
-}
-
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
@@ -121,7 +99,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
         const response = (
             <span>
                 <b>{props.object.name ?? 'Untitled'}</b>
-                {!undo ? ' deleted. Click here to undo.' : ' deletion undone.'}
+                {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
             </span>
         )
         toast(response, {
@@ -150,6 +128,7 @@ export function DeleteWithUndo(
             href="#"
             onClick={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 deleteWithUndo(props)
             }}
             className={className}
@@ -456,6 +435,7 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
 }
 
 export function humanizeNumber(number: number, digits: number = 1): string {
+    if (number === null) return '-'
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {
@@ -468,10 +448,17 @@ export function humanizeNumber(number: number, digits: number = 1): string {
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {
-    const descriptionAdjusted = description ? description.trim() + ' ' : ''
+    const descriptionAdjusted = description
+        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
+        : ''
     try {
         navigator.clipboard.writeText(value)
-        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
+        toast(
+            <div>
+                <h1 className="text-success">Copied to clipboard!</h1>
+                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+            </div>
+        )
         return true
     } catch (e) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
@@ -534,6 +521,19 @@ export function sample<T>(items: T[], size: number): T[] {
 export function sampleSingle<T>(items: T[]): T[] {
     if (!items.length) throw Error('Items array is empty!')
     return [items[Math.floor(Math.random() * items.length)]]
+}
+
+export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
+    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
+    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
+    const match = input.match(/[A-Za-z][a-z]*/g)
+    if (!match) return null
+
+    return match
+        .map((group) => {
+            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
+        })
+        .join(' ')
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
