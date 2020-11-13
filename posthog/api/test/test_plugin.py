@@ -258,6 +258,8 @@ class TestPluginAPI(APIBaseTest):
     def test_create_plugin_config_auth(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            print(response.data)
+            print(response)
             plugin_id = response.data["id"]  # type: ignore
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.post(
@@ -309,6 +311,8 @@ class TestPluginAPI(APIBaseTest):
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            print(response.data)
+            print(response)
             plugin_id = response.data["id"]  # type: ignore
             response = self.client.post(
                 "/api/plugin_config/",
