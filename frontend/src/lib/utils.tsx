@@ -267,9 +267,7 @@ export function delay(ms: number): Promise<number> {
 }
 
 /**
- * Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
- * We need this so the dashboard resizes itself properly, as the available div width will still
- * change when the sidebar's expansion is animating.
+ * Trigger a resize event on window.
  */
 export function triggerResize(): void {
     try {
@@ -278,6 +276,12 @@ export function triggerResize(): void {
         // will break on IE11
     }
 }
+
+/**
+ * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
+ * We need this so the dashboard resizes itself properly, as the available div width will still
+ * change when the sidebar's expansion is animating.
+ */
 export function triggerResizeAfterADelay(): void {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
         window.setTimeout(triggerResize, delay)

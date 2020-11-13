@@ -86,6 +86,7 @@ export const routes: Record<string, Scene> = {
     '/action': Scene.Action,
     '/insights': Scene.Insights,
     '/events': Scene.Events,
+    '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
