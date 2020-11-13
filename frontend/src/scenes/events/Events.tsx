@@ -38,29 +38,25 @@ function _ManageEvents({}): JSX.Element {
 
     return (
         <div className="manage-events" data-attr="manage-events-table">
-            <PageHeader title="Manage Events" />
+            <PageHeader title="Events" />
             <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
-                <Tabs.TabPane tab="Live Events" key="live">
-                    <i>See all events that are being sent to this team in real time.</i>
+                <Tabs.TabPane tab="Events" key="live">
+                    See all events that are being sent to this project in real time.
                     <EventsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Events" key="events">
-                    <i>
-                        See all event names that have every been sent to this team, including the volume and how often
-                        queries where made using this event.
-                    </i>
+                <Tabs.TabPane tab="Events Stats" key="events">
+                    See all event names that have ever been sent to this team, including the volume and how often
+                    queries where made using this event.
                     <br />
                     <br />
                     <EventsVolumeTable />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Properties" key="properties">
-                    <i>
-                        See all property keys that have every been sent to this team, including the volume and how often
-                        queries where made using this property key.
-                    </i>
+                <Tabs.TabPane tab="Properties Stats" key="properties">
+                    See all property keys that have ever been sent to this team, including the volume and how often
+                    queries where made using this property key.
                     <br />
                     <br />
                     <PropertiesVolumeTable />

@@ -13,7 +13,12 @@ const columns = [
         render: function PropName(item: PropertyUsageType) {
             return <PropertyKeyInfo value={item.key} />
         },
-        sorter: (a: PropertyUsageType, b: PropertyUsageType) => ('' + a.key).localeCompare(b.key),
+        sorter: (a: PropertyUsageType, b: PropertyUsageType) => {
+            // If PostHog property, put at end of list
+            if (keyMapping.event[a.key] && !keyMapping.event[b.key]) return 1
+            if (!keyMapping.event[a.key] && keyMapping.event[b.key]) return -1
+            return ('' + a.key).localeCompare(b.key)
+        },
         defaultSortOrder: 'ascend',
     },
     {
@@ -23,7 +28,7 @@ const columns = [
                     placement="right"
                     title="Total number of events that included this property in the last 30 days. Can be delayed by up to an hour."
                 >
-                    30 day volume
+                    30 day volume (delayed by up to an hour)
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             )
@@ -39,7 +44,7 @@ const columns = [
                     placement="right"
                     title="Number of queries in PostHog that included a filter on this property."
                 >
-                    30 day queries
+                    30 day queries (delayed by up to an hour)
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             )
@@ -55,11 +60,7 @@ export function PropertiesVolumeTable(): JSX.Element {
     const [showPostHogProps, setShowPostHogProps] = useState(true)
     return (
         <div>
-            <Button
-                size="small"
-                type={showPostHogProps ? 'primary' : 'default'}
-                onClick={() => setShowPostHogProps(!showPostHogProps)}
-            >
+            <Button size="small" type="default" onClick={() => setShowPostHogProps(!showPostHogProps)}>
                 {showPostHogProps ? 'Hide' : 'Show'} PostHog properties
             </Button>
             <br />
@@ -80,6 +81,7 @@ export function PropertiesVolumeTable(): JSX.Element {
                         keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true
                     )}
                 columns={columns}
+                style={{ marginBottom: '4rem' }}
                 size="small"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             />

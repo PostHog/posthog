@@ -154,7 +154,7 @@ export function ActionsTable() {
                 </div>
             </div>
 
-            <div className="mb">
+            <div className="mb text-right">
                 <NewActionButton />
             </div>
             <Table
@@ -165,11 +165,7 @@ export function ActionsTable() {
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 data-attr="actions-table"
                 dataSource={actions}
-                locale={
-                    featureFlags['actions-ux-201012']
-                        ? { emptyText: 'The first step to standardized analytics is creating your first action.' }
-                        : {}
-                }
+                locale={{ emptyText: 'The first step to standardized analytics is creating your first action.' }}
             />
         </div>
     )

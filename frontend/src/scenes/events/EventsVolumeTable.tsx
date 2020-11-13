@@ -21,7 +21,7 @@ export function EventsVolumeTable(): JSX.Element {
                         placement="right"
                         title="Total number of events over the last 30 days. Can be delayed by up to an hour."
                     >
-                        30 day volume
+                        30 day volume (delayed by up to an hour)
                         <InfoCircleOutlined className="info-indicator" />
                     </Tooltip>
                 )
@@ -37,7 +37,7 @@ export function EventsVolumeTable(): JSX.Element {
                         placement="right"
                         title="Number of queries in PostHog that included a filter on this event."
                     >
-                        30 day queries
+                        30 day queries (delayed by up to an hour)
                         <InfoCircleOutlined className="info-indicator" />
                     </Tooltip>
                 )
@@ -63,6 +63,7 @@ export function EventsVolumeTable(): JSX.Element {
                 dataSource={user?.team.event_names_with_usage}
                 columns={columns}
                 size="small"
+                style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             />
         </>
