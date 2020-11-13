@@ -6,7 +6,9 @@ try:
     import yaml
     from yaml.loader import FullLoader
 except ImportError:
-    raise ImportError("Missing pyyaml! Install it with command `python3 -m pip install pyyaml` to run this configurator.")
+    raise ImportError(
+        "Missing pyyaml! Install it with command `python3 -m pip install pyyaml` to run this configurator."
+    )
 
 FILE_PATH = "docker-compose.yml"
 
