@@ -4,7 +4,7 @@
     <form class="form-signin" method="post">
         {% csrf_token %}
         {% if user.is_authenticated %}
-            <h1 class="h3 mb-3 font-weight-normal">Hello, {{ user.name }}!</h1>
+            <h1 class="h3 mb-3 font-weight-normal">Hello, {{ user.first_name }}!</h1>
             <button class="btn btn-lg btn-primary btn-block" type="submit">Join {{organization.name}}</button>
         {% else %}
             <h1 class="h3 mb-3 font-weight-normal">Join {{organization.name}} on PostHog</h1>

@@ -130,18 +130,14 @@ class User(AbstractUser):
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
-            if team is not None:
-                team.users.add(self)
             self.current_organization = organization
-            self.current_team = team or organization.teams.first()
+            self.current_team = organization.teams.first()
             self.save()
             return membership
 
     def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
         with transaction.atomic():
             OrganizationMembership.objects.get(user=self, organization=organization).delete()
-            if team is not None:
-                team.users.remove(self)
             if self.organizations.exists():
                 self.delete()
             else:

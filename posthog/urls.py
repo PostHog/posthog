@@ -65,11 +65,7 @@ class TeamInviteSurrogate:
         return True
 
     def use(self, user: Any, *args, **kwargs) -> None:
-        self.organization.members.add(user)
-        if user.current_organization is None:
-            user.current_organization = self.organization
-            user.current_team = user.current_organization.teams.first()
-            user.save()
+        user.join(self.organization)
 
 
 def signup_to_organization_view(request, invite_id):
