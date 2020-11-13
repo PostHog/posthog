@@ -364,7 +364,7 @@ class TestPluginAPI(APIBaseTest):
 
             response = self.client.get("/api/plugin_config/{}".format(plugin_config_id))
             self.assertEqual(
-                response.data["config"],
+                response.data["config"],  # type: ignore
                 {
                     "bar": "moop",
                     "foodb": {
@@ -385,7 +385,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(PluginAttachment.objects.count(), 1)
 
             self.assertEqual(
-                response.data["config"],
+                response.data["config"],  # type: ignore
                 {
                     "bar": "moop",
                     "foodb": {
@@ -401,5 +401,5 @@ class TestPluginAPI(APIBaseTest):
             response = self.client.patch(
                 "/api/plugin_config/{}".format(plugin_config_id), {"remove_attachment[foodb]": True}, format="multipart"
             )
-            self.assertEqual(response.data["config"], {"bar": "moop"})
+            self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)
