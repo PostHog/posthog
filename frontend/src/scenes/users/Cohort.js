@@ -49,8 +49,8 @@ export function Cohort({ onChange }) {
                                 onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
                             />
                         </div>
-                        {cohort.groups
-                            .map((group, index) => (
+                        {cohort.groups.map((group, index) => (
+                            <>
                                 <CohortGroup
                                     key={index}
                                     group={group}
@@ -65,15 +65,14 @@ export function Cohort({ onChange }) {
                                         setCohort({ ...cohort })
                                     }}
                                 />
-                            ))
-                            .reduce((prev, curr, index) => [
-                                prev,
-                                <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
-                                    {' '}
-                                    OR{' '}
-                                </div>,
-                                curr,
-                            ])}
+                                {index < cohort.groups.length - 1 && (
+                                    <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
+                                        {' '}
+                                        OR{' '}
+                                    </div>
+                                )}
+                            </>
+                        ))}
                         <div className="mt">
                             <Button
                                 type="primary"

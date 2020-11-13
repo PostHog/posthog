@@ -28,6 +28,6 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table').should('contain', 'to be deleted')
         cy.get('[data-row-key="to-be-deleted"]').click()
         cy.get('[data-attr=delete-flag]').click()
-        cy.contains('Click here to undo').should('exist')
+        cy.contains('Click to undo').should('exist')
     })
 })
