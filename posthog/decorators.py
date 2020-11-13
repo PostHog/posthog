@@ -1,11 +1,11 @@
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, Optional
+from typing import Callable, cast
 
 from django.core.cache import cache
 from django.http.request import HttpRequest
 
-from posthog.models import Filter
+from posthog.models import Filter, Team, User
 from posthog.utils import generate_cache_key
 
 from .utils import generate_cache_key
@@ -19,14 +19,16 @@ class CacheType(str, Enum):
 def cached_function(cache_type: CacheType, expiry_seconds: int = 30):
     def parameterized_decorator(f: Callable):
         @wraps(f)
-        def wrapper(request: HttpRequest, pk: Optional[Any] = None, *args, **kwargs):
+        def wrapper(*args, **kwargs):
             # prepare caching params
-            team = request.user.team
+            request: HttpRequest = args[1]
+            team: Team = cast(User, request.user).team
             if cache_type == CacheType.TRENDS:
                 filter = Filter(request=request)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}
             elif cache_type == CacheType.FUNNEL:
+                pk = args[2]
                 cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
                 payload = {"funnel_id": pk, "team_id": team.pk}
             else:
@@ -37,7 +39,7 @@ def cached_function(cache_type: CacheType, expiry_seconds: int = 30):
                 if cached_result:
                     return cached_result["result"]
             # call function being wrapped
-            result = f(request, pk, *args, **kwargs)
+            result = f(*args, **kwargs)
             # cache new data
             if result is not None:
                 cache.set(
