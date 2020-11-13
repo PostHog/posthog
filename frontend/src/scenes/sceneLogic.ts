@@ -53,7 +53,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './users/People'),
-    [Scene.Actions]: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
@@ -78,6 +77,7 @@ export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signu
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
     '/plugins': '/project/plugins',
+    '/actions': '/events/actions',
 }
 
 export const routes: Record<string, Scene> = {
@@ -85,7 +85,6 @@ export const routes: Record<string, Scene> = {
     '/dashboard/:id': Scene.Dashboard,
     '/action/:id': Scene.Action,
     '/action': Scene.Action,
-    '/actions': Scene.Actions,
     '/insights': Scene.Insights,
     '/events': Scene.Events,
     '/sessions': Scene.Sessions,
