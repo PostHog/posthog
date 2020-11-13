@@ -42,20 +42,37 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
+        validated_data = self._get_validated_data_for_url(validated_data["url"])
+        if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
+            raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
+        plugin = super().create(validated_data)
+        reload_plugins_on_workers()
+        return plugin
 
-        local_plugin = validated_data.get("url", "").startswith("file:")
+    def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
+        if not can_install_plugins_via_api():
+            raise ValidationError("Plugin upgrades via the web are disabled!")
+        validated_data = self._get_validated_data_for_url(validated_data["url"])
+        response = super().update(plugin, validated_data)
+        reload_plugins_on_workers()
+        return response
 
-        if local_plugin:
-            plugin_path = validated_data["url"][5:]
+    def _get_validated_data_for_url(self, url: str) -> Dict:
+        validated_data: Dict[str, Any] = {"from_web": True}
+        if url.startswith("file:"):
+            plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
             json = load_json_file(json_path)
             if not json:
                 raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+            validated_data["url"] = url
+            validated_data["tag"] = None
+            validated_data["archive"] = None
             validated_data["name"] = json.get("name", json_path.split("/")[-2])
             validated_data["description"] = json.get("description", "")
             validated_data["config_schema"] = json.get("config", {})
         else:
-            parsed_url = parse_url(validated_data["url"], get_latest_if_none=True)
+            parsed_url = parse_url(url, get_latest_if_none=True)
             if parsed_url:
                 validated_data["url"] = parsed_url["root_url"]
                 validated_data["tag"] = parsed_url.get("version", parsed_url.get("tag", None))
@@ -69,19 +86,7 @@ class PluginSerializer(serializers.ModelSerializer):
             else:
                 raise ValidationError("Must be a GitHub repository or a NPM package URL!")
 
-        if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
-            raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
-
-        validated_data["from_web"] = True
-        plugin = super().create(validated_data)
-        reload_plugins_on_workers()
-        return plugin
-
-    def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        validated_data["archive"] = download_plugin_archive(plugin.url, plugin.tag)
-        response = super().update(plugin, validated_data)
-        reload_plugins_on_workers()
-        return response
+        return validated_data
 
 
 class PluginViewSet(viewsets.ModelViewSet):
