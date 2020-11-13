@@ -553,7 +553,7 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
 }
 
-/** Convert camelCaseStrings to Title Case Strings. Useful for generating page title from internal scene name. */
+/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
 export function camelCaseToTitle(camelCase: string): string {
     const words: string[] = []
     let currentWord: string = ''
