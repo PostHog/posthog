@@ -108,7 +108,7 @@ class TestPluginsUtils(BaseTest):
         plugin_json_zip = get_json_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]), "plugin.json")
         self.assertEqual(plugin_json_zip["name"], "helloworldplugin")
         self.assertEqual(plugin_json_zip["url"], "https://github.com/PostHog/helloworldplugin")
-        self.assertEqual(plugin_json_zip["description"], "Greet the World and Foo a Bar")
+        self.assertEqual(plugin_json_zip["description"], "Greet the World and Foo a Bar, JS edition!")
 
         plugin_json_tgz = get_json_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]), "plugin.json")
         self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")

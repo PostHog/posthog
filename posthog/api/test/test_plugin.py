@@ -18,12 +18,12 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "id": response.data["id"],
                     "name": "helloworldplugin",
-                    "description": "Greet the World and Foo a Bar",
+                    "description": "Greet the World and Foo a Bar, JS edition!",
                     "url": "https://github.com/PostHog/helloworldplugin",
                     "config_schema": {
                         "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False,},
                     },
-                    "tag": "3c4c77e7d7878e87be3c2373b658c74ec3085f49",
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
                     "from_json": False,
                 },
@@ -46,12 +46,12 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "id": response.data["id"],
                     "name": "helloworldplugin",
-                    "description": "Greet the World and Foo a Bar",
+                    "description": "Greet the World and Foo a Bar, JS edition!",
                     "url": "https://github.com/PostHog/helloworldplugin",
                     "config_schema": {
                         "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False,},
                     },
-                    "tag": "3c4c77e7d7878e87be3c2373b658c74ec3085f49",
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
                     "from_json": False,
                 },
