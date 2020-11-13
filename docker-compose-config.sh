@@ -1,5 +1,5 @@
 #!/bin/bash
 
-pip3 install pyyaml
+python3 -m pip install pyyaml
 echo
 python3 docker-compose-config.py
