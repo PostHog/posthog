@@ -444,13 +444,14 @@ EXCEPTIONS_HOG = {
 }
 
 # Email
-EMAIL_HOST = os.environ.get("EMAIL_HOST")
+EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
 EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
+DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
 
 CACHES = {
