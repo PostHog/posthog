@@ -1,7 +1,7 @@
 import React from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Table } from 'antd'
+import { Table, Tooltip } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -80,9 +80,13 @@ export function ActionsTable() {
             },
         },
         {
-            title: 'Created at',
+            title: 'Created',
             render: function RenderCreatedAt(_, action) {
-                return action.created_at ? moment(action.created_at).format('LLL') : '-'
+                return (
+                    <Tooltip title={moment(action.created_at).format('LLL')}>
+                        {moment(action.created_at).fromNow()}
+                    </Tooltip>
+                )
             },
         },
         {
@@ -121,9 +125,9 @@ export function ActionsTable() {
                 )}
                 {!featureFlags['actions-ux-201012'] && (
                     <div>
-                        Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of
-                        one or more events that you have decided to put into a manually-labelled bucket. They're used in
-                        Funnels, Live actions and Trends.
+                        Actions are PostHog’s way of easily sorting through events. Actions consist of one or more
+                        events that you have decided to put into a manually-labelled bucket. They're used in Insights
+                        and Cohorts.
                         <br />
                         <br />
                         <a href="https://posthog.com/docs/features/actions" target="_blank" rel="noopener noreferrer">

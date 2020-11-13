@@ -130,8 +130,31 @@ GET_DISTINCT_IDS_SQL_BY_ID = """
 SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 """
 
+GET_PERSON_IDS_BY_FILTER = """
+SELECT DISTINCT p.id
+FROM ({latest_person_sql}) AS p
+INNER JOIN (
+    SELECT person_id, distinct_id
+    FROM person_distinct_id
+    WHERE team_id = %(team_id)s
+) AS pid ON p.id = pid.person_id
+WHERE team_id = %(team_id)s
+  {distinct_query}
+""".format(
+    latest_person_sql=GET_LATEST_PERSON_SQL, distinct_query="{distinct_query}"
+)
+
 GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.* FROM ({latest_person_sql}) as p inner join (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid on p.id = pid.person_id where team_id = %(team_id)s AND pid.distinct_id = %(distinct_id)s {distinct_query}
+SELECT p.id
+FROM ({latest_person_sql}) AS p
+INNER JOIN (
+    SELECT person_id, distinct_id
+    FROM person_distinct_id
+    WHERE team_id = %(team_id)s
+) AS pid ON p.id = pid.person_id
+WHERE team_id = %(team_id)s
+  AND pid.distinct_id = %(distinct_id)s
+  {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL, distinct_query="{distinct_query}"
 )
@@ -168,7 +191,7 @@ where person_distinct_id.team_id = %(team_id)s
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(timestamp)s, %(team_id)s, %(properties)s, %(is_identified)s, %(timestamp)s, 0
+INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -204,7 +227,7 @@ ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
 """
 
 PERSON_TREND_SQL = """
-SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to}
+SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to} {person_filter}
 """
 
 PEOPLE_THROUGH_DISTINCT_SQL = """

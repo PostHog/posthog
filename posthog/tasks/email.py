@@ -4,7 +4,7 @@ from typing import Optional
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Event, PersonDistinctId, Team
+from posthog.models import Event, OrganizationInvite, PersonDistinctId, Team
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
@@ -20,8 +20,8 @@ def send_weekly_email_reports() -> None:
         logger.info("Skipping send_weekly_email_report because email is not properly configured")
         return
 
-    for team in Team.objects.all():
-        _send_weekly_email_report_for_team.delay(team_id=team.pk,)
+    for team in Team.objects.order_by("pk"):
+        _send_weekly_email_report_for_team.delay(team_id=team.pk)
 
 
 @app.task(ignore_result=True, max_retries=1)
@@ -107,4 +107,20 @@ def _send_weekly_email_report_for_team(team_id: int) -> None:
         # TODO: Skip "unsubscribed" users
         message.add_recipient(email=user.email, name=user.first_name)
 
+    message.send()
+
+
+@app.task(max_retries=1)
+def send_invite(invite_id: str) -> None:
+    campaign_key: str = f"invite_email_{invite_id}"
+    invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by").select_related(
+        "organization"
+    ).get(id=invite_id)
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
+        template_name="invite",
+        template_context={"invite": invite},
+    )
+    message.add_recipient(email=invite.target_email)
     message.send()

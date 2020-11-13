@@ -10,7 +10,6 @@ import {
     CloudServerOutlined,
     UserOutlined,
     RiseOutlined,
-    SyncOutlined,
     AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
@@ -61,7 +60,6 @@ const sceneOverride = {
 // to show the open submenu
 const submenuOverride = {
     actions: 'events',
-    liveActions: 'events',
     sessions: 'events',
     cohorts: 'persons',
     projectSettings: 'project',
@@ -191,13 +189,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Actions'}</span>
                             <Link to={'/actions'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        {!featureFlags['actions-ux-201012'] && (
-                            <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
-                                <SyncOutlined />
-                                <span className="sidebar-label">{'Live Actions'}</span>
-                                <Link to={'/actions/live'} onClick={collapseSidebar} />
-                            </Menu.Item>
-                        )}
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>

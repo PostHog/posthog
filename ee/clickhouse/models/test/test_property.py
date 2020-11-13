@@ -38,7 +38,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}],})
-        query, params = parse_prop_clauses(filter.properties, self.team)
+        query, params = parse_prop_clauses(filter.properties, self.team.pk)
 
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
@@ -55,7 +55,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
-        query, params = parse_prop_clauses(filter.properties, self.team)
+        query, params = parse_prop_clauses(filter.properties, self.team.pk)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
 
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
