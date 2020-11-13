@@ -19,6 +19,6 @@ describe('Setup', () => {
         cy.get('[data-attr=menu-item-project]').click()
         cy.get('[data-attr=app-url-suggestion]').click()
         cy.get('[data-attr=app-url-item]').should('contain', '/demo')
-        cy.title().should('equal', 'Project Settings – PostHog')
+        cy.title().should('equal', 'Project Settings • PostHog')
     })
 })

@@ -195,7 +195,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${camelCaseToTitle(values.scene)} – PostHog` : 'PostHog'
+            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
         },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
