@@ -6,7 +6,7 @@ import { HogIcon } from 'lib/icons/HogIcon'
 import { userLogic } from 'scenes/userLogic'
 import { ToolbarSettings } from 'scenes/project/Settings/ToolbarSettings'
 
-export function ToolbarModal(): JSX.Element {
+export function ToolbarModal(): React.ReactNode {
     const { user } = useValues(userLogic)
     const toolbarEnabled = user?.toolbar_mode !== 'disabled'
 

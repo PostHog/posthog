@@ -1,5 +1,3 @@
-// DEPRECATED: this logic is now found in navigationLogic.ts
-
 import { useState, useEffect } from 'react'
 import api from 'lib/api'
 
