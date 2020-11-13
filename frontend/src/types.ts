@@ -1,3 +1,5 @@
+import { PluginConfigSchema } from 'posthog-plugins'
+
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -237,20 +239,13 @@ export interface OrganizationInviteType {
     updated_at: string
 }
 
-export interface PluginConfigSchema {
-    name: string
-    type: string
-    default: any
-    required: boolean
-}
-
 export interface PluginType {
     id: number
     name: string
     description: string
     url: string
     tag: string
-    config_schema: Record<string, PluginConfigSchema>
+    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     from_json: boolean
     from_web: boolean
     error?: PluginErrorType
