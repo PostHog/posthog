@@ -146,9 +146,12 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])
             person_factory(team_id=self.team.pk, distinct_ids=["person3"])
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
+            person_factory(team_id=self.team.pk, distinct_ids=["shouldnt_include"])
 
             self._create_events(
                 [
+                    ("shouldnt_include", self._date(-5)),
+                    ("shouldnt_include", self._date(-1)),
                     ("person1", self._date(-1)),
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),

@@ -63,9 +63,7 @@ class ClickhouseRetention(Retention):
         )
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted,
-            filters=prop_filters if filter.properties else "",
-            trunc_func=trunc_func,
+            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
         )
         result = sync_execute(
             RETENTION_SQL.format(

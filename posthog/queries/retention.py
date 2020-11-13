@@ -110,10 +110,10 @@ class Retention(BaseQuery):
             .annotate(event_date=F("timestamp"))
         )
 
-        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
+            filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
             first_date = (
                 filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
             )
@@ -123,6 +123,7 @@ class Retention(BaseQuery):
                 .union(first_date.values_list("first_date", "person_id"))
             )
         else:
+            filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
             first_date = filtered_events.annotate(first_date=trunc).values("first_date", "person_id").distinct()
             final_query = filtered_events
         event_query, events_query_params = final_query.query.sql_with_params()
