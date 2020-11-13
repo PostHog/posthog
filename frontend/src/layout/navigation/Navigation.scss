@@ -28,7 +28,7 @@ $top_nav_height: 50px;
         position: fixed;
         width: 180px;
         height: 100%;
-        overflow: scroll;
+        overflow: auto;
         padding-bottom: 32px;
         scroll-behavior: smooth;
     }
@@ -168,6 +168,9 @@ $top_nav_height: 50px;
 
     @media (max-width: 991px) {
         width: 100%;
+        > div {
+            min-width: unset !important;
+        }
     }
 
     > div {

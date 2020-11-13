@@ -57,7 +57,7 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
                 data-attr={`menu-item-${identifier}`}
             >
                 {icon}
-                <span className="menu-title">{title}</span>
+                <span className="menu-title text-center">{title}</span>
             </div>
         </Link>
     )
@@ -106,8 +106,10 @@ function _MainNavigation(): JSX.Element {
             >
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
-                        <img src={smLogo} className="logo-sm" alt="" />
-                        <img src={lgLogo} className="logo-lg" alt="" />
+                        <Link to="/insights">
+                            <img src={smLogo} className="logo-sm" alt="" />
+                            <img src={lgLogo} className="logo-lg" alt="" />
+                        </Link>
                     </div>
                     <MenuItem title="Dashboards" icon={<IconDashboard />} identifier="dashboards" to="/dashboard" />
                     <MenuItem
