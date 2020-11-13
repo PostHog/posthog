@@ -23,35 +23,46 @@ class Command(BaseCommand):
     help = "Generate 10,000 revenue data points"
 
     def add_arguments(self, parser):
-        parser.add_argument("--org", nargs="+", type=str, help="Name of the organization to create data for")
-        parser.add_argument("--team_name", nargs="+", type=str, help="Name of the team to create data for")
-        parser.add_argument("--team_id", nargs="+", type=int, help="ID of the team to create data for")
         parser.add_argument(
-            "--use_ch", nargs="+", type=bool, help="Override default and create data in ClickHouse instead of Postgres"
+            "--org", required=True, nargs=1, type=str, help="Name of the organization to create data for"
+        )
+        parser.add_argument("--team_name", nargs=1, type=str, help="Name of the team to create data for")
+        parser.add_argument("--team_id", nargs=1, type=int, help="ID of the team to create data for")
+        parser.add_argument("--event_number", nargs=1, type=int, default=10000, help="Number of events to create")
+        parser.add_argument(
+            "--days", nargs=1, type=int, default=100, help="Number of days events should be spread across"
+        )
+        parser.add_argument(
+            "--use_ch",
+            nargs=1,
+            type=bool,
+            default=False,
+            help="Override default and create data in ClickHouse instead of Postgres",
         )
 
     def handle(self, *args, **options):
-        if not options["org"] or (not options["team_name"] and not options["team_id"]):
-            if not options["org"]:
-                print("The argument --org is required")
-            else:
-                print("You need to specify a --team_id or --team_name to run this command")
+        if not options["team_name"] and not options["team_id"]:
+            print("You need to specify a --team_id or --team_name to run this command")
             exit(1)
 
-        team = self._get_team(options["org"][0], options["team_name"], options["team_id"])
+        team = self._get_team(
+            options["org"][0],
+            options["team_name"][0] if options["team_name"] else "",
+            options["team_id"][0] if options["team_id"] else 0,
+        )
         if options["use_ch"]:
-            self._generate_ch_data(team)
+            self._generate_ch_data(team, options["event_number"], options["days"])
         else:
-            self._generate_psql_data(team)
+            self._generate_psql_data(team, options["event_number"], options["days"])
 
         team.event_names.append("$purchase")
         team.event_properties.append("plan")
         team.event_properties_numerical.append("purchase_value")
         team.save()
 
-    def _generate_psql_data(self, team):
+    def _generate_psql_data(self, team, n_events, n_days):
         distinct_ids = []
-        for i in range(0, 10000):
+        for i in range(0, n_events):
             distinct_id = str(UUIDT())
             distinct_ids.append(distinct_id)
             Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
@@ -65,19 +76,19 @@ class Command(BaseCommand):
                     "plan": PRICING_TIERS[_deterministic_random_value(distinct_ids[i])][0],
                     "purchase_value": PRICING_TIERS[_deterministic_random_value(distinct_ids[i])][1],
                 },
-                timestamp=now() - relativedelta(days=random.randint(0, 100)),
+                timestamp=now() - relativedelta(days=random.randint(0, n_days)),
             )
-            for i in range(0, 10000)
+            for i in range(0, n_events)
         )
 
-    def _generate_ch_data(self, team):
+    def _generate_ch_data(self, team, n_events, n_days):
         distinct_ids = []
-        for i in range(0, 10000):
+        for i in range(0, n_events):
             distinct_id = generate_clickhouse_uuid()
             distinct_ids.append(distinct_id)
             Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
 
-        for i in range(0, 10000):
+        for i in range(0, n_events):
             event_uuid = uuid4()
             plan = random.choice(PRICING_TIERS)
             create_event(
@@ -85,7 +96,7 @@ class Command(BaseCommand):
                 team=team,
                 distinct_id=distinct_ids[i],
                 properties={"plan": plan[0], "purchase_value": plan[1],},
-                timestamp=now() - relativedelta(days=random.randint(0, 100)),
+                timestamp=now() - relativedelta(days=random.randint(0, n_days)),
                 event_uuid=event_uuid,
             )
 
@@ -93,9 +104,9 @@ class Command(BaseCommand):
         organization = Organization.objects.filter(name=org)[0]
         try:
             if team_name:
-                team = organization.teams.filter(name=team_name[0])[0]
+                team = organization.teams.filter(name=team_name)[0]
             else:
-                team = organization.teams.filter(id=team_id[0])[0]
+                team = organization.teams.filter(id=team_id)[0]
         except Team.DoesNotExist:
             team = Team.objects.create_with_data(
                 organization=organization,
