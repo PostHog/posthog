@@ -19,6 +19,9 @@ const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
+    shouldEnableAddition,
+    shouldEnableDeletion,
+    shouldEnableEditing,
 }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
@@ -37,7 +40,7 @@ const FilterRow = React.memo(function FilterRow({
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
                 defaultVisible={false}
-                visible={open}
+                visible={open && shouldEnableEditing}
                 placement="bottomLeft"
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
@@ -47,13 +50,13 @@ const FilterRow = React.memo(function FilterRow({
                             {formatPropertyLabel(item, cohorts, keyMapping)}
                         </span>
                     </Button>
-                ) : (
+                ) : shouldEnableAddition && (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         Add filter
                     </Button>
                 )}
             </Popover>
-            {!!Object.keys(filters[index]).length && (
+            {!!Object.keys(filters[index]).length && shouldEnableDeletion && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
@@ -80,6 +83,9 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadges = false,
+    shouldEnableAddition = true,
+    shouldEnableDeletion = true,
+    shouldEnableEditing = true,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
@@ -100,6 +106,9 @@ export function PropertyFilters({
                             cohorts={cohorts}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadges}
+                            shouldEnableAddition={shouldEnableAddition}
+                            shouldEnableDeletion={shouldEnableDeletion}
+                            shouldEnableEditing={shouldEnableEditing}
                         />
                     )
                 })}

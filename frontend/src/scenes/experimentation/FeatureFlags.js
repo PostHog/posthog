@@ -61,6 +61,9 @@ function _FeatureFlags() {
                         pageKey="feature-flag"
                         propertyFilters={featureFlag.filters?.properties}
                         endpoint="person"
+                        shouldEnableAddition={false}
+                        shouldEnableDeletion={false}
+                        shouldEnableEditing={false}
                     />
                 )
             }
