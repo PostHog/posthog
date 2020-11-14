@@ -1,8 +1,9 @@
 import React from "react";
+import { PropertyFilter } from "~/types";
 import PropertyFilterButton from "./PropertyFilterButton";
 
 type Props = {
-    filters: any[]
+    filters: PropertyFilter[]
 }
 
 const PropertyFiltersDisplay = ({ filters }: Props) => {

@@ -3,10 +3,11 @@ import { useValues } from "kea";
 import { formatPropertyLabel } from "lib/utils";
 import React from "react";
 import { cohortsModel } from "~/models";
+import { PropertyFilter } from "~/types";
 import { keyMapping } from "../PropertyKeyInfo";
 
 export interface Props {
-    item: any,
+    item: PropertyFilter,
 }
 
 const PropertyFilterButton = ({ item }: Props) => {
