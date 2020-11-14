@@ -1,0 +1,26 @@
+import { Button } from "antd";
+import { useValues } from "kea";
+import { formatPropertyLabel } from "lib/utils";
+import React from "react";
+import { cohortsModel } from "~/models";
+import { keyMapping } from "../PropertyKeyInfo";
+
+export interface Props {
+    item: any,
+}
+
+const PropertyFilterButton = ({ item }: Props) => {
+    const { cohorts } = useValues(cohortsModel);
+
+    return (
+        <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
+            <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {formatPropertyLabel(item, cohorts, keyMapping)}
+            </span>
+        </Button>
+    )
+}
+
+export default PropertyFilterButton;
+
+

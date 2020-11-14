@@ -8,6 +8,7 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { formatPropertyLabel } from 'lib/utils'
 import { CloseButton } from 'lib/components/CloseButton'
+import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
 
 const FilterRow = React.memo(function FilterRow({
@@ -19,9 +20,6 @@ const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
-    shouldEnableAddition,
-    shouldEnableDeletion,
-    shouldEnableEditing,
 }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
@@ -40,23 +38,19 @@ const FilterRow = React.memo(function FilterRow({
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
                 defaultVisible={false}
-                visible={open && shouldEnableEditing}
+                visible={open}
                 placement="bottomLeft"
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
-                    <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
-                        <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {formatPropertyLabel(item, cohorts, keyMapping)}
-                        </span>
-                    </Button>
-                ) : shouldEnableAddition && (
+                    <PropertyFilterButton item={item} />
+                ) : (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         Add filter
                     </Button>
                 )}
             </Popover>
-            {!!Object.keys(filters[index]).length && shouldEnableDeletion && (
+            {!!Object.keys(filters[index]).length && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
@@ -83,9 +77,6 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadges = false,
-    shouldEnableAddition = true,
-    shouldEnableDeletion = true,
-    shouldEnableEditing = true,
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
@@ -106,9 +97,6 @@ export function PropertyFilters({
                             cohorts={cohorts}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadges}
-                            shouldEnableAddition={shouldEnableAddition}
-                            shouldEnableDeletion={shouldEnableDeletion}
-                            shouldEnableEditing={shouldEnableEditing}
                         />
                     )
                 })}

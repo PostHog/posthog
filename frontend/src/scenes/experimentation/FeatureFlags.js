@@ -11,6 +11,7 @@ import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import ReadOnlyFilters from 'lib/components/PropertyFilters/ReadOnlyFilters'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -48,23 +49,14 @@ function _FeatureFlags() {
         {
             title: 'Rollout Precentage',
             render: function RenderRolloutPrecentage(_, featureFlag) {
-                console.log(featureFlag)
                 return `${featureFlag.rollout_percentage}%` || "Not rolled out"
             }
         },
         {
             title: 'Filters',
-            render: function RenderFilters(_, featureFlag) {
-                console.log(featureFlag.filters?.properties);
+            render: function RenderFilters(featureFlag) {
                 return (
-                    <PropertyFilters
-                        pageKey="feature-flag"
-                        propertyFilters={featureFlag.filters?.properties}
-                        endpoint="person"
-                        shouldEnableAddition={false}
-                        shouldEnableDeletion={false}
-                        shouldEnableEditing={false}
-                    />
+                    <ReadOnlyFilters filters={featureFlag.filters?.properties} />
                 )
             }
         },
