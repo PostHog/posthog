@@ -10,7 +10,7 @@ export interface Props {
     item: PropertyFilter
 }
 
-const PropertyFilterButton = ({ item }: Props) => {
+const PropertyFilterButton: React.FunctionComponent<Props> = ({ item }: Props) => {
     const { cohorts } = useValues(cohortsModel)
 
     return (

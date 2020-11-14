@@ -3,10 +3,7 @@ import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import { cohortsModel } from '../../../models/cohortsModel'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
-import { formatPropertyLabel } from 'lib/utils'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
@@ -15,7 +12,6 @@ const FilterRow = React.memo(function FilterRow({
     item,
     index,
     filters,
-    cohorts,
     logic,
     pageKey,
     showConditionBadge,
@@ -80,7 +76,6 @@ export function PropertyFilters({
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
-    const { cohorts } = useValues(cohortsModel)
 
     return (
         <div className="mb">
@@ -94,7 +89,6 @@ export function PropertyFilters({
                             index={index}
                             totalCount={filters.length - 1} // empty state
                             filters={filters}
-                            cohorts={cohorts}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadges}
                         />

@@ -6,12 +6,12 @@ type Props = {
     filters: PropertyFilter[]
 }
 
-const PropertyFiltersDisplay = ({ filters }: Props) => {
+const PropertyFiltersDisplay: React.FunctionComponent<Props> = ({ filters }: Props) => {
     return (
         <div className="mb">
             {filters &&
                 filters.map((item) => {
-                    return <PropertyFilterButton item={item} />
+                    return <PropertyFilterButton key={item.key} item={item} />
                 })}
         </div>
     )
