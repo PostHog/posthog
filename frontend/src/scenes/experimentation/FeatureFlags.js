@@ -11,7 +11,7 @@ import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import ReadOnlyFilters from 'lib/components/PropertyFilters/ReadOnlyFilters'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -56,7 +56,7 @@ function _FeatureFlags() {
             title: 'Filters',
             render: function RenderFilters(featureFlag) {
                 return (
-                    <ReadOnlyFilters filters={featureFlag.filters?.properties} />
+                    <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
                 )
             }
         },

@@ -6,7 +6,7 @@ type Props = {
     filters: any[]
 }
 
-const ReadOnlyFilters = ({ filters }: Props) => {
+const PropertyFiltersDisplay = ({ filters }: Props) => {
     return (
         <div className="mb">
             {filters &&
@@ -19,5 +19,5 @@ const ReadOnlyFilters = ({ filters }: Props) => {
     )
 }
 
-export default ReadOnlyFilters;
+export default PropertyFiltersDisplay;
 
