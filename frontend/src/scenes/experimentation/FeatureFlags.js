@@ -10,6 +10,7 @@ import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -43,6 +44,26 @@ function _FeatureFlags() {
             render: function RenderCreatedBy(_, featureFlag) {
                 return featureFlag.created_by.first_name || featureFlag.created_by.email
             },
+        },
+        {
+            title: 'Rollout Precentage',
+            render: function RenderRolloutPrecentage(_, featureFlag) {
+                console.log(featureFlag)
+                return `${featureFlag.rollout_percentage}%` || "Not rolled out"
+            }
+        },
+        {
+            title: 'Filters',
+            render: function RenderFilters(_, featureFlag) {
+                console.log(featureFlag.filters?.properties);
+                return (
+                    <PropertyFilters
+                        pageKey="feature-flag"
+                        propertyFilters={featureFlag.filters?.properties}
+                        endpoint="person"
+                    />
+                )
+            }
         },
         {
             title: 'Active',
@@ -139,8 +160,8 @@ function _FeatureFlags() {
                         logic={logic}
                     />
                 ) : (
-                    <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
-                )}
+                        <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
+                    )}
             </Drawer>
         </div>
     )
