@@ -1,17 +1,17 @@
-import { Button } from "antd";
-import { useValues } from "kea";
-import { formatPropertyLabel } from "lib/utils";
-import React from "react";
-import { cohortsModel } from "~/models";
-import { PropertyFilter } from "~/types";
-import { keyMapping } from "../PropertyKeyInfo";
+import { Button } from 'antd'
+import { useValues } from 'kea'
+import { formatPropertyLabel } from 'lib/utils'
+import React from 'react'
+import { cohortsModel } from '~/models'
+import { PropertyFilter } from '~/types'
+import { keyMapping } from '../PropertyKeyInfo'
 
 export interface Props {
-    item: PropertyFilter,
+    item: PropertyFilter
 }
 
 const PropertyFilterButton = ({ item }: Props) => {
-    const { cohorts } = useValues(cohortsModel);
+    const { cohorts } = useValues(cohortsModel)
 
     return (
         <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
@@ -22,6 +22,4 @@ const PropertyFilterButton = ({ item }: Props) => {
     )
 }
 
-export default PropertyFilterButton;
-
-
+export default PropertyFilterButton

@@ -81,7 +81,7 @@ export const propertyFilterLogic = kea({
         [actions.remove]: () => actions.update(),
         [actions.update]: () => {
             const cleanedFilters = [...values.filters].filter((property) => property.key)
-            
+
             // If the last item has a key, we need to add a new empty filter so the button appears
             if (values.filters[values.filters.length - 1].key) actions.newFilter()
             if (props.onChange) {

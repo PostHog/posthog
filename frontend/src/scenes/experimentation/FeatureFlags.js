@@ -48,16 +48,14 @@ function _FeatureFlags() {
         {
             title: 'Rollout Precentage',
             render: function RenderRolloutPrecentage(_, featureFlag) {
-                return `${featureFlag.rollout_percentage}%` || "Not rolled out"
-            }
+                return `${featureFlag.rollout_percentage}%` || 'Not rolled out'
+            },
         },
         {
             title: 'Filters',
             render: function RenderFilters(featureFlag) {
-                return (
-                    <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
-                )
-            }
+                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
+            },
         },
         {
             title: 'Active',
@@ -154,8 +152,8 @@ function _FeatureFlags() {
                         logic={logic}
                     />
                 ) : (
-                        <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
-                    )}
+                    <EditFeatureFlag featureFlag={openFeatureFlag} logic={logic} />
+                )}
             </Drawer>
         </div>
     )
