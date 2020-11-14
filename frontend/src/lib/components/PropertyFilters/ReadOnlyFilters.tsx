@@ -12,9 +12,7 @@ const ReadOnlyFilters = ({ filters }: Props) => {
             {filters &&
                 filters.map((item) => {
                     return (
-                        <Row align="middle" className="mt-05 mb-05">
-                            <PropertyFilterButton item={item} />
-                        </Row>
+                        <PropertyFilterButton item={item} />
                     )
                 })}
         </div>
