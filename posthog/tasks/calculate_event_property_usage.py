@@ -1,9 +1,10 @@
 from datetime import timedelta
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from celery.app import shared_task
 from django.db import connection
 from django.db.models import Count
+from django.db.models.query import QuerySet
 from django.utils.timezone import now
 
 from posthog.ee import is_ee_enabled
@@ -13,85 +14,140 @@ from posthog.models.event import Event
 
 
 def calculate_event_property_usage() -> None:
-    for team in Team.objects.all():
-        calculate_event_property_usage_for_team.delay(team_id=team.pk)
+    CalculateEventPropertyUsage().run()
 
 
-def _save_team(team: Team, event_names: Dict[str, Dict], event_properties: Dict[str, Dict]) -> None:
-    def _sort(to_sort: List) -> List:
-        return sorted(to_sort, key=lambda item: (item.get("usage_count", 0), item.get("volume", 0)), reverse=True)
+class CalculateEventPropertyUsage:
+    _teams: QuerySet
+    _event_names_dict: Dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
+    _event_properties_dict: Dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
+    # number of events at which we query events individually
+    _clickhouse_volume_cutoff = 1000000
 
-    team.event_names_with_usage = _sort([val for _, val in event_names.items()])
-    team.event_properties_with_usage = _sort([val for _, val in event_properties.items()])
-    team.save()
+    def __init__(self, clickhouse_volume_cutoff: Optional[int] = None) -> None:
+        # Purely set in tests
+        if clickhouse_volume_cutoff:
+            self._clickhouse_volume_cutoff = clickhouse_volume_cutoff
 
+    def run(self) -> None:
+        self._teams = Team.objects.all()
+        for team in self._teams:
+            self.calculate_usage_count_for_team(team=team)
 
-@shared_task(ignore_result=True, max_retries=1)
-def calculate_event_property_usage_for_team(team_id: int) -> None:
-    team = Team.objects.get(pk=team_id)
-    event_names = {event: {"event": event, "usage_count": 0} for event in team.event_names}
+        self.calculate_event_volume()
 
-    event_properties = {key: {"key": key, "usage_count": 0} for key in team.event_properties}
+        if is_ee_enabled():
+            self._clickhouse_calculate_properties_volume()
+        else:
+            volume = self._psql_get_properties_volume()
+            self.save_properties_volume(volume)
 
-    for item in DashboardItem.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
-        for event in item.filters.get("events", []):
-            if event["id"] in event_names:
-                event_names[event["id"]]["usage_count"] += 1
+    def _save_team(self, team: Team) -> None:
+        def _sort(to_sort: List) -> List:
+            return sorted(to_sort, key=lambda item: (item.get("usage_count", 0), item.get("volume", 0)), reverse=True)
 
-        for prop in item.filters.get("properties", []):
-            if prop.get("key") in event_properties:
-                event_properties[prop["key"]]["usage_count"] += 1
+        team.event_names_with_usage = _sort([val for _, val in self._event_names_dict[team.pk].items()])
+        team.event_properties_with_usage = _sort([val for _, val in self._event_properties_dict[team.pk].items()])
+        team.save()
 
-    # intermittent save in case the heavier queries don't finish
-    _save_team(team, event_names, event_properties)
+    def calculate_usage_count_for_team(self, team: Team) -> None:
+        self._event_names_dict[team.pk] = {event: {"event": event, "usage_count": 0} for event in team.event_names}
 
-    events_volume = _get_events_volume(team)
-    for event, value in event_names.items():
-        value["volume"] = _extract_count(events_volume, event)
-        event_names[event] = value
+        self._event_properties_dict[team.pk] = {key: {"key": key, "usage_count": 0} for key in team.event_properties}
 
-    _save_team(team, event_names, event_properties)
+        for item in DashboardItem.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
+            for event in item.filters.get("events", []):
+                if event["id"] in self._event_names_dict[team.pk]:
+                    self._event_names_dict[team.pk][event["id"]]["usage_count"] += 1  #  type: ignore
 
-    properties_volume = _get_properties_volume(team)
-    for key, value in event_properties.items():
-        value["volume"] = _extract_count(properties_volume, key)
-        event_properties[key] = value
+            for prop in item.filters.get("properties", []):
+                if prop.get("key") in self._event_properties_dict[team.pk]:
+                    self._event_properties_dict[team.pk][prop["key"]]["usage_count"] += 1  # type: ignore
 
-    _save_team(team, event_names, event_properties)
+        # intermittent save in case the heavier queries don't finish
+        self._save_team(team)
 
+    def calculate_event_volume(self) -> None:
+        #  Returns a list of tuples, [(team_id, event, volume)]
+        events_volume = self._get_events_volume()
+        for team in self._teams:
+            for key in team.event_names:
+                try:
+                    volume = [e for e in events_volume if e[0] == team.pk and e[1] == key][0][2]
+                except IndexError:
+                    volume = 0
+                try:
+                    self._event_names_dict[team.pk][key]["volume"] = volume
+                except KeyError:
+                    pass
 
-def _get_properties_volume(team: Team) -> List[Tuple[str, int]]:
-    timestamp = now() - timedelta(days=30)
-    if is_ee_enabled():
+            self._save_team(team)
+
+    def save_properties_volume(self, volume: List[Tuple[int, str, int]]) -> None:
+        for team in self._teams:
+            for key in team.event_properties:
+                try:
+                    set_volume = [e for e in volume if e[0] == team.pk and e[1] == key][0][2]
+                except IndexError:
+                    set_volume = 0
+                try:
+                    self._event_properties_dict[team.pk][key]["volume"] = set_volume
+                except KeyError:
+                    pass
+
+            self._save_team(team)
+
+    #  Returns a list of tuples, [(team_id, key, volume)]
+    def _psql_get_properties_volume(self) -> List[Tuple[int, str, int]]:
+        timestamp = now() - timedelta(days=30)
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT team_id, json_build_array(jsonb_object_keys(properties)) ->> 0 as key1, count(1) FROM posthog_event WHERE timestamp > %s group by team_id, key1 order by count desc",
+            [timestamp],
+        )
+        return cursor.fetchall()
+
+    def _clickhouse_calculate_properties_volume(self) -> None:
         from ee.clickhouse.client import sync_execute
-        from ee.clickhouse.sql.events import GET_PROPERTIES_VOLUME
+        from ee.clickhouse.sql.events import GET_PROPERTIES_FOR_TEAM, GET_PROPERTIES_LOW_VOLUME
 
-        return sync_execute(GET_PROPERTIES_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT json_build_array(jsonb_object_keys(properties)) ->> 0 as key1, count(1) FROM posthog_event WHERE team_id = %s AND timestamp > %s group by key1 order by count desc",
-        [team.pk, timestamp],
-    )
-    return cursor.fetchall()
+        timestamp = now() - timedelta(days=30)
 
+        # Combine all low volume clients in one query
+        volume = sync_execute(
+            GET_PROPERTIES_LOW_VOLUME, {"timestamp": timestamp, "cutoff": self._clickhouse_volume_cutoff},
+        )
+        self.save_properties_volume(volume)
 
-def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
-    timestamp = now() - timedelta(days=30)
-    if is_ee_enabled():
-        from ee.clickhouse.client import sync_execute
-        from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
+        high_volume_clients = [
+            team[0]
+            for team in sync_execute(
+                "SELECT team_id FROM (SELECT team_id, count(1) as count FROM events GROUP BY team_id) WHERE count >= {}".format(
+                    self._clickhouse_volume_cutoff
+                ),
+                {"timestamp": timestamp},
+            )
+        ]
+        for team in [team for team in self._teams if team.pk in high_volume_clients]:
+            volume = sync_execute(GET_PROPERTIES_FOR_TEAM, {"timestamp": timestamp, "team_id": team.pk},)
+            for key in team.event_properties:
+                try:
+                    self._event_properties_dict[team.pk][key]["volume"] = [v[2] for v in volume if v[1] == key][0]
+                except (KeyError, IndexError):
+                    pass
 
-        return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
-    return (
-        Event.objects.filter(team=team, timestamp__gt=timestamp)
-        .values("event")
-        .annotate(count=Count("id"))
-        .values_list("event", "count")
-    )
+            self._save_team(team)
 
+    def _get_events_volume(self) -> List[Tuple[int, str, int]]:
+        timestamp = now() - timedelta(days=30)
+        if is_ee_enabled():
+            from ee.clickhouse.client import sync_execute
+            from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
 
-def _extract_count(events_volume: List[Tuple[str, int]], event: str) -> int:
-    try:
-        return [count[1] for count in events_volume if count[0] == event][0]
-    except IndexError:
-        return 0
+            return sync_execute(GET_EVENTS_VOLUME, {"timestamp": timestamp},)
+        return (
+            Event.objects.filter(timestamp__gt=timestamp)
+            .values("team_id", "event")
+            .annotate(count=Count("id"))
+            .values_list("team_id", "event", "count")
+        )
