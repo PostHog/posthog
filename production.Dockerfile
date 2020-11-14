@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf frontend/dist/*.map
 
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile\
+RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile\
     && pip install psycopg2-binary --no-cache-dir --compile\
     && pip uninstall ipython-genutils pip -y
 

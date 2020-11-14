@@ -14,14 +14,6 @@ class TestUser(BaseTest):
         response = self.client.get("/api/user/redirect_to_site/?actionId=1")
         self.assertIn("http://somewebsite.com", response.url)
 
-    def test_create_user_when_restricted(self):
-        with self.settings(RESTRICT_SIGNUPS="posthog.com,uk.posthog.com"):
-            with self.assertRaisesMessage(ValueError, "Can't sign up with this email"):
-                User.objects.create_user(first_name="Tim Gmail", email="tim@gmail.com", password=None)
-
-            user = User.objects.create_user(first_name="Tim PostHog", email="tim@uk.posthog.com", password=None)
-            self.assertEqual(user.email, "tim@uk.posthog.com")
-
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space } from 'antd'
+import { Table, Button, Spin, Space, Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -12,9 +13,7 @@ import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
-import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 interface SessionsTableProps {
@@ -24,7 +23,6 @@ interface SessionsTableProps {
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
-    const { user } = useValues(userLogic)
     const {
         sessions,
         sessionsLoading,
@@ -35,7 +33,6 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         sessionRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -98,17 +95,23 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             },
             ellipsis: true,
         },
-    ]
-
-    if (!user?.is_multi_tenancy || featureFlags['session-recording-player']) {
-        columns.push({
-            title: 'Play Session',
+        {
+            title: (
+                <span>
+                    <Tooltip title="Enable session recording from Project > Settings">
+                        <span>
+                            Play session
+                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
+                        </span>
+                    </Tooltip>
+                </span>
+            ),
             render: function RenderEndPoint(session: SessionType) {
                 return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
-        })
-    }
+        },
+    ]
 
     return (
         <div className="events" data-attr="events-table">

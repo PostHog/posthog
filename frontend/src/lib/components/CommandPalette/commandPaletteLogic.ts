@@ -13,7 +13,6 @@ import {
     SmileOutlined,
     ProjectOutlined,
     CheckOutlined,
-    SyncOutlined,
     TagOutlined,
     ClockCircleOutlined,
     UserOutlined,
@@ -449,13 +448,6 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: SyncOutlined,
-                        display: 'Go to Live Actions',
-                        executor: () => {
-                            push('/actions/live')
-                        },
-                    },
-                    {
                         icon: ClockCircleOutlined,
                         display: 'Go to Live Sessions',
                         executor: () => {
@@ -578,7 +570,7 @@ export const commandPaletteLogic = kea<
                             },
                         })
                     )
-                    if (isURL(argument))
+                    if (argument && isURL(argument))
                         results.push({
                             icon: LinkOutlined,
                             display: `Open ${argument}`,

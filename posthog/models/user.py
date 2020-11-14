@@ -11,22 +11,6 @@ from .team import Team
 from .utils import generate_random_token, sane_repr
 
 
-def is_email_restricted_from_signup(email: str) -> bool:
-    if not getattr(settings, "RESTRICT_SIGNUPS", False):
-        return False
-
-    restricted_signups: Union[str, bool] = settings.RESTRICT_SIGNUPS
-    if restricted_signups is False:
-        return False
-
-    domain = email.rsplit("@", 1)[1]
-    whitelisted_domains = str(settings.RESTRICT_SIGNUPS).split(",")
-    if domain in whitelisted_domains:
-        return False
-
-    return True
-
-
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
@@ -37,8 +21,6 @@ class UserManager(BaseUserManager):
         if email is None:
             raise ValueError("Email must be provided!")
         email = self.normalize_email(email)
-        if is_email_restricted_from_signup(email):
-            raise ValueError("Can't sign up with this email!")
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:

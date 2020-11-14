@@ -100,6 +100,9 @@ function parsePeopleParams(peopleParams, filters) {
     if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
     }
+    if (action.properties) {
+        params.properties = [...params.properties, ...action.properties]
+    }
 
     return toAPIParams(params)
 }
@@ -148,7 +151,7 @@ export const trendsLogic = kea({
     }),
 
     actions: () => ({
-        setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
+        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
@@ -299,9 +302,8 @@ export const trendsLogic = kea({
                 if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
                     cleanSearchParams['session'] = 'avg'
                 }
-
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
-                    actions.setFilters(cleanSearchParams, false, true)
+                    actions.setFilters(cleanSearchParams, false)
                 }
             }
         },

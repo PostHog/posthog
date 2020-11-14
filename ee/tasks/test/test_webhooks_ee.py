@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytz
 from django.utils.timezone import now
@@ -21,8 +21,7 @@ def _create_action(**kwargs):
 
 class TestWebhooksEE(BaseTest):
     @patch("requests.post")
-    @patch("celery.current_app.send_task")
-    def test_post_event_to_webhook_ee(self, requests_post, _):
+    def test_post_event_to_webhook_ee(self, requests_post):
 
         self.team.slack_incoming_webhook = "http://slack.com/hook"
         self.team.save()
@@ -40,7 +39,6 @@ class TestWebhooksEE(BaseTest):
         }
         site_url = "http://testserver"
         post_event_to_webhook_ee(event, self.team.pk, site_url)
-
         self.assertEqual(requests_post.call_count, 1)
 
         events = Event.objects.filter(event="User paid")

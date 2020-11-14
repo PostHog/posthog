@@ -108,7 +108,7 @@ function PreflightCheck() {
     }, [])
 
     return (
-        <>
+        <div style={{ minHeight: '100vh' }}>
             <Space direction="vertical" className="space-top" style={{ width: '100%', paddingLeft: 32 }}>
                 <PageHeader title="Welcome to PostHog!" caption="Understand your users. Build a better product." />
             </Space>
@@ -237,7 +237,7 @@ function PreflightCheck() {
                     )}
                 </div>
             </Row>
-        </>
+        </div>
     )
 }
 

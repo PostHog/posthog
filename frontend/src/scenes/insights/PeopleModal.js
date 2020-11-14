@@ -25,7 +25,7 @@ export function PeopleModal({ visible, view }) {
         >
             {people ? (
                 <p>
-                    Found {people.count} {people.count === 1 ? 'user' : 'users'}
+                    Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
                 </p>
             ) : (
                 <p>Loading users...</p>

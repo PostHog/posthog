@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -11,18 +10,15 @@ import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
-import { PageHeader } from 'lib/components/PageHeader'
 import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
+import { eventsTableLogic } from './eventsTableLogic'
+import { hot } from 'react-hot-loader/root'
 
-export function EventsTable({
-    fixedFilters,
-    filtersEnabled = true,
-    logic,
-    isLiveActions = false,
-    isPersonPage = false,
-}) {
+export const EventsTable = hot(_EventsTable)
+function _EventsTable({ fixedFilters, filtersEnabled = true }) {
+    const logic = eventsTableLogic({ fixedFilters })
     const {
         properties,
         eventsFormatted,
@@ -37,7 +33,6 @@ export function EventsTable({
     const {
         location: { search },
     } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -53,7 +48,7 @@ export function EventsTable({
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: isLiveActions ? 6 : 5,
+                            colSpan: 5,
                             style: {
                                 cursor: 'pointer',
                             },
@@ -63,7 +58,12 @@ export function EventsTable({
                 return eventToName(event)
             },
             filterIcon: function RenderFilterIcon() {
-                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} data-attr="event-filter-trigger" />
+                return (
+                    <SearchOutlined
+                        style={{ color: eventFilter && 'var(--primary)' }}
+                        data-attr="event-filter-trigger"
+                    />
+                )
             },
             filterDropdown: function RenderFilter({ confirm }) {
                 return (
@@ -145,34 +145,16 @@ export function EventsTable({
             key: 'when',
             render: function renderWhen({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
-                return <Tooltip title={event.timestamp}>{moment(event.timestamp).fromNow()}</Tooltip>
+                return (
+                    <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                )
             },
         },
     ]
-    if (isLiveActions)
-        columns.splice(0, 0, {
-            title: 'Action',
-            key: 'action',
-            render: function renderAction(item) {
-                if (!item.event) return { props: { colSpan: 0 } }
-                return <Link to={'/action/' + item.event.actionId}>{item.event.actionName}</Link>
-            },
-        })
 
     return (
         <div className="events" data-attr="events-table">
-            <PageHeader
-                title={
-                    isLiveActions
-                        ? 'Live Actions'
-                        : isPersonPage
-                        ? ''
-                        : !featureFlags['actions-ux-201012']
-                        ? 'Events'
-                        : 'Raw Events Stream'
-                }
-            />
-            {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
+            {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
                     type="default"

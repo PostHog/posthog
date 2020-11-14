@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
@@ -44,13 +45,14 @@ def system_status(request):
 
     metrics = list()
 
-    metrics.append({"metric": "Redis alive", "value": redis_alive})
-    metrics.append({"metric": "Postgres DB alive", "value": postgres_alive})
+    metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
+    metrics.append({"key": "db_alive", "metric": "Postgres DB alive", "value": postgres_alive})
 
     if postgres_alive:
         postgres_version = connection.cursor().connection.server_version
         metrics.append(
             {
+                "key": "pg_version",
                 "metric": "Postgres server version",
                 "value": "{}.{}.{}".format(
                     int(postgres_version / 100 / 100), int(postgres_version / 100) % 100, postgres_version % 100
@@ -97,4 +99,4 @@ def system_status(request):
 
 @never_cache
 def preflight_check(request):
-    return JsonResponse({"django": True, "redis": is_redis_alive(), "db": is_postgres_alive()})
+    return JsonResponse({"django": True, "redis": is_redis_alive() or TEST, "db": is_postgres_alive()})

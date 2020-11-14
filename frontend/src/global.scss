@@ -14,6 +14,7 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{purple_500};
@@ -113,6 +114,14 @@ style files without adding already imported styles. */
     margin-left: $default_spacing;
 }
 
+.mr-05 {
+    margin-right: $default_spacing * 0.5;
+}
+
+.ml-05 {
+    margin-left: $default_spacing * 0.5;
+}
+
 .pa {
     // Padding all
     padding: $default_spacing;
@@ -147,7 +156,8 @@ style files without adding already imported styles. */
 }
 
 .main-app-content {
-    padding: $default_spacing $default_spacing * 3;
+    /* top | horizontal | bottom */
+    padding: 0px $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;
@@ -163,8 +173,16 @@ style files without adding already imported styles. */
     background-color: $primary;
 }
 
+.text-success {
+    color: $success !important;
+}
+
 .text-danger {
     color: $danger !important;
+}
+
+.text-warning {
+    color: $warning !important;
 }
 
 // Random general styles
@@ -269,6 +287,19 @@ style files without adding already imported styles. */
     margin-left: 5px;
 }
 
+// Badges styles
+.badge {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    background-color: $border_dark;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+}
+
 // Overlays styles
 #bottom-notice {
     z-index: 1000000000;
@@ -282,21 +313,25 @@ style files without adding already imported styles. */
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+    code {
+        color: inherit;
+        font-size: inherit;
+    }
     &.warning div {
         height: auto;
         background: $danger;
     }
-
-    div:nth-child(1) {
-        background: $purple_700;
+    &.tricolor {
+        div:nth-child(1) {
+            background: $brand_blue;
+        }
+        div:nth-child(2) {
+            background: $brand_red;
+        }
+        div:nth-child(3) {
+            background: $brand_yellow;
+        }
     }
-    div:nth-child(2) {
-        background: $purple_500;
-    }
-    div:nth-child(3) {
-        background: $purple_300;
-    }
-
     div {
         flex-basis: 0;
         flex-grow: 1;
@@ -309,6 +344,7 @@ style files without adding already imported styles. */
     button {
         border: none;
         background: transparent;
+        color: inherit;
         width: 1.5rem;
         height: 1.5rem;
         padding: 0;

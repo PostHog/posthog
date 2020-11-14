@@ -18,3 +18,17 @@ with SASS, which is why configuration is duplicated. To change any variable here
 @border-color-base: #d9d9d9;
 @body-background:  #f2f2f2;
 @layout-body-background: #fff;
+
+.hide-gte-lg {
+    display: none !important;
+    @media (max-width: @screen-lg-min) {
+        display: inherit !important;
+    }
+}
+
+.hide-lte-lg {
+    display: none !important;
+    @media (min-width: @screen-lg-min) {
+        display: inherit !important;
+    }
+}
