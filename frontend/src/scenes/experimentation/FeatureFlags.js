@@ -10,7 +10,6 @@ import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 
 export const FeatureFlags = hot(_FeatureFlags)
