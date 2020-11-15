@@ -58,7 +58,7 @@ class CalculateEventPropertyUsage:
         for item in DashboardItem.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
             for event in item.filters.get("events", []):
                 if event["id"] in self._event_names_dict[team.pk]:
-                    self._event_names_dict[team.pk][event["id"]]["usage_count"] += 1  #  type: ignore
+                    self._event_names_dict[team.pk][event["id"]]["usage_count"] += 1  # type: ignore
 
             for prop in item.filters.get("properties", []):
                 if prop.get("key") in self._event_properties_dict[team.pk]:
