@@ -4,7 +4,13 @@ from datetime import datetime
 import pytz
 
 from posthog.api.test.base import BaseTest
-from posthog.constants import RETENTION_FIRST_TIME, RETENTION_TYPE, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import (
+    RETENTION_FIRST_TIME,
+    RETENTION_TYPE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_LINEAR,
+)
 from posthog.models import Action, ActionStep, Event, Filter, Person
 from posthog.queries.retention import Retention
 
@@ -92,6 +98,39 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     [0, 0],
                     [0],
                 ],
+            )
+
+        def test_retention_graph(self):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(0)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+            result = retention().run(
+                Filter(data={"date_to": self._date(10, hour=6), "display": TRENDS_LINEAR}), self.team
+            )
+            self.assertEqual(
+                result[0]["count"], 2,
+            )
+            self.assertEqual(
+                result[0]["labels"],
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
+            )
+            self.assertEqual(
+                result[0]["data"], [100.0, 100.0, 100.0, 50.0, 0.0, 50.0, 100.0, 0.0, 0.0, 0.0, 0.0],
             )
 
         def test_first_user_retention(self):

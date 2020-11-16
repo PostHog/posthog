@@ -14,7 +14,7 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
 
-from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.utils import namedtuplefetchall
@@ -59,9 +59,9 @@ class Retention(BaseQuery):
             else entity
         )
         # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
-        return filter, entity, returning_entity, first_time_retention, date_from, date_to
+        return filter, entity, returning_entity, first_time_retention, date_from, date_to, t1
 
-    def process_result(
+    def process_table_result(
         self,
         resultset: Dict[Tuple[int, int], Dict[str, Any]],
         filter: Filter,
@@ -83,6 +83,29 @@ class Retention(BaseQuery):
 
         return result
 
+    def process_graph_result(
+        self,
+        resultset: Dict[Tuple[int, int], Dict[str, Any]],
+        filter: Filter,
+        date_from: datetime.datetime,
+        total_intervals: int,
+    ):
+        labels = []
+        data = []
+
+        for interval_number in range(total_intervals):
+            label = "{} {}".format(filter.period, interval_number)
+            labels.append(label)
+
+            value_at_interval = resultset.get((0, interval_number), {"count": 0, "people": []}).get("count", 0)
+            data.append(value_at_interval)
+
+        normalized = [float(val) / data[0] * 100 for val in data]
+
+        result = {"data": normalized, "labels": labels, "count": data[0] if data else 0}
+
+        return [result]
+
     def _execute_sql(
         self,
         filter: Filter,
@@ -91,6 +114,7 @@ class Retention(BaseQuery):
         target_entity: Entity,
         returning_entity: Entity,
         is_first_time_retention: bool,
+        time_increment: Union[timedelta, relativedelta],
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
@@ -114,7 +138,7 @@ class Retention(BaseQuery):
             .annotate(event_date=F("timestamp"))
         )
 
-        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
+        filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
@@ -127,13 +151,16 @@ class Retention(BaseQuery):
                 .union(first_date.values_list("first_date", "person_id"))
             )
         else:
+            final_query = filtered_events.filter(filter.date_filter_Q).filter(returning_condition)
+
+            filter._date_to = (date_from + time_increment).isoformat()
             first_date = (
-                filtered_events.filter(entity_condition)
+                filtered_events.filter(filter.date_filter_Q)
+                .filter(entity_condition)
                 .annotate(first_date=trunc)
                 .values("first_date", "person_id")
                 .distinct()
             )
-            final_query = filtered_events.filter(returning_condition)
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
@@ -196,13 +223,23 @@ class Retention(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         total_intervals = kwargs.get("total_intervals", 11)
-        filter, entity, returning_entity, is_first_time_retention, date_from, date_to = self.preprocess_params(
-            filter, total_intervals
-        )
+        (
+            filter,
+            entity,
+            returning_entity,
+            is_first_time_retention,
+            date_from,
+            date_to,
+            time_increment,
+        ) = self.preprocess_params(filter, total_intervals)
         resultset = self._execute_sql(
-            filter, date_from, date_to, entity, returning_entity, is_first_time_retention, team
+            filter, date_from, date_to, entity, returning_entity, is_first_time_retention, time_increment, team
         )
-        result = self.process_result(resultset, filter, date_from, total_intervals)
+
+        if filter.display == TRENDS_LINEAR:
+            result = self.process_graph_result(resultset, filter, date_from, total_intervals)
+        else:
+            result = self.process_table_result(resultset, filter, date_from, total_intervals)
         return result
 
     def determineTimedelta(
