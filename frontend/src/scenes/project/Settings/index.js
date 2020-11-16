@@ -15,7 +15,6 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DeleteProject } from './DeleteProject'
 import { PageHeader } from 'lib/components/PageHeader'
 
@@ -67,51 +66,52 @@ function _Setup() {
                                 placement: 'left',
                             },
                             callback: resetToken,
-                        ]}
-                    >
-                        {currentTeam?.api_token}
-                    </CodeSnippet>
-                    Write-only means it can only create new events. It can't read events or any of your other data stored with
-                    PostHog, so it's safe to use in public apps.
-                    <Divider />
-                    <h2 id="urls">Permitted Domains/URLs</h2>
-                    <p>
-                        These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
-                        where you'll be able to create Actions.
-                    </p>
-                    <EditAppUrls />
-                    <Divider />
-                    <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
-                    <WebhookIntegration />
-                    <h2 id="datacapture">Data Capture Configuration</h2>
-                    <IPCapture />
-                    <Divider />
-                    <h2>PostHog Toolbar</h2>
-                    <ToolbarSettings />
-                    {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
-                        <>
-                            <Divider />
-                            <h2 id="sessionrecording">
-                                Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
-                            </h2>
-                            <p>
-                                Watch sessions replays to see how users interact with your app and find out what can be
-                                improved.
-                            </p>
-                            <OptInSessionRecording />
-                            <p>
-                                This is a new feature of posthog. Please{' '}
-                                <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                                    share feedback
-                                </a>{' '}
-                                with us!
-                            </p>
-                        </>
-                    )}
-                    <Divider />
-                    <h2 style={{ color: red.primary }}>Danger Zone</h2>
-                    <DeleteProject />
-                </Card>
+                        },
+                    ]}
+                >
+                    {currentTeam?.api_token}
+                </CodeSnippet>
+                Write-only means it can only create new events. It can't read events or any of your other data stored
+                with PostHog, so it's safe to use in public apps.
+                <Divider />
+                <h2 id="urls">Permitted Domains/URLs</h2>
+                <p>
+                    These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
+                    also where you'll be able to create Actions.
+                </p>
+                <EditAppUrls />
+                <Divider />
+                <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
+                <WebhookIntegration />
+                <h2 id="datacapture">Data Capture Configuration</h2>
+                <IPCapture />
+                <Divider />
+                <h2>PostHog Toolbar</h2>
+                <ToolbarSettings />
+                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
+                    <>
+                        <Divider />
+                        <h2 id="sessionrecording">
+                            Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
+                        </h2>
+                        <p>
+                            Watch sessions replays to see how users interact with your app and find out what can be
+                            improved.
+                        </p>
+                        <OptInSessionRecording />
+                        <p>
+                            This is a new feature of posthog. Please{' '}
+                            <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
+                                share feedback
+                            </a>{' '}
+                            with us!
+                        </p>
+                    </>
+                )}
+                <Divider />
+                <h2 style={{ color: red.primary }}>Danger Zone</h2>
+                <DeleteProject />
+            </Card>
         </div>
     )
 }

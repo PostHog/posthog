@@ -9,7 +9,7 @@ export function CreateOrganizationModal({
     setIsVisible,
 }: {
     isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    setIsVisible?: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -17,7 +17,7 @@ export function CreateOrganizationModal({
 
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
-        setIsVisible(false)
+        if (setIsVisible) setIsVisible(false)
         if (inputRef.current) inputRef.current.setValue('')
     }, [inputRef, setIsVisible])
 
