@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { membersLogicType } from 'types/scenes/organization/Members/logicType'
+import { organizationMembershipLevelToName } from 'lib/constants'
 
 export const membersLogic = kea<membersLogicType>({
     loaders: ({ values }) => ({
@@ -11,6 +12,20 @@ export const membersLogic = kea<membersLogicType>({
             __default: [],
             loadMembers: async () => {
                 return (await api.get('api/organizations/@current/members/')).results
+            },
+            changeMemberAccessLevel: async ({ member, level }) => {
+                await api.update(`api/organizations/@current/members/${member.user_id}/`, { level })
+                toast(
+                    <div>
+                        <h1 className="text-success">
+                            <CheckCircleOutlined /> Made <b>{member.user_first_name}</b> organization{' '}
+                            {organizationMembershipLevelToName.get(level)}.
+                        </h1>
+                    </div>
+                )
+                return values.members.map((thisMember) =>
+                    thisMember.user_id === member.user_id ? { ...thisMember, level } : thisMember
+                )
             },
             removeMember: async (member) => {
                 await api.delete(`api/organizations/@current/members/${member.user_id}/`)

@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
@@ -37,6 +38,25 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+
+    def update(self, instance: OrganizationMembership, validated_data):
+        raise_errors_on_nested_writes("update", self, validated_data)
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            organization=instance.organization, user=self.context["request"].user
+        )
+        new_level = validated_data.get("level")
+        if new_level is not None:
+            # level changing constraints
+            if requesting_membership.level < instance.level:
+                raise exceptions.PermissionDenied(
+                    "You can only change access level of users with level lower or equal to you."
+                )
+            if requesting_membership.id == instance.id:
+                raise exceptions.PermissionDenied("You can't change your own access level.")
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
 
 class OrganizationMemberViewSet(

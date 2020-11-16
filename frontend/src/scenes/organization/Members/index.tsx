@@ -1,8 +1,8 @@
 import React, { useCallback } from 'react'
-import { Table, Modal } from 'antd'
+import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
-import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined, UpOutlined, DownOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
@@ -10,6 +10,7 @@ import { OrganizationMembershipLevel, organizationMembershipLevelToName } from '
 import { UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { PageHeader } from 'lib/components/PageHeader'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 interface MembersProps {
     user: UserType
@@ -17,12 +18,70 @@ interface MembersProps {
 
 export const Members = hot(_Members)
 function _Members({ user }: MembersProps): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
     const { members, membersLoading } = useValues(membersLogic)
-    const { removeMember } = useActions(membersLogic)
+    const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
     const { confirm } = Modal
+    const LevelComponent = useCallback(
+        (level: OrganizationMembershipLevel, member) => {
+            const levelName = organizationMembershipLevelToName.get(level) ?? 'unknown'
+
+            return (currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin ? (
+                <Tooltip title="Only organization administrators can change access levels.">
+                    <Button>{levelName}</Button>
+                </Tooltip>
+            ) : (currentOrganization?.membership_level ?? -1) < member.level ? (
+                <Tooltip title="You can only change access level of users with level lower or equal to you.">
+                    <Button>{levelName}</Button>
+                </Tooltip>
+            ) : member.user_id === user.id ? (
+                <Tooltip title="You can't change your own access level.">
+                    <Button>{levelName}</Button>
+                </Tooltip>
+            ) : (
+                <Dropdown
+                    overlay={
+                        <Menu>
+                            {Object.values(OrganizationMembershipLevel).map(
+                                (listLevel) =>
+                                    typeof listLevel === 'number' &&
+                                    listLevel !== level &&
+                                    listLevel <= (currentOrganization?.membership_level ?? -1) && (
+                                        <Menu.Item key={`${member.user_id}-level-${level}`}>
+                                            <a
+                                                href="#"
+                                                onClick={() => {
+                                                    changeMemberAccessLevel({ member, level: listLevel })
+                                                }}
+                                            >
+                                                {listLevel > level ? (
+                                                    <>
+                                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
+                                                        Promote to{' '}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
+                                                        Demote to{' '}
+                                                    </>
+                                                )}
+                                                {organizationMembershipLevelToName.get(listLevel)}
+                                            </a>
+                                        </Menu.Item>
+                                    )
+                            )}
+                        </Menu>
+                    }
+                >
+                    <Button>{levelName}</Button>
+                </Dropdown>
+            )
+        },
+        [user]
+    )
 
     const ActionsComponent = useCallback(
-        (_text, member) => {
+        (_, member) => {
             function handleClick(): void {
                 confirm({
                     title: `${
@@ -71,7 +130,7 @@ function _Members({ user }: MembersProps): JSX.Element {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
-            render: (level: OrganizationMembershipLevel) => organizationMembershipLevelToName.get(level) ?? 'unknown',
+            render: LevelComponent,
         },
         {
             title: 'Joined At',
