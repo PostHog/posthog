@@ -65,7 +65,6 @@ class ClickhouseRetention(Retention):
             target_params = {"target_event": target_entity.id}
 
         final_query = self.final_query(period)
-        print(sqlparse.format(str(final_query), reindent_aligned=True))
         result = sync_execute(
             final_query,
             {
