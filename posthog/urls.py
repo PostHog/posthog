@@ -293,6 +293,7 @@ urlpatterns = [
     opt_slash_path("track", capture.get_event),
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
+    opt_slash_path("ses", capture.get_event),
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),
