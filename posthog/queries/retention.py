@@ -50,13 +50,9 @@ class Retention(BaseQuery):
         )
 
         returning_entity = (
-            (
-                Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-                if not len(filter.entities) > 0
-                else filter.entities[0]
-            )
-            if first_time_retention
-            else entity
+            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            if not len(filter.entities) > 0
+            else filter.entities[0]
         )
         # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
         return filter, entity, returning_entity, first_time_retention, date_from, date_to, t1
@@ -143,29 +139,31 @@ class Retention(BaseQuery):
             .annotate(event_date=F("timestamp"))
         )
 
-        filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
+            filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
             first_date = (
                 filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
             )
             final_query = (
-                filtered_events.filter(returning_condition)
+                filtered_events.filter(filter.date_filter_Q)
+                .filter(returning_condition)
                 .values_list("person_id", "event_date")
                 .union(first_date.values_list("first_date", "person_id"))
             )
         else:
-            final_query = filtered_events.filter(filter.date_filter_Q).filter(returning_condition)
+            final_query = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
             filter._date_to = (date_from + time_increment).isoformat()
             first_date = (
-                filtered_events.filter(filter.date_filter_Q)
-                .filter(entity_condition)
+                events.filter(filter.date_filter_Q)
+                .filter(filter.properties_to_Q(team_id=team.pk))
                 .annotate(first_date=trunc)
                 .values("first_date", "person_id")
                 .distinct()
             )
+
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 

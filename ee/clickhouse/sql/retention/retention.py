@@ -37,6 +37,7 @@ SELECT DISTINCT
 min({trunc_func}(e.timestamp)) as event_date,
 pdi.person_id as person_id
 from events e JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
-where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
-AND e.team_id = %(team_id)s {target_query} {filters} GROUP BY person_id
+WHERE e.team_id = %(team_id)s {target_query} {filters} 
+GROUP BY person_id HAVING
+event_date >= toDateTime(%(start_date)s) AND event_date <= toDateTime(%(end_date)s)
 """

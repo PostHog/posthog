@@ -14,9 +14,9 @@ class ActionStep(models.Model):
     action: models.ForeignKey = models.ForeignKey("Action", related_name="steps", on_delete=models.CASCADE)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    selector: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    href: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
+    selector: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
+    url: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
     url_matching: models.CharField = models.CharField(
         max_length=400, choices=URL_MATCHING, default=CONTAINS, null=True, blank=True
     )
