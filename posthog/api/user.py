@@ -3,7 +3,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import cast
+from typing import Optional, cast
 
 import posthoganalytics
 import requests
@@ -34,7 +34,7 @@ class UserSerializer(serializers.ModelSerializer):
 def user(request):
     organization = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team = request.user.team
+    team: Optional[Team] = request.user.team
     teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
     user = cast(User, request.user)
 
