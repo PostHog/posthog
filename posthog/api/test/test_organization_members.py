@@ -80,3 +80,26 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             },
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_cannot_change_own_organization_member_level(self):
+        membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=self.user, organization=self.organization
+        )
+        self.assertEqual(membership.level, OrganizationMembership.Level.ADMIN)
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.id}/",
+            {"level": OrganizationMembership.Level.MEMBER},
+            content_type="application/json",
+        )
+        membership.refresh_from_db()
+        self.assertEqual(membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertDictEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can't change your own access level.",
+                "type": "authentication_error",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
