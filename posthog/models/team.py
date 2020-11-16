@@ -106,7 +106,9 @@ class Team(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, default="Default Project")
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
+    event_names_with_usage: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
+    event_properties_with_usage: JSONField = JSONField(default=list)
     event_properties_numerical: JSONField = JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -115,6 +117,7 @@ class Team(models.Model):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced with env variable OPT_OUT_CAPTURE and User field anonymized_data
     # However, we still honor teams that have set this previously

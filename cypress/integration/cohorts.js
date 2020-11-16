@@ -6,13 +6,14 @@ describe('Cohorts', () => {
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
+        cy.title().should('equal', 'Cohorts • PostHog')
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
-        cy.get('form.card-body > .form-control').type('Test Cohort')
+        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"
-        cy.get('[data-attr="cohort-group-property"]').click()
+        cy.get('.ant-radio-group > :nth-child(2)').click()
         cy.get('[data-attr="new-prop-filter-cohort_0"]').click()
 
         // select the first property

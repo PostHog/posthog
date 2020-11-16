@@ -2,18 +2,21 @@ import React, { useState } from 'react'
 import { hot } from 'react-hot-loader/root'
 import { useValues, useActions } from 'kea'
 import { featureFlagLogic } from './featureFlagLogic'
-import { Table, Switch, Drawer, Button } from 'antd'
+import { Table, Switch, Drawer, Button, Tooltip } from 'antd'
 import moment from 'moment'
 import { EditFeatureFlag } from './EditFeatureFlag'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import { LinkButton } from 'lib/components/LinkButton'
+import { Link } from 'lib/components/Link'
+import { DeleteWithUndo } from 'lib/utils'
+import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
     const [openFeatureFlag, setOpenFeatureFlag] = useState(false)
     const logic = featureFlagLogic({ closeDrawer: () => setOpenFeatureFlag(false) })
     const { featureFlags, featureFlagsLoading } = useValues(logic)
-    const { updateFeatureFlag } = useActions(logic)
+    const { updateFeatureFlag, loadFeatureFlags } = useActions(logic)
 
     let columns = [
         {
@@ -26,9 +29,13 @@ function _FeatureFlags() {
         },
 
         {
-            title: 'Created at',
+            title: 'Created',
             render: function RenderCreatedAt(_, featureFlag) {
-                return moment(featureFlag.created_at).format('LLL')
+                return (
+                    <Tooltip title={moment(featureFlag.created_at).format('LLL')}>
+                        {moment(featureFlag.created_at).fromNow()}
+                    </Tooltip>
+                )
             },
         },
         {
@@ -51,20 +58,40 @@ function _FeatureFlags() {
         },
         {
             title: 'Usage',
-            render: function RenderActive(featureFlag) {
+            render: function RenderUsage(featureFlag) {
                 return (
-                    <LinkButton
+                    <Link
                         to={
-                            '/insights?events=[{"id":"$feature_flag_called","name":"$feature_flag_called","type":"events"}]&properties=[{"key":"$feature_flag","value":"' +
+                            '/insights?events=[{"id":"$feature_flag_called","name":"$feature_flag_called","type":"events","math":"dau"}]&properties=[{"key":"$feature_flag","value":"' +
                             featureFlag.key +
                             '"}]&breakdown=$feature_flag_response&breakdown_type=event#backTo=Feature Flags&backToURL=' +
                             window.location.pathname
                         }
-                        type="primary"
                         data-attr="usage"
                     >
-                        Usage
-                    </LinkButton>
+                        Insights <ExportOutlined />
+                    </Link>
+                )
+            },
+        },
+        {
+            title: 'Actions',
+            render: function RenderActive(featureFlag) {
+                return (
+                    <>
+                        <Link>
+                            <EditOutlined onClick={() => setOpenFeatureFlag(featureFlag)} />
+                        </Link>
+                        <DeleteWithUndo
+                            endpoint="feature_flag"
+                            object={featureFlag}
+                            className="text-danger"
+                            style={{ marginLeft: 8 }}
+                            callback={loadFeatureFlags}
+                        >
+                            <DeleteOutlined />
+                        </DeleteWithUndo>
+                    </>
                 )
             },
         },
@@ -72,15 +99,20 @@ function _FeatureFlags() {
 
     return (
         <div className="feature_flags">
-            <h1 className="page-header">Feature Flags</h1>
-            <p style={{ maxWidth: 600 }}>
-                <i>Feature flags are a way of turning functionality in your app on or off, based on user properties.</i>
-            </p>
-            <Button type="primary" onClick={() => setOpenFeatureFlag('new')} data-attr="new-feature-flag">
-                + New Feature Flag
-            </Button>
-            <br />
-            <br />
+            <PageHeader
+                title="Feature Flags"
+                caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
+            />
+            <div className="mb text-right">
+                <Button
+                    type="primary"
+                    onClick={() => setOpenFeatureFlag('new')}
+                    data-attr="new-feature-flag"
+                    icon={<PlusOutlined />}
+                >
+                    New Feature Flag
+                </Button>
+            </div>
             <Table
                 dataSource={featureFlags}
                 columns={columns}

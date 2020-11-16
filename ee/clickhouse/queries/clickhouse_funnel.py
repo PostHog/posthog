@@ -28,9 +28,7 @@ class ClickhouseFunnel(Funnel):
         self._team = team
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            "uuid", entity.properties, self._team, prepend=str(index), json_extract=True
-        )
+        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
@@ -47,16 +45,14 @@ class ClickhouseFunnel(Funnel):
                 return ""
 
             self.params.update(action_params)
-            content_sql = "uuid IN {actions_query} {filters}".format(actions_query=action_query, filters=filters,)
+            content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
             self.params["events"].append(entity.id)
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
         return content_sql
 
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            "uuid", self._filter.properties, self._team, prepend="global"
-        )
+        prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties, self._team.pk, prepend="global")
 
         # format default dates
         if not self._filter._date_from:
@@ -70,7 +66,6 @@ class ClickhouseFunnel(Funnel):
             "events": [],  # purely a speed optimization, don't need this for filtering
             **prop_filter_params,
         }
-        self.events: List[str] = []
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
             team_id=self._team.id,

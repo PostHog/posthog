@@ -1,12 +1,14 @@
 *
 !bin
 !requirements.txt
-!requirements/dev.txt
+!requirements-dev.txt
 !posthog
+!plugins
 !staticfiles
 !manage.py
 !gunicorn.config.py
 !babel.config.js
+!posthog.json
 !package.json
 !yarn.lock
 !webpack.config.js

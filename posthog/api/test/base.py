@@ -3,7 +3,6 @@ from typing import Dict, Optional
 from django.test import Client, TestCase, TransactionTestCase
 from rest_framework.test import APITestCase
 
-from posthog.cache import clear_cache
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
@@ -15,13 +14,13 @@ class TestMixin:
     TESTS_PASSWORD: Optional[str] = "testpassword12345"
     TESTS_API_TOKEN: str = "token123"
     TESTS_FORCE_LOGIN: bool = True
+    team: Team
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, self.team, email, password, first_name, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore
-        clear_cache()
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:

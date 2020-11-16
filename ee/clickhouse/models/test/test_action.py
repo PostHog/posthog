@@ -84,9 +84,9 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         step1 = ActionStep.objects.create(
             event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
         )
-        query, params, _ = filter_event(step1)
+        query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE uuid IN {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(str(result[0][0]), event_target.pk)
 
@@ -115,9 +115,9 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123",)
-        query, params, _ = filter_event(step1)
+        query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE uuid IN {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
@@ -148,8 +148,8 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         step1 = ActionStep.objects.create(
             event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX,
         )
-        query, params, _ = filter_event(step1)
+        query, params = filter_event(step1)
 
-        full_query = "SELECT uuid FROM events WHERE uuid IN {}".format(query)
+        full_query = "SELECT uuid FROM events WHERE {}".format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)

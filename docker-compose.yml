@@ -6,6 +6,8 @@ services:
             POSTGRES_PASSWORD: posthog
             POSTGRES_USER: posthog
         image: postgres:alpine
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
     redis:
         container_name: posthog_redis
         image: redis:alpine
@@ -26,4 +28,6 @@ services:
         ports:
             - 8000:8000
             - 80:8000
+volumes:
+    postgres-data:
 version: '3'

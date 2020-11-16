@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { router } from 'kea-router'
 import { useValues } from 'kea'
 import { JSSnippet } from 'lib/components/JSSnippet'
+import './SendEventsOverlay.scss'
 
 export function SendEventsOverlay() {
     const overlay = useRef()

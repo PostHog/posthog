@@ -4,6 +4,7 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
+import './FunnelViz.scss'
 
 export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cachedResults }) {
     const container = useRef()
@@ -25,7 +26,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
                         }`
                 ),
                 values: steps.map((step) => step.count),
-                colors: ['#66b0ff', 'var(--blue)'],
+                colors: ['#66b0ff', 'var(--primary)'],
             },
             displayPercent: true,
         })
@@ -66,7 +67,7 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
                 data-attr="funnel-viz"
                 ref={container}
                 className="svg-funnel-js"
-                style={{ height: '100%', width: '100%' }}
+                style={{ height: '100%', width: '100%', overflow: 'hidden' }}
             />
         ) : (
             <p style={{ margin: '1rem' }}>This funnel doesn't have any steps. </p>

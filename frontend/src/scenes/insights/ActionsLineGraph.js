@@ -14,7 +14,12 @@ export function ActionsLineGraph({
     inSharedMode,
     view,
 }) {
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const logic = trendsLogic({
+        dashboardItemId,
+        view: view || filtersParam.insight,
+        filters: filtersParam,
+        cachedResults,
+    })
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadResults, loadPeople } = useActions(logic)
 

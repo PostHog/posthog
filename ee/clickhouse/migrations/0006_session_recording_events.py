@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations  # type: ignore
+from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.sql.session_recording_events import (
     KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,

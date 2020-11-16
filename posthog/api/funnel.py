@@ -1,5 +1,3 @@
-import datetime
-import json
 from typing import Any, Dict, List
 
 from django.db.models import QuerySet
@@ -7,7 +5,7 @@ from django.utils import timezone
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 
-from posthog.decorators import FUNNEL_ENDPOINT, cached_function
+from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Funnel
 
 
@@ -52,7 +50,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
         data = self._retrieve(request, pk)
         return Response(data)
 
-    @cached_function(cache_type=FUNNEL_ENDPOINT)
+    @cached_function(cache_type=CacheType.FUNNEL)
     def _retrieve(self, request, pk=None) -> dict:
         instance = self.get_object()
         serializer = self.get_serializer(instance)

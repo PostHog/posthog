@@ -1,18 +1,13 @@
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Set
 
-import pandas as pd
-from dateutil.relativedelta import relativedelta
-from django.db import connection
-from django.db.models import F, Prefetch, Q, QuerySet
-from django.db.models.expressions import Window
-from django.db.models.functions import Lag
+from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers  # type: ignore
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
@@ -27,14 +22,7 @@ from posthog.models import (
 )
 from posthog.queries.session_recording import SessionRecording
 from posthog.queries.sessions import Sessions
-from posthog.utils import (
-    append_data,
-    convert_property_value,
-    dict_from_cursor_fetchall,
-    friendly_time,
-    get_compare_period_dates,
-    request_to_date_query,
-)
+from posthog.utils import convert_property_value
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -220,38 +208,6 @@ class EventViewSet(viewsets.ModelViewSet):
                     prefetched_events[0:100], many=True, context={"format": self.request.accepted_renderer.format}
                 ).data,
             }
-        )
-
-    @action(methods=["GET"], detail=False)
-    def actions(self, request: request.Request) -> response.Response:
-        action_id, action_id_raw = None, request.query_params.get("id")
-        if action_id_raw is not None:
-            try:
-                action_id = int(action_id_raw)
-            except (TypeError, ValueError):
-                raise exceptions.ValidationError(detail="Invalid query param `id`.")
-        extra_event_filters = {}
-        if action_id is not None:
-            extra_event_filters["action__id"] = action_id
-        events = (
-            self.get_queryset()
-            .filter(action__deleted=False, action__isnull=False, **extra_event_filters)
-            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[
-                0:101
-            ]
-        )
-        matches = []
-        ids_seen: Set[int] = set()
-        for event in events:
-            if event.pk in ids_seen:
-                continue
-            ids_seen.add(event.pk)
-            for this_action in event.action_set.all():
-                event.action = this_action
-                matches.append(event)
-        prefetched_events = self._prefetch_events(matches)
-        return response.Response(
-            {"next": len(events) > 100, "results": [self.serialize_actions(event) for event in prefetched_events],}
         )
 
     @action(methods=["GET"], detail=False)

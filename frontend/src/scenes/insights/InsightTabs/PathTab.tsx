@@ -15,8 +15,8 @@ import { PropertyValue } from 'lib/components/PropertyFilters'
 
 export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(userLogic)
-    const { filter } = useValues(pathsLogic)
-    const { setFilter } = useActions(pathsLogic)
+    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 
     return (
         <>

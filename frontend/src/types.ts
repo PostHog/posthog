@@ -1,4 +1,5 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { PluginConfigSchema } from 'posthog-plugins'
 
 export interface UserType {
     anonymize_data: boolean
@@ -16,14 +17,23 @@ export interface UserType {
     teams: TeamType[]
     current_organization_id: string
     current_team_id: number
+    plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    email_service_available: boolean
 }
 
 export interface UserUpdateType {
     user?: Omit<Partial<UserType>, 'team'>
     team?: Partial<TeamType>
 }
+
+export interface PluginAccess {
+    view: boolean
+    install: boolean
+    configure: boolean
+}
+
 export interface PersonalAPIKeyType {
     id: string
     label: string
@@ -46,6 +56,18 @@ export interface OrganizationType {
     membership_level: OrganizationMembershipLevel | null
 }
 
+export interface EventUsageType {
+    event: string
+    usage_count: number
+    volume: number
+}
+
+export interface PropertyUsageType {
+    key: string
+    usage_count: number
+    volume: number
+}
+
 export interface TeamType {
     id: number
     name: string
@@ -56,9 +78,12 @@ export interface TeamType {
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
+    event_names_with_usage: EventUsageType[]
+    event_properties_with_usage: PropertyUsageType[]
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    plugins_opt_in: boolean
     ingested_event: boolean
 }
 
@@ -203,4 +228,45 @@ export interface DashboardType {
     is_shared: boolean
     share_token: string
     deleted: boolean
+}
+
+export interface OrganizationInviteType {
+    created_at: string
+    created_by_email: string
+    created_by_first_name: string
+    created_by_id: number
+    emailing_attempt_made: boolean
+    id: string
+    target_email: string
+    updated_at: string
+}
+
+export interface PluginType {
+    id: number
+    name: string
+    description: string
+    url: string
+    tag: string
+    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
+    from_json: boolean
+    from_web: boolean
+    error?: PluginErrorType
+}
+
+export interface PluginConfigType {
+    id?: number
+    plugin: number
+    enabled: boolean
+    order: number
+    config: Record<string, any>
+    global?: boolean
+    error?: PluginErrorType
+}
+
+export interface PluginErrorType {
+    message: string
+    time: string
+    stack?: string
+    name?: string
+    event?: Record<string, any>
 }

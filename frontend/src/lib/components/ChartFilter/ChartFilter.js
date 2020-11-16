@@ -13,13 +13,8 @@ export function ChartFilter(props) {
         (!filters.display ||
             filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
             filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
-            <Tooltip
-                key="1"
-                getPopupContainer={(trigger) => trigger.parentElement}
-                placement="right"
-                title="Click on a point to see users related to the datapoint"
-            >
-                <InfoCircleOutlined className="info" style={{ color: '#007bff' }} />
+            <Tooltip key="1" placement="right" title="Click on a point to see users related to the datapoint">
+                <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         ),
 

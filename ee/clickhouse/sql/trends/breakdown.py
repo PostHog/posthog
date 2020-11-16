@@ -32,7 +32,7 @@ SELECT groupArray(day_start), groupArray(count) FROM (
             UNION ALL 
             SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
             FROM 
-            events e {event_join} {conditions}
+            events e {event_join} {breakdown_filter}
             GROUP BY day_start
         )
     ) 
@@ -58,13 +58,13 @@ INNER JOIN (
                 id,
                 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
                 arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-            FROM persons_up_to_date_view WHERE team_id = %(team_id)s
+            FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
         )
         ARRAY JOIN array_property_keys, array_property_values
     ) ep
     WHERE key = %(key)s
 ) ep 
-ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
@@ -75,7 +75,7 @@ INNER JOIN (
     FROM events_properties_view AS ep
     WHERE key = %(key)s and team_id = %(team_id)s
 ) ep 
-ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {parsed_date_from} {parsed_date_to}
+ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 

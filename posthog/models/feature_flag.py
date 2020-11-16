@@ -31,11 +31,7 @@ class FeatureFlag(models.Model):
 
     def distinct_id_matches(self, distinct_id: str) -> bool:
         if len(self.filters.get("properties", [])) > 0:
-            if (
-                not Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-                .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
-                .exists()
-            ):
+            if not self._match_distinct_id(distinct_id):
                 return False
             elif not self.rollout_percentage:
                 return True
@@ -45,6 +41,13 @@ class FeatureFlag(models.Model):
             if hash <= (self.rollout_percentage / 100):
                 return True
         return False
+
+    def _match_distinct_id(self, distinct_id: str) -> bool:
+        return (
+            Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+            .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
+            .exists()
+        )
 
     # This function takes a distinct_id and a feature flag key and returns a float between 0 and 1.
     # Given the same distinct_id and key, it'll always return the same float. These floats are

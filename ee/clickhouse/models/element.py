@@ -8,6 +8,10 @@ parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
 split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
 
+# Below splits the tag/classes from attributes
+# Needs a regex because classes can have : too
+split_class_attributes = re.compile(r"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))")
+
 
 def _escape(input: str) -> str:
     return input.replace('"', r"\"")
@@ -21,7 +25,7 @@ def elements_to_string(elements: List[Element],) -> str:
             el_string += element.tag_name
         if element.attr_class:
             for single_class in sorted(element.attr_class):
-                el_string += ".{}".format(single_class)
+                el_string += ".{}".format(single_class.replace('"', ""))
         attributes = {
             **({"text": element.text} if element.text else {}),
             "nth-child": element.nth_child or 0,
@@ -40,14 +44,16 @@ def elements_to_string(elements: List[Element],) -> str:
 def chain_to_elements(chain: str) -> List[Element]:
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
-        tag_and_class, attributes = el_string.split(":", 1)
-        attributes = re.finditer(parse_attributes_regex, attributes)
+        el_string_split = re.findall(split_class_attributes, el_string)[0]
+        attributes = re.finditer(parse_attributes_regex, el_string_split[2]) if len(el_string_split) > 2 else []
+
         element = Element(order=idx)
-        if tag_and_class:
-            tag_and_class = tag_and_class.split(".", 1)
+
+        if el_string_split[0]:
+            tag_and_class = el_string_split[0].split(".", 1)
             element.tag_name = tag_and_class[0]
             if len(tag_and_class) > 1:
-                element.attr_class = tag_and_class[1].split(".")
+                element.attr_class = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
         for ii in attributes:
             item = ii.groupdict()
