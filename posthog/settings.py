@@ -58,7 +58,7 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv  # type: bool
+TEST = "test" in sys.argv or get_bool_from_env("TEST", False)  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
 SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 
@@ -444,13 +444,14 @@ EXCEPTIONS_HOG = {
 }
 
 # Email
-EMAIL_HOST = os.environ.get("EMAIL_HOST")
+EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
 EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
+DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
 
 CACHES = {
@@ -466,6 +467,11 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+    import celery
+
+    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
+    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
 
 if DEBUG and not TEST:
     print_warning(

@@ -14,6 +14,40 @@ const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0
 module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
 
 function createEntry(entry) {
+    const commonLoadersForSassAndLess = [
+        entry === 'toolbar'
+            ? {
+                  loader: 'style-loader',
+                  options: {
+                      insert: function insertAtTop(element) {
+                          // tunnel behind the shadow root
+                          if (window.__PHGTLB_ADD_STYLES__) {
+                              window.__PHGTLB_ADD_STYLES__(element)
+                          } else {
+                              if (!window.__PHGTLB_STYLES__) {
+                                  window.__PHGTLB_STYLES__ = []
+                              }
+                              window.__PHGTLB_STYLES__.push(element)
+                          }
+                      },
+                  },
+              }
+            : {
+                  // After all CSS loaders we use plugin to do his work.
+                  // It gets all transformed CSS and extracts it into separate
+                  // single bundled file
+                  loader: MiniCssExtractPlugin.loader,
+              },
+        {
+            // This loader resolves url() and @imports inside CSS
+            loader: 'css-loader',
+        },
+        {
+            // Then we apply postCSS fixes like autoprefixer and minifying
+            loader: 'postcss-loader',
+        },
+    ]
+
     return {
         name: entry,
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -76,39 +110,7 @@ function createEntry(entry) {
                     // Loaders are applying from right to left(!)
                     // The first loader will be applied after others
                     use: [
-                        entry === 'main' || entry === 'shared_dashboard'
-                            ? {
-                                  // After all CSS loaders we use plugin to do his work.
-                                  // It gets all transformed CSS and extracts it into separate
-                                  // single bundled file
-                                  loader: MiniCssExtractPlugin.loader,
-                              }
-                            : entry === 'toolbar'
-                            ? {
-                                  loader: 'style-loader',
-                                  options: {
-                                      insert: function insertAtTop(element) {
-                                          // tunnel behind the shadow root
-                                          if (window.__PHGTLB_ADD_STYLES__) {
-                                              window.__PHGTLB_ADD_STYLES__(element)
-                                          } else {
-                                              if (!window.__PHGTLB_STYLES__) {
-                                                  window.__PHGTLB_STYLES__ = []
-                                              }
-                                              window.__PHGTLB_STYLES__.push(element)
-                                          }
-                                      },
-                                  },
-                              }
-                            : null,
-                        {
-                            // This loader resolves url() and @imports inside CSS
-                            loader: 'css-loader',
-                        },
-                        {
-                            // Then we apply postCSS fixes like autoprefixer and minifying
-                            loader: 'postcss-loader',
-                        },
+                        ...commonLoadersForSassAndLess,
                         {
                             // First we transform SASS to standard CSS
                             loader: 'sass-loader',
@@ -122,12 +124,7 @@ function createEntry(entry) {
                     // Apply rule for less files (used to import and override AntD)
                     test: /\.(less)$/,
                     use: [
-                        {
-                            loader: 'style-loader', // creates style nodes from JS strings
-                        },
-                        {
-                            loader: 'css-loader', // translates CSS into CommonJS
-                        },
+                        ...commonLoadersForSassAndLess,
                         {
                             loader: 'less-loader', // compiles Less to CSS
                             options: {

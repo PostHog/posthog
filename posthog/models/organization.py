@@ -12,11 +12,6 @@ try:
 except ImportError:
     License = None  # type: ignore
 
-try:
-    from multi_tenancy.models import OrganizationBilling
-except ImportError:
-    OrganizationBilling = None
-
 
 class OrganizationManager(models.Manager):
     def bootstrap(
@@ -51,31 +46,41 @@ class Organization(UUIDModel):
     objects = OrganizationManager()
 
     @property
-    def billing_plan(self) -> Optional[str]:
-        # If the EE folder is missing no features are available
-        if not settings.EE_AVAILABLE:
-            return None
-        # If we're on Cloud, grab the organization's price
-        if OrganizationBilling is not None:
-            try:
-                return OrganizationBilling.objects.get(organization_id=self.id).get_plan_key()
-            except OrganizationBilling.DoesNotExist:
-                return None
+    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Obtains details on the billing plan for the organization.
+        Returns a tuple with (billing_plan_key, billing_realm)
+        """
+
+        # If on Cloud, grab the organization's price
+        if hasattr(self, "billing"):
+            if self.billing is None:  # type: ignore
+                return (None, None)
+            return (self.billing.get_plan_key(), "cloud")  # type: ignore
+
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.filter(valid_until__gte=timezone.now()).first()
             if license:
-                return license.plan
-        return None
+                return (license.plan, "ee")
+        return (None, None)
+
+    @property
+    def billing_plan(self) -> Optional[str]:
+        return self._billing_plan_details[0]
 
     @property
     def available_features(self) -> List[str]:
-        plan = self.billing_plan
+        plan, realm = self._billing_plan_details
         if not plan:
             return []
-        if plan not in License.PLANS:
-            return []
-        return License.PLANS[plan]
+
+        if realm == "ee":
+            if plan not in License.PLANS:
+                return []
+            return License.PLANS[plan]
+
+        return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
