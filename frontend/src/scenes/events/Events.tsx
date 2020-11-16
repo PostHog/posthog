@@ -8,8 +8,9 @@ import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
 import { EventsVolumeTable } from './EventsVolumeTable'
 import { PropertiesVolumeTable } from './PropertiesVolumeTable'
+import { eventsLogicType } from 'types/scenes/events/EventsType'
 
-const eventsLogic = kea({
+const eventsLogic = kea<eventsLogicType>({
     actions: {
         setTab: (tab: string) => ({ tab }),
     },
@@ -26,7 +27,8 @@ const eventsLogic = kea({
     }),
     urlToAction: ({ actions, values }) => ({
         '/events(/:tab)': ({ tab }: Record<string, string>) => {
-            if (tab !== values.tab && tab) actions.setTab(tab)
+            const currentTab = tab || 'live'
+            if (currentTab !== values.tab) actions.setTab(currentTab)
         },
     }),
 })
