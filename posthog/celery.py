@@ -167,10 +167,10 @@ def calculate_event_action_mappings():
 
 
 @app.task(ignore_result=True)
-def calculate_cohort(max_age_minutes):
+def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts(max_age_minutes)
+    calculate_cohorts()
 
 
 @app.task(ignore_result=True)
