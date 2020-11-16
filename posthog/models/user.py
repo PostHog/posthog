@@ -137,15 +137,17 @@ class User(AbstractUser):
             return membership
 
     def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+        membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if (
-            OrganizationMembership.objects.filter(
+            membership.level >= OrganizationMembership.Level.ADMIN
+            and OrganizationMembership.objects.filter(
                 organization=organization, level__gte=OrganizationMembership.Level.ADMIN
             ).count()
             == 1
         ):
             raise ValidationError("Cannot leave the organization as its last admin!")
         with transaction.atomic():
-            OrganizationMembership.objects.get(user=self, organization=organization).delete()
+            membership.delete()
             if self.current_organization == organization:
                 self.current_organization = self.organizations.first()
                 self.current_team = (

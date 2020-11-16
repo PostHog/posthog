@@ -11,18 +11,17 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
     TESTS_API = True
 
     def test_delete_organization_member(self):
-        user = User.objects.create_user("test@x.com", None, "X")
-        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        user = User.objects.create_and_join(self.organization, None, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
-        self.assertEqual(membership_queryset.count(), 1)
+        self.assertTrue(membership_queryset.exists())
         response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(membership_queryset.count(), 1)
+        self.assertTrue(membership_queryset.exists())
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(membership_queryset.count(), 0)
+        self.assertFalse(membership_queryset.exists(), False)
 
     def test_leave_organization(self):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
@@ -82,17 +81,15 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertEqual(response.status_code, 403)
 
     def test_cannot_change_own_organization_member_level(self):
-        membership: OrganizationMembership = OrganizationMembership.objects.get(
-            user=self.user, organization=self.organization
-        )
-        self.assertEqual(membership.level, OrganizationMembership.Level.ADMIN)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{self.user.id}/",
+            f"/api/organizations/@current/members/{self.user.id}",
             {"level": OrganizationMembership.Level.MEMBER},
             content_type="application/json",
         )
-        membership.refresh_from_db()
-        self.assertEqual(membership.level, OrganizationMembership.Level.ADMIN)
+        self.organization_membership.refresh_from_db()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
         self.assertDictEqual(
             response.json(),
             {
