@@ -1,42 +1,43 @@
 .action-filter-dropdown {
-    .select-box {
-        position: absolute;
-        min-width: 260px;
-        box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
-        padding: 1rem;
-        border-radius: 2px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        height: 400px;
-        background: #fff;
-        z-index: 9999;
-        overflow: visible;
+    position: absolute;
+    min-width: 620px;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+    border-radius: 2px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    height: 400px;
+    background: #fff;
+    z-index: 999;
+    overflow: visible;
+    .ant-input {
+        border-width: 0 0 1px 0;
+        outline: none;
     }
-    select {
-        height: 31px;
+    .ant-divider {
+        margin: 12px 0;
+        border-width: 2px;
     }
-    .select-box-info {
-        position: fixed;
-        background: #fff;
-        padding: 1rem;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
-        z-index: 99999;
-        opacity: 1;
-        pre {
-            max-width: 550px;
-            overflow: scroll;
-            margin-bottom: 0;
-            white-space: pre-wrap;
+
+    .ant-list-item {
+        padding: 4px 12px;
+        cursor: pointer;
+        border: none;
+
+        &:hover,
+        &.selected {
+            background: rgba(0, 0, 0, 0.1);
         }
-        ul {
-            list-style: none;
-            padding-inline-start: 15px;
-            margin-bottom: 0;
-            li:not(:last-child) {
-                padding-bottom: 0.5rem;
-                margin-bottom: 0.5rem;
-                border-bottom: 1px solid rgba(0, 0, 0, 0.4);
-            }
+    }
+    .search-list {
+        overflow-y: scroll;
+        height: calc(100% - 32px);
+        padding-top: 4px;
+    }
+    .info-box {
+        padding: 1rem;
+        overflow-y: scroll;
+        height: 100%;
+        pre {
+            margin: 0;
         }
     }
 }
