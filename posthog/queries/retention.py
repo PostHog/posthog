@@ -155,7 +155,9 @@ class Retention(BaseQuery):
         else:
             final_query = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
-            filter._date_to = (date_from + time_increment).isoformat()
+            if filter.display == TRENDS_LINEAR:
+                filter._date_to = (date_from + time_increment).isoformat()
+
             first_date = (
                 events.filter(filter.date_filter_Q)
                 .filter(filter.properties_to_Q(team_id=team.pk))

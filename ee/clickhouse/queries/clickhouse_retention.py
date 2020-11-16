@@ -1,5 +1,8 @@
 import datetime
-from typing import Any, Dict, Tuple
+from datetime import timedelta
+from typing import Any, Dict, Tuple, Union
+
+from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -27,6 +30,7 @@ class ClickhouseRetention(Retention):
         target_entity: Entity,
         returning_entity: Entity,
         is_first_time_retention: bool,
+        time_increment: Union[timedelta, relativedelta],
         team: Team,
     ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
