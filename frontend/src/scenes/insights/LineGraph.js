@@ -204,11 +204,14 @@ export function LineGraph({
                                       let entityData = data.datasets[tooltipItem.datasetIndex]
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
-                                      var label = entityData.chartLabel || entityData.label || ''
+                                      const label = entityData.chartLabel || entityData.label || ''
+                                      const formattedLabel = entityData.action
+                                          ? formatLabel(label, entityData.action)
+                                          : label
                                       return (
-                                          (entityData.action ? formatLabel(label, entityData.action) : label) +
-                                          ' - ' +
-                                          tooltipItem.yLabel.toLocaleString()
+                                          (formattedLabel ? formattedLabel + ' — ' : '') +
+                                          tooltipItem.yLabel.toLocaleString() +
+                                          (percentage ? '%' : '')
                                       )
                                   },
                               },

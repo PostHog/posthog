@@ -49,7 +49,7 @@ function cleanFilters(filters): any {
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
         selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
         period: filters.period || 'd',
-        display: filters.display || null,
+        display: filters.display || 'ActionsTable',
     }
 }
 
