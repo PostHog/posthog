@@ -100,9 +100,14 @@ class Retention(BaseQuery):
             value_at_interval = resultset.get((0, interval_number), {"count": 0, "people": []}).get("count", 0)
             data.append(value_at_interval)
 
-        normalized = [float(val) / data[0] * 100 for val in data]
+        normalized = [((float(val) / data[0]) if data[0] else 0) * 100 for val in data]
 
-        result = {"data": normalized, "labels": labels, "count": data[0] if data else 0}
+        result = {
+            "data": normalized,
+            "labels": labels,
+            "count": data[0] if data else 0,
+            "days": [day for day in range(1, total_intervals)],
+        }
 
         return [result]
 

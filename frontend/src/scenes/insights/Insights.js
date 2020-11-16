@@ -31,7 +31,7 @@ import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
-import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
@@ -71,7 +71,7 @@ const showChartFilter = {
     [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.RETENTION}`]: true,
     [`${ViewType.PATHS}`]: false,
 }
 
@@ -235,7 +235,7 @@ function _Insights() {
                                         [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
                                         [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
                                         [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                        [`${ViewType.RETENTION}`]: <RetentionTable />,
+                                        [`${ViewType.RETENTION}`]: <RetentionContainer />,
                                         [`${ViewType.PATHS}`]: <Paths />,
                                     }[activeView]
                                 }

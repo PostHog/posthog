@@ -49,6 +49,7 @@ function cleanFilters(filters): any {
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
         selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
         period: filters.period || 'd',
+        display: filters.display || null,
     }
 }
 
@@ -58,9 +59,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     },
     loaders: ({ values }) => ({
         retention: {
-            __default: {},
+            __default: ({} as Record<string, unknown>) || Array,
             loadRetention: async (_: any, breakpoint) => {
-                const params: Record<string, any> = {}
+                const params: Record<string, any> = { ...values.filters }
                 params['properties'] = values.properties
                 if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
@@ -108,6 +109,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
         updateRetention: (retention) => ({ retention }),
         clearPeople: true,
+        clearRetention: true,
     }),
     reducers: ({ props }) => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -147,6 +149,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
         retention: {
             updateRetention: (_, { retention }) => retention,
+            clearRetention: () => ({}),
         },
         loadingMore: [
             false,
@@ -221,6 +224,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 }
                 const cleanSearchParams = cleanFilters(searchParams)
                 const cleanedFilters = cleanFilters(values.filters)
+
+                if (cleanSearchParams.display !== cleanedFilters.display) {
+                    actions.clearRetention()
+                }
+
                 if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
                     actions.setFilters(cleanSearchParams)
                 }
