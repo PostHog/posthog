@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { router } from 'kea-router'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
@@ -33,6 +32,18 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
+            },
+        ],
+        userLoading: [
+            false,
+            {
+                loadUser: () => true,
+                setUser: () => false,
+                userUpdateRequest: () => true,
+                userUpdateSuccess: () => false,
+                userUpdateFailure: () => false,
+                currentTeamUpdateRequest: () => true,
+                currentOrganizationUpdateRequest: () => true,
             },
         ],
     },
@@ -86,9 +97,6 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
     }),
 
     listeners: ({ actions }) => ({
-        setUser: ({ user }) => {
-            if (user && !user.team) router.actions.push('/organization/members')
-        },
         loadUser: async ({ resetOnFailure }) => {
             try {
                 const user = await api.get('api/user')

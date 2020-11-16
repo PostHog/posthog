@@ -12,13 +12,12 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
+import { Scene, sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
-import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const darkerScenes: Record<string, boolean> = {
@@ -28,49 +27,68 @@ const darkerScenes: Record<string, boolean> = {
     editFunnel: true,
     paths: true,
 }
-const plainScenes: string[] = ['ingestion', 'organizationCreateFirst']
+const plainScenes: Scene[] = [Scene.Ingestion, Scene.OrganizationCreateFirst, Scene.ProjectCreateFirst]
 
-const Toast = (): JSX.Element => {
+function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
 }
 
 export const App = hot(_App)
 function _App(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { user, userLoading } = useValues(userLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991) // used for legacy navigation [Sidebar.js]
+    // used for legacy navigation [Sidebar.js]
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     useEffect(() => {
-        // If user is already logged in, redirect away from unauthenticated routes like signup
-        if (user && unauthenticatedRoutes.includes(scene)) {
-            replace('/')
-            return
-        }
-
-        // If user is in no organization, redirect to org creation, otherwise redirect away from org creation
-        if (location.pathname.startsWith('/organization/create')) {
-            if (currentOrganization?.name) {
+        if (user) {
+            // If user is already logged in, redirect away from unauthenticated routes like signup
+            if (unauthenticatedRoutes.includes(scene)) {
                 replace('/')
                 return
             }
-        } else if (!currentOrganizationLoading && !currentOrganization?.name) {
-            replace('/organization/create')
-            return
+
+            // If user is in no organization, redirect to org creation, otherwise redirect away from org creation
+            if (location.pathname.startsWith('/organization/create')) {
+                if (user.organizations.length) {
+                    replace('/')
+                    return
+                }
+            } else if (!userLoading && !user.organizations.length) {
+                replace('/organization/create')
+                return
+            }
+
+            if (user.organization) {
+                // If organization has no project, redirect to project creation, otherwise redirect away from it
+                if (location.pathname.startsWith('/project/create')) {
+                    if (user.organization.teams.length) {
+                        replace('/')
+                        return
+                    }
+                } else if (!userLoading && !user.organization.teams.length) {
+                    replace('/project/create')
+                    return
+                }
+            }
         }
 
         // If ingestion tutorial not completed, redirect to it
-        if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+        if (
+            currentTeam?.name &&
+            !currentTeam.completed_snippet_onboarding &&
+            !location.pathname.startsWith('/ingestion')
+        ) {
             replace('/ingestion')
             return
         }
-    }, [scene, user, currentOrganization, currentOrganizationLoading])
+    }, [scene, user, currentTeam, currentTeamLoading])
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (

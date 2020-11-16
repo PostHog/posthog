@@ -117,15 +117,6 @@ class TeamViewSet(viewsets.ModelViewSet):
         self.check_object_permissions(self.request, obj)
         return obj
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.organization.teams.count() <= 1:
-            raise exceptions.ValidationError(
-                f"Cannot remove project since that would leave organization {instance.name} project-less, which is not supported yet."
-            )
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
-
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str) -> response.Response:
         team = self.get_object()
