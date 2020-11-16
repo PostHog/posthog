@@ -24,7 +24,7 @@ import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
 // to show the right page in the sidebar
-const sceneOverride = {
+const sceneOverride: Record<string, string> = {
     action: 'actions',
     person: 'persons',
     dashboard: 'dashboards',
@@ -39,9 +39,22 @@ interface MenuItemProps {
 }
 
 const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
-    const { scene, loadingScene } = useValues(sceneLogic)
-    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    const { scene, loadingScene, params } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
+
+    const activeScene = (): string => {
+        const nominalScene = loadingScene || scene
+
+        // Scenes with special handling
+        if (nominalScene === 'events') {
+            // Events & Actions are split
+            if (params?._ === 'actions') {
+                return 'actions'
+            }
+        }
+
+        return sceneOverride[nominalScene] || nominalScene
+    }
 
     const handleClick = (): void => {
         if (onClick) {
@@ -53,7 +66,7 @@ const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.
     return (
         <Link to={to} onClick={handleClick}>
             <div
-                className={`menu-item${activeScene === identifier ? ' menu-item-active' : ''}`}
+                className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
                 data-attr={`menu-item-${identifier}`}
             >
                 {icon}
@@ -120,7 +133,7 @@ function _MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" />
-                    <MenuItem title="Actions" icon={<IconActions />} identifier="actions" to="/actions" />
+                    <MenuItem title="Actions" icon={<IconActions />} identifier="actions" to="/events/actions" />
                     <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
                     <div className="divider" />
                     <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
