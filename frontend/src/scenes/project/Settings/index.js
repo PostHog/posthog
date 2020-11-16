@@ -100,7 +100,7 @@ function _Setup() {
                         </p>
                         <OptInSessionRecording />
                         <p>
-                            This is a new feature of posthog. Please{' '}
+                            This is a new feature of PostHog. Please{' '}
                             <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
                                 share feedback
                             </a>{' '}
@@ -109,7 +109,7 @@ function _Setup() {
                     </>
                 )}
                 <Divider />
-                <h2 style={{ color: red.primary }}>Danger Zone</h2>
+                <h2 style={{ color: 'var(--danger)' }}>Danger Zone</h2>
                 <DeleteProject />
             </Card>
         </div>
