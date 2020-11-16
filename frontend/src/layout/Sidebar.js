@@ -163,7 +163,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     <Menu.Item key="events" style={itemStyle} data-attr="menu-item-events">
                         <ContainerOutlined />
-                        Events
+                        Events & Actions
                         <Link to={'/events'} onClick={collapseSidebar} />
                     </Menu.Item>
 
