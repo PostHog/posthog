@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-//import { Cohort } from './Cohort'
+import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
 import { Button, Tabs, Input } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
@@ -15,16 +15,7 @@ function _Persons(): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
-    const cohortId = null
 
-    /*useEffect(() => {
-        fetchPersons()
-    }, [cohortId])
-
-    useEffect(() => {
-        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/persons', { category, cohort: cohortId })
-    }, [categoryRaw])
-*/
     const exampleEmail =
         (persons && persons.results.find((person) => person.properties?.email)?.properties?.email) ||
         'example@gmail.com'
@@ -36,15 +27,15 @@ function _Persons(): JSX.Element {
     return (
         <div>
             <PageHeader title="Persons" />
-            {/* <Cohort
-                onChange={(cohortId) => {
-                    push('/persons', { category, cohort: cohortId })
+            <Cohort
+                onChange={(cohort: string) => {
+                    setListFilters({ cohort })
                 }}
-            /> */}
+            />
             <Button
                 type="default"
                 icon={<ExportOutlined />}
-                href={'/api/person.csv' + (cohortId ? '?cohort=' + cohortId : '')}
+                href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
                 style={{ marginBottom: '1rem' }}
             >
                 Export
