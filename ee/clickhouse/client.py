@@ -27,6 +27,8 @@ from posthog.settings import (
 
 CACHE_TTL = 60  # seconds
 
+PRIMARY_CLICKHOUSE_HOST, *ALTERNATE_CLICKHOUSE_HOSTS = CLICKHOUSE_HOST
+
 
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = None  # type: Client
@@ -45,7 +47,8 @@ if PRIMARY_DB != CLICKHOUSE:
 else:
     if not TEST and CLICKHOUSE_ASYNC:
         ch_client = Client(
-            host=CLICKHOUSE_HOST,
+            host=PRIMARY_CLICKHOUSE_HOST,
+            alt_hosts=ALTERNATE_CLICKHOUSE_HOSTS,
             database=CLICKHOUSE_DATABASE,
             secure=CLICKHOUSE_SECURE,
             password=CLICKHOUSE_PASSWORD,
@@ -62,7 +65,8 @@ else:
     else:
         # if this is a test use the sync client
         ch_client = SyncClient(
-            host=CLICKHOUSE_HOST,
+            host=PRIMARY_CLICKHOUSE_HOST,
+            alt_hosts=ALTERNATE_CLICKHOUSE_HOSTS,
             database=CLICKHOUSE_DATABASE,
             secure=CLICKHOUSE_SECURE,
             password=CLICKHOUSE_PASSWORD,
@@ -74,7 +78,8 @@ else:
             return sync_execute(query, args)
 
     ch_sync_pool = ChPool(
-        host=CLICKHOUSE_HOST,
+        host=PRIMARY_CLICKHOUSE_HOST,
+        alt_hosts=ALTERNATE_CLICKHOUSE_HOSTS,
         database=CLICKHOUSE_DATABASE,
         secure=CLICKHOUSE_SECURE,
         password=CLICKHOUSE_PASSWORD,
