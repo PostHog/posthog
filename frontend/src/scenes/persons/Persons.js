@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { Cohort } from './Cohort'
-import { PeopleTable } from './PeopleTable'
+import { PersonsTable } from './PersonsTable'
 import { Button, Tabs, Input } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
@@ -12,8 +12,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 const { TabPane } = Tabs
 const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
 
-export const People = hot(_People)
-function _People() {
+export const Persons = hot(_Persons)
+function _Persons() {
     const [isLoading, setIsLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
@@ -117,7 +117,7 @@ function _People() {
             </Tabs>
 
             <div>
-                <PeopleTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
+                <PersonsTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
 
                 <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                     <Button
