@@ -28,7 +28,7 @@ def query_action(action: Action) -> Optional[List]:
     query = ACTION_QUERY.format(action_filter=formatted_query)
 
     if query:
-        return sync_execute(query, params)
+        return sync_execute(query, {"team_id": action.team_id, **params})
 
     return None
 
