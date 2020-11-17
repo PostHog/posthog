@@ -2,7 +2,7 @@
     "name": "PostHog - Product Analytics",
     "website": "https://www.posthog.com",
     "repository": "https://github.com/posthog/posthog",
-    "logo": "https://posthog.com/images/98771d009c04ff64fc4ba3b31cc46fe8/posthog-icon-color.svg",
+    "logo": "https://posthog.com/images/36f8ad157f42d4d48dc1de1db45802e1/posthog-icon-color.svg",
     "environments": {
         "review": {
             "scripts": {
