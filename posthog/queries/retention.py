@@ -2,7 +2,7 @@ import datetime
 import random
 import string
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union, final
+from typing import Any, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
