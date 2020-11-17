@@ -13,7 +13,7 @@ const { TabPane } = Tabs
 const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
 
 export const People = hot(_People)
-function _People() {
+function _People({ cohortId }) {
     const [isLoading, setIsLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
@@ -24,7 +24,7 @@ function _People() {
     })
     const { push } = useActions(router)
     const {
-        searchParams: { category: categoryRaw = 'all', cohort: cohortId },
+        searchParams: { category: categoryRaw = 'all' },
     } = useValues(router)
 
     // ensure that there's no invalid category error
@@ -73,11 +73,6 @@ function _People() {
     return (
         <div>
             <PageHeader title="Persons" />
-            <Cohort
-                onChange={(cohortId) => {
-                    push('/persons', { category, cohort: cohortId })
-                }}
-            />
             <Button
                 type="default"
                 icon={<ExportOutlined />}

@@ -1,38 +1,29 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { fromParams } from 'lib/utils'
 import { CloseButton } from 'lib/components/CloseButton'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
 import { Button, Card, Input } from 'antd'
 import { useValues, useActions } from 'kea'
+import { People } from './People'
 
 const isSubmitDisabled = (cohorts) => {
     if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => Object.keys(group).length)
     return true
 }
 
-export function Cohort({ onChange }) {
-    const { setCohort, saveCohort } = useActions(cohortLogic({ onChange, id: fromParams()['cohort'] }))
-    const { personProperties, cohort } = useValues(cohortLogic({ onChange, id: fromParams()['cohort'] }))
+export function Cohort({ onChange, cohort }) {
+    console.log(cohort)
+    const { setCohort, saveCohort } = useActions(cohortLogic({ onChange, id: cohort.id }))
+    const { personProperties } = useValues(cohortLogic({ onChange, id: cohort.id }))
+    useEffect(() => {
+        setCohort(cohort)
+    }, [])
 
     if (!cohort) return null
     return (
         cohort.groups.length > 0 && (
-            <div style={{ maxWidth: 750 }} className="mb">
-                <Card
-                    title={
-                        <span>
-                            <CloseButton
-                                style={{ float: 'right' }}
-                                onClick={() => {
-                                    setCohort({ id: false, groups: [] })
-                                    onChange()
-                                }}
-                            />
-                            {cohort.name || 'New Cohort'}
-                        </span>
-                    }
-                >
+            <div className="mb">
                     <form
                         onSubmit={(e) => {
                             e.preventDefault()
@@ -91,7 +82,7 @@ export function Cohort({ onChange }) {
                             </Button>
                         </div>
                     </form>
-                </Card>
+                {cohort.id && <People cohortId={cohort.id} />}
             </div>
         )
     )

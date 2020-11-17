@@ -91,7 +91,7 @@ export const routes: Record<string, Scene> = {
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
+    '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
