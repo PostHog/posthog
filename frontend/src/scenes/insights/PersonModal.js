@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
-import { PeopleTable } from 'scenes/users/PeopleTable'
+import { PersonsTable } from 'scenes/persons/PersonsTable'
 
-export function PeopleModal({ visible, view }) {
+export function PersonModal({ visible, view }) {
     const { people, filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
 
@@ -31,7 +31,7 @@ export function PeopleModal({ visible, view }) {
                 <p>Loading users...</p>
             )}
 
-            <PeopleTable loading={!people?.people} people={people?.people} />
+            <PersonsTable loading={!people?.people} people={people?.people} />
             <div
                 style={{
                     margin: '1rem',

@@ -186,12 +186,12 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             location.pathname !== '/persons' && push('/persons')
                         }}
                     >
-                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-people-persons">
+                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-persons">
                             <UserOutlined />
                             <span className="sidebar-label">Persons</span>
                             <Link to={'/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
+                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">Cohorts</span>
                             <Link to={'/cohorts'} onClick={collapseSidebar} />
