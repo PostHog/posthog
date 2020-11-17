@@ -206,7 +206,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         ],
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadRetention,
+        afterMount: () => {
+            actions.setFilters({
+                display: 'ActionsTable',
+            })
+        },
     }),
     actionToUrl: ({ values }) => ({
         setFilters: () => {

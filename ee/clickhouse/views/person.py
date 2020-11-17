@@ -1,7 +1,5 @@
-import json
-from typing import List
-
 from rest_framework import request, response
+from rest_framework.decorators import action
 
 from ee.clickhouse.models.person import delete_person
 from posthog.api.person import PersonViewSet
@@ -20,3 +18,7 @@ class ClickhousePerson(PersonViewSet):
         delete_person(person.uuid, delete_events=True, team_id=team.pk)
         person.delete()
         return response.Response(status=204)
+
+    @action(methods=["GET"], detail=False)
+    def retention(self, request: request.Request):
+        pass
