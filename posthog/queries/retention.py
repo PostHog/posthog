@@ -2,8 +2,9 @@ import datetime
 import random
 import string
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, final
 
+import sqlparse
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
@@ -122,50 +123,50 @@ class Retention(BaseQuery):
         period = filter.period
         events: QuerySet = QuerySet()
 
-        def get_entity_condition(entity: Entity) -> Q:
+        def get_entity_condition(entity: Entity, table: str) -> Tuple[Q, str]:
             if entity.type == TREND_FILTER_TYPE_EVENTS:
-                return Q(event=entity.id)
+                return Q(event=entity.id), "{}.event = %s".format(table)
             elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-                return Q(action__pk=entity.id)
+                return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
             else:
                 raise ValueError(f"Entity type not supported")
 
-        entity_condition = get_entity_condition(target_entity)
-        returning_condition = get_entity_condition(returning_entity)
-        events = (
-            Event.objects.filter(team_id=team.pk)
-            .filter(returning_condition | entity_condition)
-            .add_person_id(team.pk)
-            .annotate(event_date=F("timestamp"))
+        entity_condition, entity_condition_stringified = get_entity_condition(target_entity, "events")
+        returning_condition, returning_condition_stringified = get_entity_condition(
+            returning_entity, "first_event_date"
         )
+        events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
 
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
             filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
             first_date = (
-                filtered_events.filter(entity_condition).values("person_id").annotate(first_date=Min(trunc)).distinct()
+                filtered_events.filter(entity_condition)
+                .values("person_id", "event", "action")
+                .annotate(first_date=Min(trunc))
+                .distinct()
             )
             final_query = (
                 filtered_events.filter(filter.date_filter_Q)
                 .filter(returning_condition)
-                .values_list("person_id", "event_date")
-                .union(first_date.values_list("first_date", "person_id"))
+                .values_list("person_id", "event_date", "event", "action")
+                .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
         else:
-            final_query = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
-
-            if filter.display == TRENDS_LINEAR:
-                filter._date_to = (date_from + time_increment).isoformat()
-
+            filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
             first_date = (
-                events.filter(filter.date_filter_Q)
-                .filter(filter.properties_to_Q(team_id=team.pk))
+                filtered_events.filter(entity_condition)
                 .annotate(first_date=trunc)
-                .values("first_date", "person_id")
+                .values("first_date", "person_id", "event", "action")
                 .distinct()
             )
 
+            final_query = (
+                filtered_events.filter(returning_condition)
+                .values_list("person_id", "event_date", "event", "action")
+                .union(first_date.values_list("first_date", "person_id", "event", "action"))
+            )
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
@@ -178,16 +179,22 @@ class Retention(BaseQuery):
             LEFT JOIN ({reference_event_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
             WHERE event_date >= first_date
+            AND {event_condition} AND {returning_condition}
+            OR ({returning_condition} AND event_date = first_date)
             GROUP BY date, first_date
         """.format(
-            event_query=event_query, reference_event_query=reference_event_query, fields=fields
+            event_query=event_query,
+            reference_event_query=reference_event_query,
+            fields=fields,
+            event_condition=entity_condition_stringified,
+            returning_condition=returning_condition_stringified,
         )
-
+        event_params = (returning_entity.id, target_entity.id, target_entity.id)
         start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
 
         with connection.cursor() as cursor:
             cursor.execute(
-                final_query, start_params + events_query_params + first_date_params,
+                final_query, start_params + events_query_params + first_date_params + event_params,
             )
             data = namedtuplefetchall(cursor)
 

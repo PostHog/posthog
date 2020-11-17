@@ -117,6 +117,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     ("person2", self._date(1)),
                     ("person2", self._date(2)),
                     ("person2", self._date(3)),
+                    ("person3", self._date(5)),
                 ],
                 first_event,
             )
@@ -144,7 +145,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             self.assertEqual(
                 self.pluck(result, "values", "count"),
-                [[2, 2, 2, 2, 0, 2, 1], [2, 2, 2, 0, 2, 1], [2, 2, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [2, 1], [1]],
+                [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
             )
 
         def test_retention_graph(self):
@@ -374,7 +375,13 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(data={"date_to": self._date(6, hour=0), "target_entity": start_entity,}),
+                Filter(
+                    data={
+                        "date_to": self._date(6, hour=0),
+                        "target_entity": start_entity,
+                        "actions": [{"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS},],
+                    }
+                ),
                 self.team,
                 total_intervals=7,
             )
