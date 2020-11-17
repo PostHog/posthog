@@ -33,7 +33,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
                 loadPersons: async (url: string | null = '') => {
-                    const qs = Object.keys(values.listFilters).map((key) => `${key}=${values.listFilters[key]}`)
+                    const qs = Object.keys(values.listFilters).reduce(function (result, key) {
+                        const value = values.listFilters[key]
+                        if (value !== undefined && value !== null) {
+                            result.push(`${key}=${value}`)
+                        }
+                        return result
+                    }, [] as string[])
                     if (values.cohort) qs.push(`cohort=${values.cohort}`)
                     const dest = `${url || 'api/person/'}${qs.length ? '?' + qs.join('&') : ''}`
                     return await api.get(dest)
