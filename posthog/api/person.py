@@ -54,6 +54,10 @@ class PersonFilter(filters.FilterSet):
         """
         return queryset.filter(Q(persondistinctid__distinct_id=args[0]) | Q(properties__email=args[0]))
 
+    class Meta:
+        model = Person
+        fields = ["is_identified"]
+
 
 class PersonViewSet(viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
@@ -93,15 +97,6 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
-
-        queryset_category_pass = None
-        category = request.query_params.get("category")
-        if category == "identified":
-            queryset_category_pass = queryset.filter
-        elif category == "anonymous":
-            queryset_category_pass = queryset.exclude
-        if queryset_category_pass is not None:
-            queryset = queryset_category_pass(is_identified=True)
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
