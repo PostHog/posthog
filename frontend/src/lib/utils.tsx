@@ -415,7 +415,7 @@ export const dateMapping: Record<string, string[]> = {
     'Last 24 hours': ['-24h'],
     'Last 48 hours': ['-48h'],
     'Last 7 days': ['-7d'],
-    'Last 14 weeks': ['-14d'],
+    'Last 14 days': ['-14d'],
     'Last 30 days': ['-30d'],
     'Last 90 days': ['-90d'],
     'This month': ['mStart'],
