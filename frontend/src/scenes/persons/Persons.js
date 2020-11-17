@@ -15,7 +15,7 @@ const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
 export const Persons = hot(_Persons)
 function _Persons() {
     const [isLoading, setIsLoading] = useState(true)
-    const [people, setPeople] = useState(null)
+    const [persons, setPersons] = useState(null)
     const [search, setSearch] = useState('')
     const [pagination, setPagination] = useState({
         all: {},
@@ -30,7 +30,7 @@ function _Persons() {
     // ensure that there's no invalid category error
     const category = useMemo(() => (ALLOWED_CATEGORIES.includes(categoryRaw) ? categoryRaw : 'all'), categoryRaw)
 
-    function fetchPeople(url, scrollTop, categoryOverride) {
+    function fetchPersons(url, scrollTop, categoryOverride) {
         setIsLoading(true)
         let categoryLocal = categoryOverride || category
         if (scrollTop)
@@ -48,7 +48,7 @@ function _Persons() {
                 newPagination[categoryLocal].next = data.next
                 newPagination[categoryLocal].previous = data.previous
                 setPagination(newPagination)
-                setPeople(data.results)
+                setPersons(data.results)
             })
             .finally(() => {
                 setIsLoading(false)
@@ -60,7 +60,7 @@ function _Persons() {
     }
 
     useEffect(() => {
-        fetchPeople()
+        fetchPersons()
     }, [cohortId])
 
     useEffect(() => {
@@ -68,7 +68,7 @@ function _Persons() {
     }, [categoryRaw])
 
     const exampleEmail =
-        (people && people.find((person) => person?.properties?.email)?.properties?.email) || 'example@gmail.com'
+        (persons && persons.find((person) => person?.properties?.email)?.properties?.email) || 'example@gmail.com'
 
     return (
         <div>
@@ -91,8 +91,8 @@ function _Persons() {
                     data-attr="persons-search"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && fetchPeople()}
-                    placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchPersons()}
+                    placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
                     style={{ maxWidth: 400 }}
                 />
             </div>
@@ -100,7 +100,7 @@ function _Persons() {
                 defaultActiveKey={category}
                 onChange={(category) => {
                     push('/persons', { category, cohort: cohortId })
-                    fetchPeople(undefined, undefined, category)
+                    fetchPersons(undefined, undefined, category)
                 }}
             >
                 <TabPane tab={<span data-attr="people-types-tab">All</span>} key="all" data-attr="people-types-tab" />
@@ -117,20 +117,20 @@ function _Persons() {
             </Tabs>
 
             <div>
-                <PersonsTable people={people} loading={isLoading} actions={true} onChange={() => fetchPeople()} />
+                <PersonsTable people={persons} loading={isLoading} actions={true} onChange={() => fetchPersons()} />
 
                 <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                     <Button
                         type="link"
                         disabled={!tabHasPagination('previous')}
-                        onClick={() => fetchPeople(pagination[category].previous, true)}
+                        onClick={() => fetchPersons(pagination[category].previous, true)}
                     >
                         <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
                     </Button>
                     <Button
                         type="link"
                         disabled={!tabHasPagination('next')}
-                        onClick={() => fetchPeople(pagination[category].next, true)}
+                        onClick={() => fetchPersons(pagination[category].next, true)}
                     >
                         Next <RightOutlined style={{ verticalAlign: 'initial' }} />
                     </Button>

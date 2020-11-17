@@ -1,6 +1,6 @@
-describe('People', () => {
+describe('Persons', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click()
+        cy.get('[data-attr=menu-item-persons]').click()
     })
 
     it('People loaded', () => {
@@ -17,11 +17,11 @@ describe('People', () => {
         cy.get('.ant-empty-img-simple').should('exist')
     })
 
-    it('All people route works', () => {
-        cy.get('[data-attr=menu-item-people-cohorts]').click()
+    it('Person & cohorts routes works', () => {
+        cy.get('[data-attr=menu-item-cohorts]').click()
         cy.get('h1').should('contain', 'Cohorts')
 
-        cy.get('[data-attr=menu-item-people-persons]').click()
+        cy.get('[data-attr=menu-item-persons]').click()
         cy.get('h1').should('contain', 'Persons')
     })
 })
