@@ -67,7 +67,6 @@ function _Persons(): JSX.Element {
                     />
                 </form>
             </div>
-            {JSON.stringify(listFilters)}
             <Tabs
                 activeKey={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'default'}
                 onChange={(key) => {
