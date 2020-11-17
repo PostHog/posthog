@@ -48,7 +48,7 @@ function _FeatureFlags() {
         {
             title: 'Rollout Precentage',
             render: function RenderRolloutPrecentage(_, featureFlag) {
-                return `${featureFlag.rollout_percentage}%` || 'Not rolled out'
+                return featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''
             },
         },
         {
