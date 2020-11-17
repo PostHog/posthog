@@ -1,5 +1,4 @@
 import { PluginConfigSchema } from 'posthog-plugins'
-
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -146,6 +145,15 @@ export interface Entity {
     name: string
     order: number
     type: string
+}
+
+export interface PersonType {
+    id: number
+    uuid: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
 }
 
 export interface CohortType {
