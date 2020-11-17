@@ -50,9 +50,8 @@ export function Cohort({ onChange }) {
                             />
                         </div>
                         {cohort.groups.map((group, index) => (
-                            <>
+                            <React.Fragment key={index}>
                                 <CohortGroup
-                                    key={index}
                                     group={group}
                                     properties={personProperties}
                                     index={index}
@@ -71,7 +70,7 @@ export function Cohort({ onChange }) {
                                         OR{' '}
                                     </div>
                                 )}
-                            </>
+                            </React.Fragment>
                         ))}
                         <div className="mt">
                             <Button
