@@ -11,7 +11,6 @@ import smLogo from 'public/icon-white.svg'
 import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
-    IconActions,
     IconCohorts,
     IconDashboard,
     IconEvents,
@@ -39,19 +38,13 @@ interface MenuItemProps {
 }
 
 const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
-    const { scene, loadingScene, params } = useValues(sceneLogic)
+    const { scene, loadingScene } = useValues(sceneLogic)
     const { collapseMenu } = useActions(navigationLogic)
 
     const activeScene = (): string => {
         const nominalScene = loadingScene || scene
 
-        // Scenes with special handling
-        if (nominalScene === 'events') {
-            // Events & Actions are split
-            if (params?._ === 'actions') {
-                return 'actions'
-            }
-        }
+        // Scenes with special handling can go here
 
         return sceneOverride[nominalScene] || nominalScene
     }
@@ -133,7 +126,6 @@ function _MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" />
-                    <MenuItem title="Actions" icon={<IconActions />} identifier="actions" to="/events/actions" />
                     <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
                     <div className="divider" />
                     <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />

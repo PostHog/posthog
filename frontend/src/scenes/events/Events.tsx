@@ -49,7 +49,7 @@ function _ManageEvents({}): JSX.Element {
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Events Stats" key="events">
+                <Tabs.TabPane tab="Events Stats" key="stats">
                     See all event names that have ever been sent to this team, including the volume and how often
                     queries where made using this event.
                     <br />
