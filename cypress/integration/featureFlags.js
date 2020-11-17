@@ -24,7 +24,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit').click()
         cy.get('[data-attr=feature-flag-table').should('contain', 'beta feature')
         cy.get('[data-attr=rollout-precentage').should('contain', '30%')
-        cy.get('[data-attr=feature-flag-table').should('contain', 'Browser')
+        cy.get('[data-attr=feature-flag-table').should('contain', 'is_demo')
 
         cy.get('[data-attr=feature-flag-table] tr:first-child td:first-child').click()
         cy.get('[data-attr=feature-flag-name').type(' updated').should('have.value', 'beta feature updated')
