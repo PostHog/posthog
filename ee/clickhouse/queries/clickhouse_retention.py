@@ -19,6 +19,7 @@ PERIOD_TRUNC_HOUR = "toStartOfHour"
 PERIOD_TRUNC_DAY = "toStartOfDay"
 PERIOD_TRUNC_WEEK = "toStartOfWeek"
 PERIOD_TRUNC_MONTH = "toStartOfMonth"
+import sqlparse
 
 
 class ClickhouseRetention(Retention):
@@ -48,35 +49,29 @@ class ClickhouseRetention(Retention):
             target_query = "AND e.event = %(target_event)s"
             target_params = {"target_event": target_entity.id}
 
-        target_query, target_params = self._get_condition(target_entity)
-        returning_query, returning_params = self._get_condition(returning_entity, "returning")
+        target_query, target_params = self._get_condition(target_entity, table="e")
+        returning_query, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
 
-        target_query_formatted = (
-            "AND {target_query}".format(target_query=target_query)
-            if is_first_time_retention
-            else "AND ({target_query} OR {returning_query})".format(
-                target_query=target_query, returning_query=returning_query
-            )
-        )
-        returning_query_formatted = (
-            "AND {returning_query}".format(returning_query=returning_query)
-            if is_first_time_retention
-            else "AND ({target_query} OR {returning_query})".format(
-                target_query=target_query, returning_query=returning_query
-            )
-        )
+        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        returning_query_formatted = "AND {returning_query}".format(returning_query=returning_query)
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
             target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
         )
+
+        target_condition, _ = self._get_condition(target_entity, table="reference_event")
+        returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
+
         result = sync_execute(
             RETENTION_SQL.format(
                 target_query=target_query_formatted,
                 returning_query=returning_query_formatted,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                extra_union="UNION ALL {}".format(reference_event_sql) if is_first_time_retention else "",
+                extra_union="UNION ALL {} ".format(reference_event_sql),
                 reference_event_sql=reference_event_sql,
+                target_condition=target_condition,
+                returning_condition=returning_condition,
             ),
             {
                 "team_id": team.pk,
@@ -106,16 +101,16 @@ class ClickhouseRetention(Retention):
 
         return result_dict
 
-    def _get_condition(self, target_entity: Entity, prepend: str = "") -> Tuple[str, Dict]:
+    def _get_condition(self, target_entity: Entity, table: str, prepend: str = "") -> Tuple[str, Dict]:
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=target_entity.id)
             action_query, params = format_action_filter(action, prepend=prepend, use_loop=True)
-            condition = "e.uuid IN ({})".format(action_query)
+            condition = "{}.uuid IN ({})".format(table, action_query)
         elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            condition = "e.event = %({}_event)s".format(prepend)
+            condition = "{}.event = %({}_event)s".format(table, prepend)
             params = {"{}_event".format(prepend): target_entity.id}
         else:
-            condition = "e.event = %({}_event)s".format(prepend)
+            condition = "{}.event = %({}_event)s".format(table, prepend)
             params = {"{}_event".format(prepend): "$pageview"}
         return condition, params
 

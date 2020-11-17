@@ -4,7 +4,6 @@ import string
 from datetime import timedelta
 from typing import Any, Dict, List, Tuple, Union, final
 
-import sqlparse
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection

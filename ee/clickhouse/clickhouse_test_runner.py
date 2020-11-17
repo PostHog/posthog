@@ -34,8 +34,8 @@ class ClickhouseTestRunner(DiscoverRunner):
         return super().setup_databases(**kwargs)
 
     def teardown_databases(self, old_config, **kwargs):
-        try:
-            self.get_database().drop_database()
-        except:
-            pass
+        # try:
+        #     self.get_database().drop_database()
+        # except:
+        #     pass
         super().teardown_databases(old_config, **kwargs)
