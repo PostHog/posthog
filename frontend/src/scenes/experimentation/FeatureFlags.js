@@ -58,12 +58,7 @@ function _FeatureFlags() {
         {
             title: 'Filters',
             render: function RenderFilters(featureFlag) {
-                return (
-                    <PropertyFiltersDisplay
-                        filters={featureFlag.filters?.properties}
-                        data-attr="feature-flags-filters"
-                    />
-                )
+                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
             },
         },
         {
