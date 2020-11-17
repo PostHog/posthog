@@ -1,6 +1,7 @@
 describe('Persons', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-persons]').click()
+        // TODO: Remove when releasing navigation-1775
+        cy.get('[data-attr=menu-item-people]').click()
     })
 
     it('People loaded', () => {
