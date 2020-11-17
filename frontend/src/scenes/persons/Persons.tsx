@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 //import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
@@ -14,6 +14,7 @@ export const Persons = hot(_Persons)
 function _Persons(): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
+    const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
     const cohortId = null
 
     /*useEffect(() => {
@@ -27,6 +28,10 @@ function _Persons(): JSX.Element {
     const exampleEmail =
         (persons && persons.results.find((person) => person.properties?.email)?.properties?.email) ||
         'example@gmail.com'
+
+    useEffect(() => {
+        setSearchTerm(listFilters.search)
+    }, [])
 
     return (
         <div>
@@ -48,15 +53,17 @@ function _Persons(): JSX.Element {
                 <form
                     onSubmit={(e) => {
                         e.preventDefault()
+                        setListFilters({ search: searchTerm })
                         loadPersons()
                     }}
                 >
                     <Input
                         data-attr="persons-search"
-                        value={listFilters.search}
-                        onChange={(e) => setListFilters({ search: e.target.value })}
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
                         placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
                         style={{ maxWidth: 400 }}
+                        autoFocus
                     />
                 </form>
             </div>

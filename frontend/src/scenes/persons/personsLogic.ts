@@ -52,14 +52,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             actions.loadPersons()
         },
     }),
-    actionToUrl: () => ({
-        setListFilters: ({ payload }: { payload: Record<string, any> }) => {
-            return ['/persons', payload]
+    actionToUrl: ({ values }) => ({
+        setListFilters: () => {
+            return ['/persons', values.listFilters]
         },
     }),
     urlToAction: ({ actions }) => ({
         '/persons': (_, searchParams: Record<string, string>) => {
-            console.log(searchParams)
             actions.setListFilters(searchParams)
         },
     }),
