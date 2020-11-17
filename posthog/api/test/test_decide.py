@@ -76,7 +76,7 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide()
-        self.assertEqual(response["sessionRecording"], True)
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
 
     def test_user_session_recording_evil_site(self):
         self.team.session_recording_opt_in = True
