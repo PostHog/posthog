@@ -129,5 +129,5 @@ def get_decide(request: HttpRequest):
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             if team.session_recording_opt_in and on_permitted_domain(team, request):
-                response["sessionRecording"] = {"endpoint": "/ses"}
+                response["sessionRecording"] = {"endpoint": "/s"}
     return cors_response(request, JsonResponse(response))
