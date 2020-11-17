@@ -48,13 +48,22 @@ function _FeatureFlags() {
         {
             title: 'Rollout Precentage',
             render: function RenderRolloutPrecentage(_, featureFlag) {
-                return featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''
+                return (
+                    <div data-attr="rollout-precentage">
+                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''}
+                    </div>
+                )
             },
         },
         {
             title: 'Filters',
             render: function RenderFilters(featureFlag) {
-                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
+                return (
+                    <PropertyFiltersDisplay
+                        filters={featureFlag.filters?.properties}
+                        data-attr="feature-flags-filters"
+                    />
+                )
             },
         },
         {
