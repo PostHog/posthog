@@ -47,7 +47,6 @@ jobs:
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
               run: |
-                  cd deploy
                   docker build -t test -f prod.web.Dockerfile .
 
 #                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
