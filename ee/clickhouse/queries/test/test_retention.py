@@ -26,5 +26,10 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create, _create_action)):  # type: ignore
+def _create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return Person(id=str(person.uuid))
+
+
+class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, _create_person, _create_action)):  # type: ignore
     pass

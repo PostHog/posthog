@@ -6,8 +6,14 @@ from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.sql.retention.retention import REFERENCE_EVENT_SQL, REFERENCE_EVENT_UNIQUE_SQL, RETENTION_SQL
+from ee.clickhouse.sql.retention.retention import (
+    REFERENCE_EVENT_SQL,
+    REFERENCE_EVENT_UNIQUE_SQL,
+    RETENTION_PEOPLE_SQL,
+    RETENTION_SQL,
+)
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -124,3 +130,56 @@ class ClickhouseRetention(Retention):
             return PERIOD_TRUNC_MONTH
         else:
             raise ValueError(f"Period {period} is unsupported.")
+
+    def _retrieve_people(
+        self,
+        filter: Filter,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        target_entity: Entity,
+        returning_entity: Entity,
+        is_first_time_retention: bool,
+        time_increment: Union[timedelta, relativedelta],
+        team: Team,
+        intervals: int,
+    ):
+        period = filter.period
+        trunc_func = self._get_trunc_func_ch(period)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+
+        _entity = returning_entity if intervals > 0 else target_entity
+        target_query, target_params = self._get_condition(_entity, table="e")
+        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+
+        reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
+            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
+        )
+        reference_date_from = date_from
+        reference_date_to = date_from + time_increment
+        date_from = date_from + intervals * time_increment
+        date_to = date_from + time_increment
+
+        result = sync_execute(
+            RETENTION_PEOPLE_SQL.format(
+                reference_event_query=reference_event_query, target_query=target_query_formatted, filters=prop_filters
+            ),
+            {
+                "team_id": team.pk,
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_start_date": reference_date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_end_date": reference_date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                **target_params,
+                **prop_filter_params,
+            },
+        )
+        serialized = ClickhousePersonSerializer(result, many=True).data
+        return serialized

@@ -253,6 +253,44 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter, date_from, total_intervals)
         return result
 
+    def people(self, filter: Filter, team: Team, intervals: int, *args, **kwargs):
+        total_intervals = kwargs.get("total_intervals", 11)
+        (
+            filter,
+            entity,
+            returning_entity,
+            is_first_time_retention,
+            date_from,
+            date_to,
+            time_increment,
+        ) = self.preprocess_params(filter, total_intervals)
+        results = self._retrieve_people(
+            filter,
+            date_from,
+            date_to,
+            entity,
+            returning_entity,
+            is_first_time_retention,
+            time_increment,
+            team,
+            intervals,
+        )
+        return results
+
+    def _retrieve_people(
+        self,
+        filter: Filter,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        target_entity: Entity,
+        returning_entity: Entity,
+        is_first_time_retention: bool,
+        time_increment: Union[timedelta, relativedelta],
+        team: Team,
+        intervals: int,
+    ):
+        pass
+
     def determineTimedelta(
         self, total_intervals: int, period: str
     ) -> Tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
