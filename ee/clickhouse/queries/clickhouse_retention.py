@@ -19,7 +19,6 @@ PERIOD_TRUNC_HOUR = "toStartOfHour"
 PERIOD_TRUNC_DAY = "toStartOfDay"
 PERIOD_TRUNC_WEEK = "toStartOfWeek"
 PERIOD_TRUNC_MONTH = "toStartOfMonth"
-import sqlparse
 
 
 class ClickhouseRetention(Retention):
