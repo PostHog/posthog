@@ -6,7 +6,7 @@ import { Loading } from '../../lib/utils'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
-import { PeopleTable } from 'scenes/users/PeopleTable'
+import { PersonsTable } from 'scenes/persons/PersonsTable'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -73,7 +73,7 @@ export function RetentionLineGraph({
                     <p>Loading users...</p>
                 )}
 
-                <PeopleTable loading={peopleLoading} people={peopleData} />
+                <PersonsTable loading={peopleLoading} people={peopleData} />
                 <div
                     style={{
                         margin: '1rem',
