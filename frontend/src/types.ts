@@ -1,3 +1,4 @@
+import { PluginConfigSchema } from 'posthog-plugins'
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -17,6 +18,7 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    email_service_available: boolean
 }
 
 export interface UserUpdateType {
@@ -51,6 +53,18 @@ export interface OrganizationType {
     teams: TeamType[]
 }
 
+export interface EventUsageType {
+    event: string
+    usage_count: number
+    volume: number
+}
+
+export interface PropertyUsageType {
+    key: string
+    usage_count: number
+    volume: number
+}
+
 export interface TeamType {
     id: number
     name: string
@@ -61,6 +75,8 @@ export interface TeamType {
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
+    event_names_with_usage: EventUsageType[]
+    event_properties_with_usage: PropertyUsageType[]
     opt_out_capture: boolean
     incoming_webhook: string | null
     session_recording_opt_in: boolean
@@ -129,6 +145,15 @@ export interface Entity {
     name: string
     order: number
     type: string
+}
+
+export interface PersonType {
+    id: number
+    uuid: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
 }
 
 export interface CohortType {
@@ -211,11 +236,15 @@ export interface DashboardType {
     deleted: boolean
 }
 
-export interface PluginConfigSchema {
-    name: string
-    type: string
-    default: any
-    required: boolean
+export interface OrganizationInviteType {
+    created_at: string
+    created_by_email: string
+    created_by_first_name: string
+    created_by_id: number
+    emailing_attempt_made: boolean
+    id: string
+    target_email: string
+    updated_at: string
 }
 
 export interface PluginType {
@@ -224,7 +253,7 @@ export interface PluginType {
     description: string
     url: string
     tag: string
-    config_schema: Record<string, PluginConfigSchema>
+    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     from_json: boolean
     from_web: boolean
     error?: PluginErrorType

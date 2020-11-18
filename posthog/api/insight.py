@@ -11,12 +11,12 @@ from rest_framework.response import Response
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
-from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
+from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-from posthog.utils import generate_cache_key, request_to_date_query
+from posthog.utils import generate_cache_key
 
 
 class InsightSerializer(serializers.ModelSerializer):
@@ -52,10 +52,9 @@ class InsightSerializer(serializers.ModelSerializer):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
-            filter_data = validated_data.pop("filters", None)
-            filters = Filter(data=filter_data) if filter_data else None
+            created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), filters=filters.to_dict() if filters else {}, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
@@ -127,7 +126,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=TRENDS_ENDPOINT)
+    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
         filter = Filter(request=request)
@@ -232,7 +231,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
 
-        task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+        task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 

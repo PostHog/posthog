@@ -16,7 +16,6 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
-from social_django.models import Partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
@@ -96,9 +95,7 @@ def signup_to_organization_view(request, invite_id):
         name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
         valid_inputs = (
-            is_input_valid("name", name)
-            and is_input_valid("email", email)
-            and is_input_valid("password", password)
+            is_input_valid("name", name) and is_input_valid("email", email) and is_input_valid("password", password)
         )
         already_exists = User.objects.filter(email=email).exists()
         custom_error = None
@@ -120,9 +117,7 @@ def signup_to_organization_view(request, invite_id):
                     "invite_id": invite_id,
                 },
             )
-        user = User.objects.create_and_join(
-            organization, None, email, password, name=name, email_opt_in=email_opt_in
-        )
+        user = User.objects.create_and_join(organization, None, email, password, name=name, email_opt_in=email_opt_in)
         invite.use(user, prevalidated=True)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
@@ -290,6 +285,7 @@ urlpatterns = [
     opt_slash_path("track", capture.get_event),
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
+    opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),

@@ -210,7 +210,7 @@ def friendly_time(seconds: float):
     ).strip()
 
 
-def append_data(dates_filled: List, interval=None, math="sum") -> Dict:
+def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]:
     append: Dict[str, Any] = {}
     append["data"] = []
     append["labels"] = []
@@ -338,6 +338,7 @@ def load_data_from_request(request):
             data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
         else:
             data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+        data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
     #  Is it plain json?
     try:

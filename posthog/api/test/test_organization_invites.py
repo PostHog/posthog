@@ -33,7 +33,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "target_email": email,
                 "created_by_email": self.user.email,
                 "created_by_id": self.user.id,
-                "created_by_name": self.user.name,
+                "created_by_name": self.user.first_name,
+                "emailing_attempt_made": False,
             },
         )
 

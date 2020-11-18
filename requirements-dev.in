@@ -1,0 +1,21 @@
+# pip-compile requirements-dev.in
+
+flake8
+flake8-bugbear
+flake8-colors
+flake8-commas
+flake8-comprehensions
+flake8-import-order
+flake8-logging-format
+flake8-print
+pip-tools
+django-debug-toolbar
+mypy
+mypy-extensions
+djangorestframework-stubs
+django-stubs
+fakeredis
+freezegun
+packaging
+black
+isort

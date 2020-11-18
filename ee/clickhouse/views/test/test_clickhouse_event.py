@@ -21,10 +21,3 @@ def _create_action(**kwargs):
 
 def _create_person(**kwargs):
     return Person.objects.create(**kwargs)
-
-
-class ClickhouseTestEventApi(
-    ClickhouseTestMixin, test_event_api_factory(_create_event, _create_person, _create_action)  # type: ignore
-):
-    def test_live_action_events(self):
-        pass

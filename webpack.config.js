@@ -6,6 +6,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
+const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 // main = app
 // toolbar = toolbar
@@ -13,6 +14,40 @@ const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
 
 function createEntry(entry) {
+    const commonLoadersForSassAndLess = [
+        entry === 'toolbar'
+            ? {
+                  loader: 'style-loader',
+                  options: {
+                      insert: function insertAtTop(element) {
+                          // tunnel behind the shadow root
+                          if (window.__PHGTLB_ADD_STYLES__) {
+                              window.__PHGTLB_ADD_STYLES__(element)
+                          } else {
+                              if (!window.__PHGTLB_STYLES__) {
+                                  window.__PHGTLB_STYLES__ = []
+                              }
+                              window.__PHGTLB_STYLES__.push(element)
+                          }
+                      },
+                  },
+              }
+            : {
+                  // After all CSS loaders we use plugin to do his work.
+                  // It gets all transformed CSS and extracts it into separate
+                  // single bundled file
+                  loader: MiniCssExtractPlugin.loader,
+              },
+        {
+            // This loader resolves url() and @imports inside CSS
+            loader: 'css-loader',
+        },
+        {
+            // Then we apply postCSS fixes like autoprefixer and minifying
+            loader: 'postcss-loader',
+        },
+    ]
+
     return {
         name: entry,
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -41,7 +76,7 @@ function createEntry(entry) {
                     ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                     : process.env.IS_PORTER
                     ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
-                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
+                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.ts', '.tsx'],
@@ -75,39 +110,7 @@ function createEntry(entry) {
                     // Loaders are applying from right to left(!)
                     // The first loader will be applied after others
                     use: [
-                        entry === 'main' || entry === 'shared_dashboard'
-                            ? {
-                                  // After all CSS loaders we use plugin to do his work.
-                                  // It gets all transformed CSS and extracts it into separate
-                                  // single bundled file
-                                  loader: MiniCssExtractPlugin.loader,
-                              }
-                            : entry === 'toolbar'
-                            ? {
-                                  loader: 'style-loader',
-                                  options: {
-                                      insert: function insertAtTop(element) {
-                                          // tunnel behind the shadow root
-                                          if (window.__PHGTLB_ADD_STYLES__) {
-                                              window.__PHGTLB_ADD_STYLES__(element)
-                                          } else {
-                                              if (!window.__PHGTLB_STYLES__) {
-                                                  window.__PHGTLB_STYLES__ = []
-                                              }
-                                              window.__PHGTLB_STYLES__.push(element)
-                                          }
-                                      },
-                                  },
-                              }
-                            : null,
-                        {
-                            // This loader resolves url() and @imports inside CSS
-                            loader: 'css-loader',
-                        },
-                        {
-                            // Then we apply postCSS fixes like autoprefixer and minifying
-                            loader: 'postcss-loader',
-                        },
+                        ...commonLoadersForSassAndLess,
                         {
                             // First we transform SASS to standard CSS
                             loader: 'sass-loader',
@@ -121,12 +124,7 @@ function createEntry(entry) {
                     // Apply rule for less files (used to import and override AntD)
                     test: /\.(less)$/,
                     use: [
-                        {
-                            loader: 'style-loader', // creates style nodes from JS strings
-                        },
-                        {
-                            loader: 'css-loader', // translates CSS into CommonJS
-                        },
+                        ...commonLoadersForSassAndLess,
                         {
                             loader: 'less-loader', // compiles Less to CSS
                             options: {
@@ -196,7 +194,7 @@ function createEntry(entry) {
                 ? new URL(process.env.JS_URL).host
                 : process.env.IS_PORTER
                 ? `${process.env.PORTER_WEBPACK_HOST}`
-                : `${webpackDevServerHost}:8234`,
+                : `${webpackDevServerFrontendAddr}:8234`,
             allowedHosts: process.env.IS_PORTER
                 ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
                 : [],
