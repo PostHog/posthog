@@ -123,10 +123,8 @@ class Retention(BaseQuery):
         period = filter.period
         events: QuerySet = QuerySet()
 
-        entity_condition, entity_condition_stringified = self.get_entity_condition(target_entity, "events")
-        returning_condition, returning_condition_stringified = self.get_entity_condition(
-            returning_entity, "first_event_date"
-        )
+        entity_condition, entity_condition_strigified = self.get_entity_condition(target_entity, "first_event_date")
+        returning_condition, returning_condition_stringified = self.get_entity_condition(returning_entity, "events")
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
 
         trunc, fields = self._get_trunc_func("timestamp", period)
@@ -137,6 +135,7 @@ class Retention(BaseQuery):
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
                 .annotate(first_date=Min(trunc))
+                .filter(filter.custom_date_filter_Q("first_date"))
                 .distinct()
             )
             final_query = (
@@ -159,6 +158,7 @@ class Retention(BaseQuery):
                 .values_list("person_id", "event_date", "event", "action")
                 .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
+
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
@@ -171,17 +171,18 @@ class Retention(BaseQuery):
             LEFT JOIN ({reference_event_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
             WHERE event_date >= first_date
-            AND {event_condition} AND {returning_condition}
-            OR ({returning_condition} AND event_date = first_date)
+            AND {target_condition} AND {return_condition}
+            OR ({target_condition} AND event_date = first_date)
             GROUP BY date, first_date
         """.format(
             event_query=event_query,
             reference_event_query=reference_event_query,
             fields=fields,
-            event_condition=entity_condition_stringified,
-            returning_condition=returning_condition_stringified,
+            return_condition=returning_condition_stringified,
+            target_condition=entity_condition_strigified,
         )
-        event_params = (target_entity.id, returning_entity.id, returning_entity.id)
+        event_params = (target_entity.id, returning_entity.id, target_entity.id)
+
         start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
 
         with connection.cursor() as cursor:
@@ -246,7 +247,7 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter, date_from, total_intervals)
         return result
 
-    def people(self, filter: Filter, team: Team, intervals: int, *args, **kwargs):
+    def people(self, filter: Filter, team: Team, intervals: int, offset: int = 0, *args, **kwargs):
         total_intervals = kwargs.get("total_intervals", 11)
         (
             filter,
@@ -267,6 +268,7 @@ class Retention(BaseQuery):
             time_increment,
             team,
             intervals,
+            offset,
         )
         return results
 
@@ -281,9 +283,10 @@ class Retention(BaseQuery):
         time_increment: Union[timedelta, relativedelta],
         team: Team,
         intervals: int,
+        offset,
     ):
         period = filter.period
-        # trunc, fields = self._get_trunc_func("timestamp", period)
+        trunc, fields = self._get_trunc_func("timestamp", period)
 
         entity_condition, _ = self.get_entity_condition(target_entity, "events")
         returning_condition, _ = self.get_entity_condition(returning_entity, "first_event_date")
@@ -304,29 +307,37 @@ class Retention(BaseQuery):
         filter._date_from = reference_date_from.isoformat()
         filter._date_to = reference_date_to.isoformat()
 
+        inner_events = (
+            Event.objects.filter(team_id=team.pk)
+            .filter(filter.properties_to_Q(team_id=team.pk))
+            .add_person_id(team.pk)
+            .filter(**{"person_id": OuterRef("id")})
+            .filter(entity_condition)
+            .values("person_id")
+            .annotate(first_date=Min(trunc))
+            .filter(filter.custom_date_filter_Q("first_date"))
+            .distinct()
+            if is_first_time_retention
+            else Event.objects.filter(team_id=team.pk)
+            .filter(filter.date_filter_Q)
+            .filter(filter.properties_to_Q(team_id=team.pk))
+            .add_person_id(team.pk)
+            .filter(**{"person_id": OuterRef("id")})
+            .filter(entity_condition)
+        )
+
         filtered_events = (
             filtered_events.filter(_entity_condition)
             .filter(
-                Exists(
-                    Person.objects.filter(**{"id": OuterRef("person_id"),})
-                    .filter(
-                        Exists(
-                            Event.objects.filter(team_id=team.pk)
-                            .filter(filter.date_filter_Q)
-                            .filter(filter.properties_to_Q(team_id=team.pk))
-                            .add_person_id(team.pk)
-                            .filter(**{"person_id": OuterRef("id")})
-                            .filter(_entity_condition)
-                        )
-                    )
-                    .only("id")
-                )
+                Exists(Person.objects.filter(**{"id": OuterRef("person_id"),}).filter(Exists(inner_events)).only("id"))
             )
             .values("person_id")
             .distinct()
         ).all()
 
-        people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in filtered_events[0 : 0 + 100]],)
+        people = Person.objects.filter(
+            team=team, id__in=[p["person_id"] for p in filtered_events[offset : offset + 100]],
+        )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 

@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytz
 
-from posthog.api.test.base import BaseTest
+from posthog.api.test.base import APIBaseTest
 from posthog.constants import (
     RETENTION_FIRST_TIME,
     RETENTION_TYPE,
@@ -17,7 +17,7 @@ from posthog.queries.retention import Retention
 
 # parameterize tests to reuse in EE
 def retention_test_factory(retention, event_factory, person_factory, action_factory):
-    class TestRetention(BaseTest):
+    class TestRetention(APIBaseTest):
         def test_retention_default(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
@@ -124,10 +124,43 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["id"], person1.pk)
 
-        def test_retention_people_paginated(self):
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+        def test_retention_people_first_time(self):
+            _, _, p3, _ = self._create_first_time_retention_events()
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
+            target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
+            result = retention().people(
+                Filter(
+                    data={
+                        "date_to": self._date(10, hour=6),
+                        RETENTION_TYPE: RETENTION_FIRST_TIME,
+                        "target_entity": target_entity,
+                        "events": [{"id": "$pageview", "type": "events"},],
+                    }
+                ),
+                self.team,
+                1,
+            )
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["id"], p3.pk)
+
+            result = retention().people(
+                Filter(
+                    data={
+                        "date_to": self._date(14, hour=6),
+                        RETENTION_TYPE: RETENTION_FIRST_TIME,
+                        "target_entity": target_entity,
+                        "events": [{"id": "$pageview", "type": "events"},],
+                    }
+                ),
+                self.team,
+                1,
+            )
+
+            self.assertEqual(len(result), 0)
+
+        def test_retention_people_paginated(self):
             for i in range(150):
                 person_id = "person{}".format(i)
                 person_factory(team_id=self.team.pk, distinct_ids=[person_id])
@@ -141,8 +174,13 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().people(Filter(data={"date_to": self._date(10, hour=6)}), self.team, 2)
-            self.assertEqual(len(result), 100)
+            result = self.client.get(
+                "/api/person/retention", data={"date_to": self._date(10, hour=6), "intervals": 2}
+            ).json()
+            self.assertEqual(len(result["result"]), 100)
+
+            second_result = self.client.get(result["next"]).json()
+            self.assertEqual(len(second_result["result"]), 50)
 
         def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -192,6 +230,52 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
             )
 
+        def test_retention_event_action(self):
+            person1 = person_factory(team=self.team, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team=self.team, distinct_ids=["person2"])
+
+            action = self._create_signup_actions(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(3)),
+                    ("person2", self._date(0)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                ]
+            )
+
+            some_event = "$some_event"
+            self._create_events(
+                [("person1", self._date(3)), ("person2", self._date(5)),], some_event,
+            )
+
+            start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
+            result = retention().run(
+                Filter(
+                    data={
+                        "date_to": self._date(6, hour=0),
+                        "target_entity": start_entity,
+                        "events": [{"id": some_event, "type": TREND_FILTER_TYPE_EVENTS},],
+                    }
+                ),
+                self.team,
+                total_intervals=7,
+            )
+
+            self.assertEqual(len(result), 7)
+            self.assertEqual(
+                self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            )
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [[2, 0, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [2, 1, 0, 1, 0], [2, 0, 1, 0], [0, 0, 0], [0, 0], [0],],
+            )
+
         def test_retention_graph(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
@@ -225,57 +309,8 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 result[0]["data"], [100.0, 100.0, 100.0, 50.0, 0.0, 50.0, 100.0, 0.0, 0.0, 0.0, 0.0],
             )
 
-        def test_first_user_retention(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person3"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person4"])
-            person_factory(team_id=self.team.pk, distinct_ids=["shouldnt_include"])
-
-            self._create_events(
-                [
-                    ("shouldnt_include", self._date(-5)),
-                    ("shouldnt_include", self._date(-1)),
-                    ("person1", self._date(-1)),
-                    ("person1", self._date(1)),
-                    ("person1", self._date(2)),
-                    ("person1", self._date(3)),
-                    ("person2", self._date(-1)),
-                ],
-                "$user_signed_up",
-            )
-
-            self._create_events(
-                [
-                    ("person1", self._date(0)),
-                    ("person1", self._date(1)),
-                    ("person1", self._date(2)),
-                    ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
-                    ("person1", self._date(6)),
-                    ("person2", self._date(1)),
-                    ("person2", self._date(2)),
-                    ("person2", self._date(3)),
-                    ("person2", self._date(6)),
-                ]
-            )
-
-            self._create_events([("person3", self._date(0))], "$user_signed_up")
-
-            self._create_events(
-                [
-                    ("person3", self._date(1)),
-                    ("person3", self._date(3)),
-                    ("person3", self._date(4)),
-                    ("person3", self._date(5)),
-                ]
-            )
-
-            self._create_events([("person4", self._date(2))], "$user_signed_up")
-
-            self._create_events(
-                [("person4", self._date(3)), ("person4", self._date(5)),]
-            )
+        def test_first_time_retention(self):
+            self._create_first_time_retention_events()
 
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().run(
@@ -662,6 +697,61 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     team=self.team, event=event, distinct_id=distinct_id, timestamp=timestamp, properties=properties,
                 )
                 i += 1
+
+        def _create_first_time_retention_events(self):
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"])
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"])
+            person_factory(team_id=self.team.pk, distinct_ids=["shouldnt_include"])
+
+            self._create_events(
+                [
+                    ("shouldnt_include", self._date(-5)),
+                    ("shouldnt_include", self._date(-1)),
+                    ("person1", self._date(-1)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(3)),
+                    ("person1", self._date(4)),
+                    ("person2", self._date(-1)),
+                ],
+                "$user_signed_up",
+            )
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+
+            self._create_events([("person3", self._date(0))], "$user_signed_up")
+
+            self._create_events(
+                [
+                    ("person3", self._date(1)),
+                    ("person3", self._date(3)),
+                    ("person3", self._date(4)),
+                    ("person3", self._date(5)),
+                ]
+            )
+
+            self._create_events([("person4", self._date(2))], "$user_signed_up")
+
+            self._create_events(
+                [("person4", self._date(3)), ("person4", self._date(5)),]
+            )
+
+            return p1, p2, p3, p4
 
         def _create_signup_actions(self, user_and_timestamps):
 
