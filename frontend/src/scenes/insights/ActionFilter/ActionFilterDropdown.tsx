@@ -5,7 +5,7 @@ import { EventUsageType } from '~/types'
 import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import './ActionFilterDropdown.scss'
 import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
@@ -43,7 +43,7 @@ export function ActionFilterDropdown({
                 {
                     name: (
                         <>
-                            Suggested for you{' '}
+                            <FireOutlined /> Suggested for you{' '}
                             <Tooltip title="We'll suggest events you (or your team) have used frequently in other queries">
                                 <InfoCircleOutlined />
                             </Tooltip>
@@ -57,7 +57,7 @@ export function ActionFilterDropdown({
                     renderInfo: function suggestions({ item }) {
                         return (
                             <>
-                                Suggestions
+                                <FireOutlined /> Suggestions
                                 <br />
                                 <h3>{item.name}</h3>
                                 {item?.volume > 0 && (
@@ -75,7 +75,11 @@ export function ActionFilterDropdown({
                     },
                 },
                 {
-                    name: 'Actions',
+                    name: (
+                        <>
+                            <AimOutlined /> Actions
+                        </>
+                    ),
                     dataSource: actions.map((action: ActionType) => ({
                         key: EntityTypes.ACTIONS + action.id,
                         name: action.name,
@@ -85,7 +89,7 @@ export function ActionFilterDropdown({
                     renderInfo: function actions({ item }) {
                         return (
                             <>
-                                Actions
+                                <AimOutlined /> Actions
                                 <br />
                                 <h3>{item.name}</h3>
                                 {item.action && <ActionSelectInfo entity={item.action} />}
@@ -94,7 +98,11 @@ export function ActionFilterDropdown({
                     },
                 },
                 {
-                    name: 'Events',
+                    name: (
+                        <>
+                            <ContainerOutlined /> Events
+                        </>
+                    ),
                     dataSource: user?.team.event_names_with_usage.map((event) => ({
                         key: EntityTypes.EVENTS + event.event,
                         name: event.event,
@@ -103,7 +111,7 @@ export function ActionFilterDropdown({
                     renderInfo: function events({ item }) {
                         return (
                             <>
-                                Events
+                                <ContainerOutlined /> Events
                                 <br />
                                 <h3>{item.name}</h3>
                                 {item?.volume > 0 && (
