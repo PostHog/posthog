@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 
