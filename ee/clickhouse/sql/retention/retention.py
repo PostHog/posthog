@@ -61,5 +61,6 @@ SELECT * FROM person WHERE id IN (
     AND e.team_id = %(team_id)s AND person_id IN (
         SELECT person_id FROM ({reference_event_query}) as persons
     ) {target_query} {filters}
+    LIMIT 100 OFFSET %(offset)s
 )
 """

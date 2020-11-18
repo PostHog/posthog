@@ -142,6 +142,7 @@ class ClickhouseRetention(Retention):
         time_increment: Union[timedelta, relativedelta],
         team: Team,
         intervals: int,
+        offset: int,
     ):
         period = filter.period
         trunc_func = self._get_trunc_func_ch(period)
@@ -177,6 +178,7 @@ class ClickhouseRetention(Retention):
                 "reference_end_date": reference_date_to.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
+                "offset": offset,
                 **target_params,
                 **prop_filter_params,
             },

@@ -1,15 +1,22 @@
+from typing import Optional
+
 from rest_framework import request, response
 from rest_framework.decorators import action
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer, delete_person
+from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.sql.retention.retention import RETENTION_PEOPLE_SQL
 from posthog.api.person import PersonViewSet
 from posthog.models import Event, Person
+from posthog.models.filter import Filter
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
 class ClickhousePerson(PersonViewSet):
+
+    retention_class = ClickhouseRetention
+
     def destroy(self, request: request.Request, pk=None):  # type: ignore
         team = request.user.team
         person = Person.objects.get(team=team, pk=pk)

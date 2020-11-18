@@ -246,7 +246,7 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter, date_from, total_intervals)
         return result
 
-    def people(self, filter: Filter, team: Team, intervals: int, *args, **kwargs):
+    def people(self, filter: Filter, team: Team, intervals: int, offset: int = 0, *args, **kwargs):
         total_intervals = kwargs.get("total_intervals", 11)
         (
             filter,
@@ -267,6 +267,7 @@ class Retention(BaseQuery):
             time_increment,
             team,
             intervals,
+            offset,
         )
         return results
 
@@ -281,6 +282,7 @@ class Retention(BaseQuery):
         time_increment: Union[timedelta, relativedelta],
         team: Team,
         intervals: int,
+        offset,
     ):
         period = filter.period
         # trunc, fields = self._get_trunc_func("timestamp", period)
@@ -312,7 +314,7 @@ class Retention(BaseQuery):
                     .filter(
                         Exists(
                             Event.objects.filter(team_id=team.pk)
-                            .filter(filter.date_filter_Q)
+                            .filter(Q() if is_first_time_retention else filter.date_filter_Q)
                             .filter(filter.properties_to_Q(team_id=team.pk))
                             .add_person_id(team.pk)
                             .filter(**{"person_id": OuterRef("id")})
@@ -326,7 +328,9 @@ class Retention(BaseQuery):
             .distinct()
         ).all()
 
-        people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in filtered_events[0 : 0 + 100]],)
+        people = Person.objects.filter(
+            team=team, id__in=[p["person_id"] for p in filtered_events[offset : offset + 100]],
+        )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 

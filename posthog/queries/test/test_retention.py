@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytz
 
-from posthog.api.test.base import BaseTest
+from posthog.api.test.base import APIBaseTest
 from posthog.constants import (
     RETENTION_FIRST_TIME,
     RETENTION_TYPE,
@@ -17,7 +17,7 @@ from posthog.queries.retention import Retention
 
 # parameterize tests to reuse in EE
 def retention_test_factory(retention, event_factory, person_factory, action_factory):
-    class TestRetention(BaseTest):
+    class TestRetention(APIBaseTest):
         def test_retention_default(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
@@ -125,9 +125,6 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(result[0]["id"], person1.pk)
 
         def test_retention_people_paginated(self):
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
-
             for i in range(150):
                 person_id = "person{}".format(i)
                 person_factory(team_id=self.team.pk, distinct_ids=[person_id])
@@ -141,8 +138,13 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().people(Filter(data={"date_to": self._date(10, hour=6)}), self.team, 2)
-            self.assertEqual(len(result), 100)
+            result = self.client.get(
+                "/api/person/retention", data={"date_to": self._date(10, hour=6), "intervals": 2}
+            ).json()
+            self.assertEqual(len(result["result"]), 100)
+
+            second_result = self.client.get(result["next"]).json()
+            self.assertEqual(len(second_result["result"]), 50)
 
         def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
