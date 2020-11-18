@@ -193,8 +193,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
                 }
             ],
-            "entryPoint": ["gunicorn"],
-            "command": ["posthog.wsgi", "--log-file", "-"]
+            "entryPoint": ["sh", "-c"],
+            "command": ["./bin/docker-server"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
