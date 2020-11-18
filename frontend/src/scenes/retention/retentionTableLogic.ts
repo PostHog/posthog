@@ -92,13 +92,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             },
         },
         people: {
-            __default: [],
+            __default: {} as Record<string, unknown>,
             loadPeople: async (rowIndex) => {
                 if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
                     const urlParams = toUrlParams(values, { intervals: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
 
-                    return res['result']
+                    return res
                 } else {
                     const people = values.retention.data[rowIndex].values[0].people
 
@@ -123,6 +123,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         setFilters: (filters) => ({ filters }),
         loadMore: (selectedIndex) => ({ selectedIndex }),
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
+        loadMoreGraphPeople: true,
+        updateGraphPeople: (people) => ({ people }),
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
         updateRetention: (retention) => ({ retention }),
         clearPeople: true,
@@ -159,11 +161,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             },
         ],
         people: {
-            clearPeople: () => [],
+            clearPeople: () => ({}),
             updatePeople: (state, { selectedIndex, people }) => ({
                 ...state,
                 [`${selectedIndex}`]: [...state[selectedIndex], ...people],
             }),
+            updateGraphPeople: (_, { people }) => people,
         },
         retention: {
             updateRetention: (_, { retention }) => retention,
@@ -174,6 +177,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             {
                 loadMore: () => true,
                 updatePeople: () => false,
+                updateGraphPeople: () => false,
+                loadMoreGraphPeople: () => true,
             },
         ],
     }),
@@ -299,6 +304,16 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
             })
             actions.updatePeople(selectedIndex, peopleResult)
+        },
+        loadMoreGraphPeople: async () => {
+            if (values.people.next) {
+                const peopleResult = await api.get(values.people.next)
+                const newPeople = {
+                    result: [...values.people.result, ...peopleResult['result']],
+                    next: peopleResult['next'],
+                }
+                actions.updateGraphPeople(newPeople)
+            }
         },
     }),
 })

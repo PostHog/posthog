@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Loading } from '../../lib/utils'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
-import { Modal, Button } from 'antd'
+import { Modal, Button, Spin } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
 interface RetentionLineGraphProps {
@@ -21,14 +21,15 @@ export function RetentionLineGraph({
 }: RetentionLineGraphProps): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId })
     const { filters, retention, retentionLoading, people, peopleLoading } = useValues(logic)
-    const { loadPeople } = useActions(logic)
+    const { loadPeople, loadMoreGraphPeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
     function closeModal(): void {
         setModalVisible(false)
     }
-
+    const peopleData = people?.result
+    const peopleNext = people?.next
     return retentionLoading ? (
         <Loading />
     ) : retention && retention.data && !retentionLoading ? (
@@ -63,26 +64,27 @@ export function RetentionLineGraph({
                 footer={<Button onClick={closeModal}>Close</Button>}
                 width={700}
             >
-                {/* {people ? (
-                <p>
-                    Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                </p>
-            ) : (
-                <p>Loading users...</p>
-            )} */}
+                {peopleData ? (
+                    <p>
+                        Found {peopleData.length === 99 ? '99+' : peopleData.length}{' '}
+                        {peopleData.length === 1 ? 'user' : 'users'}
+                    </p>
+                ) : (
+                    <p>Loading users...</p>
+                )}
 
-                <PeopleTable loading={peopleLoading} people={people} />
+                <PeopleTable loading={peopleLoading} people={peopleData} />
                 <div
                     style={{
                         margin: '1rem',
                         textAlign: 'center',
                     }}
                 >
-                    {/* {people?.next && (
-                    <Button type="primary" onClick={loadMorePeople}>
-                        {people?.loadingMore ? <Spin /> : 'Load more people'}
-                    </Button>
-                )} */}
+                    {peopleNext && (
+                        <Button type="primary" onClick={loadMoreGraphPeople}>
+                            {people?.loadingMore ? <Spin /> : 'Load more people'}
+                        </Button>
+                    )}
                 </div>
             </Modal>
         </>
