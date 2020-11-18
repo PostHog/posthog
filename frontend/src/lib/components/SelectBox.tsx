@@ -68,9 +68,10 @@ export const actionFilterDropdownLogic = kea({
             false,
             {
                 setSelectedItem: (_, { item }: { item: SelectedItem }) => {
-                    console.log(item.key)
-                    return props.items.filter((i) => i.dataSource.filter((i) => i.key === item.key).length > 0)[0]
-                        .renderInfo
+                    return (
+                        props.items.filter((i) => i.dataSource.filter((i) => i.key === item.key).length > 0)[0]
+                            ?.renderInfo || false
+                    )
                 },
             },
         ],
