@@ -63,12 +63,10 @@ export function prepareForRun(
     method: 'processEvent',
     event?: PluginEvent
 ): null | ((event: PluginEvent) => PluginEvent) | (() => void) {
-    if (!pluginConfig.vm) {
+    if (!pluginConfig.vm?.methods[method]) {
         return null
     }
-    if (!pluginConfig.vm.methods[method]) {
-        return null
-    }
+    
     const { vm } = pluginConfig.vm
 
     if (event?.properties?.token) {

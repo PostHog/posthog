@@ -6,10 +6,7 @@ yargs
     .scriptName('posthog-plugins')
     .option('config', { alias: 'c', describe: 'json string of config options', type: 'string' })
     .command('start', 'start the server', ({ argv }) => {
-        const config: PluginsServerConfig = {
-            ...(argv.config ? JSON.parse(argv.config) : {}),
-        }
-        startPluginsServer(config)
+        startPluginsServer(argv.config ? JSON.parse(argv.config) : {})
     })
     .demandCommand()
     .help().argv
