@@ -1,7 +1,7 @@
 {
     "family": "posthog-production-fargate",
     "networkMode": "awsvpc",
-    "executionRoleArn": "arn:aws:iam::795637471508:user/posthog_deployment_gh_actions",
+    "executionRoleArn": "posthog_deployment_gh_actions",
     "containerDefinitions": [
         {
             "name": "posthog-production",
