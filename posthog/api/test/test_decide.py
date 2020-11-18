@@ -79,11 +79,15 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
 
     def test_user_session_recording_evil_site(self):
+        self.team.app_urls = ["https://example.com"]
         self.team.session_recording_opt_in = True
         self.team.save()
 
         response = self._post_decide(origin="evil.site.com")
         self.assertEqual(response["sessionRecording"], False)
+
+        response = self._post_decide(origin="https://example.com")
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
