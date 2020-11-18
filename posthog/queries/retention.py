@@ -286,7 +286,7 @@ class Retention(BaseQuery):
         offset,
     ):
         period = filter.period
-        # trunc, fields = self._get_trunc_func("timestamp", period)
+        trunc, fields = self._get_trunc_func("timestamp", period)
 
         entity_condition, _ = self.get_entity_condition(target_entity, "events")
         returning_condition, _ = self.get_entity_condition(returning_entity, "first_event_date")
@@ -307,23 +307,29 @@ class Retention(BaseQuery):
         filter._date_from = reference_date_from.isoformat()
         filter._date_to = reference_date_to.isoformat()
 
+        inner_events = (
+            Event.objects.filter(team_id=team.pk)
+            .filter(filter.properties_to_Q(team_id=team.pk))
+            .add_person_id(team.pk)
+            .filter(**{"person_id": OuterRef("id")})
+            .filter(entity_condition)
+            .values("person_id")
+            .annotate(first_date=Min(trunc))
+            .filter(filter.custom_date_filter_Q("first_date"))
+            .distinct()
+            if is_first_time_retention
+            else Event.objects.filter(team_id=team.pk)
+            .filter(filter.date_filter_Q)
+            .filter(filter.properties_to_Q(team_id=team.pk))
+            .add_person_id(team.pk)
+            .filter(**{"person_id": OuterRef("id")})
+            .filter(entity_condition)
+        )
+
         filtered_events = (
             filtered_events.filter(_entity_condition)
             .filter(
-                Exists(
-                    Person.objects.filter(**{"id": OuterRef("person_id"),})
-                    .filter(
-                        Exists(
-                            Event.objects.filter(team_id=team.pk)
-                            .filter(filter.date_filter_Q)
-                            .filter(filter.properties_to_Q(team_id=team.pk))
-                            .add_person_id(team.pk)
-                            .filter(**{"person_id": OuterRef("id")})
-                            .filter(entity_condition)
-                        )
-                    )
-                    .only("id")
-                )
+                Exists(Person.objects.filter(**{"id": OuterRef("person_id"),}).filter(Exists(inner_events)).only("id"))
             )
             .values("person_id")
             .distinct()

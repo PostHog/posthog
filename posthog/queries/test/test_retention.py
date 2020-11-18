@@ -145,6 +145,21 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["id"], p3.pk)
 
+            result = retention().people(
+                Filter(
+                    data={
+                        "date_to": self._date(14, hour=6),
+                        RETENTION_TYPE: RETENTION_FIRST_TIME,
+                        "target_entity": target_entity,
+                        "events": [{"id": "$pageview", "type": "events"},],
+                    }
+                ),
+                self.team,
+                1,
+            )
+
+            self.assertEqual(len(result), 0)
+
         def test_retention_people_paginated(self):
             for i in range(150):
                 person_id = "person{}".format(i)
@@ -698,6 +713,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),
                     ("person1", self._date(3)),
+                    ("person1", self._date(4)),
                     ("person2", self._date(-1)),
                 ],
                 "$user_signed_up",
