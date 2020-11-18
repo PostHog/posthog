@@ -123,10 +123,8 @@ class Retention(BaseQuery):
         period = filter.period
         events: QuerySet = QuerySet()
 
-        entity_condition, entity_condition_stringified = self.get_entity_condition(target_entity, "events")
-        returning_condition, returning_condition_stringified = self.get_entity_condition(
-            returning_entity, "first_event_date"
-        )
+        entity_condition, entity_condition_strigified = self.get_entity_condition(target_entity, "first_event_date")
+        returning_condition, returning_condition_stringified = self.get_entity_condition(returning_entity, "events")
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
 
         trunc, fields = self._get_trunc_func("timestamp", period)
@@ -159,6 +157,7 @@ class Retention(BaseQuery):
                 .values_list("person_id", "event_date", "event", "action")
                 .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
+
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
 
@@ -171,17 +170,18 @@ class Retention(BaseQuery):
             LEFT JOIN ({reference_event_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
             WHERE event_date >= first_date
-            AND {event_condition} AND {returning_condition}
-            OR ({returning_condition} AND event_date = first_date)
+            AND {target_condition} AND {return_condition}
+            OR ({target_condition} AND event_date = first_date)
             GROUP BY date, first_date
         """.format(
             event_query=event_query,
             reference_event_query=reference_event_query,
             fields=fields,
-            event_condition=entity_condition_stringified,
-            returning_condition=returning_condition_stringified,
+            return_condition=returning_condition_stringified,
+            target_condition=entity_condition_strigified,
         )
-        event_params = (target_entity.id, returning_entity.id, returning_entity.id)
+        event_params = (target_entity.id, returning_entity.id, target_entity.id)
+
         start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
 
         with connection.cursor() as cursor:
