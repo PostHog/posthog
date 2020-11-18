@@ -124,6 +124,26 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["id"], person1.pk)
 
+        def test_retention_people_paginated(self):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            for i in range(150):
+                person_id = "person{}".format(i)
+                person_factory(team_id=self.team.pk, distinct_ids=[person_id])
+                self._create_events(
+                    [
+                        (person_id, self._date(0)),
+                        (person_id, self._date(1)),
+                        (person_id, self._date(2)),
+                        (person_id, self._date(5)),
+                    ]
+                )
+
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = retention().people(Filter(data={"date_to": self._date(10, hour=6)}), self.team, 2)
+            self.assertEqual(len(result), 100)
+
         def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])
