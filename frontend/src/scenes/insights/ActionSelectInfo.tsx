@@ -10,7 +10,7 @@ export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Elemen
                 entity.steps.map((step, index) => (
                     <div key={step.id}>
                         <strong>
-                            Step {index + 1}:{' '}
+                            Match group {index + 1}:{' '}
                             {step.event && step.event[0] == '$'
                                 ? step.event[1].toUpperCase() + step.event.slice(2)
                                 : step.event}

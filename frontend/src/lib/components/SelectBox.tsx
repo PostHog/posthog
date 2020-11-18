@@ -88,11 +88,13 @@ export const actionFilterDropdownLogic = kea({
         },
         onKeyDown: ({ e }) => {
             let allSources = props.items.map((item) => item.dataSource).flat()
-            allSources = new Fuse(allSources, {
-                keys: ['name'],
-            })
-                .search(values.search)
-                .map((result) => result.item)
+            allSources = !values.search
+                ? allSources
+                : new Fuse(allSources, {
+                      keys: ['name'],
+                  })
+                      .search(values.search)
+                      .map((result) => result.item)
             const currentIndex = allSources.findIndex((item: SelectedItem) => item.key === values.selectedItem.key) || 0
 
             if (e.key === 'ArrowDown') {
@@ -111,9 +113,9 @@ export const actionFilterDropdownLogic = kea({
                     actions.setBlockMouseOver(true)
                 }
             }
-            // if(e.key === 'Enter') {
-            //     actions.clickSelectedItem(values.selectedItem)
-            // }
+            if (e.key === 'Enter') {
+                actions.clickSelectedItem(values.selectedItem)
+            }
         },
     }),
 })
@@ -213,7 +215,10 @@ export function SelectUnit({
             <span onClick={() => setIsCollapsed(!isCollapsed)}>
                 <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
                     {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {name}
-                    <span style={{ float: 'right' }} className="text-small">
+                    <span
+                        style={{ float: 'right', fontWeight: search && data.length > 0 ? 700 : 'normal' }}
+                        className="text-small"
+                    >
                         {data.length} event{data.length !== 1 && 's'}
                     </span>
                 </h4>
