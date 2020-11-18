@@ -9,24 +9,17 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-const FILTER_WHITELIST: string[] = ['is_identified', 'search']
+const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     actions: {
         setListFilters: (payload) => ({ payload }),
-        setCohort: (cohort) => ({ cohort }),
     },
     reducers: {
         listFilters: [
             {} as Record<string, string>,
             {
                 setListFilters: (state, { payload }) => ({ ...state, ...payload }),
-            },
-        ],
-        cohort: [
-            null as number | null,
-            {
-                setCohort: (_, { cohort }) => cohort,
             },
         ],
     },
@@ -44,26 +37,24 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                             }
                             return result
                         }, [] as string[])
-                    if (values.cohort) qs.push(`cohort=${values.cohort}`)
                     const dest = `${url || 'api/person/'}${qs.length ? '?' + qs.join('&') : ''}`
                     return await api.get(dest)
                 },
             },
         ],
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPersons()
-        },
-    }),
     actionToUrl: ({ values }) => ({
         setListFilters: () => {
             return ['/persons', values.listFilters]
         },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/persons': (_, searchParams: Record<string, string>) => {
             actions.setListFilters(searchParams)
+            if (!values.persons.results.length && !values.personsLoading) {
+                // Initial load
+                actions.loadPersons()
+            }
         },
     }),
 })
