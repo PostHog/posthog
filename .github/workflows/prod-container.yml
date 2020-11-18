@@ -31,7 +31,8 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  ref: 'master'
+                  # ref: 'master'
+                  ref: 'ecs'
                   path: 'deploy/'
 
             - name: Link posthog-production at master
