@@ -57,8 +57,9 @@ class Cohort(models.Model):
 
     def calculate_people(self, use_clickhouse=is_ee_enabled()):
         try:
-            self.is_calculating = True
-            self.save()
+            if not use_clickhouse:
+                self.is_calculating = True
+                self.save()
 
             persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
             sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
