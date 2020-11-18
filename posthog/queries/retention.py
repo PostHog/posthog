@@ -8,15 +8,16 @@ from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import Min
-from django.db.models.expressions import F
+from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
-from django.db.models.query import QuerySet
+from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
+from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
 from posthog.utils import generate_cache_key
@@ -122,16 +123,8 @@ class Retention(BaseQuery):
         period = filter.period
         events: QuerySet = QuerySet()
 
-        def get_entity_condition(entity: Entity, table: str) -> Tuple[Q, str]:
-            if entity.type == TREND_FILTER_TYPE_EVENTS:
-                return Q(event=entity.id), "{}.event = %s".format(table)
-            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-                return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
-            else:
-                raise ValueError(f"Entity type not supported")
-
-        entity_condition, entity_condition_stringified = get_entity_condition(target_entity, "events")
-        returning_condition, returning_condition_stringified = get_entity_condition(
+        entity_condition, entity_condition_stringified = self.get_entity_condition(target_entity, "events")
+        returning_condition, returning_condition_stringified = self.get_entity_condition(
             returning_entity, "first_event_date"
         )
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
@@ -289,7 +282,65 @@ class Retention(BaseQuery):
         team: Team,
         intervals: int,
     ):
-        pass
+        period = filter.period
+        # trunc, fields = self._get_trunc_func("timestamp", period)
+
+        entity_condition, _ = self.get_entity_condition(target_entity, "events")
+        returning_condition, _ = self.get_entity_condition(returning_entity, "first_event_date")
+        _entity_condition = returning_condition if intervals > 0 else entity_condition
+
+        events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
+
+        reference_date_from = date_from
+        reference_date_to = date_from + time_increment
+        date_from = date_from + intervals * time_increment
+        date_to = date_from + time_increment
+
+        filter._date_from = date_from.isoformat()
+        filter._date_to = date_to.isoformat()
+
+        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
+
+        filter._date_from = reference_date_from.isoformat()
+        filter._date_to = reference_date_to.isoformat()
+
+        filtered_events = (
+            filtered_events.filter(_entity_condition)
+            .filter(
+                Exists(
+                    Person.objects.filter(**{"id": OuterRef("person_id"),})
+                    .filter(
+                        Exists(
+                            Event.objects.filter(team_id=team.pk)
+                            .filter(filter.date_filter_Q)
+                            .filter(filter.properties_to_Q(team_id=team.pk))
+                            .add_person_id(team.pk)
+                            .filter(**{"person_id": OuterRef("id")})
+                            .filter(_entity_condition)
+                        )
+                    )
+                    .only("id")
+                )
+            )
+            .values("person_id")
+            .distinct()
+        ).all()
+
+        people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in filtered_events[0 : 0 + 100]],)
+
+        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        from posthog.api.person import PersonSerializer
+
+        return PersonSerializer(people, many=True).data
+
+    def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
+        if entity.type == TREND_FILTER_TYPE_EVENTS:
+            return Q(event=entity.id), "{}.event = %s".format(table)
+        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+            return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
+        else:
+            raise ValueError(f"Entity type not supported")
 
     def determineTimedelta(
         self, total_intervals: int, period: str
