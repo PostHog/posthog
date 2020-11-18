@@ -32,7 +32,8 @@ app.conf.broker_pool_limit = 0
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
-statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 @app.on_after_configure.connect
