@@ -48,7 +48,7 @@ def prop_filter_json_extract(
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND NOT (JSONExtractString({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s)".format(
+            "AND NOT (trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)) = %(v{prepend}_{idx})s)".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -57,7 +57,7 @@ def prop_filter_json_extract(
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND JSONExtractString({prop_var}, %(k{prepend}_{idx})s) LIKE %(v{prepend}_{idx})s".format(
+            "AND trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)) LIKE %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -66,7 +66,7 @@ def prop_filter_json_extract(
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND NOT (JSONExtractString({prop_var}, %(k{prepend}_{idx})s) LIKE %(v{prepend}_{idx})s)".format(
+            "AND NOT (trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)) LIKE %(v{prepend}_{idx})s)".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -74,7 +74,7 @@ def prop_filter_json_extract(
     elif operator == "regex":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND match(JSONExtractString({prop_var}, %(k{prepend}_{idx})s), %(v{prepend}_{idx})s)".format(
+            "AND match(trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)), %(v{prepend}_{idx})s)".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -82,7 +82,7 @@ def prop_filter_json_extract(
     elif operator == "not_regex":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND NOT match(JSONExtractString({prop_var}, %(k{prepend}_{idx})s), %(v{prepend}_{idx})s)".format(
+            "AND NOT match(trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)), %(v{prepend}_{idx})s)".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -96,7 +96,7 @@ def prop_filter_json_extract(
     elif operator == "is_not_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "AND (isNull(JSONExtractString({prop_var}, %(k{prepend}_{idx})s)) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+            "AND (isNull(trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s))) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx, prepend=prepend, prop_var=prop_var
             ),
             params,
@@ -123,7 +123,7 @@ def prop_filter_json_extract(
         elif is_json(prop.value):
             clause = "AND replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '') = replaceRegexpAll(toString(%(v{prepend}_{idx})s),' ', '')"
         else:
-            clause = "AND JSONExtractString({prop_var}, %(k{prepend}_{idx})s) = %(v{prepend}_{idx})s"
+            clause = "AND trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s)) = %(v{prepend}_{idx})s"
 
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (

@@ -516,3 +516,5 @@ LOGGING = {
         "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
     },
 }
+
+MULTI_TENANCY = True
