@@ -25,9 +25,9 @@ function _Members({ user }: MembersProps): JSX.Element {
         (_text, member) => {
             function handleClick(): void {
                 confirm({
-                    title: `${
-                        member.user_id == user.id ? 'Leave' : `Remove ${member.user_name} from`
-                    } organization ${user.organization.name}?`,
+                    title: `${member.user_id == user.id ? 'Leave' : `Remove ${member.user_name} from`} organization ${
+                        user.organization.name
+                    }?`,
                     icon: <ExclamationCircleOutlined />,
                     okText: 'Delete',
                     okType: 'danger',

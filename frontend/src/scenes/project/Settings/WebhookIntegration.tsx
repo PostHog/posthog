@@ -8,9 +8,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { toast } from 'react-toastify'
 
 const WEBHOOK_SERVICES: Record<string, string> = {
-    Slack: "slack.com",
-    Discord: "discord.com",
-    Teams: "office.com"
+    Slack: 'slack.com',
+    Discord: 'discord.com',
+    Teams: 'office.com',
 }
 
 function resolveWebhookService(webhookUrl: string | null): string | null {
@@ -52,7 +52,7 @@ const logic = kea<logicType<UserType>>({
                 saveWebhook: () => true,
                 setError: () => false,
                 [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => false,
-                [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false
+                [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false,
             },
         ],
         isSaved: [
@@ -77,24 +77,26 @@ const logic = kea<logicType<UserType>>({
         },
         saveWebhookSuccess: () => {
             const service = resolveWebhookService(values.editedWebhook)
-            toast.success(service
-                ? `Webhook enabled. You should see a message on ${service}.`
-                : 'Disabled webhook integration.')
+            toast.success(
+                service ? `Webhook enabled. You should see a message on ${service}.` : 'Disabled webhook integration.'
+            )
         },
     }),
 })
 
 export function WebhookIntegration(): JSX.Element {
-    const { isSaved, isSaving, editedWebhook } = useValues(logic)
+    const { isSaving, editedWebhook } = useValues(logic)
     const { saveWebhook, setEditedWebhook } = useActions(logic)
 
     return (
         <div>
             <p>
-                Send notifications when selected Actions are performed by users.<br/>
+                Send notifications when selected Actions are performed by users.
+                <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
-                <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also supported.
+                <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
+                supported.
             </p>
             <Input
                 value={editedWebhook}
