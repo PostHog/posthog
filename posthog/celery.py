@@ -32,7 +32,8 @@ app.conf.broker_pool_limit = 0
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
-statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 @app.on_after_configure.connect
@@ -63,7 +64,7 @@ def setup_periodic_tasks(sender, **kwargs):
 
     if not is_ee_enabled():
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-        sender.add_periodic_task(15 * 60, calculate_cohort.s(15), name="recalculate cohorts")
+        sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="recalculate cohorts")
     else:
         # ee enabled scheduled tasks
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
@@ -167,10 +168,10 @@ def calculate_event_action_mappings():
 
 
 @app.task(ignore_result=True)
-def calculate_cohort(max_age_minutes):
+def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts(max_age_minutes)
+    calculate_cohorts()
 
 
 @app.task(ignore_result=True)

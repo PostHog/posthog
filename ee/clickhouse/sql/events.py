@@ -231,10 +231,6 @@ EVENT_JOIN_PERSON_SQL = """
 INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
 """
 
-EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
-INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
-"""
-
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE 
 team_id = %(team_id)s

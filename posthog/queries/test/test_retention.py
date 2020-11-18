@@ -94,14 +94,64 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
-        def test_first_user_retention(self):
+        def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])
             person_factory(team_id=self.team.pk, distinct_ids=["person3"])
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
 
+            first_event = "$some_event"
             self._create_events(
                 [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(3)),
+                    ("person2", self._date(0)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                ],
+                first_event,
+            )
+
+            self._create_events(
+                [("person1", self._date(5)), ("person1", self._date(6)), ("person2", self._date(5)),], "$pageview",
+            )
+
+            target_entity = json.dumps({"id": first_event, "type": TREND_FILTER_TYPE_EVENTS})
+            result = retention().run(
+                Filter(
+                    data={
+                        "date_to": self._date(6, hour=6),
+                        "target_entity": target_entity,
+                        "events": [{"id": "$pageview", "type": "events"},],
+                    }
+                ),
+                self.team,
+                total_intervals=7,
+            )
+            self.assertEqual(len(result), 7)
+            self.assertEqual(
+                self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            )
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [[2, 2, 2, 2, 0, 2, 1], [2, 2, 2, 0, 2, 1], [2, 2, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [2, 1], [1]],
+            )
+
+        def test_first_user_retention(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person3"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person4"])
+            person_factory(team_id=self.team.pk, distinct_ids=["shouldnt_include"])
+
+            self._create_events(
+                [
+                    ("shouldnt_include", self._date(-5)),
+                    ("shouldnt_include", self._date(-1)),
                     ("person1", self._date(-1)),
                     ("person1", self._date(1)),
                     ("person1", self._date(2)),

@@ -182,13 +182,13 @@ class Filter(PropertyMixin):
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
-    def date_to(self) -> Optional[datetime.datetime]:
+    def date_to(self) -> datetime.datetime:
         if self._date_to:
             if isinstance(self._date_to, str):
                 return relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return None
+        return timezone.now()
 
     @property
     def date_filter_Q(self) -> Q:
@@ -200,6 +200,17 @@ class Filter(PropertyMixin):
         filter = Q(timestamp__gte=date_from)
         if self.date_to:
             filter &= Q(timestamp__lte=self.date_to)
+        return filter
+
+    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
+        date_from = self.date_from
+        if self._date_from == "all":
+            return Q()
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(**{"{}__gte".format(field): date_from})
+        if self.date_to:
+            filter &= Q(**{"{}__lte".format(field): self.date_to})
         return filter
 
     def toJSON(self):

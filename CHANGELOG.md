@@ -1,5 +1,72 @@
 # Changelog
 
+### 1.17.0 - Tuesday 17 November 2020
+
+- [Sentry Integration](https://github.com/PostHog/posthog/pull/1833)
+
+![Sentry Screenshot](https://posthog.com/static/85a8c81d33e2e3647657b389c0b12814/2cefc/sentry.png)
+
+An important part of devolping a great user experience is identifying, tracking, and fixing bugs. 
+
+With our new [Sentry](https://sentry.io/) integration, you can leverage PostHog data to help your debugging, and Sentry exception data to track relevant UX metrics. As a two-way integration, it:
+- Adds a direct link in Sentry to the profile of the person affected in PostHog
+- Sends an `$exception` event to PostHog with a direct link to Sentry
+
+If you're unfamiliar with Sentry, we highly recommend you to check it out - it is an awesome application monitoring platform of which we're avid users at PostHog.
+
+To set up the integration you can read the step-by-step instructions on the dedicated [Sentry Integration page](https://posthog.com/docs/integrations/sentry-integration).
+
+- [RudderStack Integration](https://docs.rudderstack.com/destinations/posthog)
+
+RudderStack is an open-source, warehouse-first, customer data platform for developers. It allows you to collect and deliver customer event data to a variety of destinations such as data warehouses and analytics platforms.
+
+As of last week, PostHog is now available as a destination on RudderStack, allowing you to send your event data from various sources into PostHog for performing product analytics. 
+
+You can read more about RudderStack on [their website](https://rudderstack.com/), and learn how to integrate PostHog through their [comprehensive integration docs](https://docs.rudderstack.com/destinations/posthog). 
+
+- [Plugin Attachments and GeoIP Plugin](https://github.com/PostHog/posthog/pull/2263)
+
+![MaxMind Plugin Page Screenshot](https://posthog.com/static/db00f5bcf26ff68ad3e8fe14cde54dcb/2cefc/maxmind-plugin.png)
+
+Over the past two weeks, our [Plugins](https://posthog.com/docs/plugins/overview) feature was extensively worked on to improve the experience of using and developing plugins for PostHog. 
+
+One of the main changes was the addition of plugin attachments, which allow you to upload files that are used in the configuration of the plugin, vastly expanding the realm of possibilities of what plugins can do. 
+
+As a result of this, we built the [PostHog MaxMind Plugin](https://posthog.com/docs/plugins/maxmind), leveraging attachments to allow GeoIP data to be used for enriching your events. Once configured, the plugin adds IP-based location information as properties on your events, such as what country and city your users are located in, making it possible to create charts and tables filtered based on the location of your users.
+
+> **Note:** Plugins are currently only available on self-hosted instances. If you're self-hosting and want to use the PostHog MaxMind Plugin, please follow [these instructions](https://posthog.com/docs/plugins/maxmind). If you want to build your own plugin, check out our [fresh new guide](https://posthog.com/docs/plugins/build) on how to do so.
+
+- [Retentions & Paths Dashboard Panels](https://github.com/PostHog/posthog/pull/2201)
+
+![Retention Panel Screenshot](https://posthog.com/static/adc21b7a7d974cc268481fd4d55b2c29/2cefc/retention-panel.png)
+
+Dashboards are a key part of PostHog, so it's important to us that you can have an overview of as many as possible of your metrics in them.
+
+As such, the user paths graph and the retention table can now be added as panels on dashboards, making it so that every single chart, table, funnel, and graph you create in PostHog can make it to your dashboards now. 
+
+- [First Time Retention](https://github.com/PostHog/posthog/pull/2325)
+
+![First Time Retention Screenshot](https://posthog.com/static/61a2f75d668da309c8800cfc2b4478c7/2cefc/first-time-retention.png)
+
+Following some feedback from our own Growth Engineer on what functionality we need for ourselves at PostHog, we have now extended the functionality of our 'Retention' view, adding first time retention and differentiating between 'Cohortizing' and 'Retaining' events.
+
+In short, first time retention cohortizes users based on when they did an event for the **first time**, rather than adding a user to each cohort they had the event in. Additionally, by being able to have different target events for the cohort and the retention, you are able to track the impact of 'Event A' on the retention of 'Event B', exploring hypotheses such as how users who read your documentation retain on product pageviews when compared to other users.
+
+- [New Events & Actions View](https://github.com/PostHog/posthog/pull/2319)
+
+![Manage Events View Screenshot](https://posthog.com/static/73e3d54092192d20c9f686152685a82e/2cefc/manage-events.png)
+
+In an effort to make it easier to filter through your events in PostHog and tag events that you find useful, we have now consolidated 'Events' and 'Actions' into one single view, found on the left sidebar as 'Events & Actions'.
+
+On this page, you'll be able to manage everything related to your events, from inspecting their properties, to tagging them as actions. In addition, we have also added stats for your event and property volumes, so you can dig deeper into your analytics data collection, and optimize it to your needs.
+
+- [Improved AWS CloudFormation Deployment](https://github.com/PostHog/deployment/pulls?q=is%3Apr+is%3Aclosed)
+
+Following a lot of great user feedback, we have now significantly improved our [AWS CloudFormation Deployment](https://posthog.com/docs/deployment/deploy-aws).
+
+We have now added configuration for relevant alerts and RDS disk size, as well as improved the setup flow and added automatic `SECRET_KEY` generation. If you're happy with the standard config, deploying with AWS is now just a matter of "click, click, click", as described by Karl, one of our engineers.
+
+
 ### 1.16.0 - Wednesday 4 November 2020
 
 - [Session Recording (Beta)](https://github.com/PostHog/posthog/issues/1846)
@@ -409,9 +476,9 @@ To ensure the security of your PostHog instance, it's important that you use a r
 
 Prior to this version, we denoted the importance of this in our Docs, but did not enforce it in our software. Now, to enhance security, PostHog will not allow you to run the server without setting it.
 
-Many of our deployments generate and set this key by default, so that you will not need to worry about it. This is the case with our [Heroku One-Click deployment](/docs/deployment/deploy-heroku), for example. However, other methods may not automatically do this (we're working on it!). As such, if you run into any issues when updating PostHog, make sure you have a unique `SECRET_KEY` set. 
+Many of our deployments generate and set this key by default, so that you will not need to worry about it. This is the case with our [Heroku One-Click deployment](https://posthog.com/docs/deployment/deploy-heroku), for example. However, other methods may not automatically do this (we're working on it!). As such, if you run into any issues when updating PostHog, make sure you have a unique `SECRET_KEY` set. 
 
-You can find more information about this on our ['Securing PostHog' page](/docs/configuring-posthog/securing-posthog#secret-key) and should always feel welcome to ask any questions on our [community Slack group](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ).
+You can find more information about this on our ['Securing PostHog' page](https://posthog.com/docs/configuring-posthog/securing-posthog#secret-key) and should always feel welcome to ask any questions on our [community Slack group](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ).
 
 
 ## Bug Fixes and Performance Improvements
@@ -841,7 +908,7 @@ This should really help with debugging, or just trying to get a detailed view of
 - We fixed [property filter array issue](https://github.com/PostHog/posthog/pull/769)
 - [Optimize funnel rendering](https://github.com/PostHog/posthog/pull/792) is a major improvement in speed for those with many events - now 1 order of magnitude faster. 
 - [Multiple filters with same key](https://github.com/PostHog/posthog/pull/738), fixed a bug that means you can now have multiple filters that are the same ie $current_url doesn't equal A and $current_url doesn't equal B
-- [Event partioning](https://github.com/PostHog/posthog/pull/733), which speeds up trends and paths pages in particular. Learn more about [scaling PostHog](/docs/scaling-posthog).
+- [Event partioning](https://github.com/PostHog/posthog/pull/733), which speeds up trends and paths pages in particular. Learn more about [scaling PostHog](https://posthog.com/docs/scaling-posthog).
 - The component Deletewithundo wasn't working because of property mixup, [now it is](https://github.com/PostHog/posthog/pull/750)!
 - [Funnels](https://github.com/PostHog/posthog/pull/751) and [Actions](https://github.com/PostHog/posthog/pull/757) now use Ant Design
 - We temporarily [removed stickiness breakdowns](https://github.com/PostHog/posthog/pull/774), as they were causing issues.
