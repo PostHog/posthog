@@ -65,6 +65,8 @@ class ClickhouseRetention(Retention):
         )
 
         target_condition, _ = self._get_condition(target_entity, table="reference_event")
+        target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
+        target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
         returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
 
         result = sync_execute(
