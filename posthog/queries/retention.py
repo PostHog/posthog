@@ -181,7 +181,7 @@ class Retention(BaseQuery):
             event_condition=entity_condition_stringified,
             returning_condition=returning_condition_stringified,
         )
-        event_params = (returning_entity.id, target_entity.id, target_entity.id)
+        event_params = (target_entity.id, returning_entity.id, returning_entity.id)
         start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
 
         with connection.cursor() as cursor:
