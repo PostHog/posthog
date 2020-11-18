@@ -64,6 +64,7 @@
         "react-syntax-highlighter": "^13.5.1",
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
+        "reselect": "^4.0.0",
         "rrweb": "^0.9.9",
         "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
