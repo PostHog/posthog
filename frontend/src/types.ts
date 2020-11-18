@@ -239,7 +239,7 @@ export interface DashboardType {
 export interface OrganizationInviteType {
     created_at: string
     created_by_email: string
-    created_by_first_name: string
+    created_by_name: string
     created_by_id: number
     emailing_attempt_made: boolean
     id: string
