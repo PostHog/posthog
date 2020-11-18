@@ -1,12 +1,11 @@
 {
     "family": "posthog-production-fargate",
     "networkMode": "awsvpc",
-    "executionRoleArn": "posthog-production-ecs",
+    "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
         {
             "name": "posthog-production",
-            "image": "httpd:2.4",
             "portMappings": [
                 {
                     "containerPort": 8000,
@@ -194,10 +193,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
                 }
             ],
-            "entryPoint": ["sh", "-c"],
-            "command": [
-                "/bin/sh -c \"echo '<html> <head> <title>Amazon ECS Sample App</title> <style>body {margin-top: 40px; background-color: #333;} </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now running on a container in Amazon ECS.</p> </div></body></html>' >  /usr/local/apache2/htdocs/index.html && httpd-foreground\""
-            ]
+            "entryPoint": ["gunicorn"],
+            "command": ["posthog.wsgi", "--log-file", "-"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
