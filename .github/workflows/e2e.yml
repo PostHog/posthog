@@ -76,7 +76,7 @@ jobs:
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@5.3.0
+                  yarn add cypress@5.3.0 cypress-terminal-report@2.1.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache

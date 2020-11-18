@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.clickhouse_sessions import ClickhouseSessions
+from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.queries.test.test_sessions import sessions_test_factory
 
