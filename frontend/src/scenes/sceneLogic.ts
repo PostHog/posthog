@@ -188,9 +188,10 @@ export const sceneLogic = kea<sceneLogicType>({
             posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
-            window.open(
-                `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
-            )
+            if (userLogic.values.user?.is_multi_tenancy) {
+                return router.actions.push('/organization/billing')
+            }
+            window.open(`https://posthog.com/pricing?o=enterprise`)
             posthog.capture('upgrade modal pricing interaction')
         },
         setScene: () => {
