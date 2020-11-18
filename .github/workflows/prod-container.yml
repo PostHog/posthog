@@ -67,4 +67,4 @@ jobs:
                   task-definition: ${{ steps.task-def.outputs.task-definition }}
                   service: posthog-production
                   cluster: posthog-production-cluster
-                  # wait-for-service-stability: true
+                  wait-for-service-stability: true
