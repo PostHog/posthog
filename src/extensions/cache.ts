@@ -14,7 +14,7 @@ export function createCache(server: PluginsServer, pluginName: string, teamId: n
             }
             try {
                 return value ? JSON.parse(value) : null
-            } catch (SyntaxError) {
+            } catch (e) {
                 return null
             }
         },
