@@ -1,8 +1,8 @@
 {
     "family": "posthog-production-fargate",
     "networkMode": "awsvpc",
-    "executionRoleArn": "posthog-production-ecs-task",
-    "taskRoleArn": "posthog-production-ecs",
+    "executionRoleArn": "posthog-production-ecs",
+    "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
         {
             "name": "posthog-production",
