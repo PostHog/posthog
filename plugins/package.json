@@ -4,9 +4,10 @@
     "license": "MIT",
     "private": true,
     "dependencies": {
+        "pm2": "^4.5.0",
         "posthog-plugin-server": "0.2.0"
     },
     "scripts": {
-        "start": "posthog-plugin-server start"
+        "start": "pm2 start --no-daemon"
     }
 }
