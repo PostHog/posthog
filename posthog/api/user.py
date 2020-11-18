@@ -104,14 +104,14 @@ class UserSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Model, validated_data: Any) -> Any:
         instance = cast(User, instance)
-        raise_errors_on_nested_writes('update', self, validated_data)
+        raise_errors_on_nested_writes("update", self, validated_data)
         info = model_meta.get_field_info(instance)
         m2m_fields = []
         for attr, value in validated_data.items():
-            if attr == 'current_organization_id':
+            if attr == "current_organization_id":
                 instance.current_organization = instance.organizations.get(id=value)
                 instance.current_team = instance.organization.teams.first()
-            if attr == 'current_team_id':
+            if attr == "current_team_id":
                 instance.current_team = instance.organization.teams.get(id=value)
             if attr in info.relations and info.relations[attr].to_many:
                 m2m_fields.append((attr, value))
@@ -122,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             field = getattr(instance, attr)
             field.set(value)
         return instance
+
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
@@ -206,7 +207,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         current_password = request.data.get("current_password")
         new_password = request.data.get("new_password")
         new_password_repeat = request.data.get("new_password_repeat")
-        
+
         user = cast(User, self.get_object())
         if user.has_usable_password():
             if not current_password:

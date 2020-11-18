@@ -31,12 +31,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
         fields = ["id", "name", "created_at", "updated_at", "teams", "available_features"]
-        read_only_fields = [
-            "id",
-            "created_at",
-            "updated_at",
-            "available_features"
-        ]
+        read_only_fields = ["id", "created_at", "updated_at", "available_features"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)

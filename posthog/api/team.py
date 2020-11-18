@@ -1,12 +1,12 @@
 from typing import Any, Dict, cast
-from django.db.models import Model
 
 import posthoganalytics
+import requests
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
+from django.db.models import Model
 from django.shortcuts import get_object_or_404
-import requests
 from rest_framework import (
     exceptions,
     generics,
@@ -17,9 +17,9 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.utils import model_meta
 from rest_framework.decorators import action
 from rest_framework.serializers import raise_errors_on_nested_writes
+from rest_framework.utils import model_meta
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -90,15 +90,14 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.save()
         return team
 
-
     def update(self, instance, validated_data):
-        raise_errors_on_nested_writes('update', self, validated_data)
+        raise_errors_on_nested_writes("update", self, validated_data)
         info = model_meta.get_field_info(instance)
         m2m_fields = []
         for attr, value in validated_data.items():
-            if attr == 'plugins_opt_in':
+            if attr == "plugins_opt_in":
                 reload_plugins_on_workers()
-            elif attr == 'incoming_webhook':
+            elif attr == "incoming_webhook":
                 try:
                     test_response = requests.post(attr, verify=False, json={"text": "Greetings from PostHog!"})
                     if not test_response.ok:
@@ -114,6 +113,7 @@ class TeamSerializer(serializers.ModelSerializer):
             field = getattr(instance, attr)
             field.set(value)
         return instance
+
 
 class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer

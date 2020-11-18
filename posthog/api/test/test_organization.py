@@ -167,9 +167,7 @@ class TestSignup(APIBaseTest):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
 
-        response = self.client.post(
-            "/api/signup/", {"name": "Jane", "email": "failed@posthog.com", "password": "123"},
-        )
+        response = self.client.post("/api/signup/", {"name": "Jane", "email": "failed@posthog.com", "password": "123"},)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
