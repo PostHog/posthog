@@ -3,7 +3,7 @@
     "networkMode": "awsvpc",
     "containerDefinitions": [
         {
-            "name": "fargate-app",
+            "name": "posthog-production",
             "image": "httpd:2.4",
             "portMappings": [
                 {
