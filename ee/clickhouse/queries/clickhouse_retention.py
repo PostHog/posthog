@@ -148,9 +148,11 @@ class ClickhouseRetention(Retention):
         trunc_func = self._get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        _entity = returning_entity if intervals > 0 else target_entity
-        target_query, target_params = self._get_condition(_entity, table="e")
+        returning_entity = returning_entity if intervals > 0 else target_entity
+        target_query, target_params = self._get_condition(target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
         reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
             target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
@@ -162,7 +164,7 @@ class ClickhouseRetention(Retention):
 
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
-                reference_event_query=reference_event_query, target_query=target_query_formatted, filters=prop_filters
+                reference_event_query=reference_event_query, target_query=return_query_formatted, filters=prop_filters
             ),
             {
                 "team_id": team.pk,
@@ -180,6 +182,7 @@ class ClickhouseRetention(Retention):
                 ),
                 "offset": offset,
                 **target_params,
+                **return_params,
                 **prop_filter_params,
             },
         )

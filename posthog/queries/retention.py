@@ -135,6 +135,7 @@ class Retention(BaseQuery):
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
                 .annotate(first_date=Min(trunc))
+                .filter(filter.custom_date_filter_Q("first_date"))
                 .distinct()
             )
             final_query = (
@@ -314,11 +315,11 @@ class Retention(BaseQuery):
                     .filter(
                         Exists(
                             Event.objects.filter(team_id=team.pk)
-                            .filter(Q() if is_first_time_retention else filter.date_filter_Q)
+                            .filter(filter.date_filter_Q)
                             .filter(filter.properties_to_Q(team_id=team.pk))
                             .add_person_id(team.pk)
                             .filter(**{"person_id": OuterRef("id")})
-                            .filter(_entity_condition)
+                            .filter(entity_condition)
                         )
                     )
                     .only("id")
