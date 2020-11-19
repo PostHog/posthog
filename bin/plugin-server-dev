@@ -1,0 +1,3 @@
+#!/bin/bash
+export WEB_CONCURRENCY=1
+./bin/plugin-server
