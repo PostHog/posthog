@@ -45,28 +45,31 @@ class ClickhouseRetention(Retention):
             target_params = {"target_event": target_entity.id}
 
         target_query, target_params = self._get_condition(target_entity)
-        returning_query, returning_params = self._get_condition(
-            returning_entity, "returning" if is_first_time_retention else ""
-        )
+        returning_query, returning_params = self._get_condition(returning_entity, "returning")
 
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        target_query_formatted = (
+            "AND {target_query}".format(target_query=target_query)
+            if is_first_time_retention
+            else "AND ({target_query} OR {returning_query})".format(
+                target_query=target_query, returning_query=returning_query
+            )
+        )
         returning_query_formatted = (
             "AND {returning_query}".format(returning_query=returning_query)
             if is_first_time_retention
-            else "AND {target_query}".format(target_query=target_query)
+            else "AND ({target_query} OR {returning_query})".format(
+                target_query=target_query, returning_query=returning_query
+            )
         )
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted,
-            filters=prop_filters if filter.properties else "",
-            trunc_func=trunc_func,
+            target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
         )
-
         result = sync_execute(
             RETENTION_SQL.format(
                 target_query=target_query_formatted,
                 returning_query=returning_query_formatted,
-                filters=prop_filters if filter.properties else "",
+                filters=prop_filters,
                 trunc_func=trunc_func,
                 extra_union="UNION ALL {}".format(reference_event_sql) if is_first_time_retention else "",
                 reference_event_sql=reference_event_sql,

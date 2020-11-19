@@ -338,6 +338,7 @@ def load_data_from_request(request):
             data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
         else:
             data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+        data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
     #  Is it plain json?
     try:

@@ -77,7 +77,7 @@ function _Setup() {
                 <h2 id="urls">Permitted Domains/URLs</h2>
                 <p>
                     These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
-                    also where you'll be able to create Actions.
+                    also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
                 <Divider />

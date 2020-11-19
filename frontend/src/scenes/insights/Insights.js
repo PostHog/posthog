@@ -9,7 +9,7 @@ import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ActionsPie } from './ActionsPie'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
-import { PeopleModal } from './PeopleModal'
+import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -281,7 +281,7 @@ function TrendInsight({ view }) {
                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
                 </div>
             )}
-            <PeopleModal visible={showingPeople} view={view} />
+            <PersonModal visible={showingPeople} view={view} />
         </>
     )
 }
