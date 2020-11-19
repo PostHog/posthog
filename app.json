@@ -22,8 +22,11 @@
                 "worker": {
                     "quantity": 1
                 },
-                "plugins": {
-                    "quantity": 1
+                "worker:celery": {
+                    "quantity": 0
+                },
+                "worker:plugins": {
+                    "quantity": 0
                 }
             }
         },
@@ -52,8 +55,11 @@
         "worker": {
             "quantity": 1
         },
-        "plugins": {
-            "quantity": 1
+        "worker:celery": {
+            "quantity": 0
+        },
+        "worker:plugins": {
+            "quantity": 0
         }
     },
     "env": {
