@@ -33,7 +33,7 @@ function _Setup() {
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
                 </h2>
-                To integrate PostHog into your webiste and get event autocapture with no additional work, include the
+                To integrate PostHog into your website and get event autocapture with no additional work, include the
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
                 <code>{'<head>'}</code>&nbsp;tag.
                 <br />
