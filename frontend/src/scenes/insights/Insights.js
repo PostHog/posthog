@@ -26,6 +26,7 @@ import {
     RETENTION_TABLE,
     PATHS_VIZ,
     FUNNEL_VIZ,
+    RETENTION_GRAPH,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -96,8 +97,10 @@ function determineInsightType(activeView, display) {
         return display || ACTIONS_LINE_GRAPH_LINEAR
     } else if (activeView === ViewType.FUNNELS) {
         return FUNNEL_VIZ
-    } else if (activeView === ViewType.RETENTION) {
+    } else if (activeView === ViewType.RETENTION && display !== ACTIONS_LINE_GRAPH_LINEAR) {
         return RETENTION_TABLE
+    } else if (activeView === ViewType.RETENTION && display === ACTIONS_LINE_GRAPH_LINEAR) {
+        return RETENTION_GRAPH
     } else if (activeView === ViewType.PATHS) {
         return PATHS_VIZ
     } else {

@@ -12,14 +12,16 @@ interface RetentionLineGraphProps {
     dashboardItemId?: number | null
     color?: string
     inSharedMode?: boolean | null
+    filters?: Record<string, unknown>
 }
 
 export function RetentionLineGraph({
     dashboardItemId = null,
     color = 'white',
     inSharedMode = false,
+    filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element {
-    const logic = retentionTableLogic({ dashboardItemId: dashboardItemId })
+    const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
     const { filters, retention, retentionLoading, people, peopleLoading } = useValues(logic)
     const { loadPeople, loadMoreGraphPeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
@@ -30,6 +32,7 @@ export function RetentionLineGraph({
     }
     const peopleData = people?.result
     const peopleNext = people?.next
+
     return retentionLoading ? (
         <Loading />
     ) : retention && retention.data && !retentionLoading ? (

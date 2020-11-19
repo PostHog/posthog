@@ -34,6 +34,7 @@ import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { RetentionLineGraph } from 'scenes/retention/RetentionLineGraph'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -86,6 +87,19 @@ const typeMap = {
         element: RetentionTable,
         icon: TableOutlined,
         viewText: 'View table',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.Retention, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    RetentionGraph: {
+        className: 'retention-graph',
+        element: RetentionLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
