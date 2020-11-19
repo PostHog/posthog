@@ -15,15 +15,6 @@
                 }
             },
             "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
-            "addons": [
-                "heroku-postgresql",
-                {
-                    "plan": "heroku-redis:premium-0",
-                    "options": {
-                        "maxmemory_policy": "allkeys-lru"
-                    }
-                }
-            ],
             "formation": {
                 "web": {
                     "quantity": 1
@@ -51,7 +42,7 @@
     "addons": [
         "heroku-postgresql",
         {
-            "plan": "heroku-redis:premium-0",
+            "plan": "heroku-redis",
             "options": {
                 "maxmemory_policy": "allkeys-lru"
             }
