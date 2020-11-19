@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
 import posthoganalytics
 from django.conf import settings
@@ -29,13 +29,9 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if (
-            request.method in CREATE_METHODS
-            and (
-                request.user.organization is None
-                or not request.user.organization.is_feature_available("organizations_projects")
-            )
-            and request.user.organization.teams.count() >= 1
+        if request.method in CREATE_METHODS and (
+            request.user.organization.teams.count() >= 1
+            and not request.user.organization.is_feature_available("organizations_projects")
         ):
             return False
         return True
@@ -79,9 +75,12 @@ class TeamSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict[str, Any]) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
+        organization = request.user.organization
+        if organization is None:
+            raise exceptions.ValidationError("You need to belong to an organization first!")
         with transaction.atomic():
             validated_data.setdefault("completed_snippet_onboarding", True)
-            team = Team.objects.create_with_data(**validated_data, organization=request.user.organization)
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
         return team

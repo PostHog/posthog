@@ -19,6 +19,7 @@ from rest_framework import exceptions, serializers
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.models import Event, Team, User
+from posthog.models.organization import Organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 
@@ -32,7 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
 # TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
-    organization = request.user.organization
+    organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
     team: Optional[Team] = request.user.team
     teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
@@ -41,7 +42,7 @@ def user(request):
     if request.method == "PATCH":
         data = json.loads(request.body)
 
-        if "team" in data:
+        if team is not None and "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
@@ -89,8 +90,10 @@ def user(request):
                     "is_signed_up": True,
                     "toolbar_mode": user.toolbar_mode,
                     "billing_plan": user.organization.billing_plan if user.organization is not None else None,
-                    "is_team_unique_user": (team.users.count() == 1),
-                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
+                    "is_team_unique_user": team.users.count() == 1 if team is not None else None,
+                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event)
+                    if team is not None
+                    else None,
                 },
             )
             user.save()
