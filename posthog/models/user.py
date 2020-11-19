@@ -47,7 +47,7 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
-                organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
+                organization=organization, team=team, level=OrganizationMembership.Level.OWNER,
             )
             return organization, team, user
 
@@ -138,14 +138,8 @@ class User(AbstractUser):
 
     def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if (
-            membership.level >= OrganizationMembership.Level.ADMIN
-            and OrganizationMembership.objects.filter(
-                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
-            ).count()
-            == 1
-        ):
-            raise ValidationError("Cannot leave the organization as its last admin!")
+        if membership.level == OrganizationMembership.Level.OWNER:
+            raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
             membership.delete()
             if self.current_organization == organization:

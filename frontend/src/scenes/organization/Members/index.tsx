@@ -2,12 +2,20 @@ import React, { useCallback } from 'react'
 import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
-import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined, UpOutlined, DownOutlined } from '@ant-design/icons'
+import {
+    DeleteOutlined,
+    ExclamationCircleOutlined,
+    LogoutOutlined,
+    UpOutlined,
+    DownOutlined,
+    SwapOutlined,
+    CrownFilled,
+} from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { UserType } from '~/types'
+import { OrganizationMemberType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -22,22 +30,24 @@ function _Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
     const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
     const { confirm } = Modal
-    const LevelComponent = useCallback(
-        (level: OrganizationMembershipLevel, member) => {
-            const levelName = organizationMembershipLevelToName.get(level) ?? 'unknown'
 
-            return (currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin ? (
-                <Tooltip title="Only organization administrators can change access levels.">
-                    <Button>{levelName}</Button>
-                </Tooltip>
-            ) : (currentOrganization?.membership_level ?? -1) < member.level ? (
-                <Tooltip title="You can only change access level of users with level lower or equal to you.">
-                    <Button>{levelName}</Button>
+    const currentMembershipLevel = currentOrganization?.membership_level ?? -1
+
+    const LevelComponent = useCallback(
+        (level: OrganizationMembershipLevel, member: OrganizationMemberType) => {
+            const levelButton = (
+                <Button icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}>
+                    {organizationMembershipLevelToName.get(level) ?? 'unknown'}
+                </Button>
+            )
+            return currentMembershipLevel < OrganizationMembershipLevel.Admin ? (
+                <Tooltip title="Only organization administrators can change access levels.">{levelButton}</Tooltip>
+            ) : currentMembershipLevel <= member.level ? (
+                <Tooltip title="You can only change access level of users with level lower than you.">
+                    {levelButton}
                 </Tooltip>
             ) : member.user_id === user.id ? (
-                <Tooltip title="You can't change your own access level.">
-                    <Button>{levelName}</Button>
-                </Tooltip>
+                <Tooltip title="You can't change your own access level.">{levelButton}</Tooltip>
             ) : (
                 <Dropdown
                     overlay={
@@ -46,26 +56,43 @@ function _Members({ user }: MembersProps): JSX.Element {
                                 (listLevel) =>
                                     typeof listLevel === 'number' &&
                                     listLevel !== level &&
-                                    listLevel <= (currentOrganization?.membership_level ?? -1) && (
-                                        <Menu.Item key={`${member.user_id}-level-${level}`}>
+                                    listLevel < currentMembershipLevel && (
+                                        <Menu.Item key={`${member.user_id}-level-${listLevel}`}>
                                             <a
                                                 href="#"
                                                 onClick={() => {
-                                                    changeMemberAccessLevel({ member, level: listLevel })
+                                                    if (listLevel === OrganizationMembershipLevel.Owner) {
+                                                        Modal.confirm({
+                                                            centered: true,
+                                                            title: `Pass on organization ownership to ${member.user_first_name}?`,
+                                                            icon: <SwapOutlined />,
+                                                            okType: 'danger',
+                                                            okText: 'Pass Ownership',
+                                                            onOk() {
+                                                                changeMemberAccessLevel(member, listLevel)
+                                                            },
+                                                        })
+                                                    } else {
+                                                        changeMemberAccessLevel(member, listLevel)
+                                                    }
                                                 }}
                                             >
-                                                {listLevel > level ? (
+                                                {listLevel === OrganizationMembershipLevel.Owner ? (
+                                                    <>
+                                                        <CrownFilled style={{ marginRight: '0.5rem' }} />
+                                                        Pass on organization ownership
+                                                    </>
+                                                ) : listLevel > level ? (
                                                     <>
                                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                                        Promote to{' '}
+                                                        Promote to {organizationMembershipLevelToName.get(listLevel)}
                                                     </>
                                                 ) : (
                                                     <>
                                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                                        Demote to{' '}
+                                                        Demote to {organizationMembershipLevelToName.get(listLevel)}
                                                     </>
                                                 )}
-                                                {organizationMembershipLevelToName.get(listLevel)}
                                             </a>
                                         </Menu.Item>
                                     )
@@ -73,20 +100,20 @@ function _Members({ user }: MembersProps): JSX.Element {
                         </Menu>
                     }
                 >
-                    <Button>{levelName}</Button>
+                    {levelButton}
                 </Dropdown>
             )
         },
-        [user]
+        [user, currentMembershipLevel]
     )
 
     const ActionsComponent = useCallback(
-        (_, member) => {
+        (_, member: OrganizationMemberType) => {
             function handleClick(): void {
                 confirm({
                     title: `${
                         member.user_id == user.id ? 'Leave' : `Remove ${member.user_first_name} from`
-                    } organization ${user.organization.name}?`,
+                    } organization ${user.organization?.name}?`,
                     icon: <ExclamationCircleOutlined />,
                     okText: member.user_id == user.id ? 'Leave' : 'Remove',
                     okType: 'danger',
@@ -100,17 +127,20 @@ function _Members({ user }: MembersProps): JSX.Element {
 
             return (
                 <div>
-                    <a className="text-danger" onClick={handleClick}>
-                        {member.user_id !== user.id ? (
-                            <DeleteOutlined title="Remove Member" />
-                        ) : (
-                            <LogoutOutlined title="Leave Organization" />
+                    {member.level !== OrganizationMembershipLevel.Owner &&
+                        (member.level < currentMembershipLevel || member.user_id === user.id) && (
+                            <a className="text-danger" onClick={handleClick}>
+                                {member.user_id !== user.id ? (
+                                    <DeleteOutlined title="Remove Member" />
+                                ) : (
+                                    <LogoutOutlined title="Leave Organization" />
+                                )}
+                            </a>
                         )}
-                    </a>
                 </div>
             )
         },
-        [user]
+        [user, currentMembershipLevel]
     )
 
     const columns: ColumnsType<Record<string, any>> = [

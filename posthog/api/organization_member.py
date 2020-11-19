@@ -1,6 +1,7 @@
 from typing import cast
 
 from django.db.models import Model, QuerySet, query
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -9,7 +10,6 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
-from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
@@ -39,25 +39,34 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
 
-    def update(self, instance, validated_data):
-        instance = cast(OrganizationMembership, instance)
+    def update(self, updated_membership, validated_data):
+        updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            organization=instance.organization, user=self.context["request"].user
+            organization=updated_membership.organization, user=self.context["request"].user
         )
         new_level = validated_data.get("level")
         if new_level is not None:
             # level changing constraints
-            if requesting_membership.level < instance.level:
-                raise exceptions.PermissionDenied(
-                    "You can only change access level of users with level lower or equal to you."
-                )
-            if requesting_membership.id == instance.id:
+            if updated_membership.id == requesting_membership.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        return instance
+            if updated_membership.level >= requesting_membership.level:
+                raise exceptions.PermissionDenied(
+                    "You can only change access level of others with level lower than you."
+                )
+            if new_level >= requesting_membership.level:
+                raise exceptions.PermissionDenied(
+                    "You can only change access level of others to lower than your current one."
+                )
+        with transaction.atomic():
+            if new_level == OrganizationMembership.Level.OWNER:
+                # pass on organization ownership so that there's only one owner
+                requesting_membership.level = OrganizationMembership.Level.ADMIN
+                requesting_membership.save()
+            for attr, value in validated_data.items():
+                setattr(updated_membership, attr, value)
+            updated_membership.save()
+        return updated_membership
 
 
 class OrganizationMemberViewSet(

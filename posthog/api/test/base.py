@@ -73,7 +73,7 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
             team=self.team,
             email=email,
             password=password,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembership.Level.OWNER,
             **kwargs,
         )
 
