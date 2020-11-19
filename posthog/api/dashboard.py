@@ -111,7 +111,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
         if not self.request.user.is_authenticated:
-            if self.request.GET.get("share_token"):
+            if "team_id" not in self.get_parents_query_dict() and self.request.GET.get("share_token"):
                 return queryset.filter(share_token=self.request.GET["share_token"])
             else:
                 raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")

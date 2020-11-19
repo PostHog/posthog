@@ -39,9 +39,9 @@ export const dashboardLogic = kea({
                 loadDashboardItems: async () => {
                     try {
                         const dashboard = await api.get(
-                            `api/projects/@current/dashboards/${props.id}${
-                                props.shareToken ? '/?share_token=' + props.shareToken : ''
-                            }`
+                            props.shareToken
+                                ? `api/dashboards/${props.id}/?share_token=${props.shareToken}`
+                                : `api/projects/@current/dashboards/${props.id}`
                         )
                         return dashboard
                     } catch (error) {

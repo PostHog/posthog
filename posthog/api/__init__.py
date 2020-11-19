@@ -41,6 +41,7 @@ def api_not_found(request):
 
 router = DefaultRouterPlusPlus()
 router.register(r"personal-api-keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"dashboards", dashboard.DashboardsViewSet, "shared_dashboards")
 teams_router = router.register(r"projects", team.TeamViewSet)
 teams_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 teams_router.register(r"feature-flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])

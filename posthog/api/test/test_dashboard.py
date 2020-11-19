@@ -29,9 +29,9 @@ class TestDashboard(TransactionBaseTest):
     def test_token_auth(self):
         self.client.logout()
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
-        test_no_token = self.client.get(f"/api/projects/@current/dashboards/{dashboard.pk}/")
+        test_no_token = self.client.get(f"/api/dashboards/{dashboard.pk}/")
         self.assertEqual(test_no_token.status_code, 403)
-        response = self.client.get(f"/api/projects/@current/dashboards/{dashboard.pk}/?share_token=testtoken")
+        response = self.client.get(f"/api/dashboards/{dashboard.pk}/?share_token=testtoken")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["name"], "public dashboard")
 
