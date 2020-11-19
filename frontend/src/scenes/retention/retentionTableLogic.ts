@@ -229,9 +229,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         ],
     }),
     events: ({ actions }) => ({
-        afterMount: () => {
-            actions.setFilters({})
-        },
+        afterMount: actions.loadRetention,
     }),
     actionToUrl: ({ props, values }) => ({
         setFilters: () => {
@@ -259,7 +257,6 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                     actions.clearRetention()
                     actions.clearPeople()
                 }
-
                 if (!objectsEqual(cleanSearchParams, cleanedFilters)) actions.setFilters(cleanSearchParams)
                 if (!objectsEqual(searchParams.properties, values.properties))
                     actions.setProperties(searchParams.properties || [])

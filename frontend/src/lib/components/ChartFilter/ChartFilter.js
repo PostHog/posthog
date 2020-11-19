@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS } from '~/lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS, ACTIONS_TABLE } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 
 export function ChartFilter(props) {
@@ -15,6 +15,7 @@ export function ChartFilter(props) {
     const linearDisabled = filters.session && filters.session === 'dist'
     const tableDisabled = false
     const pieDisabled = filters.session || filters.retentionType
+    const defaultDisplay = filters.retentionType ? ACTIONS_TABLE : ACTIONS_LINE_GRAPH_LINEAR
 
     return [
         (!filters.display ||
@@ -27,8 +28,8 @@ export function ChartFilter(props) {
 
         <Select
             key="2"
-            defaultValue={displayMap[filters.display || ACTIONS_LINE_GRAPH_LINEAR]}
-            value={displayMap[chartFilter || ACTIONS_LINE_GRAPH_LINEAR]}
+            defaultValue={displayMap[filters.display || defaultDisplay]}
+            value={displayMap[chartFilter || defaultDisplay]}
             onChange={(value) => {
                 setChartFilter(value)
                 onChange(value)
