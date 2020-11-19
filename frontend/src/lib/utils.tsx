@@ -90,28 +90,6 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function CloseButton(props: Record<string, any>): JSX.Element {
-    return (
-        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
-            <span aria-hidden="true">&times;</span>
-        </span>
-    )
-}
-
-export function Card(props: Record<string, any>): JSX.Element {
-    return (
-        <div
-            {...props}
-            className={'card' + (props.className ? ` ${props.className}` : '')}
-            style={props.style}
-            title=""
-        >
-            {props.title && <div className="card-header">{props.title}</div>}
-            {props.children}
-        </div>
-    )
-}
-
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
@@ -121,7 +99,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
         const response = (
             <span>
                 <b>{props.object.name ?? 'Untitled'}</b>
-                {!undo ? ' deleted. Click here to undo.' : ' deletion undone.'}
+                {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
             </span>
         )
         toast(response, {
@@ -150,6 +128,7 @@ export function DeleteWithUndo(
             href="#"
             onClick={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 deleteWithUndo(props)
             }}
             className={className}
@@ -287,9 +266,9 @@ export function delay(ms: number): Promise<number> {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
-// We need this so the dashboard resizes itself properly, as the available div width will still
-// change when the sidebar's expansion is animating.
+/**
+ * Trigger a resize event on window.
+ */
 export function triggerResize(): void {
     try {
         window.dispatchEvent(new Event('resize'))
@@ -297,6 +276,12 @@ export function triggerResize(): void {
         // will break on IE11
     }
 }
+
+/**
+ * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
+ * We need this so the dashboard resizes itself properly, as the available div width will still
+ * change when the sidebar's expansion is animating.
+ */
 export function triggerResizeAfterADelay(): void {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
         window.setTimeout(triggerResize, delay)
@@ -429,8 +414,8 @@ export const dateMapping: Record<string, string[]> = {
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
     'Last 48 hours': ['-48h'],
-    'Last week': ['-7d'],
-    'Last 2 weeks': ['-14d'],
+    'Last 7 days': ['-7d'],
+    'Last 14 days': ['-14d'],
     'Last 30 days': ['-30d'],
     'Last 90 days': ['-90d'],
     'This month': ['mStart'],
@@ -456,6 +441,7 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
 }
 
 export function humanizeNumber(number: number, digits: number = 1): string {
+    if (number === null) return '-'
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {
@@ -468,10 +454,17 @@ export function humanizeNumber(number: number, digits: number = 1): string {
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {
-    const descriptionAdjusted = description ? description.trim() + ' ' : ''
+    const descriptionAdjusted = description
+        ? description.charAt(0).toUpperCase() + description.slice(1).trim() + ' '
+        : ''
     try {
         navigator.clipboard.writeText(value)
-        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
+        toast(
+            <div>
+                <h1 className="text-success">Copied to clipboard!</h1>
+                <p>{descriptionAdjusted} has been copied to your clipboard.</p>
+            </div>
+        )
         return true
     } catch (e) {
         toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
@@ -536,6 +529,19 @@ export function sampleSingle<T>(items: T[]): T[] {
     return [items[Math.floor(Math.random() * items.length)]]
 }
 
+export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
+    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
+    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
+    const match = input.match(/[A-Za-z][a-z]*/g)
+    if (!match) return null
+
+    return match
+        .map((group) => {
+            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
+        })
+        .join(' ')
+}
+
 export function parseGithubRepoURL(url: string): Record<string, string> {
     const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
     if (!match) {
@@ -550,4 +556,20 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
         return true
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
+}
+
+/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
+export function camelCaseToTitle(camelCase: string): string {
+    const words: string[] = []
+    let currentWord: string = ''
+    for (const character of camelCase.trim()) {
+        if (character == character.toLowerCase() && character != character.toUpperCase()) {
+            currentWord += character
+        } else {
+            words.push(currentWord)
+            currentWord = character.toLowerCase()
+        }
+    }
+    if (currentWord) words.push(currentWord)
+    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }

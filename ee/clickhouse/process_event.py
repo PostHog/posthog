@@ -3,19 +3,26 @@ import json
 from typing import Dict, Optional
 from uuid import UUID
 
+import statsd
 from celery import shared_task
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db.utils import IntegrityError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
-from posthog.ee import check_ee_enabled
+from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.tasks.process_event import handle_identify_or_alias, handle_timestamp, store_names_and_properties
+from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
+
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 def _capture_ee(
@@ -73,15 +80,41 @@ def _capture_ee(
         team=team,
         distinct_id=distinct_id,
         elements=elements_list,
+        site_url=site_url,
     )
 
 
-if check_ee_enabled():
+def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datetime.datetime]) -> datetime.datetime:
+    if data.get("timestamp"):
+        if sent_at:
+            # sent_at - timestamp == now - x
+            # x = now + (timestamp - sent_at)
+            try:
+                # timestamp and sent_at must both be in the same format: either both with or both without timezones
+                # otherwise we can't get a diff to add to now
+                return now + (parser.isoparse(data["timestamp"]) - sent_at)
+            except TypeError as e:
+                pass
+        return parser.isoparse(data["timestamp"])
+    now_datetime = now
+    if data.get("offset"):
+        return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
+    return now_datetime
 
-    @shared_task(name="ee.clickhouse.process_event.process_event_ee", ignore_result=True)
+
+if is_ee_enabled():
+
     def process_event_ee(
-        distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+        distinct_id: str,
+        ip: str,
+        site_url: str,
+        data: dict,
+        team_id: int,
+        now: datetime.datetime,
+        sent_at: Optional[datetime.datetime],
     ) -> None:
+        timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
+        timer.start()
         properties = data.get("properties", {})
         if data.get("$set"):
             properties["$set"] = data["$set"]
@@ -113,12 +146,20 @@ if check_ee_enabled():
             properties=properties,
             timestamp=ts,
         )
+        timer.stop("process_event_ee")
 
 
 else:
 
-    @shared_task(name="ee.clickhouse.process_event.process_event_ee", ignore_result=True)
-    def process_event_ee(*args, **kwargs) -> None:
+    def process_event_ee(
+        distinct_id: str,
+        ip: str,
+        site_url: str,
+        data: dict,
+        team_id: int,
+        now: datetime.datetime,
+        sent_at: Optional[datetime.datetime],
+    ) -> None:
         # Noop if ee is not enabled
         return
 

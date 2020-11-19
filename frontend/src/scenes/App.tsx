@@ -1,5 +1,3 @@
-import 'react-toastify/dist/ReactToastify.css'
-import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
@@ -8,6 +6,7 @@ import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
+import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
@@ -19,6 +18,7 @@ import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const darkerScenes: Record<string, boolean> = {
     dashboard: true,
@@ -28,6 +28,10 @@ const darkerScenes: Record<string, boolean> = {
     paths: true,
 }
 
+const Toast = (): JSX.Element => {
+    return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
+}
+
 export const App = hot(_App)
 function _App(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -35,7 +39,8 @@ function _App(): JSX.Element {
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991) // used for legacy navigation [Sidebar.js]
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
@@ -55,9 +60,9 @@ function _App(): JSX.Element {
 
     if (!user) {
         return unauthenticatedRoutes.includes(scene) ? (
-            <>
-                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
+            <Layout style={{ minHeight: '100vh' }}>
+                <Scene {...params} /> <Toast />
+            </Layout>
         ) : (
             <div />
         )
@@ -65,26 +70,34 @@ function _App(): JSX.Element {
 
     if (scene === 'ingestion' || !scene) {
         return (
-            <>
+            <Layout style={{ minHeight: '100vh' }}>
                 <Scene user={user} {...params} />
-                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
-            </>
+                <Toast />
+            </Layout>
         )
     }
 
     return (
         <>
             <UpgradeModal />
-            <Layout className="bg-white">
-                <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+            <Layout>
+                {featureFlags['navigation-1775'] ? (
+                    <MainNavigation />
+                ) : (
+                    <Sidebar
+                        user={user}
+                        sidebarCollapsed={sidebarCollapsed}
+                        setSidebarCollapsed={setSidebarCollapsed}
+                    />
+                )}
                 <Layout
-                    className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
-                        !sidebarCollapsed ? ' with-open-sidebar' : ''
+                    className={`${darkerScenes[scene] && 'bg-mid'}${
+                        !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
                     }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <TopContent />
-                    <Layout.Content className="pl-5 pr-5 pt-3 pb-5" data-attr="layout-content">
+                    {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
+                    <Layout.Content className="main-app-content" data-attr="layout-content">
                         <BillingToolbar />
                         {currentTeam &&
                         !currentTeam.ingested_event &&
@@ -93,7 +106,7 @@ function _App(): JSX.Element {
                         ) : (
                             <Scene user={user} {...params} />
                         )}
-                        <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                        <Toast />
                     </Layout.Content>
                 </Layout>
             </Layout>

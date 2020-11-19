@@ -58,12 +58,13 @@ def is_json(val):
     return True
 
 
-def is_int(val: str) -> bool:
+def is_int(value: Optional[Union[str, int]]) -> bool:
     try:
-        int(val)
-        return True
-    except ValueError:
+        int(value)  # type: ignore
+    except (ValueError, TypeError):
         return False
+    else:
+        return True
 
 
 def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:

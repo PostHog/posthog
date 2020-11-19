@@ -12,11 +12,6 @@ try:
 except ImportError:
     License = None  # type: ignore
 
-try:
-    from multi_tenancy.models import OrganizationBilling
-except ImportError:
-    OrganizationBilling = None
-
 
 class OrganizationManager(models.Manager):
     def bootstrap(
@@ -51,31 +46,41 @@ class Organization(UUIDModel):
     objects = OrganizationManager()
 
     @property
-    def billing_plan(self) -> Optional[str]:
-        # If the EE folder is missing no features are available
-        if not settings.EE_AVAILABLE:
-            return None
-        # If we're on Cloud, grab the organization's price
-        if OrganizationBilling is not None:
-            try:
-                return OrganizationBilling.objects.get(organization_id=self.id).get_plan_key()
-            except OrganizationBilling.DoesNotExist:
-                return None
+    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Obtains details on the billing plan for the organization.
+        Returns a tuple with (billing_plan_key, billing_realm)
+        """
+
+        # If on Cloud, grab the organization's price
+        if hasattr(self, "billing"):
+            if self.billing is None:  # type: ignore
+                return (None, None)
+            return (self.billing.get_plan_key(), "cloud")  # type: ignore
+
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.filter(valid_until__gte=timezone.now()).first()
             if license:
-                return license.plan
-        return None
+                return (license.plan, "ee")
+        return (None, None)
+
+    @property
+    def billing_plan(self) -> Optional[str]:
+        return self._billing_plan_details[0]
 
     @property
     def available_features(self) -> List[str]:
-        plan = self.billing_plan
+        plan, realm = self._billing_plan_details
         if not plan:
             return []
-        if plan not in License.PLANS:
-            return []
-        return License.PLANS[plan]
+
+        if realm == "ee":
+            if plan not in License.PLANS:
+                return []
+            return License.PLANS[plan]
+
+        return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
@@ -129,6 +134,7 @@ class OrganizationInvite(UUIDModel):
         related_query_name="organization_invite",
         null=True,
     )
+    emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
@@ -136,8 +142,10 @@ class OrganizationInvite(UUIDModel):
         if not email:
             assert user is not None, "Either user or email must be provided!"
             email = user.email
+        if self.is_expired():
+            raise ValueError("This invite has expired. Please ask your admin for a new one.")
         if email != self.target_email:
-            raise ValueError("Invite intended for another email address.")
+            raise ValueError("This invite is intended for another email address.")
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
         if OrganizationMembership.objects.filter(
@@ -155,8 +163,12 @@ class OrganizationInvite(UUIDModel):
             user.save()
         self.delete()
 
+    def is_expired(self) -> bool:
+        """Check if invite is older than 3 days."""
+        return self.created_at < timezone.now() - timezone.timedelta(3)
+
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}/"
+        return f"{settings.SITE_URL}/signup/{self.id}"
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

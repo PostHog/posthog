@@ -16,7 +16,6 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
-from social_django.models import Partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.demo import demo
@@ -133,7 +132,7 @@ def signup_to_organization_view(request, invite_id):
             {
                 "email": request.user.email if not request.user.anonymize_data else None,
                 "company_name": organization.name,
-                "organization_id": organization.id,
+                "organization_id": str(organization.id),
                 "is_organization_first_user": False,
             },
         )
@@ -294,6 +293,7 @@ urlpatterns = [
     opt_slash_path("track", capture.get_event),
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
+    opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
     path("login", login_view, name="login"),

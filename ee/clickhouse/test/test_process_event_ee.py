@@ -1,25 +1,17 @@
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
-from django.utils.timezone import now
-from freezegun import freeze_time
+from dateutil import parser
 
-from ee.clickhouse.client import ch_client, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
-from ee.clickhouse.models.event import get_events
-from ee.clickhouse.models.person import get_person_by_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.base import BaseTest
 from posthog.models.element import Element
 from posthog.models.event import Event
-from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingEvent
-from posthog.models.team import Team
-from posthog.tasks.process_event import process_event
 from posthog.tasks.test.test_process_event import test_process_event_factory
 
 
@@ -47,8 +39,22 @@ def get_elements(event_id: Union[int, UUID]) -> List[Element]:
     )
 
 
+def _process_event_ee(
+    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
+) -> None:
+    return process_event_ee(
+        distinct_id=distinct_id,
+        ip=ip,
+        site_url=site_url,
+        data=data,
+        team_id=team_id,
+        now=parser.isoparse(now),
+        sent_at=parser.isoparse(sent_at) if sent_at else None,
+    )
+
+
 class ClickhouseProcessEvent(
     ClickhouseTestMixin,
-    test_process_event_factory(process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
+    test_process_event_factory(_process_event_ee, _get_events, get_session_recording_events, get_elements),  # type: ignore
 ):
     pass

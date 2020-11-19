@@ -25,6 +25,7 @@ from posthog.constants import (
     PATH_TYPE,
     PERIOD,
     PROPERTIES,
+    RETENTION_TYPE,
     SELECTOR,
     SESSION,
     SHOWN_AS,
@@ -62,6 +63,7 @@ class Filter(PropertyMixin):
     insight: Optional[str] = None
     session_type: Optional[str] = None
     path_type: Optional[str] = None
+    retention_type: Optional[str] = None
     start_point: Optional[str] = None
     target_entity: Optional[Entity] = None
     _offset: Optional[str] = None
@@ -93,6 +95,7 @@ class Filter(PropertyMixin):
         self.insight = data.get(INSIGHT)
         self.session_type = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
+        self.retention_type = data.get(RETENTION_TYPE)
         self.start_point = data.get(START_POINT)
         self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
         self._offset = data.get(OFFSET)
@@ -138,6 +141,7 @@ class Filter(PropertyMixin):
             BREAKDOWN_TYPE: self.breakdown_type,
             COMPARE: self.compare,
             INSIGHT: self.insight,
+            SESSION: self.session_type,
         }
         return {
             key: value
@@ -178,13 +182,13 @@ class Filter(PropertyMixin):
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
-    def date_to(self) -> Optional[datetime.datetime]:
+    def date_to(self) -> datetime.datetime:
         if self._date_to:
             if isinstance(self._date_to, str):
                 return relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return None
+        return timezone.now()
 
     @property
     def date_filter_Q(self) -> Q:
@@ -196,6 +200,17 @@ class Filter(PropertyMixin):
         filter = Q(timestamp__gte=date_from)
         if self.date_to:
             filter &= Q(timestamp__lte=self.date_to)
+        return filter
+
+    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
+        date_from = self.date_from
+        if self._date_from == "all":
+            return Q()
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(**{"{}__gte".format(field): date_from})
+        if self.date_to:
+            filter &= Q(**{"{}__lte".format(field): self.date_to})
         return filter
 
     def toJSON(self):

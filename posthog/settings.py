@@ -58,8 +58,9 @@ def print_warning(warning_lines: Sequence[str]):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = "test" in sys.argv  # type: bool
+TEST = "test" in sys.argv or get_bool_from_env("TEST", False)  # type: bool
 SELF_CAPTURE = get_bool_from_env("SELF_CAPTURE", DEBUG)
+SHELL_PLUS_PRINT_SQL = get_bool_from_env("PRINT_SQL", False)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -138,6 +139,9 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 
+LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
+
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -150,16 +154,6 @@ POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
-
-if PRIMARY_DB == CLICKHOUSE:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
-else:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
-
-if PRIMARY_DB == CLICKHOUSE:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
-else:
-    TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
 
 if PRIMARY_DB == CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
@@ -184,9 +178,9 @@ SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_HOST = os.environ.get("STATSD_HOST")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
 # Application definition
 
@@ -220,7 +214,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-if STATSD_HOST:
+if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
@@ -338,6 +332,9 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
+DISABLE_SERVER_SIDE_CURSORS = get_bool_from_env("USING_PGBOUNCER", False)
+
 # Broker
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
@@ -365,6 +362,15 @@ if not REDIS_URL:
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
+
+if PRIMARY_DB == CLICKHOUSE:
+    try:
+        from ee.apps import EnterpriseConfig  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
+
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
@@ -428,17 +434,15 @@ EXCEPTIONS_HOG = {
 }
 
 # Email
-EMAIL_HOST = os.environ.get("EMAIL_HOST")
+EMAIL_ENABLED = get_bool_from_env("EMAIL_ENABLED", True)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", None)
 EMAIL_PORT = os.environ.get("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hey@posthog.com")
+DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
-
-# You can pass a comma deliminated list of domains with which users can sign up to this service
-RESTRICT_SIGNUPS = get_bool_from_env("RESTRICT_SIGNUPS", False)
 
 CACHES = {
     "default": {
@@ -453,6 +457,11 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+    import celery
+
+    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
+    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
 
 if DEBUG and not TEST:
     print_warning(
@@ -497,3 +506,13 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_bool_from_env("EMAIL_REPORTS_ENABLED", False)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler",},},
+    "root": {"handlers": ["console"], "level": "WARNING",},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
+    },
+}

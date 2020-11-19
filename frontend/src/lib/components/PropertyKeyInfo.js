@@ -263,6 +263,8 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                     {data.examples ? (
                         <>
                             <span>{data.description}</span>
+                            <br />
+                            <br />
                             <span>
                                 <i>Example: </i>
                                 {data.examples.join(', ')}

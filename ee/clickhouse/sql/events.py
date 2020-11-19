@@ -50,7 +50,9 @@ SAMPLE BY uuid
 )
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE, engine=kafka_engine(topic=KAFKA_EVENTS), extra_fields=""
+    table_name="kafka_" + EVENTS_TABLE,
+    engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
+    extra_fields="",
 )
 
 EVENTS_TABLE_MV_SQL = """
@@ -213,12 +215,6 @@ SELECT
 FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
-EVENT_PROP_CLAUSE = """
-SELECT event_id
-FROM events_properties_view AS ep
-WHERE {filters} AND team_id = %(team_id)s
-"""
-
 GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events order by toDate(timestamp), timestamp limit 1
 """
@@ -233,10 +229,6 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 
 EVENT_JOIN_PERSON_SQL = """
 INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
-"""
-
-EVENT_JOIN_PROPERTY_WITH_KEY_SQL = """
-INNER JOIN (SELECT event_id, toInt64OrNull(value) as value FROM events_properties_view WHERE team_id = %(team_id)s AND key = %(join_property_key)s AND value IS NOT NULL) as pid ON events.uuid = pid.event_id
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
@@ -261,3 +253,9 @@ LIMIT %(limit)s
 """.format(
     tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
+
+GET_PROPERTIES_VOLUME = """
+    SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC
+"""
+
+GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"

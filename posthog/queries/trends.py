@@ -1,5 +1,6 @@
 import copy
 import datetime
+from itertools import accumulate
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
@@ -234,18 +235,38 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
 
 class Trends(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        if filter.interval is None:
-            filter.interval = "day"
+        if filter.breakdown:
+            result = self._serialize_breakdown(entity, filter, team_id)
+        else:
+            result = self._format_normal_query(entity, filter, team_id)
 
-        serialized: Dict[str, Any] = {
-            "action": entity.to_dict(),
-            "label": entity.name,
-            "count": 0,
-            "data": [],
-            "labels": [],
-            "days": [],
-        }
-        response = []
+        serialized_data = self._format_serialized(entity, result)
+
+        if filter.display == TRENDS_CUMULATIVE:
+            serialized_data = self._handle_cumulative(serialized_data)
+
+        return serialized_data
+
+    def _set_default_dates(self, filter: Filter, team_id: int) -> None:
+        # format default dates
+        if not filter.date_from:
+            filter._date_from = (
+                Event.objects.filter(team_id=team_id)
+                .order_by("timestamp")[0]
+                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+            )
+
+    def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+        events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
+        events = events.filter(filter_events(team_id, filter, entity))
+        items = aggregate_by_interval(filtered_events=events, team_id=team_id, entity=entity, filter=filter,)
+        formatted_entities: List[Dict[str, Any]] = []
+        for _, item in items.items():
+            formatted_entities.append(append_data(dates_filled=list(item.items()), interval=filter.interval))
+        return formatted_entities
+
+    def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
         items = aggregate_by_interval(
@@ -255,46 +276,57 @@ class Trends(BaseQuery):
             filter=filter,
             breakdown="properties__{}".format(filter.breakdown) if filter.breakdown else None,
         )
+        formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
-            new_dict = copy.deepcopy(serialized)
+            new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            new_dict.update(append_data(dates_filled=list(item.items()), interval=filter.interval))
-            if filter.display == TRENDS_CUMULATIVE:
-                new_dict["data"] = np.cumsum(new_dict["data"])
-            response.append(new_dict)
+            formatted_entities.append(new_dict)
+        return formatted_entities
 
-        return response
+    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+        serialized_data = []
 
-    def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        actions = Action.objects.filter(team_id=team_id).order_by("-id")
+        serialized: Dict[str, Any] = {
+            "action": entity.to_dict(),
+            "label": entity.name,
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [],
+        }
+
+        for queried_metric in result:
+            serialized_copy = copy.deepcopy(serialized)
+            serialized_copy.update(queried_metric)
+            serialized_data.append(serialized_copy)
+
+        return serialized_data
+
+    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
+        for metrics in entity_metrics:
+            metrics.update(data=list(accumulate(metrics["data"])))
+        return entity_metrics
+
+    def calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
-            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
+            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-        entities_list = []
 
-        if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team_id)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
+        self._set_default_dates(filter, team.pk)
 
+        result = []
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
-                    db_action = [action for action in actions if action.id == entity.id][0]
-                    entity.name = db_action.name
-                except IndexError:
+                    entity.name = actions.get(id=entity.id).name
+                except Action.DoesNotExist:
                     continue
-            entities_list.extend(
-                handle_compare(entity=entity, filter=filter, func=self._serialize_entity, team_id=team_id)
-            )
+            entities_list = handle_compare(filter, self._serialize_entity, team, entity=entity)
+            result.extend(entities_list)
 
-        return entities_list
+        return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_trends(filter, team.pk)
+        return self.calculate_trends(filter, team)

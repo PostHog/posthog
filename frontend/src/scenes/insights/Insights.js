@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { Card, Loading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
@@ -9,10 +9,11 @@ import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ActionsPie } from './ActionsPie'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
-import { PeopleModal } from './PeopleModal'
+import { PersonModal } from './PersonModal'
+import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Button, Drawer, Tooltip } from 'antd'
+import { Tabs, Row, Col, Button, Drawer, Tooltip, Card } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -46,6 +47,8 @@ import { SavedFunnels } from './SavedCard'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { insightCommandLogic } from './insightCommandLogic'
+
+import './Insights.scss'
 
 const { TabPane } = Tabs
 
@@ -88,14 +91,6 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
-const disableSaveToDashboard = {
-    [`${ViewType.TRENDS}`]: false,
-    [`${ViewType.SESSIONS}`]: false,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: true,
-    [`${ViewType.PATHS}`]: true,
-}
-
 function determineInsightType(activeView, display) {
     if (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) {
         return display || ACTIONS_LINE_GRAPH_LINEAR
@@ -124,7 +119,7 @@ function _Insights() {
     return (
         user?.team && (
             <div className="actions-graph">
-                <h1 className="page-header">Insights</h1>
+                <PageHeader title="Insights" />
                 <Row justify="space-between" align="middle">
                     <Tabs
                         size="large"
@@ -154,8 +149,8 @@ function _Insights() {
                 </Row>
                 <Row gutter={16}>
                     <Col xs={24} xl={7}>
-                        <Card className="mb-3" style={{ overflow: 'visible' }}>
-                            <div className="card-body px-4 mb-0">
+                        <Card className="" style={{ overflow: 'visible' }}>
+                            <div>
                                 {/* 
                             These are insight specific filters. 
                             They each have insight specific logics
@@ -182,14 +177,13 @@ function _Insights() {
                                             placement="right"
                                             title="These consist of funnels by you and the rest of the team"
                                         >
-                                            <InfoCircleOutlined className="info" style={{ color: '#007bff' }} />
+                                            <InfoCircleOutlined className="info-indicator" />
                                         </Tooltip>
                                     </Row>
                                 }
+                                style={{ marginTop: 16 }}
                             >
-                                <div className="card-body px-4 mb-0">
-                                    <SavedFunnels />
-                                </div>
+                                <SavedFunnels />
                             </Card>
                         )}
                     </Col>
@@ -200,7 +194,7 @@ function _Insights() {
                     */}
                         <Card
                             title={
-                                <div className="float-right pt-1 pb-1">
+                                <div className="float-right">
                                     {showIntervalFilter[activeView] && (
                                         <IntervalFilter filters={allFilters} view={activeView} />
                                     )}
@@ -223,10 +217,6 @@ function _Insights() {
 
                                     {showComparePrevious[activeView] && <CompareFilter />}
                                     <SaveToDashboard
-                                        disabled={
-                                            disableSaveToDashboard[activeView] ||
-                                            (activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters))
-                                        }
                                         item={{
                                             type: determineInsightType(activeView, allFilters.display),
                                             entity: {
@@ -237,8 +227,9 @@ function _Insights() {
                                     />
                                 </div>
                             }
+                            headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                         >
-                            <div className="card-body card-body-graph">
+                            <div>
                                 {
                                     {
                                         [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
@@ -290,7 +281,7 @@ function TrendInsight({ view }) {
                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
                 </div>
             )}
-            <PeopleModal visible={showingPeople} view={view} />
+            <PersonModal visible={showingPeople} view={view} />
         </>
     )
 }
@@ -327,11 +318,7 @@ function FunnelInsight() {
 function FunnelPeople() {
     const { stepsWithCount } = useValues(funnelLogic)
     if (stepsWithCount && stepsWithCount.length > 0) {
-        return (
-            <div className="funnel">
-                <People />
-            </div>
-        )
+        return <People />
     }
     return <></>
 }

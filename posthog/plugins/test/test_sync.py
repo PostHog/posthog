@@ -11,7 +11,7 @@ from posthog.api.test.base import BaseTest
 from posthog.models import Plugin, PluginConfig
 from posthog.plugins.sync import sync_global_plugin_config, sync_posthog_json_plugins
 
-from .plugin_archives import HELLO_WORLD_PLUGIN
+from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
 
 @contextmanager
@@ -51,8 +51,8 @@ def mocked_requests_get(*args, **kwargs):
         def ok(self):
             return self.status_code < 300
 
-    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(HELLO_WORLD_PLUGIN[0]):
-        return MockResponse(HELLO_WORLD_PLUGIN[1], 200)
+    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]):
+        return MockResponse(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1], 200)
 
     return MockResponse(None, 404)
 
@@ -66,7 +66,7 @@ class TestPluginsSync(BaseTest):
         return json_path
 
     def test_load_plugin_local(self, mock_get):
-        with extracted_base64_zip(HELLO_WORLD_PLUGIN[1]) as plugin_path:
+        with extracted_base64_zip(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]) as plugin_path:
             self.assertEqual(len(Plugin.objects.all()), 0)
 
             with plugins_in_posthog_json([{"name": "helloworldplugin", "path": plugin_path,}]) as filename:
@@ -78,7 +78,7 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
@@ -91,7 +91,7 @@ class TestPluginsSync(BaseTest):
             self.assertEqual(len(Plugin.objects.all()), 0)
 
     def test_load_plugin_local_if_exists_from_app(self, mock_get):
-        with extracted_base64_zip(HELLO_WORLD_PLUGIN[1]) as plugin_path:
+        with extracted_base64_zip(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]) as plugin_path:
             Plugin.objects.create(
                 name="helloworldplugin",
                 description="BAD DESCRIPTION",
@@ -112,7 +112,7 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
@@ -127,7 +127,7 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, False)
             self.assertEqual(plugin.from_web, True)
             self.assertEqual(plugin.archive, None)
@@ -142,7 +142,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 }
             ]
         ) as filename:
@@ -154,11 +154,11 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
-        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
         self.assertEqual(plugin.from_json, True)
         self.assertEqual(plugin.from_web, False)
-        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN[1]))
-        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN[0])
+        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
         self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
         with plugins_in_posthog_json([]) as filename:
@@ -184,7 +184,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 }
             ]
         ) as filename:
@@ -196,11 +196,11 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
-        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
         self.assertEqual(plugin.from_json, True)
         self.assertEqual(plugin.from_web, True)
-        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN[1]))
-        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN[0])
+        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
         self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
         with plugins_in_posthog_json([]) as filename:
@@ -211,21 +211,21 @@ class TestPluginsSync(BaseTest):
         plugin = Plugin.objects.get()
         self.assertEqual(plugin.name, "helloworldplugin")
         self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
-        self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+        self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
         self.assertEqual(plugin.from_json, False)
         self.assertEqual(plugin.from_web, True)
-        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN[1]))
-        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN[0])
+        self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+        self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
         self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
     def test_load_plugin_local_to_http_and_back(self, mock_get):
-        with extracted_base64_zip(HELLO_WORLD_PLUGIN[1]) as plugin_path:
+        with extracted_base64_zip(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]) as plugin_path:
             with plugins_in_posthog_json(
                 [
                     {
                         "name": "helloworldplugin",
                         "url": "https://github.com/PostHog/helloworldplugin/",
-                        "tag": HELLO_WORLD_PLUGIN[0],
+                        "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     }
                 ]
             ) as filename:
@@ -235,11 +235,11 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
-            self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN[1]))
-            self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN[0])
+            self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+            self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
             self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
             with plugins_in_posthog_json([{"name": "helloworldplugin", "path": plugin_path,}]) as filename:
@@ -249,7 +249,7 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "file:{}".format(plugin_path))
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
             self.assertEqual(plugin.archive, None)
@@ -261,7 +261,7 @@ class TestPluginsSync(BaseTest):
                     {
                         "name": "helloworldplugin",
                         "url": "https://github.com/PostHog/helloworldplugin/",
-                        "tag": HELLO_WORLD_PLUGIN[0],
+                        "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     }
                 ]
             ) as filename:
@@ -271,11 +271,11 @@ class TestPluginsSync(BaseTest):
             plugin = Plugin.objects.get()
             self.assertEqual(plugin.name, "helloworldplugin")
             self.assertEqual(plugin.url, "https://github.com/PostHog/helloworldplugin/")
-            self.assertEqual(plugin.description, "Greet the World and Foo a Bar")
+            self.assertEqual(plugin.description, "Greet the World and Foo a Bar, JS edition!")
             self.assertEqual(plugin.from_json, True)
             self.assertEqual(plugin.from_web, False)
-            self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN[1]))
-            self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN[0])
+            self.assertEqual(bytes(plugin.archive), base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]))
+            self.assertEqual(plugin.tag, HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])
             self.assertEqual(plugin.config_schema["bar"]["type"], "string")
 
     def test_sync_global_config(self, mock_get):
@@ -286,7 +286,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 }
             ]
         ) as filename:
@@ -300,7 +300,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "global": {"enabled": True, "order": 2, "config": {"bar": "foo"}},
                 }
             ]
@@ -321,7 +321,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "global": {"enabled": False, "order": 3, "config": {"bar": "foop"}},
                 }
             ]
@@ -348,7 +348,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "global": {"enabled": False, "order": 3, "config": {"bar": "foop"}},
                 }
             ]
@@ -369,7 +369,7 @@ class TestPluginsSync(BaseTest):
                 {
                     "name": "helloworldplugin",
                     "url": "https://github.com/PostHog/helloworldplugin/",
-                    "tag": HELLO_WORLD_PLUGIN[0],
+                    "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 }
             ]
         ) as filename:
