@@ -19,6 +19,7 @@ import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from './organizationLogic'
 
 const darkerScenes: Record<string, boolean> = {
     dashboard: true,
@@ -36,6 +37,7 @@ function Toast(): JSX.Element {
 export const App = hot(_App)
 function _App(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
@@ -54,26 +56,25 @@ function _App(): JSX.Element | null {
                 return
             }
             // Redirect to org/project creation if necessary
-            if (location.pathname !== '/organization/create' && !user.organizations.length) {
-                replace('/organization/create')
+            if (!currentOrganizationLoading && !currentOrganization?.id) {
+                if (location.pathname !== '/organization/create') replace('/organization/create')
                 return
-            }
-            if (location.pathname !== '/project/create' && !user.teams.length) {
-                replace('/project/create')
+            } else if (!currentTeamLoading && !currentTeam?.id) {
+                if (location.pathname !== '/project/create') replace('/project/create')
                 return
             }
         }
 
         // If ingestion tutorial not completed, redirect to it
         if (
-            currentTeam?.name &&
+            currentTeam?.id &&
             !currentTeam.completed_snippet_onboarding &&
             !location.pathname.startsWith('/ingestion')
         ) {
             replace('/ingestion')
             return
         }
-    }, [scene, user, currentTeam, currentTeamLoading])
+    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
     if (!user) {
         return unauthenticatedScenes.includes(scene) ? (
@@ -91,6 +92,8 @@ function _App(): JSX.Element | null {
             </Layout>
         )
     }
+
+    if (!currentOrganization?.id || !currentTeam?.id) return null
 
     return (
         <>
