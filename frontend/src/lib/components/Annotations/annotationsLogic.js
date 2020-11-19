@@ -131,7 +131,7 @@ export const annotationsLogic = kea({
         deleteAnnotation: async ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
-                    endpoint: 'annotation',
+                    endpoint: 'annotations',
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadAnnotations({}),
                 })

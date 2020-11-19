@@ -10,7 +10,7 @@ from posthog.utils import StructuredViewSetMixin, dict_from_cursor_fetchall, req
 
 class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
-    def elements(self, request: request.Request):
+    def elements(self, request: request.Request, **kwargs):
 
         rows = self.get_elements(request)
         return Response(rows)
@@ -38,7 +38,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response(resp)
 
     def get_list(self, request):
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")

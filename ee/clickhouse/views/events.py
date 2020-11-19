@@ -90,7 +90,7 @@ class ClickhouseEvents(EventViewSet):
         return Response(result)
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: Request) -> Response:
+    def values(self, request: Request, **kwargs) -> Response:
 
         key = request.GET.get("key")
         team = request.user.team

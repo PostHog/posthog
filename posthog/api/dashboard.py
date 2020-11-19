@@ -42,7 +42,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(self.context["team_id"])
+        team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
@@ -157,7 +157,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
 
         request = self.context["request"]
-        team = Team.objects.get(self.context["team_id"])
+        team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -221,7 +221,7 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     @action(methods=["patch"], detail=False)
-    def layouts(self, request):
+    def layouts(self, request, **kwargs):
         team_id = self.get_parents_query_dict()["team_id"]
 
         for data in request.data["items"]:

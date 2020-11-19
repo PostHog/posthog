@@ -331,7 +331,7 @@ export function DashboardItem({
                                             onClick={() =>
                                                 deleteWithUndo({
                                                     object: item,
-                                                    endpoint: 'dashboard_item',
+                                                    endpoint: 'dashboard-items',
                                                     callback: loadDashboardItems,
                                                 })
                                             }

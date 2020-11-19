@@ -172,7 +172,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
         },
         deleteInsight: ({ insight }) => {
             deleteWithUndo({
-                endpoint: 'insight',
+                endpoint: 'insights',
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })

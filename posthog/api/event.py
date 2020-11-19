@@ -210,7 +210,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_values(request)
         return response.Response(result)
 
@@ -253,8 +253,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return [{"name": convert_property_value(value.value)} for value in values]
 
     @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request) -> response.Response:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+    def sessions(self, request: request.Request, **kwargs) -> response.Response:
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
@@ -275,7 +275,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )

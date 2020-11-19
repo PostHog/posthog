@@ -77,7 +77,7 @@ function _Cohorts() {
                             </Tooltip>
                         </a>
                         <DeleteWithUndo
-                            endpoint="cohort"
+                            endpoint="cohorts"
                             object={cohort}
                             className="text-danger"
                             style={{ marginLeft: 8 }}

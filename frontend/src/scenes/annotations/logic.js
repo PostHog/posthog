@@ -51,7 +51,7 @@ export const annotationsTableLogic = kea({
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
-                endpoint: 'annotation',
+                endpoint: 'annotations',
                 object: { name: 'Annotation', id },
                 callback: () => actions.loadAnnotations({}),
             })

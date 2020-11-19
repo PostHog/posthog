@@ -12,7 +12,7 @@ from posthog.models import Event, Filter
 
 class ClickhousePathsViewSet(PathsViewSet):
     @action(methods=["GET"], detail=False)
-    def elements(self, request: request.Request):
+    def elements(self, request: request.Request, **kwargs):
 
         team = request.user.team
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})

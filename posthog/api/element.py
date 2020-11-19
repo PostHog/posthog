@@ -46,7 +46,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return queryset
 
     @action(methods=["GET"], detail=False)
-    def stats(self, request: request.Request) -> response.Response:
+    def stats(self, request: request.Request, **kwargs) -> response.Response:
         team_id = self.get_parents_query_dict()["team_id"]
         filter = Filter(request=request)
 
@@ -79,7 +79,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         params = []
         where = ""

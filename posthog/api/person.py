@@ -115,7 +115,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self._filter_request(self.request, super().get_queryset())
 
     @action(methods=["GET"], detail=False)
-    def by_distinct_id(self, request):
+    def by_distinct_id(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/projects/@current/persons/?distinct_id={id}
         """
@@ -131,7 +131,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def by_email(self, request):
+    def by_email(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/projects/@current/persons/?email={email}
         """
@@ -147,7 +147,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
+    def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
 
         return response.Response(result)
@@ -166,7 +166,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         people = self.get_queryset()
         key = "properties__{}".format(request.GET.get("key"))
         people = (
@@ -186,7 +186,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request) -> response.Response:
+    def references(self, request: request.Request, **kwargs) -> response.Response:
         reference_id = request.GET.get("id", None)
         offset = request.GET.get("offset", None)
 

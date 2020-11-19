@@ -106,7 +106,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
-    def repository(self, request: request.Request):
+    def repository(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
@@ -114,7 +114,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         return Response(json.loads(plugins.text))
 
     @action(methods=["GET"], detail=False)
-    def status(self, request: request.Request):
+    def status(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
 
@@ -236,7 +236,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(status=204)
 
     @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request):
+    def global_plugins(self, request: request.Request, **kwargs):
         if not can_configure_plugins_via_api():
             return Response([])
 

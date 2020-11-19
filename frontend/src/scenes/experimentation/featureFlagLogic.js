@@ -46,7 +46,7 @@ export const featureFlagLogic = kea({
                 deleteFeatureFlag: async (featureFlag) => {
                     try {
                         return deleteWithUndo({
-                            endpoint: 'feature_flag',
+                            endpoint: 'feature-flags',
                             object: { name: featureFlag.name, id: featureFlag.id },
                             callback: () => actions.loadFeatureFlags(),
                         })

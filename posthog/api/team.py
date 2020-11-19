@@ -128,7 +128,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["PATCH"], detail=True)
-    def reset_token(self, request: request.Request, id: str) -> response.Response:
+    def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.api_token = generate_random_token()
         team.save()

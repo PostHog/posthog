@@ -43,7 +43,7 @@ class InsightSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context["request"]
-        team = Team.objects.get(self.context["team_id"])
+        team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -126,7 +126,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
@@ -147,7 +147,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
 
         filter = Filter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
@@ -167,7 +167,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
@@ -209,7 +209,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -248,7 +248,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"data": result})
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         filter = Filter(request=request)
         if not filter.date_from:
             filter._date_from = "-11d"
@@ -268,7 +268,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
+        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp

@@ -100,7 +100,7 @@ export function ActionsTable() {
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
-                            endpoint="action"
+                            endpoint="actions"
                             object={action}
                             className="text-danger"
                             style={{ marginLeft: 8 }}

@@ -428,6 +428,17 @@ def get_redis_queue_depth() -> int:
 
 
 class StructuredViewSetMixin(NestedViewSetMixin):
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.get_parents_query_dict()
+        if parents_query_dict:
+            try:
+                return queryset.filter(**parents_query_dict)
+            except ValueError as e:
+                print(e)
+                raise Http404
+        else:
+            return queryset
+
     def get_parents_query_dict(self) -> Dict[str, Any]:
         result = {}
         for kwarg_name, kwarg_value in self.kwargs.items():  # type: ignore

@@ -12,7 +12,7 @@ from posthog.models.filter import Filter
 
 class ClickhouseElement(ElementViewSet):
     @action(methods=["GET"], detail=False)
-    def stats(self, request: request.Request) -> response.Response:
+    def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request)
 
         date_from, date_to = parse_timestamps(filter)
@@ -34,7 +34,7 @@ class ClickhouseElement(ElementViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
         select_regex = '[:|"]{}="(.*?)"'.format(key)
