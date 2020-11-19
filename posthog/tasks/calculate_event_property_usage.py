@@ -21,13 +21,11 @@ class CalculateEventPropertyUsage:
     _teams: QuerySet
     _event_names_dict: Dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
     _event_properties_dict: Dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
-    # number of events at which we query events individually
-    _clickhouse_volume_cutoff = 1000000
 
-    def __init__(self, clickhouse_volume_cutoff: Optional[int] = None) -> None:
-        # Purely set in tests
-        if clickhouse_volume_cutoff:
-            self._clickhouse_volume_cutoff = clickhouse_volume_cutoff
+    def __init__(self, clickhouse_volume_cutoff: int = 1_000_000) -> None:
+        # Number of events at which we query events individually
+        # Only set in tests
+        self._clickhouse_volume_cutoff = clickhouse_volume_cutoff
 
     def run(self) -> None:
         self._teams = Team.objects.all()
