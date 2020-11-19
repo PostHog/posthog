@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.http import HttpRequest
-from django.utils import timezone
 
 from posthog.constants import (
     PERIOD,
@@ -29,7 +28,7 @@ class RetentionFilter(Filter):
     period_increment: Union[timedelta, relativedelta] = timedelta(days=1)
     total_increment: Union[timedelta, relativedelta] = timedelta(days=total_intervals)
     selected_interval: int = 0
-    date_from: datetime.datetime = timezone.now()
+    date_from: datetime.datetime
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         super().__init__(data, request)
