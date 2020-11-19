@@ -14,6 +14,6 @@ then
   echo "⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
   echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
 else
-  ./bin/docker-worker-plugins &
+  ./bin/plugin-server &
   ./bin/docker-worker-celery --with-beat
 fi
