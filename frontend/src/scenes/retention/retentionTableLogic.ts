@@ -95,7 +95,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             __default: {} as Record<string, unknown>,
             loadPeople: async (rowIndex) => {
                 if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-                    const urlParams = toUrlParams(values, { intervals: rowIndex })
+                    const urlParams = toUrlParams(values, { selected_interval: rowIndex })
                     const res = await api.get(`api/person/retention/?${urlParams}`)
 
                     return res

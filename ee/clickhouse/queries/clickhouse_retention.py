@@ -1,8 +1,4 @@
-import datetime
-from datetime import timedelta
-from typing import Any, Dict, Tuple, Union
-
-from dateutil.relativedelta import relativedelta
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -14,10 +10,10 @@ from ee.clickhouse.sql.retention.retention import (
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filter import Filter, RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
@@ -28,19 +24,14 @@ PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
 class ClickhouseRetention(Retention):
-    def _execute_sql(
-        self,
-        filter: Filter,
-        date_from: datetime.datetime,
-        date_to: datetime.datetime,
-        target_entity: Entity,
-        returning_entity: Entity,
-        is_first_time_retention: bool,
-        time_increment: Union[timedelta, relativedelta],
-        team: Team,
-    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        target_entity = filter.target_entity
+        returning_entity = filter.returning_entity
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+        date_from = filter.date_from
+        date_to = filter.date_to
 
         target_query = ""
         target_params: Dict = {}
@@ -93,7 +84,7 @@ class ClickhouseRetention(Retention):
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
                 "reference_end_date": (
-                    (date_from + time_increment) if filter.display == TRENDS_LINEAR else date_to
+                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
                 ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
                 **target_params,
@@ -135,24 +126,15 @@ class ClickhouseRetention(Retention):
             raise ValueError(f"Period {period} is unsupported.")
 
     def _retrieve_people(
-        self,
-        filter: Filter,
-        date_from: datetime.datetime,
-        date_to: datetime.datetime,
-        target_entity: Entity,
-        returning_entity: Entity,
-        is_first_time_retention: bool,
-        time_increment: Union[timedelta, relativedelta],
-        team: Team,
-        intervals: int,
-        offset: int,
+        self, filter: RetentionFilter, team: Team, offset,
     ):
         period = filter.period
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = self._get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
-        returning_entity = returning_entity if intervals > 0 else target_entity
-        target_query, target_params = self._get_condition(target_entity, table="e")
+        returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
+        target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
         return_query, return_params = self._get_condition(returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
@@ -160,10 +142,10 @@ class ClickhouseRetention(Retention):
         reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
             target_query=target_query_formatted, filters=prop_filters, trunc_func=trunc_func,
         )
-        reference_date_from = date_from
-        reference_date_to = date_from + time_increment
-        date_from = date_from + intervals * time_increment
-        date_to = date_from + time_increment
+        reference_date_from = filter.date_from
+        reference_date_to = filter.date_from + filter.period_increment
+        date_from = filter.date_from + filter.selected_interval * filter.period_increment
+        date_to = date_from + filter.period_increment
 
         result = sync_execute(
             RETENTION_PEOPLE_SQL.format(
