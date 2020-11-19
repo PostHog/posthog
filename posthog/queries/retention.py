@@ -48,9 +48,18 @@ class Retention(BaseQuery):
     ):
         labels = []
         data = []
+        days = []
         total_intervals = filter.total_intervals
+        labels_format = "%a. %-d %B"
+        days_format = "%Y-%m-%d"
+
+        if filter.interval == "hour" or filter.interval == "minute":
+            labels_format += ", %H:%M"
+            days_format += " %H:%M:%S"
 
         for interval_number in range(total_intervals):
+            date = filter.date_from + interval_number * filter.period_increment
+            days.append(date.strftime(days_format))
             label = "{} {}".format(filter.period, interval_number)
             labels.append(label)
 
@@ -63,9 +72,8 @@ class Retention(BaseQuery):
             "data": normalized,
             "labels": labels,
             "count": data[0] if data else 0,
-            "days": [day for day in range(1, total_intervals)],
+            "days": days,
         }
-
         return [result]
 
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:

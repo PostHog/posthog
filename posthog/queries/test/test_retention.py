@@ -77,7 +77,6 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = retention().run(RetentionFilter(data={"date_to": self._date(10, hour=6)}), self.team)
-
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
@@ -309,6 +308,22 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(
                 result[0]["labels"],
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
+            )
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-06-10",
+                    "2020-06-11",
+                    "2020-06-12",
+                    "2020-06-13",
+                    "2020-06-14",
+                    "2020-06-15",
+                    "2020-06-16",
+                    "2020-06-17",
+                    "2020-06-18",
+                    "2020-06-19",
+                    "2020-06-20",
+                ],
             )
             self.assertEqual(
                 result[0]["data"], [100.0, 100.0, 100.0, 50.0, 0.0, 50.0, 100.0, 0.0, 0.0, 0.0, 0.0],
