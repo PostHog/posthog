@@ -14,6 +14,7 @@ from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
+from posthog.models.filter import RetentionFilter
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key
@@ -251,9 +252,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
-        filter = Filter(request=request)
-        if not filter.date_from:
-            filter._date_from = "-11d"
+        filter = RetentionFilter(request=request)
         result = retention.Retention().run(filter, team)
         return result
 

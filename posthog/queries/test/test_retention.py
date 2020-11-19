@@ -12,6 +12,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
 )
 from posthog.models import Action, ActionStep, Event, Filter, Person
+from posthog.models.filter import RetentionFilter
 from posthog.queries.retention import Retention
 
 
@@ -37,7 +38,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
 
-            result = retention().run(Filter(data={"dummy": "dummy"}), self.team)
+            result = retention().run(RetentionFilter(data={"dummy": "dummy"}), self.team)
             self.assertEqual(
                 self.pluck(result, "values", "count"),
                 [
@@ -75,7 +76,8 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().run(Filter(data={"date_to": self._date(10, hour=6)}), self.team)
+            result = retention().run(RetentionFilter(data={"date_to": self._date(10, hour=6)}), self.team)
+
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
@@ -120,7 +122,9 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().people(Filter(data={"date_to": self._date(10, hour=6)}), self.team, 2)
+            result = retention().people(
+                RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
+            )
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["id"], person1.pk)
 
@@ -130,32 +134,32 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().people(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(10, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
+                        "selected_interval": 1,
                     }
                 ),
                 self.team,
-                1,
             )
 
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["id"], p3.pk)
 
             result = retention().people(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(14, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
+                        "selected_interval": 1,
                     }
                 ),
                 self.team,
-                1,
             )
 
             self.assertEqual(len(result), 0)
@@ -175,8 +179,9 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = self.client.get(
-                "/api/person/retention", data={"date_to": self._date(10, hour=6), "intervals": 2}
+                "/api/person/retention", data={"date_to": self._date(10, hour=6), "selected_interval": 2}
             ).json()
+
             self.assertEqual(len(result["result"]), 100)
 
             second_result = self.client.get(result["next"]).json()
@@ -210,15 +215,15 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             target_entity = json.dumps({"id": first_event, "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(6, hour=6),
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
+                        "total_intervals": 7,
                     }
                 ),
                 self.team,
-                total_intervals=7,
             )
             self.assertEqual(len(result), 7)
             self.assertEqual(
@@ -254,15 +259,15 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(6, hour=0),
                         "target_entity": start_entity,
                         "events": [{"id": some_event, "type": TREND_FILTER_TYPE_EVENTS},],
+                        "total_intervals": 7,
                     }
                 ),
                 self.team,
-                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
@@ -296,7 +301,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
             result = retention().run(
-                Filter(data={"date_to": self._date(10, hour=6), "display": TRENDS_LINEAR}), self.team
+                RetentionFilter(data={"date_to": self._date(10, hour=6), "display": TRENDS_LINEAR}), self.team
             )
             self.assertEqual(
                 result[0]["count"], 2,
@@ -314,16 +319,16 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(5, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "events": [{"id": "$pageview", "type": "events"},],
+                        "total_intervals": 7,
                     }
                 ),
                 self.team,
-                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
@@ -357,7 +362,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "properties": [{"key": "$some_property", "value": "value"}],
                         "date_to": self._date(10, hour=0),
@@ -413,14 +418,14 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "properties": [{"key": "email", "value": "person1@test.com", "type": "person",}],
                         "date_to": self._date(6, hour=0),
+                        "total_intervals": 7,
                     }
                 ),
                 self.team,
-                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
@@ -454,15 +459,15 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(
+                RetentionFilter(
                     data={
                         "date_to": self._date(6, hour=0),
                         "target_entity": start_entity,
                         "actions": [{"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS},],
+                        "total_intervals": 7,
                     }
                 ),
                 self.team,
-                total_intervals=7,
             )
 
             self.assertEqual(len(result), 7)
@@ -501,7 +506,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
 
-            filter = Filter(data={"date_to": self._date(0, month=5, hour=0), "period": "Month"})
+            filter = RetentionFilter(data={"date_to": self._date(0, month=5, hour=0), "period": "Month"})
 
             result = retention().run(filter, self.team, total_intervals=11)
 
@@ -582,9 +587,10 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             result = retention().run(
-                Filter(data={"date_to": self._date(10, month=1, hour=0), "period": "Week"}),
+                RetentionFilter(
+                    data={"date_to": self._date(10, month=1, hour=0), "period": "Week", "total_intervals": 7}
+                ),
                 self.team,
-                total_intervals=7,
             )
 
             self.assertEqual(
@@ -634,7 +640,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ]
             )
 
-            filter = Filter(data={"date_to": self._date(0, hour=10), "period": "Hour"})
+            filter = RetentionFilter(data={"date_to": self._date(0, hour=10), "period": "Hour"})
 
             result = retention().run(filter, self.team, total_intervals=11)
 

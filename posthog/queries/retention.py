@@ -17,6 +17,7 @@ from django.utils.timezone import now
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
+from posthog.models.filter import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
@@ -24,71 +25,30 @@ from posthog.utils import generate_cache_key
 
 
 class Retention(BaseQuery):
-    def preprocess_params(self, filter: Filter, total_intervals=11):
-        period = filter.period or "Day"
-        tdelta, t1 = self.determineTimedelta(total_intervals, period)
-        filter._date_to = (filter.date_to + t1).isoformat()
-
-        first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-
-        if period == "Hour":
-            date_to = filter.date_to
-            date_from: datetime.datetime = date_to - tdelta
-        elif period == "Week":
-            date_to = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_to - tdelta
-            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
-        else:
-            date_to = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_to - tdelta
-
-        filter._date_from = date_from.isoformat()
-        filter._date_to = date_to.isoformat()
-        entity = (
-            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-            if not filter.target_entity
-            else filter.target_entity
-        )
-
-        returning_entity = (
-            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-            if not len(filter.entities) > 0
-            else filter.entities[0]
-        )
-        # need explicit handling of date_from so it's not optional but also need filter object for date_filter_Q
-        return filter, entity, returning_entity, first_time_retention, date_from, date_to, t1
-
     def process_table_result(
-        self,
-        resultset: Dict[Tuple[int, int], Dict[str, Any]],
-        filter: Filter,
-        date_from: datetime.datetime,
-        total_intervals: int,
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
 
         result = [
             {
                 "values": [
                     resultset.get((first_day, day), {"count": 0, "people": []})
-                    for day in range(total_intervals - first_day)
+                    for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": (date_from + self.determineTimedelta(first_day, filter.period)[0]),
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
             }
-            for first_day in range(total_intervals)
+            for first_day in range(filter.total_intervals)
         ]
 
         return result
 
     def process_graph_result(
-        self,
-        resultset: Dict[Tuple[int, int], Dict[str, Any]],
-        filter: Filter,
-        date_from: datetime.datetime,
-        total_intervals: int,
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
         labels = []
         data = []
+        total_intervals = filter.total_intervals
 
         for interval_number in range(total_intervals):
             label = "{} {}".format(filter.period, interval_number)
@@ -108,23 +68,18 @@ class Retention(BaseQuery):
 
         return [result]
 
-    def _execute_sql(
-        self,
-        filter: Filter,
-        date_from: datetime.datetime,
-        date_to: datetime.datetime,
-        target_entity: Entity,
-        returning_entity: Entity,
-        is_first_time_retention: bool,
-        time_increment: Union[timedelta, relativedelta],
-        team: Team,
-    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
 
         period = filter.period
-        events: QuerySet = QuerySet()
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
 
-        entity_condition, entity_condition_strigified = self.get_entity_condition(target_entity, "first_event_date")
-        returning_condition, returning_condition_stringified = self.get_entity_condition(returning_entity, "events")
+        events: QuerySet = QuerySet()
+        entity_condition, entity_condition_strigified = self.get_entity_condition(
+            filter.target_entity, "first_event_date"
+        )
+        returning_condition, returning_condition_stringified = self.get_entity_condition(
+            filter.returning_entity, "events"
+        )
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
 
         trunc, fields = self._get_trunc_func("timestamp", period)
@@ -181,9 +136,11 @@ class Retention(BaseQuery):
             return_condition=returning_condition_stringified,
             target_condition=entity_condition_strigified,
         )
-        event_params = (target_entity.id, returning_entity.id, target_entity.id)
+        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
 
-        start_params = (date_from, date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -226,78 +183,35 @@ class Retention(BaseQuery):
 
         return by_dates
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        total_intervals = kwargs.get("total_intervals", 11)
-        (
-            filter,
-            entity,
-            returning_entity,
-            is_first_time_retention,
-            date_from,
-            date_to,
-            time_increment,
-        ) = self.preprocess_params(filter, total_intervals)
-        resultset = self._execute_sql(
-            filter, date_from, date_to, entity, returning_entity, is_first_time_retention, time_increment, team
-        )
+    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        resultset = self._execute_sql(filter, team)
 
         if filter.display == TRENDS_LINEAR:
-            result = self.process_graph_result(resultset, filter, date_from, total_intervals)
+            result = self.process_graph_result(resultset, filter)
         else:
-            result = self.process_table_result(resultset, filter, date_from, total_intervals)
+            result = self.process_table_result(resultset, filter)
         return result
 
-    def people(self, filter: Filter, team: Team, intervals: int, offset: int = 0, *args, **kwargs):
-        total_intervals = kwargs.get("total_intervals", 11)
-        (
-            filter,
-            entity,
-            returning_entity,
-            is_first_time_retention,
-            date_from,
-            date_to,
-            time_increment,
-        ) = self.preprocess_params(filter, total_intervals)
-        results = self._retrieve_people(
-            filter,
-            date_from,
-            date_to,
-            entity,
-            returning_entity,
-            is_first_time_retention,
-            time_increment,
-            team,
-            intervals,
-            offset,
-        )
+    def people(self, filter: RetentionFilter, team: Team, offset: int = 0, *args, **kwargs):
+        results = self._retrieve_people(filter, team, offset,)
         return results
 
     def _retrieve_people(
-        self,
-        filter: Filter,
-        date_from: datetime.datetime,
-        date_to: datetime.datetime,
-        target_entity: Entity,
-        returning_entity: Entity,
-        is_first_time_retention: bool,
-        time_increment: Union[timedelta, relativedelta],
-        team: Team,
-        intervals: int,
-        offset,
+        self, filter: RetentionFilter, team: Team, offset,
     ):
         period = filter.period
         trunc, fields = self._get_trunc_func("timestamp", period)
-
-        entity_condition, _ = self.get_entity_condition(target_entity, "events")
-        returning_condition, _ = self.get_entity_condition(returning_entity, "first_event_date")
-        _entity_condition = returning_condition if intervals > 0 else entity_condition
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+        entity_condition, _ = self.get_entity_condition(filter.target_entity, "events")
+        returning_condition, _ = self.get_entity_condition(filter.returning_entity, "first_event_date")
+        _entity_condition = returning_condition if filter.selected_interval > 0 else entity_condition
 
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
-        reference_date_from = date_from
-        reference_date_to = date_from + time_increment
-        date_from = date_from + intervals * time_increment
-        date_to = date_from + time_increment
+        reference_date_from = filter.date_from
+        reference_date_to = filter.date_from + filter.period_increment
+        date_from = filter.date_from + filter.selected_interval * filter.period_increment
+        date_to = date_from + filter.period_increment
 
         filter._date_from = date_from.isoformat()
         filter._date_to = date_to.isoformat()
@@ -352,20 +266,6 @@ class Retention(BaseQuery):
             return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
         else:
             raise ValueError(f"Entity type not supported")
-
-    def determineTimedelta(
-        self, total_intervals: int, period: str
-    ) -> Tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
-        if period == "Hour":
-            return timedelta(hours=total_intervals), timedelta(hours=1)
-        elif period == "Week":
-            return timedelta(weeks=total_intervals), timedelta(weeks=1)
-        elif period == "Month":
-            return relativedelta(months=total_intervals), relativedelta(months=1)
-        elif period == "Day":
-            return timedelta(days=total_intervals), timedelta(days=1)
-        else:
-            raise ValueError(f"Period {period} is unsupported.")
 
     def _get_trunc_func(
         self, subject: str, period: str

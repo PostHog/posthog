@@ -11,6 +11,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.models import Event, Filter, Person, Team
+from posthog.models.filter import RetentionFilter
 from posthog.queries.retention import Retention
 from posthog.utils import convert_property_value
 
@@ -209,11 +210,9 @@ class PersonViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
         team = request.user.team
-        filter = Filter(request=request)
-        intervals = int(request.GET.get("intervals", 0))
+        filter = RetentionFilter(request=request)
         offset = int(request.GET.get("offset", 0))
-
-        people = self.retention_class().people(filter, team, intervals, offset)
+        people = self.retention_class().people(filter, team, offset)
 
         next_url: Optional[str] = request.get_full_path()
         if len(people) > 99 and next_url:
