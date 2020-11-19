@@ -33,7 +33,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def list(self, request):
+    def list(self, request, **kwargs):
         resp = self.get_list(request)
         return Response(resp)
 

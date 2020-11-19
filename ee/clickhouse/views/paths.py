@@ -25,7 +25,7 @@ class ClickhousePathsViewSet(PathsViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def list(self, request):
+    def list(self, request, **kwargs):
 
         team = request.user.team
         filter = Filter(request=request)

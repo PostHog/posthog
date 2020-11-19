@@ -103,7 +103,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
-    def destroy(self, request: request.Request, pk=None):  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         team_id = self.get_parents_query_dict()["team_id"]
         person = Person.objects.get(team_id=team_id, pk=pk)
         events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)

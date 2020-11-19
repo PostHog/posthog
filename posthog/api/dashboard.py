@@ -110,8 +110,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
-
-        if self.request.user.is_anonymous:
+        if not self.request.user.is_authenticated:
             if self.request.GET.get("share_token"):
                 return queryset.filter(share_token=self.request.GET["share_token"])
             else:

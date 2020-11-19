@@ -227,7 +227,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
-    def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
         if not can_configure_plugins_via_api():
             return Response(status=404)
         plugin_config = PluginConfig.objects.get(team_id=self.get_parents_query_dict()["team_id"], pk=pk)

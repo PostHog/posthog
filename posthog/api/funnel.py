@@ -48,7 +48,7 @@ class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
         return queryset
 
-    def retrieve(self, request, pk=None):
+    def retrieve(self, request, pk=None, **kwargs):
         data = self._retrieve(request, pk)
         return Response(data)
 

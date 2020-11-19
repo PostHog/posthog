@@ -1,3 +1,4 @@
+from django.conf import settings
 from posthog.models import PersonalAPIKey
 
 from .base import TransactionBaseTest
@@ -100,8 +101,10 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     TESTS_FORCE_LOGIN = False
 
     def test_no_key(self):
-        response = self.client.get("/api/projects/@current/dashboards/")
-        self.assertEqual(response.status_code, 403)
+        response_1 = self.client.get("/api/projects/@current/dashboards/")
+        self.assertEqual(response_1.status_code, 403)
+        response_2 = self.client.get("/api/projects/1/")
+        self.assertEqual(response_2.status_code, 401)
 
     def test_header_resilient(self):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)

@@ -26,10 +26,9 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
-from django.http.response import Http404
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.settings import extensions_api_settings
 from sentry_sdk import capture_exception, push_scope
@@ -428,17 +427,6 @@ def get_redis_queue_depth() -> int:
 
 
 class StructuredViewSetMixin(NestedViewSetMixin):
-    def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
-        if parents_query_dict:
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError as e:
-                print(e)
-                raise Http404
-        else:
-            return queryset
-
     def get_parents_query_dict(self) -> Dict[str, Any]:
         result = {}
         for kwarg_name, kwarg_value in self.kwargs.items():  # type: ignore
@@ -448,6 +436,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 )
                 query_value = kwarg_value
                 if query_value == "@current":
+                    if not self.request.user.is_authenticated:
+                        raise AuthenticationFailed("Authenticate to use @current.")
                     if query_lookup == "team_id":
                         project = self.request.user.team  # type: ignore
                         if project is None:
