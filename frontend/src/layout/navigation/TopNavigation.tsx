@@ -66,6 +66,10 @@ export function _TopNavigation(): JSX.Element {
                             'multiple organizations',
                             () => {
                                 setOrganizationModalShown(true)
+                            },
+                            {
+                                cloud: false,
+                                selfHosted: true,
                             }
                         )
                     }
