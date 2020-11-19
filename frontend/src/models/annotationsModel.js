@@ -19,7 +19,7 @@ export const annotationsModel = kea({
             __default: [],
             loadGlobalAnnotations: async () => {
                 const response = await api.get(
-                    'api/annotation/?' +
+                    'api/projects/@current/annotations/?' +
                         toParams({
                             scope: 'organization',
                             deleted: false,
@@ -50,7 +50,7 @@ export const annotationsModel = kea({
     }),
     listeners: ({ actions }) => ({
         createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-            await api.create('api/annotation', {
+            await api.create('api/projects/@current/annotations', {
                 content,
                 date_marker: moment.isMoment(date_marker) ? date_marker : moment(date_marker),
                 created_at,

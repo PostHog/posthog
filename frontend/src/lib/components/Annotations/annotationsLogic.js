@@ -40,7 +40,7 @@ export const annotationsLogic = kea({
                     scope: 'dashboard_item',
                     deleted: false,
                 }
-                const response = await api.get('api/annotation/?' + toParams(params))
+                const response = await api.get('api/projects/@current/annotations/?' + toParams(params))
                 return response.results
             },
         },
@@ -119,7 +119,7 @@ export const annotationsLogic = kea({
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
-            await api.create('api/annotation', {
+            await api.create('api/projects/@current/annotations', {
                 content,
                 date_marker: moment(date_marker),
                 created_at,

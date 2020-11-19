@@ -39,7 +39,9 @@ export const dashboardLogic = kea({
                 loadDashboardItems: async () => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
+                            `api/projects/@current/dashboards/${props.id}${
+                                props.shareToken ? '/?share_token=' + props.shareToken : ''
+                            }`
                         )
                         return dashboard
                     } catch (error) {
@@ -262,7 +264,7 @@ export const dashboardLogic = kea({
                 value: values.items.find((item) => item.id === id)?.name,
                 error: 'You must enter name',
                 success: async (name) => {
-                    const item = await api.update(`api/dashboard_item/${id}`, { name })
+                    const item = await api.update(`api/projects/@current/dashboard-items/${id}`, { name })
                     actions.renameDashboardItemSuccess(item)
                 },
             })
@@ -274,7 +276,7 @@ export const dashboardLogic = kea({
 
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
-            await api.update(`api/dashboard_item/layouts`, {
+            await api.update(`api/projects/@current/dashboard-items/layouts`, {
                 items: values.items.map((item) => {
                     const layouts = {}
                     Object.entries(item.layouts).forEach(([key, layout]) => {
@@ -287,7 +289,7 @@ export const dashboardLogic = kea({
         },
 
         updateItemColor: ({ id, color }) => {
-            api.update(`api/dashboard_item/${id}`, { color })
+            api.update(`api/projects/@current/dashboard-items/${id}`, { color })
         },
 
         duplicateDashboardItem: async ({ id, dashboardId, move }) => {
@@ -303,12 +305,14 @@ export const dashboardLogic = kea({
 
             const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
-            const addedItem = await api.create('api/dashboard_item', newItem)
+            const addedItem = await api.create('api/projects/@current/dashboard-items', newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move) {
-                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
+                const deletedItem = await api.update(`api/projects/@current/dashboard-items/${item.id}`, {
+                    deleted: true,
+                })
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
@@ -322,8 +326,10 @@ export const dashboardLogic = kea({
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, deletedItem] = await Promise.all([
-                                    api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
-                                    api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
+                                    api.update(`api/projects/@current/dashboard-items/${item.id}`, { deleted: false }),
+                                    api.update(`api/projects/@current/dashboard-items/${addedItem.id}`, {
+                                        deleted: true,
+                                    }),
                                 ])
                                 toast(<div>Panel move reverted!</div>)
                                 dashboardsModel.actions.updateDashboardItem(restoredItem)
@@ -385,7 +391,7 @@ export const dashboardLogic = kea({
             }
         },
         refreshDashboardItem: async ({ id }) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${id}`)
+            const dashboardItem = await api.get(`api/projects/@current/dashboard-items/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)

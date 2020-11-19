@@ -53,7 +53,7 @@ export async function createActionFromEvent(event, increment) {
 
     let action = false
     try {
-        action = await api.create('api/action', actionData)
+        action = await api.create('api/projects/@current/actions', actionData)
     } catch (response) {
         if (response.detail === 'action-exists' && increment < 30) {
             return createActionFromEvent(event, increment + 1)

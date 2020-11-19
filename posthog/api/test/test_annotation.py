@@ -20,7 +20,7 @@ class TestAnnotation(BaseTest):
         # Annotation creation is not reported to PostHog because it has no created_by
         mock_capture.assert_not_called()
 
-        response = self.client.get("/api/annotation/").json()
+        response = self.client.get("/api/projects/@current/annotations/").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello")
 
@@ -35,7 +35,7 @@ class TestAnnotation(BaseTest):
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,
         )
-        response = self.client.get("/api/annotation/?dashboard_item=1").json()
+        response = self.client.get("/api/projects/@current/annotations/?dashboard_item=1").json()
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello")
@@ -53,11 +53,11 @@ class TestAnnotation(BaseTest):
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello_later", created_at="2020-01-06T13:00:01Z",
         )
-        response = self.client.get("/api/annotation/?before=2020-01-05").json()
+        response = self.client.get("/api/projects/@current/annotations/?before=2020-01-05").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello_early")
 
-        response = self.client.get("/api/annotation/?after=2020-01-05").json()
+        response = self.client.get("/api/projects/@current/annotations/?after=2020-01-05").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello_later")
 
@@ -77,7 +77,7 @@ class TestAPIAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/annotation/",
+            "/api/projects/@current/annotations/",
             {
                 "content": "Marketing campaign",
                 "scope": "organization",
@@ -104,7 +104,7 @@ class TestAPIAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/annotation/{instance.pk}/", {"content": "Updated text", "scope": "organization"},
+            f"/api/projects/@current/annotations/{instance.pk}/", {"content": "Updated text", "scope": "organization"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
@@ -124,7 +124,7 @@ class TestAPIAnnotation(APIBaseTest):
         self.client.force_login(new_user)
 
         with patch("posthoganalytics.capture") as mock_capture:
-            response = self.client.delete(f"/api/annotation/{instance.pk}/")
+            response = self.client.delete(f"/api/projects/@current/annotations/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Annotation.objects.filter(pk=instance.pk).exists())

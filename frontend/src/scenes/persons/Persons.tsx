@@ -35,7 +35,9 @@ function _Persons(): JSX.Element {
             <Button
                 type="default"
                 icon={<ExportOutlined />}
-                href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                href={
+                    '/api/projects/@current/persons.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')
+                }
                 style={{ marginBottom: '1rem' }}
             >
                 Export

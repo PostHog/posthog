@@ -25,7 +25,7 @@ export const pluginsLogic = kea<
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/plugin')
+                    const { results } = await api.get('api/projects/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
@@ -34,7 +34,7 @@ export const pluginsLogic = kea<
                 },
                 installPlugin: async ({ pluginUrl, type }) => {
                     const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
-                    const response = await api.create('api/plugin', { url })
+                    const response = await api.create('api/projects/@current/plugins', { url })
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -42,7 +42,7 @@ export const pluginsLogic = kea<
                     if (!editingPlugin) {
                         return plugins
                     }
-                    await api.delete(`api/plugin/${editingPlugin.id}`)
+                    await api.delete(`api/projects/@current/plugins/${editingPlugin.id}`)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
@@ -55,8 +55,8 @@ export const pluginsLogic = kea<
                     const pluginConfigs: Record<string, PluginConfigType> = {}
 
                     const [{ results }, globalResults] = await Promise.all([
-                        api.get('api/plugin_config'),
-                        api.get('api/plugin_config/global_plugins/'),
+                        api.get('api/projects/@current/plugin-configs'),
+                        api.get('api/projects/@current/plugin-configs/global_plugins/'),
                     ])
 
                     for (const pluginConfig of results as PluginConfigType[]) {
@@ -79,25 +79,28 @@ export const pluginsLogic = kea<
 
                     let response
                     if (editingPlugin.pluginConfig.id) {
-                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
+                        response = await api.update(
+                            `api/projects/@current/plugin-configs/${editingPlugin.pluginConfig.id}`,
+                            formData
+                        )
                     } else {
                         formData.append('plugin', editingPlugin.id.toString())
                         formData.append('order', '0')
-                        response = await api.create(`api/plugin_config/`, formData)
+                        response = await api.create(`api/projects/@current/plugin-configs/`, formData)
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
                     const { pluginConfigs } = values
-                    const response = await api.update(`api/plugin_config/${id}`, {
+                    const response = await api.update(`api/projects/@current/plugin-configs/${id}`, {
                         enabled,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 resetPluginConfigError: async ({ id }) => {
                     const { pluginConfigs } = values
-                    const response = await api.update(`api/plugin_config/${id}`, {
+                    const response = await api.update(`api/projects/@current/plugin-configs/${id}`, {
                         error: null,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
@@ -108,7 +111,7 @@ export const pluginsLogic = kea<
             {} as Record<string, PluginRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('api/plugin/repository')
+                    const results = await api.get('api/projects/@current/plugins/repository')
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
                         repository[plugin.name] = plugin

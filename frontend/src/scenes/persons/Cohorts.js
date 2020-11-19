@@ -71,7 +71,7 @@ function _Cohorts() {
             render: function RenderActions(cohort) {
                 return (
                     <span>
-                        <a href={'/api/person.csv?cohort=' + cohort.id}>
+                        <a href={'/api/projects/@current/persons.csv?cohort=' + cohort.id}>
                             <Tooltip title="Export all users in this cohort as a .csv file">
                                 <ExportOutlined />
                             </Tooltip>

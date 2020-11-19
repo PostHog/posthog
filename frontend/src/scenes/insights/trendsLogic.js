@@ -132,14 +132,14 @@ export const trendsLogic = kea({
                     props.filters?.session
                 ) {
                     response = await api.get(
-                        'api/insight/session/?' +
+                        'api/projects/@current/insights/session/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
                     response = response.result
                 } else {
                     response = await api.get(
-                        'api/insight/trend/?' +
+                        'api/projects/@current/insights/trend/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
@@ -214,7 +214,7 @@ export const trendsLogic = kea({
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
             actions.setPeople(null, null, action, label, day, breakdown_value, null)
-            const people = await api.get(`api/action/people/?${filterParams}`)
+            const people = await api.get(`api/projects/@current/actions/people/?${filterParams}`)
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,

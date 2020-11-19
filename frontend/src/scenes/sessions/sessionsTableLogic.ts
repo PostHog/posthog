@@ -54,7 +54,7 @@ export const sessionsTableLogic = kea<
                     properties: values.properties,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/insight/session/?${params}`)
+                const response = await api.get(`api/projects/@current/insights/session/?${params}`)
                 breakpoint()
                 if (response.offset) {
                     actions.setNextOffset(response.offset)
@@ -65,7 +65,7 @@ export const sessionsTableLogic = kea<
         sessionPlayerData: {
             loadSessionPlayer: async (sessionRecordingId: SessionRecordingId): Promise<eventWithTime[]> => {
                 const params = toParams({ session_recording_id: sessionRecordingId })
-                const response = await api.get(`api/event/session_recording?${params}`)
+                const response = await api.get(`api/projects/@current/events/session_recording?${params}`)
                 return response.result
             },
         },
@@ -156,7 +156,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
             })
-            const response = await api.get(`api/insight/session/?${params}`)
+            const response = await api.get(`api/projects/@current/insights/session/?${params}`)
             breakpoint()
             if (response.offset) {
                 actions.setNextOffset(response.offset)

@@ -40,7 +40,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insights/?' +
                         toParams({
                             order: '-created_at',
                             limit: 6,
@@ -57,7 +57,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadSavedInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insights/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -75,7 +75,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadTeamInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insights/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -156,13 +156,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
     },
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
-            await api.create('api/insight', {
+            await api.create('api/projects/@current/insights', {
                 filters,
             })
             actions.loadInsights()
         },
         saveInsight: async ({ insight: { id }, name }) => {
-            await api.update(`api/insight/${id}`, {
+            await api.update(`api/projects/@current/insights/${id}`, {
                 name,
                 saved: true,
             })

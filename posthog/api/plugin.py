@@ -90,7 +90,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return validated_data
 
 
-class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginViewSet(viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
 
@@ -159,7 +159,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins_via_api():
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        validated_data["team"] = Team.objects.get(self.context["team_id"])
+        validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)

@@ -35,7 +35,7 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"user": "true"}).json()
+            response = self.client.get("/api/projects/@current/insights/", data={"user": "true"}).json()
 
             self.assertEqual(len(response["results"]), 1)
 
@@ -57,14 +57,16 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"saved": "true", "user": "true",},).json()
+            response = self.client.get(
+                "/api/projects/@current/insights/", data={"saved": "true", "user": "true",},
+            ).json()
 
             self.assertEqual(len(response["results"]), 1)
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
             self.client.post(
-                "/api/insight",
+                "/api/projects/@current/insights",
                 data={
                     "filters": {
                         "events": [{"id": "$pageview"}],
@@ -87,7 +89,7 @@ def insight_test_factory(event_factory, person_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
-                    "/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
+                    "/api/projects/@current/insights/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
                 ).json()
 
             self.assertEqual(response[0]["count"], 2)
@@ -109,18 +111,22 @@ def insight_test_factory(event_factory, person_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = self.client.get("/api/insight/session/",).json()
+                response = self.client.get("/api/projects/@current/insights/session/",).json()
 
             self.assertEqual(len(response["result"]), 2)
 
-            response = self.client.get("/api/insight/session/?date_from=2012-01-14&date_to=2012-01-15",).json()
+            response = self.client.get(
+                "/api/projects/@current/insights/session/?date_from=2012-01-14&date_to=2012-01-15",
+            ).json()
             self.assertEqual(len(response["result"]), 4)
 
             for i in range(46):
                 with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
 
-            response = self.client.get("/api/insight/session/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            response = self.client.get(
+                "/api/projects/@current/insights/session/?date_from=2012-01-14&date_to=2012-01-17",
+            ).json()
             self.assertEqual(len(response["result"]), 50)
             self.assertEqual(response.get("offset", None), None)
 
@@ -128,12 +134,14 @@ def insight_test_factory(event_factory, person_factory):
                 with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i + 46)):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
 
-            response = self.client.get("/api/insight/session/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            response = self.client.get(
+                "/api/projects/@current/insights/session/?date_from=2012-01-14&date_to=2012-01-17",
+            ).json()
             self.assertEqual(len(response["result"]), 50)
             self.assertEqual(response["offset"], 50)
 
             response = self.client.get(
-                "/api/insight/session/?date_from=2012-01-14&date_to=2012-01-17&offset=50",
+                "/api/projects/@current/insights/session/?date_from=2012-01-14&date_to=2012-01-17&offset=50",
             ).json()
             self.assertEqual(len(response["result"]), 2)
             self.assertEqual(response.get("offset", None), None)
@@ -147,7 +155,7 @@ def insight_test_factory(event_factory, person_factory):
                 properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
             )
 
-            response = self.client.get("/api/insight/path",).json()
+            response = self.client.get("/api/projects/@current/insights/path",).json()
             self.assertEqual(len(response), 1)
 
         # TODO: remove this check
@@ -157,7 +165,7 @@ def insight_test_factory(event_factory, person_factory):
             def test_insight_funnels_basic(self):
                 event_factory(team=self.team, event="user signed up", distinct_id="1")
                 response = self.client.get(
-                    "/api/insight/funnel/?events={}".format(
+                    "/api/projects/@current/insights/funnel/?events={}".format(
                         json.dumps([{"id": "user signed up", "type": "events", "order": 0},])
                     )
                 ).json()
@@ -181,7 +189,7 @@ def insight_test_factory(event_factory, person_factory):
                     distinct_id="person1",
                     timestamp=timezone.now() - timedelta(days=10),
                 )
-                response = self.client.get("/api/insight/retention/",).json()
+                response = self.client.get("/api/projects/@current/insights/retention/",).json()
 
                 self.assertEqual(len(response["data"]), 11)
 
@@ -200,7 +208,9 @@ def insight_test_factory(event_factory, person_factory):
                     event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
                 with freeze_time("2012-01-15T04:01:34.000Z"):
-                    response_person_1 = self.client.get("/api/insight/session/?distinct_id=1",).json()
+                    response_person_1 = self.client.get(
+                        "/api/projects/@current/insights/session/?distinct_id=1",
+                    ).json()
 
                 self.assertEqual(len(response_person_1["result"]), 1)
 

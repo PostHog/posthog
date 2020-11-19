@@ -25,7 +25,7 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, InsightHistory>>({
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insights/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,

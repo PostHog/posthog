@@ -1,4 +1,4 @@
-// /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
+// /api/projects/@current/events/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
 
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
@@ -53,7 +53,10 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                         properties: [{ key: '$current_url', value: $current_url }],
                         temporary_token: toolbarLogic.values.temporaryToken,
                     }
-                    const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}api/projects/@current/elements/stats/${encodeParams(
+                        params,
+                        '?'
+                    )}`
                     const response = await fetch(url)
                     const results = await response.json()
 

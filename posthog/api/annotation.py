@@ -54,7 +54,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)
             order = self.request.GET.get("order", None)

@@ -31,13 +31,16 @@ export const dashboardsModel = kea({
                 if (show) router.actions.push(`/dashboard/${result.id}`)
                 return result
             },
-            renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
+            renameDashboard: async ({ id, name }) =>
+                await api.update(`api/projects/@current/dashboards/${id}`, { name }),
             setIsSharedDashboard: async ({ id, isShared }) =>
-                await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
-            deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
-            restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
-            pinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: true }),
-            unpinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: false }),
+                await api.update(`api/projects/@current/dashboards/${id}`, { is_shared: isShared }),
+            deleteDashboard: async ({ id }) =>
+                await api.update(`api/projects/@current/dashboards/${id}`, { deleted: true }),
+            restoreDashboard: async ({ id }) =>
+                await api.update(`api/projects/@current/dashboards/${id}`, { deleted: false }),
+            pinDashboard: async (id) => await api.update(`api/projects/@current/dashboards/${id}`, { pinned: true }),
+            unpinDashboard: async (id) => await api.update(`api/projects/@current/dashboards/${id}`, { pinned: false }),
         },
     }),
 

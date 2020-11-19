@@ -15,7 +15,7 @@ export const actionEditLogic = kea({
     loaders: ({ props }) => ({
         action: {
             loadAction: async () => {
-                return await api.get(props.apiURL + 'api/action/' + props.id)
+                return await api.get(props.apiURL + 'api/projects/@current/actions/' + props.id)
             },
         },
     }),
@@ -61,9 +61,12 @@ export const actionEditLogic = kea({
             try {
                 let token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {
-                    action = await api.update(props.apiURL + 'api/action/' + action.id + '/' + token, action)
+                    action = await api.update(
+                        props.apiURL + 'api/projects/@current/actions/' + action.id + '/' + token,
+                        action
+                    )
                 } else {
-                    action = await api.create(props.apiURL + 'api/action/' + token, action)
+                    action = await api.create(props.apiURL + 'api/projects/@current/actions/' + token, action)
                 }
             } catch (response) {
                 if (response.detail === 'action-exists') {
@@ -81,7 +84,7 @@ export const actionEditLogic = kea({
         afterMount: async () => {
             if (props.id) {
                 const action = await api.get(
-                    'api/action/' +
+                    'api/projects/@current/actions/' +
                         props.id +
                         '/?include_count=1' +
                         (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')

@@ -237,7 +237,7 @@ export function formatLabel(label: string, action: Record<string, any>): string 
 
 export function deletePersonData(person: Record<string, any>, callback: () => void): void {
     if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
-        api.delete('api/person/' + person.id).then(() => {
+        api.delete('api/projects/@current/persons/' + person.id).then(() => {
             toast('Person succesfully deleted.')
             if (callback) callback()
         })
@@ -245,7 +245,7 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
 }
 
 export function savePersonData(person: Record<string, any>): void {
-    api.update('api/person/' + person.id, person).then(() => {
+    api.update('api/projects/@current/persons/' + person.id, person).then(() => {
         toast('Person Updated')
     })
 }

@@ -220,7 +220,7 @@ export function Paths({ dashboardItemId = null, filters = null }) {
                 if (loadedFilter.path_type === AUTOCAPTURE) {
                     setModalVisible(true)
                     setEvent(null)
-                    let result = await api.get('api/event/' + node.id)
+                    let result = await api.get('api/projects/@current/events/' + node.id)
                     setEvent(result)
                 }
             })
