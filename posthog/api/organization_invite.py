@@ -1,3 +1,4 @@
+from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
 from django.db.models import QuerySet
@@ -64,7 +65,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
 
 class OrganizationInviteViewSet(
-    NestedViewSetMixin,
+    StructuredViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -77,19 +78,11 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by(self.ordering)
-
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        parents_query_dict = self.get_parents_query_dict()
-        if parents_query_dict:
-            if parents_query_dict["organization_id"] == "@current":
-                parents_query_dict["organization_id"] = self.request.user.organization.id
-            try:
-                return queryset.filter(**parents_query_dict).select_related("created_by")
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
+        return (
+            self.filter_queryset_by_parents_lookups(super().get_queryset())
+            .select_related("created_by")
+            .order_by(self.ordering)
+        )
 
     def get_serializer_context(self):
         """

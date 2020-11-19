@@ -1,9 +1,9 @@
+from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
-import posthoganalytics
 from django.db import IntegrityError
 from django.db.models import QuerySet
-from rest_framework import response, serializers, status, viewsets
+from rest_framework import serializers, viewsets
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -42,7 +42,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        validated_data["team"] = request.user.team
+        validated_data["team_id"] = self.context["team_id"]
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
@@ -57,7 +57,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             raise serializers.ValidationError("This key already exists.", code="key-exists")
 
 
-class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
 
@@ -65,4 +65,4 @@ class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team).order_by("-created_at")
+        return queryset.order_by("-created_at")

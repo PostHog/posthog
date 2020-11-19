@@ -1,5 +1,6 @@
+from posthog.utils import StructuredViewSetMixin
 from django.db.models import Count, Prefetch, QuerySet
-from rest_framework import authentication, request, response, serializers, viewsets
+from rest_framework import authentication, request, response, serializers, viewsets, exceptions
 from rest_framework.decorators import action
 
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
@@ -22,7 +23,7 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class ElementViewSet(viewsets.ModelViewSet):
+class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [
@@ -32,26 +33,33 @@ class ElementViewSet(viewsets.ModelViewSet):
         authentication.BasicAuthentication,
     ]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
-        return queryset.filter(group__team=self.request.user.team)
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.get_parents_query_dict()
+        parents_query_dict["group__team_id"] = parents_query_dict["team_id"]  # adjust queryset lookup just for elements
+        del parents_query_dict["team_id"]
+        if parents_query_dict:
+            try:
+                return queryset.filter(**parents_query_dict)
+            except ValueError:
+                raise exceptions.NotFound()
+        else:
+            return queryset
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request) -> response.Response:
-        team = self.request.user.team
+        team_id = self.get_parents_query_dict()["team_id"]
         filter = Filter(request=request)
 
         events = (
-            Event.objects.filter(team=team, event="$autocapture")
-            .filter(filter.properties_to_Q(team_id=team.pk))
+            Event.objects.filter(team_id=team_id, event="$autocapture")
+            .filter(filter.properties_to_Q(team_id=team_id))
             .filter(filter.date_filter_Q)
         )
 
         events = events.values("elements_hash").annotate(count=Count(1)).order_by("-count")[0:100]
 
         groups = ElementGroup.objects.filter(
-            team=team, hash__in=[item["elements_hash"] for item in events]
+            team_id=team_id, hash__in=[item["elements_hash"] for item in events]
         ).prefetch_related(Prefetch("element_set", queryset=Element.objects.order_by("order", "id")))
 
         return response.Response(
@@ -106,7 +114,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=request.user.team.pk, key=key
+                where=where, team_id=self.get_parents_query_dict()["team_id"], key=key
             ),
             params,
         )

@@ -1,3 +1,4 @@
+from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict, Optional
 
 from django.db.models import Count, QuerySet
@@ -30,7 +31,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["is_calculating"] = True
-        cohort = Cohort.objects.create(team=request.user.team, **validated_data)
+        cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
         calculate_cohort.delay(cohort_id=cohort.pk)
         return cohort
 
@@ -49,7 +50,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return None
 
 
-class CohortViewSet(viewsets.ModelViewSet):
+class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
 
@@ -59,4 +60,4 @@ class CohortViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))
-        return queryset.filter(team=self.request.user.team).select_related("created_by").order_by("id")
+        return queryset.select_related("created_by").order_by("id")

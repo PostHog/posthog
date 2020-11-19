@@ -73,7 +73,10 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            return self.request.user.organization
+            obj = self.request.user.organization
+            if obj is None:
+                raise exceptions.NotFound("Current organization not found.")
+            return obj
         filter_kwargs = {self.lookup_field: lookup_value}
         obj = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)

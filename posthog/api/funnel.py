@@ -1,3 +1,4 @@
+from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict, List
 
 from django.db.models import QuerySet
@@ -31,12 +32,13 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         return funnel.get_steps()
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
-        request = self.context["request"]
-        funnel = Funnel.objects.create(team=request.user.team, created_by=request.user, **validated_data)
+        funnel = Funnel.objects.create(
+            team_id=self.context["team_id"], created_by=self.context["request"].user, **validated_data
+        )
         return funnel
 
 
-class FunnelViewSet(viewsets.ModelViewSet):
+class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Funnel.objects.all()
     serializer_class = FunnelSerializer
 
@@ -44,7 +46,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team)
+        return queryset
 
     def retrieve(self, request, pk=None):
         data = self._retrieve(request, pk)

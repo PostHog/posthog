@@ -1,16 +1,17 @@
 from distutils.util import strtobool
+from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
 import posthoganalytics
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, viewsets, exceptions
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Annotation
+from posthog.models import Annotation, Team
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -40,19 +41,19 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
+        project = Team.objects.get(self.context["team_id"])
         annotation = Annotation.objects.create(
-            organization=request.user.organization, team=request.user.team, created_by=request.user, **validated_data,
+            organization=project.organization, team=project, created_by=request.user, **validated_data,
         )
         return annotation
 
 
-class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        team = self.request.user.team
 
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)
@@ -60,7 +61,7 @@ class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             if order:
                 queryset = queryset.order_by(order)
 
-        return queryset.filter(team=team)
+        return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()

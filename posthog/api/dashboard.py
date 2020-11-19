@@ -16,8 +16,8 @@ from rest_framework.request import Request
 
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardItem, Filter
-from posthog.utils import generate_cache_key, render_template
+from posthog.models import Dashboard, DashboardItem, Filter, Team
+from posthog.utils import StructuredViewSetMixin, generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -42,7 +42,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = request.user.team
+        team = Team.objects.get(self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
@@ -91,7 +91,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         return DashboardItemSerializer(items, many=True).data
 
 
-class DashboardsViewSet(viewsets.ModelViewSet):
+class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Dashboard.objects.all()
     serializer_class = DashboardSerializer
     authentication_classes = [
@@ -117,7 +117,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
             else:
                 raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")
 
-        return queryset.filter(team=self.request.user.team)
+        return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -157,7 +157,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
 
         request = self.context["request"]
-        team = request.user.team
+        team = Team.objects.get(self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -189,7 +189,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return result["result"]
 
 
-class DashboardItemsViewSet(viewsets.ModelViewSet):
+class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = DashboardItemSerializer
 
@@ -205,7 +205,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         else:
             queryset = queryset.order_by("order")
 
-        return queryset.filter(team=self.request.user.team)
+        return queryset
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -222,12 +222,12 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):
-        team = request.user.team
+        team_id = self.get_parents_query_dict()["team_id"]
 
         for data in request.data["items"]:
-            self.queryset.filter(team=team, pk=data["id"]).update(layouts=data["layouts"])
+            self.queryset.filter(team_id=team_id, pk=data["id"]).update(layouts=data["layouts"])
 
-        serializer = self.get_serializer(self.queryset.filter(team=team), many=True)
+        serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
         return response.Response(serializer.data)
 
 

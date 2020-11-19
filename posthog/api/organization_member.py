@@ -1,3 +1,4 @@
+from posthog.utils import StructuredViewSetMixin
 from typing import cast
 
 from django.db.models import Model, QuerySet, query
@@ -40,7 +41,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
 
 class OrganizationMemberViewSet(
-    NestedViewSetMixin,
+    StructuredViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -51,18 +52,6 @@ class OrganizationMemberViewSet(
     queryset = OrganizationMembership.objects.all()
     lookup_field = "user_id"
     ordering = ["level", "-joined_at"]
-
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        parents_query_dict = self.get_parents_query_dict()
-        if parents_query_dict:
-            if parents_query_dict["organization_id"] == "@current":
-                parents_query_dict["organization_id"] = self.request.user.organization.id
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())

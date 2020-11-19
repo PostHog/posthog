@@ -3,12 +3,12 @@ from rest_framework import request, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.models import Event, Filter
+from posthog.models import Event, Filter, Team
 from posthog.queries import paths
-from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
+from posthog.utils import StructuredViewSetMixin, dict_from_cursor_fetchall, request_to_date_query
 
 
-class PathsViewSet(viewsets.ViewSet):
+class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
 
@@ -16,8 +16,7 @@ class PathsViewSet(viewsets.ViewSet):
         return Response(rows)
 
     def get_elements(self, request: request.Request):
-        team = request.user.team
-        all_events = Event.objects.filter(team=team, event="$autocapture")
+        all_events = Event.objects.filter(team_id=self.get_parents_query_dict()["team_id"], event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 
         elements_readble = '\
@@ -39,7 +38,7 @@ class PathsViewSet(viewsets.ViewSet):
         return Response(resp)
 
     def get_list(self, request):
-        team = request.user.team
+        team = Team.objects.get(self.get_parents_query_dict()["team_id"])
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")

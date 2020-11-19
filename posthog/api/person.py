@@ -11,7 +11,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.models import Event, Filter, Person, Team
-from posthog.utils import convert_property_value
+from posthog.utils import StructuredViewSetMixin, convert_property_value
 
 from .base import CursorPagination as BaseCursorPagination
 
@@ -59,7 +59,7 @@ class PersonFilter(filters.FilterSet):
         fields = ["is_identified"]
 
 
-class PersonViewSet(viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -72,7 +72,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         if request.GET.get("id"):
             ids = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=ids)
@@ -95,25 +95,24 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
             queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
+                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(
+                    team_id=self.get_parents_query_dict()["team_id"]
+                )
             )
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
-        person = Person.objects.get(team=team, pk=pk)
-        events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
+        team_id = self.get_parents_query_dict()["team_id"]
+        person = Person.objects.get(team_id=team_id, pk=pk)
+        events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
         events.delete()
         person.delete()
         return response.Response(status=204)
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        team = self.request.user.team
-        queryset = queryset.filter(team=team)
-        return self._filter_request(self.request, queryset, team)
+        return self._filter_request(self.request, super().get_queryset())
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):

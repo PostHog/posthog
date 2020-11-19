@@ -20,7 +20,10 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
+from typing import Any, Dict, cast
+from rest_framework_extensions.settings import extensions_api_settings
+from rest_framework_extensions.mixins import NestedViewSetMixin
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
@@ -414,3 +417,35 @@ def get_redis_info() -> Mapping[str, Any]:
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
+
+
+class StructuredViewSetMixin(NestedViewSetMixin):
+    def get_parents_query_dict(self) -> Dict[str, Any]:
+        result = {}
+        for kwarg_name, kwarg_value in self.kwargs.items():  # type: ignore
+            if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
+                query_lookup = kwarg_name.replace(
+                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX, "", 1
+                )
+                query_value = kwarg_value
+                if query_value == "@current":
+                    if query_lookup == "project_id":
+                        project = self.request.user.project  # type: ignore
+                        if project is None:
+                            raise NotFound("Current project not found.")
+                        query_value = project.id
+                    elif query_lookup == "organization_id":
+                        organization = self.request.user.organization  # type: ignore
+                        if organization is None:
+                            raise NotFound("Current organization not found.")
+                        query_value = organization.id
+                result[query_lookup] = query_value
+        return result
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        parents = self.get_parents_query_dict()
+        return {
+            **super().get_serializer_context(),
+            "project_id": parents.get("project_id"),
+            "organization_id": parents.get("organization_id"),
+        }

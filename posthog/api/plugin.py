@@ -1,5 +1,6 @@
 import json
 import os
+from posthog.utils import StructuredViewSetMixin
 import re
 from typing import Any, Dict, Optional
 
@@ -15,7 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -89,7 +90,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return validated_data
 
 
-class PluginViewSet(viewsets.ModelViewSet):
+class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
 
@@ -158,7 +159,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins_via_api():
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        validated_data["team"] = request.user.team
+        validated_data["team"] = Team.objects.get(self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)
@@ -216,21 +217,20 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 )
 
 
-class PluginConfigViewSet(viewsets.ModelViewSet):
+class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if can_configure_plugins_via_api():
-            return queryset.filter(team_id=self.request.user.team.pk)
-        return queryset.none()
+        if not can_configure_plugins_via_api():
+            return self.queryset.none()
+        return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
         if not can_configure_plugins_via_api():
             return Response(status=404)
-        plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
+        plugin_config = PluginConfig.objects.get(team_id=self.get_parents_query_dict()["team_id"], pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)

@@ -16,6 +16,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
+from rest_framework_extensions.routers import NestedRouterMixin
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -104,7 +105,10 @@ class TeamViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            return self.request.user.team
+            obj = self.request.user.team
+            if obj is None:
+                raise exceptions.NotFound("Current project not found.")
+            return obj
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         try:

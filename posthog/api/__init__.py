@@ -1,4 +1,4 @@
-from rest_framework import decorators, exceptions, response
+from rest_framework import decorators, exceptions
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 
 from posthog.ee import is_ee_enabled
@@ -40,28 +40,22 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
-router.register(r"annotation", annotation.AnnotationsViewSet)
-router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
-router.register(r"funnel", funnel.FunnelViewSet)
-router.register(r"dashboard", dashboard.DashboardsViewSet)
-router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
-router.register(r"cohort", cohort.CohortViewSet)
-router.register(r"plugin", plugin.PluginViewSet)
-router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
 teams_router = router.register(r"projects", team.TeamViewSet)
+teams_router.register(r"annotation", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
+teams_router.register(r"feature_flag", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+teams_router.register(r"funnel", funnel.FunnelViewSet, "project_funnels", ["team_id"])
+teams_router.register(r"dashboard", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
+teams_router.register(r"dashboard_item", dashboard.DashboardItemsViewSet, "project_dashboard_items", ["team_id"])
+teams_router.register(r"cohort", cohort.CohortViewSet, "project_cohorts", ["team_id"])
+teams_router.register(r"plugin", plugin.PluginViewSet, "project_plugins", ["team_id"])
+teams_router.register(r"plugin_config", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"])
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
-    r"members",
-    organization_member.OrganizationMemberViewSet,
-    "organization_members",
-    parents_query_lookups=["organization_id"],
+    r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )
 organizations_router.register(
-    r"invites",
-    organization_invite.OrganizationInviteViewSet,
-    "organization_invites",
-    parents_query_lookups=["organization_id"],
+    r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
 )
 
 if is_ee_enabled():
@@ -73,20 +67,19 @@ if is_ee_enabled():
         from ee.clickhouse.views.paths import ClickhousePathsViewSet
         from ee.clickhouse.views.person import ClickhousePerson
     except ImportError as e:
-        print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres.")
+        print("ClickHouse enabled but missing enterprise capabilities. Defaulting to Postgres.")
         print(e)
-
-    router.register(r"action", ClickhouseActions, basename="action")
-    router.register(r"event", ClickhouseEvents, basename="event")
-    router.register(r"insight", ClickhouseInsights, basename="insight")
-    router.register(r"person", ClickhousePerson, basename="person")
-    router.register(r"paths", ClickhousePathsViewSet, basename="paths")
-    router.register(r"element", ClickhouseElement, basename="element")
-
+    else:
+        teams_router.register(r"insight", ClickhouseInsights, "project_insights", ["team_id"])
+        teams_router.register(r"action", ClickhouseActions, "project_actions", ["team_id"])
+        teams_router.register(r"person", ClickhousePerson, "project_persons", ["team_id"])
+        teams_router.register(r"event", ClickhouseEvents, "project_events", ["team_id"])
+        teams_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
+        teams_router.register(r"element", ClickhouseElement, "project_elements", ["team_id"])
 else:
-    router.register(r"insight", insight.InsightViewSet)
-    router.register(r"action", action.ActionViewSet)
-    router.register(r"person", person.PersonViewSet)
-    router.register(r"event", event.EventViewSet)
-    router.register(r"paths", paths.PathsViewSet, basename="paths")
-    router.register(r"element", element.ElementViewSet)
+    teams_router.register(r"insight", insight.InsightViewSet, "project_insights", ["team_id"])
+    teams_router.register(r"action", action.ActionViewSet, "project_actions", ["team_id"])
+    teams_router.register(r"person", person.PersonViewSet, "project_persons", ["team_id"])
+    teams_router.register(r"event", event.EventViewSet, "project_events", ["team_id"])
+    teams_router.register(r"paths", paths.PathsViewSet, "project_paths", ["team_id"])
+    teams_router.register(r"element", element.ElementViewSet, "project_elements", ["team_id"])
