@@ -240,7 +240,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
         def test_get_single_action(self):
             event1 = event_factory(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-            response = self.client.get("/api/event/%s/" % event1.id)
+            response = self.client.get("/api/projects/@current/events/%s/" % event1.id)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["event"], "sign up")
             self.assertEqual(response.json()["properties"], {"key": "test_val"})
