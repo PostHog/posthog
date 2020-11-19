@@ -63,7 +63,7 @@
                     "value": "True"
                 },
                 {
-                    "name": "IS_HEROKU",
+                    "name": "IS_DOCKER",
                     "value": "True"
                 },
                 {
