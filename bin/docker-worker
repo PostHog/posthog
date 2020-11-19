@@ -15,6 +15,5 @@ then
   echo "⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️"
 else
   ./bin/docker-worker-plugins &
-  ./bin/docker-worker-beat &
-  ./bin/docker-worker-celery
+  ./bin/docker-worker-celery --with-beat
 fi
