@@ -34,7 +34,7 @@
                 "celeryworker": {
                     "quantity": 0
                 },
-                "pluginsworker": {
+                "pluginworker": {
                     "quantity": 0
                 }
             }
@@ -51,7 +51,7 @@
     "addons": [
         "heroku-postgresql",
         {
-            "plan": "heroku-redis",
+            "plan": "heroku-redis:premium-0",
             "options": {
                 "maxmemory_policy": "allkeys-lru"
             }
@@ -67,7 +67,7 @@
         "celeryworker": {
             "quantity": 0
         },
-        "pluginsworker": {
+        "pluginworker": {
             "quantity": 0
         }
     },
