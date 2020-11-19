@@ -65,6 +65,7 @@ function _Members({ user }: MembersProps): JSX.Element {
                                                         Modal.confirm({
                                                             centered: true,
                                                             title: `Pass on organization ownership to ${member.user_first_name}?`,
+                                                            content: `You won't be ${user.organization?.name} owner anymore - you'll become just an administrator.`,
                                                             icon: <SwapOutlined />,
                                                             okType: 'danger',
                                                             okText: 'Pass Ownership',
