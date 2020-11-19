@@ -1,6 +1,5 @@
-from typing import Optional, Type
+from typing import cast
 
-from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
@@ -31,7 +30,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         self.assertEqual(membership_queryset.count(), 0)
 
     def test_change_organization_member_level(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
@@ -57,6 +56,30 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
                 "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
+
+    def test_change_organization_member_level_lower_than_current_only(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        user = User.objects.create_user("test@x.com", None, "X")
+        membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
+        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.id}",
+            {"level": OrganizationMembership.Level.ADMIN},
+            content_type="application/json",
+        )
+        self.assertDictEqual(
+            cast(dict, response.json()),
+            {
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can only change access level of others to lower than your " "current one.",
+                "type": "authentication_error",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+        updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
 
     def test_change_organization_member_level_requires_admin(self):
         user = User.objects.create_user("test@x.com", None, "X")
@@ -100,3 +123,54 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             },
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_pass_ownership(self):
+        user = User.objects.create_user("test@x.com", None, "X")
+        membership: OrganizationMembership = OrganizationMembership.objects.create(
+            user=user, organization=self.organization
+        )
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.id}/",
+            {"level": OrganizationMembership.Level.OWNER},
+            content_type="application/json",
+        )
+        self.organization_membership.refresh_from_db()
+        membership.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
+        self.assertEqual(
+            OrganizationMembership.objects.filter(
+                organization=self.organization, level=OrganizationMembership.Level.OWNER
+            ).count(),
+            1,
+        )
+
+    def test_pass_ownership_only_if_owner(self):
+        user = User.objects.create_user("test@x.com", None, "X")
+        membership: OrganizationMembership = OrganizationMembership.objects.create(
+            user=user, organization=self.organization
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.id}/",
+            {"level": OrganizationMembership.Level.OWNER},
+            content_type="application/json",
+        )
+        self.organization_membership.refresh_from_db()
+        membership.refresh_from_db()
+        self.assertDictEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You can only pass on organization ownership if you're its owner.",
+                "type": "authentication_error",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
