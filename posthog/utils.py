@@ -8,15 +8,7 @@ import re
 import subprocess
 import time
 import uuid
-from typing import (
-    Any,
-    Dict,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
 import lzstring
