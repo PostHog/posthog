@@ -8,7 +8,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_retention import retention_test_factory
 

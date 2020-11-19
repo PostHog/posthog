@@ -9,7 +9,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.sql.retention.retention import RETENTION_PEOPLE_SQL
 from posthog.api.person import PersonViewSet
 from posthog.models import Event, Person
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.

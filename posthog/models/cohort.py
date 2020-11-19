@@ -12,7 +12,7 @@ from posthog.ee import is_ee_enabled
 
 from .action import Action
 from .event import Event
-from .filter import Filter
+from .filters import Filter
 from .person import Person
 
 UPDATE_QUERY = """

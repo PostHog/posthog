@@ -17,7 +17,7 @@ from django.utils.timezone import now
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
-from posthog.models.filter import RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery

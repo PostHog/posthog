@@ -12,7 +12,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
 )
 from posthog.models import Action, ActionStep, Event, Filter, Person
-from posthog.models.filter import RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.queries.retention import Retention
 
 

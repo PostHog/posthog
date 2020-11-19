@@ -11,7 +11,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.models import Event, Filter, Person, Team
-from posthog.models.filter import RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.queries.retention import Retention
 from posthog.utils import convert_property_value
 

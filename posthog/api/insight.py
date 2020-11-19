@@ -14,7 +14,7 @@ from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
-from posthog.models.filter import RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key

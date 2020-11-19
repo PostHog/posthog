@@ -2,7 +2,7 @@ from django.utils import timezone
 
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.normal import ClickhouseTrendsNormal
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.queries.trends import Trends
 from posthog.utils import relative_date_parse
 

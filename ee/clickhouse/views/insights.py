@@ -14,7 +14,7 @@ from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 class ClickhouseInsights(InsightViewSet):
