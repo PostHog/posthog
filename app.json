@@ -31,10 +31,10 @@
                 "worker": {
                     "quantity": 1
                 },
-                "worker:celery": {
+                "celeryworker": {
                     "quantity": 0
                 },
-                "worker:plugins": {
+                "pluginsworker": {
                     "quantity": 0
                 }
             }
@@ -64,10 +64,10 @@
         "worker": {
             "quantity": 1
         },
-        "worker:celery": {
+        "celeryworker": {
             "quantity": 0
         },
-        "worker:plugins": {
+        "pluginsworker": {
             "quantity": 0
         }
     },
