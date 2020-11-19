@@ -56,7 +56,11 @@
                 },
                 {
                     "name": "IS_BEHIND_PROXY",
-                    "value": "1"
+                    "value": "True"
+                },
+                {
+                    "name": "DISABLE_SECURE_SSL_REDIRECT",
+                    "value": "True"
                 },
                 {
                     "name": "IS_HEROKU",
