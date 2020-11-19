@@ -104,7 +104,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         queryset = queryset.add_person_id(self.get_parents_query_dict()["team_id"])  # type: ignore
 
-        if self.action == "list" or self.action == "sessions" or self.action == "actions":  # type: ignore
+        if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
 
         order_by = self.request.GET.get("orderBy")

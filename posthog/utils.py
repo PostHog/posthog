@@ -109,7 +109,7 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
     if filters.get("date_from"):
         date_from = relative_date_parse(filters["date_from"])
         if filters["date_from"] == "all":
-            date_from = None  # type: ignore
+            date_from = None
     else:
         date_from = datetime.datetime.today() - relativedelta(days=7)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -421,7 +421,7 @@ def get_redis_queue_depth() -> int:
 class StructuredViewSetMixin(NestedViewSetMixin):
     def get_parents_query_dict(self) -> Dict[str, Any]:
         result = {}
-        for kwarg_name, kwarg_value in self.kwargs.items():  # type: ignore
+        for kwarg_name, kwarg_value in self.kwargs.items():
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
                 query_lookup = kwarg_name.replace(
                     extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX, "", 1
@@ -431,12 +431,12 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     if not self.request.user.is_authenticated:
                         raise AuthenticationFailed("Authenticate to use @current.")
                     if query_lookup == "team_id":
-                        project = self.request.user.team  # type: ignore
+                        project = self.request.user.team
                         if project is None:
                             raise NotFound("Current project not found.")
                         query_value = project.id
                     elif query_lookup == "organization_id":
-                        organization = self.request.user.organization  # type: ignore
+                        organization = self.request.user.organization
                         if organization is None:
                             raise NotFound("Current organization not found.")
                         query_value = organization.id
