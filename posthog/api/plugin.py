@@ -1,6 +1,5 @@
 import json
 import os
-from posthog.utils import StructuredViewSetMixin
 import re
 from typing import Any, Dict, Optional
 
@@ -27,6 +26,7 @@ from posthog.plugins import (
 )
 from posthog.plugins.utils import load_json_file
 from posthog.redis import get_client
+from posthog.utils import StructuredViewSetMixin
 
 
 class PluginSerializer(serializers.ModelSerializer):

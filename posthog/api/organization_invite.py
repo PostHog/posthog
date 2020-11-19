@@ -1,4 +1,3 @@
-from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
 from django.db.models import QuerySet
@@ -10,6 +9,7 @@ from posthog.email import is_email_available
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
+from posthog.utils import StructuredViewSetMixin
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):

@@ -1,4 +1,3 @@
-from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict, Optional
 
 from django.db.models import Count, QuerySet
@@ -7,6 +6,7 @@ from rest_framework import request, response, serializers, viewsets
 from posthog.api.user import UserSerializer
 from posthog.models import Cohort
 from posthog.tasks.calculate_cohort import calculate_cohort
+from posthog.utils import StructuredViewSetMixin
 
 
 class CohortSerializer(serializers.ModelSerializer):

@@ -1,4 +1,3 @@
-from posthog.utils import StructuredViewSetMixin
 from typing import cast
 
 from django.db.models import Model, QuerySet, query
@@ -11,6 +10,7 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
+from posthog.utils import StructuredViewSetMixin
 
 
 class OrganizationMemberObjectPermissions(BasePermission):

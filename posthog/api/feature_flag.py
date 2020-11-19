@@ -1,4 +1,3 @@
-from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
 from django.db import IntegrityError
@@ -8,6 +7,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
+from posthog.utils import StructuredViewSetMixin
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):

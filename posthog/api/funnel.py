@@ -1,4 +1,3 @@
-from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict, List
 
 from django.db.models import QuerySet
@@ -8,6 +7,7 @@ from rest_framework.response import Response
 
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Funnel
+from posthog.utils import StructuredViewSetMixin
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):

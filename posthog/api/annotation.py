@@ -1,17 +1,17 @@
 from distutils.util import strtobool
-from posthog.utils import StructuredViewSetMixin
 from typing import Any, Dict
 
 import posthoganalytics
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import request, serializers, viewsets, exceptions
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
+from posthog.utils import StructuredViewSetMixin
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
