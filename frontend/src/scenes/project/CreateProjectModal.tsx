@@ -1,7 +1,8 @@
 import { Alert, Input, Modal } from 'antd'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function CreateProjectModal({
     isVisible,
@@ -11,6 +12,7 @@ export function CreateProjectModal({
     setIsVisible?: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
@@ -22,9 +24,9 @@ export function CreateProjectModal({
 
     return (
         <Modal
-            title="Creating a Project"
+            title={user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project'}
             okText="Create Project"
-            cancelText="Cancel"
+            cancelButtonProps={!setIsVisible ? { style: { display: 'none' } } : undefined}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {

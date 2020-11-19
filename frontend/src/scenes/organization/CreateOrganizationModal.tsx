@@ -15,17 +15,22 @@ export function CreateOrganizationModal({
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
-    const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        if (setIsVisible) setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
-    }, [inputRef, setIsVisible])
+    const closeModal: () => void = useCallback(
+        !setIsVisible
+            ? () => {}
+            : () => {
+                  setErrorMessage(null)
+                  setIsVisible(false)
+                  if (inputRef.current) inputRef.current.setValue('')
+              },
+        [inputRef, setIsVisible]
+    )
 
     return (
         <Modal
             title="Creating an Organization"
             okText="Create Organization"
-            cancelText="Cancel"
+            cancelButtonProps={!setIsVisible ? { style: { display: 'none' } } : undefined}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {

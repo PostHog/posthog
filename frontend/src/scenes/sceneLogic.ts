@@ -76,7 +76,7 @@ export const scenes: Record<Scene, () => any> = {
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
+export const unauthenticatedScenes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',

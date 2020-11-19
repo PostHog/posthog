@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { Scene, sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
+import { Scene, sceneLogic, unauthenticatedScenes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -34,8 +34,8 @@ function Toast(): JSX.Element {
 }
 
 export const App = hot(_App)
-function _App(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
+function _App(): JSX.Element | null {
+    const { user } = useValues(userLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
@@ -49,33 +49,18 @@ function _App(): JSX.Element {
     useEffect(() => {
         if (user) {
             // If user is already logged in, redirect away from unauthenticated routes like signup
-            if (unauthenticatedRoutes.includes(scene)) {
+            if (unauthenticatedScenes.includes(scene)) {
                 replace('/')
                 return
             }
-
-            // If user is in no organization, redirect to org creation, otherwise redirect away from org creation
-            if (location.pathname.startsWith('/organization/create')) {
-                if (user.organizations.length) {
-                    replace('/')
-                    return
-                }
-            } else if (!userLoading && !user.organizations.length) {
+            // Redirect to org/project creation if necessary
+            if (location.pathname !== '/organization/create' && !user.organizations.length) {
                 replace('/organization/create')
                 return
             }
-
-            if (user.organization) {
-                // If organization has no project, redirect to project creation, otherwise redirect away from it
-                if (location.pathname.startsWith('/project/create')) {
-                    if (user.organization.teams.length) {
-                        replace('/')
-                        return
-                    }
-                } else if (!userLoading && !user.organization.teams.length) {
-                    replace('/project/create')
-                    return
-                }
+            if (location.pathname !== '/project/create' && !user.teams.length) {
+                replace('/project/create')
+                return
             }
         }
 
@@ -91,13 +76,11 @@ function _App(): JSX.Element {
     }, [scene, user, currentTeam, currentTeamLoading])
 
     if (!user) {
-        return unauthenticatedRoutes.includes(scene) ? (
+        return unauthenticatedScenes.includes(scene) ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <Scene {...params} /> <Toast />
             </Layout>
-        ) : (
-            <div />
-        )
+        ) : null
     }
 
     if (!scene || plainScenes.includes(scene)) {
