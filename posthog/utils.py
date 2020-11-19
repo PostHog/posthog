@@ -8,7 +8,15 @@ import re
 import subprocess
 import time
 import uuid
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urljoin, urlparse
 
 import lzstring
@@ -18,12 +26,12 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
+from django.http.response import Http404
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound
-from typing import Any, Dict, cast
-from rest_framework_extensions.settings import extensions_api_settings
 from rest_framework_extensions.mixins import NestedViewSetMixin
+from rest_framework_extensions.settings import extensions_api_settings
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
@@ -429,8 +437,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 )
                 query_value = kwarg_value
                 if query_value == "@current":
-                    if query_lookup == "project_id":
-                        project = self.request.user.project  # type: ignore
+                    if query_lookup == "team_id":
+                        project = self.request.user.team  # type: ignore
                         if project is None:
                             raise NotFound("Current project not found.")
                         query_value = project.id
@@ -446,6 +454,6 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         parents = self.get_parents_query_dict()
         return {
             **super().get_serializer_context(),
-            "project_id": parents.get("project_id"),
+            "team_id": parents.get("team_id"),
             "organization_id": parents.get("organization_id"),
         }
