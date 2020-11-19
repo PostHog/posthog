@@ -227,8 +227,9 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             event_factory(event="test", team=self.team, distinct_id="person_1")
             event_factory(event="test", team=self.team, distinct_id="anonymous_id")
             event_factory(event="test", team=self.team, distinct_id="someone_else")
-
-            response = self.client.delete(f"/api/projects/@current/persons/{person.pk}/")
+            with self.settings(DEBUG=True):
+                response = self.client.delete(f"/api/projects/@current/persons/{person.pk}/")
+                self.assertEqual(response.content, "xx")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.data, None)
             self.assertEqual(len(get_people()), 0)
