@@ -33,6 +33,7 @@ from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_hooks.signals import raw_hook_event
 
@@ -54,6 +55,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, funnel, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key
@@ -125,6 +127,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self):
         queryset = super().get_queryset()

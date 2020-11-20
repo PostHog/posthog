@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.celery import update_cache_item_task
@@ -14,6 +15,7 @@ from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key
@@ -74,6 +76,7 @@ class InsightSerializer(serializers.ModelSerializer):
 class InsightViewSet(viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

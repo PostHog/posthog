@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
+from rest_framework import exceptions
 
 from .utils import UUIDModel, sane_repr
 
@@ -122,6 +123,23 @@ class OrganizationMembership(UUIDModel):
 
     def __str__(self):
         return str(self.Level(self.level))
+
+    def validate_level_change(self, membership_being_updated: "OrganizationMembership", new_level: Level) -> None:
+        if membership_being_updated.id == self.id:
+            raise exceptions.PermissionDenied("You can't change your own access level.")
+        if membership_being_updated.organization_id != self.organization_id:
+            raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+        if membership_being_updated.level >= self.level:
+            raise exceptions.PermissionDenied("You can only change access level of others with level lower than you.")
+        if new_level == OrganizationMembership.Level.OWNER:
+            if self.level != OrganizationMembership.Level.OWNER:
+                raise exceptions.PermissionDenied("You can only pass on organization ownership if you're its owner.")
+            self.level = OrganizationMembership.Level.ADMIN
+            self.save()
+        elif new_level >= self.level:
+            raise exceptions.PermissionDenied(
+                "You can only change access level of others to lower than your current one."
+            )
 
     __repr__ = sane_repr("organization", "user", "level")
 

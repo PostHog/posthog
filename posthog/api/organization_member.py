@@ -45,30 +45,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             organization=updated_membership.organization, user=self.context["request"].user
         )
-        new_level = validated_data.get("level")
-        with transaction.atomic():
-            if new_level is not None:
-                # level changing constraints
-                if updated_membership.id == requesting_membership.id:
-                    raise exceptions.PermissionDenied("You can't change your own access level.")
-                if updated_membership.level >= requesting_membership.level:
-                    raise exceptions.PermissionDenied(
-                        "You can only change access level of others with level lower than you."
-                    )
-                if new_level == OrganizationMembership.Level.OWNER:
-                    if requesting_membership.level != OrganizationMembership.Level.OWNER:
-                        raise exceptions.PermissionDenied(
-                            "You can only pass on organization ownership if you're its owner."
-                        )
-                    requesting_membership.level = OrganizationMembership.Level.ADMIN
-                    requesting_membership.save()
-                elif new_level >= requesting_membership.level:
-                    raise exceptions.PermissionDenied(
-                        "You can only change access level of others to lower than your current one."
-                    )
-            for attr, value in validated_data.items():
-                setattr(updated_membership, attr, value)
-            updated_membership.save()
+        for attr, value in validated_data.items():
+            if attr == "level":
+                requesting_membership.validate_level_change(updated_membership, value)
+            setattr(updated_membership, attr, value)
+        updated_membership.save()
         return updated_membership
 
 

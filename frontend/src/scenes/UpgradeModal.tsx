@@ -30,7 +30,7 @@ export function guardPremiumFeature(
     key: string,
     name: string,
     featureAvailableCallback?: () => void,
-    premiumEnvironments: {
+    guardOn: {
         cloud: boolean
         selfHosted: boolean
     } = {
@@ -40,8 +40,8 @@ export function guardPremiumFeature(
 ): boolean {
     let featureAvailable: boolean
     if (!user) featureAvailable = false
-    else if (!premiumEnvironments.cloud && user.is_multi_tenancy) featureAvailable = true
-    else if (!premiumEnvironments.selfHosted && !user.is_multi_tenancy) featureAvailable = true
+    else if (!guardOn.cloud && user.is_multi_tenancy) featureAvailable = true
+    else if (!guardOn.selfHosted && !user.is_multi_tenancy) featureAvailable = true
     else featureAvailable = !!user.organization?.available_features.includes(key)
 
     if (featureAvailable) featureAvailableCallback?.()

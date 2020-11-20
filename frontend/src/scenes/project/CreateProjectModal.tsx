@@ -17,16 +17,18 @@ export function CreateProjectModal({
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        if (setIsVisible) setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
+        if (setIsVisible) {
+            setErrorMessage(null)
+            setIsVisible(false)
+            if (inputRef.current) inputRef.current.setValue('')
+        }
     }, [inputRef, setIsVisible])
 
     return (
         <Modal
             title={user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project'}
             okText="Create Project"
-            cancelButtonProps={!setIsVisible ? { style: { display: 'none' } } : undefined}
+            cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {

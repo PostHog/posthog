@@ -87,5 +87,4 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         filter_kwargs = {self.lookup_field: lookup_value}
         organization = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, organization)
-        print(organization)
         return organization

@@ -6,6 +6,8 @@ from django.db import migrations, models
 def make_first_administrators_owners(apps, schema_editor):
     Organization = apps.get_model("posthog", "Organization")
     for organization in Organization.objects.all():
+        if organization.memberships.filter(level=15).exists():
+            continue
         first_admin = organization.memberships.filter(level=8).first()
         if first_admin is not None:
             first_admin.level = 15

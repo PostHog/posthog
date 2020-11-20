@@ -12,11 +12,13 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Filter
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import generate_cache_key, render_template
 
 
@@ -192,6 +194,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
 class DashboardItemsViewSet(viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = DashboardItemSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

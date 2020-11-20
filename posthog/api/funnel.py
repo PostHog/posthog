@@ -3,10 +3,12 @@ from typing import Any, Dict, List
 from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework import request, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Funnel
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
@@ -39,6 +41,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 class FunnelViewSet(viewsets.ModelViewSet):
     queryset = Funnel.objects.all()
     serializer_class = FunnelSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

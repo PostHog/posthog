@@ -2,9 +2,11 @@ from typing import Any, Dict, Optional
 
 from django.db.models import Count, QuerySet
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.user import UserSerializer
 from posthog.models import Cohort
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.tasks.calculate_cohort import calculate_cohort
 
 
@@ -52,6 +54,7 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

@@ -20,7 +20,12 @@ from rest_framework.decorators import action
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    CREATE_METHODS,
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+    ProjectMembershipNecessaryPermissions,
+)
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -91,6 +96,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all()
     permission_classes = [
         permissions.IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
