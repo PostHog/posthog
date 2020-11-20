@@ -15,7 +15,6 @@ from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person, Team
 from posthog.queries import paths, retention, sessions, stickiness, trends
-from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key
 
 
@@ -148,6 +147,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
+
         team = self.team
 
         filter = Filter(request=request)
