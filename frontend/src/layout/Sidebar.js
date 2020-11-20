@@ -67,6 +67,7 @@ const submenuOverride = {
     billing: 'settings',
     instanceStatus: 'settings',
     instanceLicenses: 'settings',
+    mySettings: 'settings',
 }
 
 export const Sidebar = hot(_Sidebar)
