@@ -1,13 +1,29 @@
 from typing import Dict, Optional
 
 from django.test import Client, TestCase, TransactionTestCase
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APITransactionTestCase
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
 
-class TestMixin:
+class ErrorResponsesMixin:
+    ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
+        "type": "authentication_error",
+        "code": "not_authenticated",
+        "detail": "Authentication credentials were not provided.",
+        "attr": None,
+    }
+
+    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
+        "type": "invalid_request",
+        "code": "not_found",
+        "detail": "Not found.",
+        "attr": None,
+    }
+
+
+class TestMixin(ErrorResponsesMixin):
     TESTS_API: bool = False
     TESTS_COMPANY_NAME: str = "Test"
     TESTS_EMAIL: Optional[str] = "user1@posthog.com"
@@ -32,31 +48,15 @@ class TestMixin:
                 self.client.force_login(self.user)
 
 
-class ErrorResponsesMixin:
-    ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
-        "type": "authentication_error",
-        "code": "not_authenticated",
-        "detail": "Authentication credentials were not provided.",
-        "attr": None,
-    }
-
-    ERROR_RESPONSE_NOT_FOUND: Dict[str, Optional[str]] = {
-        "type": "invalid_request",
-        "code": "not_found",
-        "detail": "Not found.",
-        "attr": None,
-    }
-
-
-class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
+class BaseTest(TestMixin, TestCase):
     pass
 
 
-class TransactionBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+class TransactionBaseTest(TestMixin, TransactionTestCase):
     pass
 
 
-class APIBaseTest(ErrorResponsesMixin, APITestCase):
+class APITestMixin(ErrorResponsesMixin):
     """
     Test API using Django REST Framework test suite.
     """
@@ -86,3 +86,11 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
             self.organization_membership = self.user.organization_memberships.get()
             if self.CONFIG_AUTO_LOGIN:
                 self.client.force_login(self.user)
+
+
+class APIBaseTest(APITestMixin, APITestCase):
+    pass
+
+
+class APITransactionBaseTest(APITestMixin, APITransactionTestCase):
+    pass

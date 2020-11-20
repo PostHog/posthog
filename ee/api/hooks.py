@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.db.models import query
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
@@ -19,19 +18,18 @@ class HookSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(detail=f"Unexpected event {event}")
         return event
 
-    def create(self, validated_data):
-        instance = super().create(validated_data)
-        instance.user = self.context["request"].user
-        instance.team_id = self.context["team_id"]
-        return instance
-
 
 class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Retrieve, create, update or destroy webhooks.
     """
 
-    queryset = Hook.objects.all()
+    queryset = Hook.objects.none()
     serializer_class = HookSerializer
     ordering = "-created_at"
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    serializer_class = HookSerializer
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        serializer.save(user=user, team=user.team)

@@ -3,10 +3,10 @@ from typing import Optional
 from django.utils import timezone
 
 from ee.models.license import License
-from posthog.test.base import APIBaseTest, BaseTest, TransactionBaseTest
+from posthog.test.base import APIBaseTest, APITransactionBaseTest
 
 
-class APILicensedTest(APIBaseTest):
+class LicensedTestMixin:
     """
     Test API using Django REST Framework test suite, for licensed PostHog (mainly enterprise edition).
     """
@@ -21,3 +21,11 @@ class APILicensedTest(APIBaseTest):
                 plan=self.CONFIG_LICENSE_PLAN,
                 valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
             )
+
+
+class APILicensedTest(LicensedTestMixin, APIBaseTest):
+    pass
+
+
+class APITransactionLicensedTest(LicensedTestMixin, APITransactionBaseTest):
+    pass
