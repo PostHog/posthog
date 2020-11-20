@@ -15,7 +15,7 @@ class ClickhouseElement(ElementViewSet):
     def stats(self, request: request.Request) -> response.Response:
         filter = Filter(request=request)
 
-        date_from, date_to = parse_timestamps(filter)
+        date_from, date_to, _ = parse_timestamps(filter)
 
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, request.user.team.pk)
         result = sync_execute(

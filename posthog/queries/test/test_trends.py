@@ -829,11 +829,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 self.team,
             )
 
-            enco = lambda obj: (
-                obj.isoformat() if isinstance(obj, datetime) or isinstance(obj, datetime.date) else None
-            )
-            for res in result:
-                print(json.dumps(res, indent=4, sort_keys=True, default=enco))
             self.assertEqual(len(result), 4)
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             for res in result:

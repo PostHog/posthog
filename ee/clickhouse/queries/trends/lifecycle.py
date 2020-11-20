@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+from datetime import timedelta
+from typing import Any, Dict, List, Tuple, Union
 
 import sqlparse
 from dateutil.relativedelta import relativedelta
@@ -12,35 +13,40 @@ from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 from posthog.models.team import Team
 
 
 class ClickhouseLifecycle:
-    def get_interval(self, interval: str) -> relativedelta:
+    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str]:
         if interval == "hour":
-            return relativedelta(hours=1)
+            return timedelta(hours=1), "1 HOUR"
         elif interval == "minute":
-            return relativedelta(minutes=1)
+            return timedelta(minutes=1), "1 MINUTE"
         elif interval == "day":
-            return relativedelta(day=1)
+            return timedelta(days=1), "1 DAY"
         elif interval == "week":
-            return relativedelta(weeks=1)
+            return timedelta(weeks=1), "1 WEEK"
         elif interval == "month":
-            return relativedelta(months=1)
+            return relativedelta(months=1), "1 MONTH"
         else:
             raise ValueError("{interval} not supported")
 
     def _serialize_lifecycle(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
 
+        date_from = filter.date_from
+
+        if not date_from:
+            raise ValueError("Starting date must be provided")
+
         interval = filter.interval or "day"
         num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
-        interval_increment = self.get_interval(interval)
+        interval_increment, interval_string = self.get_interval(interval)
         trunc_func = get_interval_annotation_ch(interval)
         event_query = ""
         event_params = {}
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        _, _, date_params = parse_timestamps(filter=filter)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
@@ -53,15 +59,18 @@ class ClickhouseLifecycle:
             event_params = {"event": entity.id}
 
         result = sync_execute(
-            LIFECYCLE_SQL.format(interval="1 DAY", trunc_func=trunc_func, event_query=event_query),
+            LIFECYCLE_SQL.format(interval=interval_string, trunc_func=trunc_func, event_query=event_query),
             {
                 "team_id": team_id,
-                "date_from": parsed_date_from,
-                "prev_date_from": "2020-01-11 00:00:00",
-                "date_to": parsed_date_to,
+                "prev_date_from": (date_from - interval_increment).strftime(
+                    "%Y-%m-%d{}".format(
+                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+                    )
+                ),
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
+                **date_params,
             },
         )
 
@@ -71,5 +80,5 @@ class ClickhouseLifecycle:
             additional_values = {"label": label, "status": val[2]}
             parsed_result = parse_response(val, filter, additional_values)
             res.append(parsed_result)
-        print(res)
+
         return res
