@@ -8,7 +8,6 @@ from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest, TransactionBaseTest
 from posthog.models import (
     Action,
     ActionStep,
@@ -21,6 +20,7 @@ from posthog.models import (
     User,
 )
 from posthog.tasks.process_event import process_event as _process_event
+from posthog.test.base import BaseTest, TransactionBaseTest
 
 
 def get_elements(event_id: Union[int, UUID]) -> List[Element]:

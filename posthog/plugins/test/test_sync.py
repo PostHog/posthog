@@ -7,9 +7,9 @@ import zipfile
 from contextlib import contextmanager
 from unittest import mock
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Plugin, PluginConfig
 from posthog.plugins.sync import sync_global_plugin_config, sync_posthog_json_plugins
+from posthog.test.base import BaseTest
 
 from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
