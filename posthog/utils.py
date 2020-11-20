@@ -216,7 +216,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. %-d %B"
+    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
@@ -227,7 +227,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format))
+        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
