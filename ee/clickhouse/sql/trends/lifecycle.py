@@ -46,7 +46,7 @@ SELECT groupArray(day_start), groupArray(counts), status FROM (
                                 ) WHERE
                 ((empty(neighbor(distinct_id, -1)) OR neighbor(distinct_id, -1) != distinct_id) AND subsequent_day != toDateTime(%(date_from)s))
                 OR
-                ( (neighbor(distinct_id, -1) = distinct_id) AND neighbor(subsequent_day, -1) < subsequent_day - INTERVAL 1 DAY)
+                ( (neighbor(distinct_id, -1) = distinct_id) AND neighbor(subsequent_day, -1) < subsequent_day - INTERVAL {interval})
             ) e
             JOIN (
                 SELECT DISTINCT distinct_id, {trunc_func}(min(events.timestamp)) earliest FROM events WHERE team_id = %(team_id)s AND event = %(event)s
