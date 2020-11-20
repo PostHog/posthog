@@ -1,8 +1,10 @@
 import json
+from datetime import datetime
 
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
+from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
 
@@ -771,6 +773,78 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.assertEqual(response["count"], 0)
 
             self.assertTrue(self._compare_entity_response(event_response, action_response,))
+
+        def test_lifecycle_trend(self):
+
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-11T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-13T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z",
+            )
+
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z",
+            )
+
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z",
+            )
+
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
+            )
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            enco = lambda obj: (
+                obj.isoformat() if isinstance(obj, datetime) or isinstance(obj, datetime.date) else None
+            )
+            for res in result:
+                print(json.dumps(res, indent=4, sort_keys=True, default=enco))
+            self.assertEqual(len(result), 4)
+            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            for res in result:
+                if res["status"] == "dormant":
+                    self.assertEqual(res["data"], [0, 2, 1, 0, 2, 0, 1, 0])
+                elif res["status"] == "returning":
+                    self.assertEqual(res["data"], [1, 1, 0, 0, 0, 0, 0, 0])
+                elif res["status"] == "resurrecting":
+                    self.assertEqual(res["data"], [1, 0, 0, 1, 0, 1, 0, 1])
+                elif res["status"] == "new":
+                    self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
 
     return TestTrends
 

@@ -9,6 +9,7 @@ TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
 
 TRENDS_STICKINESS = "Stickiness"
+TRENDS_LIFECYCLE = "trends_lifecycle"
 
 SESSION_AVG = "avg"
 SESSION_DIST = "dist"

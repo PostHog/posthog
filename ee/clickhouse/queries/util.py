@@ -8,10 +8,10 @@ from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filter import Filter
 
 
-def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
+def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
-
+    params = {}
     if filter.date_from:
         date_from = "and {table}timestamp >= '{}'".format(
             filter.date_from.strftime(
@@ -20,6 +20,15 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
                 )
             ),
             table=table,
+        )
+        params.update(
+            {
+                "date_from": filter.date_from.strftime(
+                    "%Y-%m-%d{}".format(
+                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+                    )
+                )
+            }
         )
     else:
         try:
@@ -35,6 +44,15 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
                 ),
                 table=table,
             )
+            params.update(
+                {
+                    "date_from": earliest_date.strftime(
+                        "%Y-%m-%d{}".format(
+                            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+                        )
+                    )
+                }
+            )
 
     _date_to = filter.date_to
 
@@ -46,7 +64,17 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
         ),
         table=table,
     )
-    return date_from or "", date_to or ""
+    params.update(
+        {
+            "date_to": _date_to.strftime(
+                "%Y-%m-%d{}".format(
+                    " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
+                )
+            )
+        }
+    )
+
+    return date_from or "", date_to or "", params
 
 
 def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:

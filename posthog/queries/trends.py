@@ -23,9 +23,8 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL, Subquery
 from django.db.models.functions import Cast
-from django.utils.timezone import now
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -235,8 +234,11 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
 
 class Trends(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team_id)
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            result = self._serialize_lifecycle(entity, filter, team_id)
         else:
             result = self._format_normal_query(entity, filter, team_id)
 
@@ -265,6 +267,9 @@ class Trends(BaseQuery):
         for _, item in items.items():
             formatted_entities.append(append_data(dates_filled=list(item.items()), interval=filter.interval))
         return formatted_entities
+
+    def _serialize_lifecycle(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+        pass
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
