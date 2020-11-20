@@ -117,7 +117,7 @@ if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
 
-CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost").split(",")
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "default")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "default")
@@ -134,7 +134,7 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST[0] + ":" + _clickhouse_http_port + "/"
+CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
