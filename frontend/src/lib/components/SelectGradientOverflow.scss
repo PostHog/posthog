@@ -1,0 +1,9 @@
+.rc-virtual-list-holder.scroll-gradient:after {
+    content: '';
+    width: 100%;
+    height: 50px;
+    background: linear-gradient(0deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+    position: absolute;
+    bottom: 0;
+    pointer-events: none;
+}
