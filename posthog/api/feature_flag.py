@@ -44,7 +44,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team"] = request.user.team
         try:
-            FeatureFlag.objects.get(key=validated_data['key'], team=request.user.team, deleted=True).delete()
+            FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
             feature_flag = super().create(validated_data)
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
