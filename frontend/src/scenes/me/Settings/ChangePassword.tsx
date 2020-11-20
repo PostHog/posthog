@@ -18,7 +18,7 @@ export function ChangePassword(): JSX.Element {
     async function submit(): Promise<void> {
         try {
             userUpdateSuccess(
-                await api.update('api/user/@me/change_password', {
+                await api.update('api/users/@me/change_password', {
                     current_password: currentPassword,
                     new_password: newPassword,
                     new_password_repeat: newPasswordRepeat,

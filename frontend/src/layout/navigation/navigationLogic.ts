@@ -87,7 +87,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             }
         },
         updateCurrentOrganization: async ({ id }) => {
-            await api.update('api/user', {
+            await api.update('api/users', {
                 user: { current_organization_id: id },
             })
             location.href = '/'
@@ -96,7 +96,7 @@ export const navigationLogic = kea<navigationLogicType<UserType>>({
             if (values.currentTeam === id) {
                 return
             }
-            await api.update('api/user', {
+            await api.update('api/users', {
                 user: { current_team_id: id },
             })
             location.href = dest

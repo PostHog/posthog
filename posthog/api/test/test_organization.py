@@ -87,7 +87,7 @@ class TestSignup(APIBaseTest):
         )
 
         # Assert that the user is logged in
-        response = self.client.get("/api/user/@me")
+        response = self.client.get("/api/users/@me")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
 
@@ -122,7 +122,7 @@ class TestSignup(APIBaseTest):
         )
 
         # Assert that the user is logged in
-        response = self.client.get("/api/user/@me")
+        response = self.client.get("/api/users/@me")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
 

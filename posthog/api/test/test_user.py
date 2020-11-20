@@ -11,7 +11,7 @@ class TestUser(BaseTest):
     def test_redirect_to_site(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        response = self.client.get("/api/user/@me/redirect_to_site/?actionId=1")
+        response = self.client.get("/api/users/@me/redirect_to_site/?actionId=1")
         self.assertIn("http://somewebsite.com", response.url)
 
     def test_create_user_with_distinct_id(self):
@@ -26,7 +26,7 @@ class TestUser(BaseTest):
         self.assertEqual(team.anonymize_ips, True)
         self.assertEqual(team.session_recording_opt_in, False)
         response = self.client.patch(
-            "/api/user/@me",
+            "/api/users/@me",
             data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
             content_type="application/json",
         ).json()
@@ -42,7 +42,7 @@ class TestUser(BaseTest):
 
 class TestUserChangePassword(BaseTest):
     TESTS_API = True
-    ENDPOINT: str = "/api/user/@me/change_password/"
+    ENDPOINT: str = "/api/users/@me/change_password/"
 
     def send_request(self, payload):
         return self.client.patch(self.ENDPOINT, payload, content_type="application/json")
@@ -75,7 +75,7 @@ class TestUserChangePassword(BaseTest):
 
 class TestUserSlackWebhook(BaseTest):
     TESTS_API = True
-    ENDPOINT: str = "/api/user/@me/test_webhook/"
+    ENDPOINT: str = "/api/users/@me/test_webhook/"
 
     def send_request(self, payload):
         return self.client.post(self.ENDPOINT, payload, content_type="application/json")
