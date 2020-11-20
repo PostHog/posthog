@@ -16,10 +16,10 @@ def extract_organization(object: Model) -> Organization:
         return object.organization  # type: ignore
     except AttributeError:
         try:
-            return object.team.organization
+            return object.team.organization  # type: ignore
         except AttributeError:
             try:
-                return object.project.organization
+                return object.project.organization  # type: ignore
             except AttributeError:
                 pass
     raise ValueError("Model not compatible with organization-based permissions!")

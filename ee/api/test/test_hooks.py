@@ -1,7 +1,7 @@
 from typing import Type
 
 from ee.models.hook import Hook
-from posthog.test.base import APILicensedTest
+from ee.api.test.base import APILicensedTest
 
 
 class TestHooksAPI(APILicensedTest):

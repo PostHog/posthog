@@ -56,7 +56,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))

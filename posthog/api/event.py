@@ -23,7 +23,6 @@ from posthog.models import (
 )
 from posthog.models.event import EventManager
 from posthog.queries.session_recording import SessionRecording
-from posthog.queries.sessions import Sessions
 from posthog.utils import convert_property_value
 
 
@@ -102,9 +101,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EventSerializer
 
     def get_queryset(self) -> QuerySet:
-        queryset: EventManager = super().get_queryset()
-
-        queryset = queryset.add_person_id(self.team_id)  # type: ignore
+        queryset = super().get_queryset().add_person_id(self.team_id)
 
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
@@ -256,6 +253,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, **kwargs) -> response.Response:
+        from posthog.queries.sessions import Sessions
+
         team = self.team
 
         filter = Filter(request=request)

@@ -5,7 +5,7 @@ from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
-from posthog.test.base import APILicensedTest
+from ee.api.test.base import APILicensedTest
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
