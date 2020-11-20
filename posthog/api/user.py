@@ -8,9 +8,9 @@ import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Model
-from django.core.exceptions import ValidationError
 from django.http import HttpResponsePermanentRedirect, HttpResponseRedirect
 from django.shortcuts import redirect
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, viewsets
@@ -222,7 +222,13 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         try:
             validate_password(new_password, user)
         except ValidationError as e:
-            raise exceptions.ValidationError(str(e))
+            raise exceptions.ValidationError(
+                "\n".join(
+                    map(
+                        str, (error.message % error.params if error.params else error.message for error in e.error_list)
+                    )
+                )
+            )
         user.set_password(new_password)
         user.save()
         update_session_auth_hash(cast(WSGIRequest, request), user)

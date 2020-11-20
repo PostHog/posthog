@@ -52,7 +52,13 @@ class TestUserChangePassword(BaseTest):
             {"current_password": self.TESTS_PASSWORD, "new_password": "123456", "new_password_repeat": "123456"}
         )
         self.assertEqual(
-            response.json(), {"message": "This password is too short. It must contain at least 8 characters."}
+            response.json(),
+            {
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "This password is too short. It must contain at least 8 characters.",
+                "type": "validation_error",
+            },
         )
         self.assertEqual(response.status_code, 400)
 
