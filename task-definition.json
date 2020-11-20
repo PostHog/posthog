@@ -24,7 +24,7 @@
             "environment": [
                 {
                     "name": "CLICKHOUSE_ASYNC",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "CLICKHOUSE_DATABASE",
