@@ -156,11 +156,7 @@ class OrganizationInvite(UUIDModel):
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        self.organization.members.add(user)
-        if user.current_organization is None:
-            user.current_organization = self.organization
-            user.current_team = user.current_organization.teams.first()
-            user.save()
+        user.join(organization=self.organization)
         self.delete()
 
     def is_expired(self) -> bool:

@@ -10,6 +10,7 @@ import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -42,6 +43,22 @@ function _FeatureFlags() {
             title: 'Created by',
             render: function RenderCreatedBy(_, featureFlag) {
                 return featureFlag.created_by.first_name || featureFlag.created_by.email
+            },
+        },
+        {
+            title: 'Rollout Precentage',
+            render: function RenderRolloutPrecentage(_, featureFlag) {
+                return (
+                    <div data-attr="rollout-precentage">
+                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Filters',
+            render: function RenderFilters(featureFlag) {
+                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
             },
         },
         {

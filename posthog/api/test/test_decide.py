@@ -20,7 +20,7 @@ class TestDecide(BaseTest):
         ).json()
 
     def test_user_on_own_site_enabled(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -31,7 +31,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
     def test_user_on_own_site_disabled(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "disabled"
         user.save()
 
@@ -44,7 +44,7 @@ class TestDecide(BaseTest):
         self.assertIsNone(response.get("toolbarVersion", None))
 
     def test_user_on_evil_site(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -55,7 +55,7 @@ class TestDecide(BaseTest):
         self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
 
     def test_user_on_local_host(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
