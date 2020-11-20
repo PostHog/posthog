@@ -40,13 +40,17 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
-            sorter: (a, b) => moment(a.created_at).isBefore(b.created_at),
+            sorter: (a, b) => a.created_at > b.created_at,
         },
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, featureFlag) {
                 return featureFlag.created_by.first_name || featureFlag.created_by.email
             },
+            sorter: (a, b) =>
+                (a.created_by.first_name || a.created_by.email).localeCompare(
+                    b.created_by.first_name || b.created_by.email
+                ),
         },
         {
             title: 'Rollout Precentage',
