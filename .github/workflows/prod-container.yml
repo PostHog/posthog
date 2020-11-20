@@ -57,14 +57,14 @@ jobs:
               id: task-def-worker
               uses: aws-actions/amazon-ecs-render-task-definition@v1
               with:
-                  task-definition: deploy/task-definition.json
+                  task-definition: ${{ steps.task-def.outputs.task-definition }}
                   container-name: posthog-production-worker
                   image: ${{ steps.build-image.outputs.image }}
 
             - name: Deploy Amazon ECS task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
-                  task-definition: ${{ steps.task-def.outputs.task-definition }}
+                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
                   service: posthog-production
                   cluster: posthog-production-cluster
 
