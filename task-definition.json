@@ -67,6 +67,10 @@
                     "value": "True"
                 },
                 {
+                    "name": "IS_HEROKU",
+                    "value": "True"
+                },
+                {
                     "name": "LOG_TO_WAL",
                     "value": "True"
                 },
@@ -257,6 +261,10 @@
                     "value": "True"
                 },
                 {
+                    "name": "IS_HEROKU",
+                    "value": "True"
+                },
+                {
                     "name": "LOG_TO_WAL",
                     "value": "True"
                 },
@@ -444,6 +452,10 @@
                 },
                 {
                     "name": "IS_DOCKER",
+                    "value": "True"
+                },
+                {
+                    "name": "IS_HEROKU",
                     "value": "True"
                 },
                 {
