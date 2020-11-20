@@ -5,6 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
 const { TabPane } = Tabs
 
@@ -12,7 +13,7 @@ function PropertyFilter({ breakdown, onChange }) {
     const { eventProperties } = useValues(userLogic)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
-        <Select
+        <SelectGradientOverflow
             showSearch
             autoFocus
             style={{ width: '100%' }}
@@ -50,14 +51,14 @@ function PropertyFilter({ breakdown, onChange }) {
                     ))}
                 </Select.OptGroup>
             )}
-        </Select>
+        </SelectGradientOverflow>
     )
 }
 
 function CohortFilter({ breakdown, onChange }) {
     const { cohorts } = useValues(cohortsModel)
     return (
-        <Select
+        <SelectGradientOverflow
             autoFocus
             mode="multiple"
             style={{ width: '100%' }}
@@ -89,7 +90,7 @@ function CohortFilter({ breakdown, onChange }) {
                         </Select.Option>
                     )
                 })}
-        </Select>
+        </SelectGradientOverflow>
     )
 }
 

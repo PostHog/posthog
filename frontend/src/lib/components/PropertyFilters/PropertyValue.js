@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Select } from 'antd'
 import api from '../../api'
 import { isOperatorFlag } from 'lib/utils'
+import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
 export function PropertyValue({
     propertyKey,
@@ -53,7 +54,7 @@ export function PropertyValue({
     )
 
     return (
-        <Select
+        <SelectGradientOverflow
             showSearch
             autoFocus={!value}
             style={{ width: '100%', ...style }}
@@ -82,6 +83,6 @@ export function PropertyValue({
                     {name}
                 </Select.Option>
             ))}
-        </Select>
+        </SelectGradientOverflow>
     )
 }
