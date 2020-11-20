@@ -47,5 +47,5 @@ export function guardPremiumFeature(
     if (featureAvailable) featureAvailableCallback?.()
     else showUpgradeModal(name)
 
-    return featureAvailable
+    return !featureAvailable
 }
