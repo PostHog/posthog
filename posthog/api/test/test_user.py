@@ -48,10 +48,9 @@ class TestUserChangePassword(BaseTest):
         )
 
     def test_change_password_invalid_new_password(self):
-        with self.settings(DEBUG=1):
-            response = self.send_request(
-                {"current_password": self.TESTS_PASSWORD, "new_password": "123456", "new_password_repeat": "123456"}
-            )
+        response = self.send_request(
+            {"current_password": self.TESTS_PASSWORD, "new_password": "123456", "new_password_repeat": "123456"}
+        )
         self.assertEqual(
             response.json(), {"message": "This password is too short. It must contain at least 8 characters."}
         )

@@ -63,7 +63,7 @@ class TestSignup(APIBaseTest):
         organization: Organization = user.organization
         self.assertDictContainsSubset(
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "John", "email": "hedgehog@posthog.com"},
-            response.data,
+            cast(dict, response.data),
         )
 
         # Assert that the user was properly created
@@ -201,7 +201,7 @@ class TestSignup(APIBaseTest):
 
         self.assertDictContainsSubset(
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog75@posthog.com"},
-            response.data,
+            cast(dict, response.data),
         )
 
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore
