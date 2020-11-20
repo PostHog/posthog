@@ -11,17 +11,17 @@ export function ChangePassword(): JSX.Element {
     const { user } = useValues(userLogic)
     const { userUpdateSuccess } = useActions(userLogic)
 
-    const [currentPassword, setCurrentPassword] = useState('')
-    const [newPassword, setNewPassword] = useState('')
-    const [newPasswordRepeat, setNewPasswordRepeat] = useState('')
+    const [current_password, setCurrentPassword] = useState('')
+    const [new_password, setNewPassword] = useState('')
+    const [new_passwordRepeat, setNewPasswordRepeat] = useState('')
 
     async function submit(): Promise<void> {
         try {
             userUpdateSuccess(
                 await api.update('api/users/@me/change_password', {
-                    current_password: currentPassword,
-                    new_password: newPassword,
-                    new_password_repeat: newPasswordRepeat,
+                    current_password: current_password,
+                    new_password: new_password,
+                    new_password_repeat: new_passwordRepeat,
                 })
             )
             toast.success('Password changed!')
@@ -45,12 +45,12 @@ export function ChangePassword(): JSX.Element {
                 ]}
             >
                 <Input.Password
-                    name="currentPassword"
+                    name="current_password"
                     required
                     onChange={(event) => {
                         setCurrentPassword(event.target.value)
                     }}
-                    value={currentPassword}
+                    value={current_password}
                     style={{ maxWidth: 400 }}
                     autoComplete="current-password"
                     disabled={!!user && !user.has_password}
@@ -67,12 +67,12 @@ export function ChangePassword(): JSX.Element {
                 ]}
             >
                 <Input.Password
-                    name="newPassword"
+                    name="new_password"
                     required
                     onChange={(event) => {
                         setNewPassword(event.target.value)
                     }}
-                    value={newPassword}
+                    value={new_password}
                     style={{ maxWidth: 400 }}
                     autoComplete="new-password"
                 />
@@ -87,12 +87,12 @@ export function ChangePassword(): JSX.Element {
                 ]}
             >
                 <Input.Password
-                    name="newPasswordRepeat"
+                    name="new_passwordRepeat"
                     required
                     onChange={(event) => {
                         setNewPasswordRepeat(event.target.value)
                     }}
-                    value={newPasswordRepeat}
+                    value={new_passwordRepeat}
                     style={{ maxWidth: 400 }}
                     autoComplete="new-password"
                 />

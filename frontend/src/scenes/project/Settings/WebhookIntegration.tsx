@@ -31,7 +31,6 @@ const logic = kea<logicType<UserType>>({
         setEditedWebhook: (webhook: string) => ({ webhook }),
         saveWebhook: true,
         saveWebhookSuccess: true,
-        testAndSaveWebhook: true,
         setError: (error: string) => ({ error }),
     }),
 
@@ -50,17 +49,9 @@ const logic = kea<logicType<UserType>>({
             false,
             {
                 saveWebhook: () => true,
+                saveWebhookSuccess: () => false,
                 setError: () => false,
-                [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => false,
                 [teamLogic.actionTypes.updateCurrentTeamFailure]: () => false,
-            },
-        ],
-        isSaved: [
-            false,
-            {
-                saveWebhook: () => false,
-                [teamLogic.actionTypes.updateCurrentTeamSuccess]: () => true,
-                setEditedWebhook: () => false,
             },
         ],
     }),
@@ -73,13 +64,17 @@ const logic = kea<logicType<UserType>>({
                 actions.setEditedWebhook(editedWebhook)
             }
             await teamLogic.actions.updateCurrentTeam({ incoming_webhook: editedWebhook })
-            actions.saveWebhookSuccess()
         },
-        saveWebhookSuccess: () => {
-            const service = resolveWebhookService(values.editedWebhook)
-            toast.success(
-                service ? `Webhook enabled. You should see a message on ${service}.` : 'Disabled webhook integration.'
-            )
+        [teamLogic.actions.updateCurrentTeamSuccess]: () => {
+            if (values.isSaving) {
+                const service = resolveWebhookService(values.editedWebhook)
+                toast.success(
+                    service
+                        ? `Webhook enabled. You should see a message on ${service}.`
+                        : 'Disabled webhook integration.'
+                )
+                actions.saveWebhookSuccess()
+            }
         },
     }),
 })

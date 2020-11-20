@@ -61,9 +61,9 @@ class TestSignup(APIBaseTest):
         user: User = User.objects.order_by("-pk")[0]
         team: Team = user.team
         organization: Organization = user.organization
-        self.assertEqual(
-            response.data,
+        self.assertDictContainsSubset(
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "John", "email": "hedgehog@posthog.com"},
+            response.data,
         )
 
         # Assert that the user was properly created
@@ -104,10 +104,9 @@ class TestSignup(APIBaseTest):
 
         user: User = User.objects.order_by("-pk").get()
         organization: Organization = user.organization
-        print(response.data)
-        self.assertDictEqual(
-            cast(dict, response.data),
+        self.assertDictContainsSubset(
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog2@posthog.com",},
+            cast(dict, response.data),
         )
 
         # Assert that the user was properly created
@@ -200,9 +199,9 @@ class TestSignup(APIBaseTest):
 
         mock_feature_enabled.assert_called_with("1694-dashboards", user.distinct_id)
 
-        self.assertEqual(
-            response.data,
+        self.assertDictContainsSubset(
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog75@posthog.com"},
+            response.data,
         )
 
         dashboard: Dashboard = Dashboard.objects.last()  # type: ignore

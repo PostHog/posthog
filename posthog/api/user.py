@@ -9,7 +9,6 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
 from django.core.handlers.wsgi import WSGIRequest
 from django.db.models import Model
 from django.http import HttpResponsePermanentRedirect, HttpResponseRedirect
@@ -222,7 +221,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
             raise exceptions.ValidationError("New password and repeated new password don't match!")
         try:
             validate_password(new_password, user)
-        except ValidationError as e:
+        except exceptions.ValidationError as e:
             raise exceptions.ValidationError(str(e))
         user.set_password(new_password)
         user.save()

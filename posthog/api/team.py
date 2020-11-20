@@ -98,12 +98,13 @@ class TeamSerializer(serializers.ModelSerializer):
             if attr == "plugins_opt_in":
                 reload_plugins_on_workers()
             elif attr == "incoming_webhook":
-                try:
-                    test_response = requests.post(attr, verify=False, json={"text": "Greetings from PostHog!"})
-                    if not test_response.ok:
-                        raise exceptions.ValidationError(f"Webhook test error: {test_response.text}")
-                except:
-                    raise exceptions.ValidationError("Invalid webhook URL.")
+                if value:
+                    try:
+                        test_response = requests.post(value, verify=False, json={"text": "Greetings from PostHog!"})
+                        if not test_response.ok:
+                            raise exceptions.ValidationError(f"Webhook test error: {test_response.text}")
+                    except:
+                        raise exceptions.ValidationError("Invalid webhook URL.")
             if attr in info.relations and info.relations[attr].to_many:
                 m2m_fields.append((attr, value))
             else:

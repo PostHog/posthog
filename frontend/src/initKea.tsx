@@ -20,7 +20,7 @@ export function initKea(): void {
                             <h1>Error on {identifierToHuman(reducerKey)}.</h1>
                             <p>
                                 Attempting to {identifierToHuman(actionKey, false)} returned an error:{' '}
-                                <span className="error-details">{error.detail}</span>
+                                <span className="error-details">{error.detail || error.message}</span>
                             </p>
                         </div>
                     )
