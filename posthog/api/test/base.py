@@ -17,7 +17,7 @@ class TestMixin:
     team: Team
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
-        return User.objects.create_and_join(self.organization, self.team, email, password, first_name, **kwargs)
+        return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore
@@ -70,7 +70,6 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
         return User.objects.create_and_join(
             organization=self.organization,
-            team=self.team,
             email=email,
             password=password,
             level=OrganizationMembership.Level.ADMIN,

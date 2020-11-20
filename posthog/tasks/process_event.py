@@ -69,7 +69,7 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
     save = False
     if not team.ingested_event:
         # First event for the team captured
-        for user in Team.objects.get(pk=team.pk).users.all():
+        for user in team.organization.members.all():
             posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
 
         team.ingested_event = True
