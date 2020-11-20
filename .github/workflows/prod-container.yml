@@ -61,31 +61,16 @@ jobs:
                   container-name: posthog-production-worker
                   image: ${{ steps.build-image.outputs.image }}
 
-            - name: Fill in the new event handler image ID in the Amazon ECS task definition
-              id: task-def-events
-              uses: aws-actions/amazon-ecs-render-task-definition@v1
-              with:
-                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
-                  container-name: posthog-production-events
-                  image: ${{ steps.build-image.outputs.image }}
-
             - name: Deploy Amazon ECS task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
-                  task-definition: ${{ steps.task-def-events.outputs.task-definition }}
+                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
                   service: posthog-production
-                  cluster: posthog-production-cluster
-
-            - name: Deploy Amazon ECS worker task definition
-              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-              with:
-                  task-definition: ${{ steps.task-def-events.outputs.task-definition }}
-                  service: posthog-production-worker
                   cluster: posthog-production-cluster
 
             - name: Deploy Amazon ECS Posthog event handler task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
-                  task-definition: ${{ steps.task-def-events.outputs.task-definition }}
+                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
                   service: posthog-production-events
                   cluster: posthog-production-cluster
