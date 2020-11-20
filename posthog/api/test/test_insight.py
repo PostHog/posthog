@@ -11,9 +11,8 @@ from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
+from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse
-
-from .base import TransactionBaseTest
 
 # TODO: two tests below fail in EE
 

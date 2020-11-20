@@ -19,7 +19,7 @@ from posthog.models.action import Action
 from posthog.utils import convert_property_value
 
 
-class ClickhouseEvents(EventViewSet):
+class ClickhouseEventsViewSet(EventViewSet):
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)

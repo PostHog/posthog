@@ -3,8 +3,7 @@ import json
 from unittest.mock import patch
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestDecide(BaseTest):

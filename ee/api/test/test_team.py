@@ -5,8 +5,7 @@ from django.test.utils import tag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-
-from .base import APILicensedTest
+from posthog.test.base import APILicensedTest
 
 
 class TestTeamEnterpriseAPI(APILicensedTest):

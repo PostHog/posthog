@@ -444,9 +444,4 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        parents = self.get_parents_query_dict()
-        return {
-            **super().get_serializer_context(),
-            "team_id": parents.get("team_id"),
-            "organization_id": parents.get("organization_id"),
-        }
+        return {**super().get_serializer_context(), **self.get_parents_query_dict()}

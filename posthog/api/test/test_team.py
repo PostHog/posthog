@@ -1,6 +1,5 @@
 from posthog.models.team import Team
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):

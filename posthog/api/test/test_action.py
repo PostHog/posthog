@@ -16,8 +16,7 @@ from posthog.models import (
     Person,
     Team,
 )
-
-from .base import BaseTest, TransactionBaseTest
+from posthog.test.base import BaseTest, TransactionBaseTest
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")

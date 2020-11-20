@@ -11,8 +11,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import PersonalAPIKey
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestCapture(BaseTest):

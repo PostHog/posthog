@@ -3,8 +3,7 @@ from json import dumps as jdumps
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
-
-from .base import TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 
 
 def action_people_test_factory(event_factory, person_factory, action_factory, cohort_factory):

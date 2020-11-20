@@ -1,8 +1,7 @@
 from django.conf import settings
 
 from posthog.models import PersonalAPIKey
-
-from .base import TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 
 
 class TestPersonalAPIKeysAPI(TransactionBaseTest):

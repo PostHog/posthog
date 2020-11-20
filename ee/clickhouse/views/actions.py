@@ -45,7 +45,7 @@ class ClickhouseActionSerializer(ActionSerializer):
         return False
 
 
-class ClickhouseActions(ActionViewSet):
+class ClickhouseActionsViewSet(ActionViewSet):
     serializer_class = ClickhouseActionSerializer
 
     # Don't calculate actions in Clickhouse as it's on the fly

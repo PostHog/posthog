@@ -3,8 +3,7 @@ from typing import Optional, Type
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-
-from .base import TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 
 
 class TestOrganizationMembersAPI(TransactionBaseTest):

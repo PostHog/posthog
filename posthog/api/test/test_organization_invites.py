@@ -1,6 +1,5 @@
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):

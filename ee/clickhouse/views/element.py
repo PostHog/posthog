@@ -10,7 +10,7 @@ from posthog.api.element import ElementSerializer, ElementViewSet
 from posthog.models.filter import Filter
 
 
-class ClickhouseElement(ElementViewSet):
+class ClickhouseElementViewSet(ElementViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request)

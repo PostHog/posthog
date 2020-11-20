@@ -17,7 +17,7 @@ from posthog.constants import TRENDS_STICKINESS
 from posthog.models.filter import Filter
 
 
-class ClickhouseInsights(InsightViewSet):
+class ClickhouseInsightsViewSet(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 

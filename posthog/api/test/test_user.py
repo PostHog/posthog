@@ -1,8 +1,7 @@
 from unittest.mock import patch
 
 from posthog.models import Team, User
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestUser(BaseTest):

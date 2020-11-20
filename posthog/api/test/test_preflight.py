@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestPreflight(BaseTest):
