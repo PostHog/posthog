@@ -50,10 +50,24 @@ jobs:
                   container-name: posthog-production
                   image: ${{ steps.build-image.outputs.image }}
 
+            - name: Fill in the new worker image ID in the Amazon ECS task definition
+              id: task-def-worker
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: deploy/task-definition.json
+                  container-name: posthog-production-worker
+                  image: ${{ steps.build-image.outputs.image }}
+
             - name: Deploy Amazon ECS task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
                   task-definition: ${{ steps.task-def.outputs.task-definition }}
                   service: posthog-production
                   cluster: posthog-production-cluster
-                  wait-for-service-stability: true
+
+            - name: Deploy Amazon ECS worker task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
+                  service: posthog-production-worker
+                  cluster: posthog-production-cluster
