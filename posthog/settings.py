@@ -327,6 +327,14 @@ elif os.environ.get("POSTHOG_DB_NAME"):
             "CONN_MAX_AGE": 0,
         }
     }
+    DATABASE_URL = "postgres://{}{}{}{}:{}/{}".format(
+        DATABASES["default"]["USER"],
+        ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
+        "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
+        DATABASES["default"]["HOST"],
+        DATABASES["default"]["PORT"],
+        DATABASES["default"]["NAME"],
+    )
 else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
