@@ -160,7 +160,7 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="action-filter-dropdown">
+        <div ref={dropdownRef} className="select-box">
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
