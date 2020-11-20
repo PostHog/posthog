@@ -1,33 +1,30 @@
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
+from posthog.models.entity import Entity
 from posthog.models.filter import Filter
 
 
-def process_math(entity):
-    join_condition = ""
+def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     aggregate_operation = "count(*)"
     params = {}
+    join_condition = ""
+    value = "toFloat64OrNull(JSONExtractRaw(properties, '{}'))".format(entity.math_property)
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math == "sum":
-        aggregate_operation = "sum(value)"
-        join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+        aggregate_operation = "sum({})".format(value)
         params = {"join_property_key": entity.math_property}
-
     elif entity.math == "avg":
-        aggregate_operation = "avg(value)"
-        join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+        aggregate_operation = "avg({})".format(value)
         params = {"join_property_key": entity.math_property}
     elif entity.math == "min":
-        aggregate_operation = "min(value)"
-        join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+        aggregate_operation = "min({})".format(value)
         params = {"join_property_key": entity.math_property}
     elif entity.math == "max":
-        aggregate_operation = "max(value)"
-        join_condition = EVENT_JOIN_PROPERTY_WITH_KEY_SQL
+        aggregate_operation = "max({})".format(value)
         params = {"join_property_key": entity.math_property}
 
     return aggregate_operation, join_condition, params

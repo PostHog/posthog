@@ -178,7 +178,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", "")
+STATSD_HOST = os.environ.get("STATSD_HOST")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
@@ -214,7 +214,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-if STATSD_HOST:
+if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 

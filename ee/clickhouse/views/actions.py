@@ -35,9 +35,10 @@ class ClickhouseActionSerializer(ActionSerializer):
             query, params = format_action_filter(action)
             if query == "":
                 return None
-            return sync_execute("SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query), params)[
-                0
-            ][0]
+            return sync_execute(
+                "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+                {"team_id": action.team_id, **params},
+            )[0][0]
         return None
 
     def get_is_calculating(self, action: Action) -> bool:

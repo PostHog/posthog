@@ -279,6 +279,15 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
 
+        def test_is_not_true_false(self):
+            event = event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2 = event_factory(
+                team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
+            )
+            filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
+            events = filter_events(filter, self.team)
+            self.assertEqual(events[0]["id"], event.pk)
+
         def test_json_object(self):
             person1 = person_factory(
                 team_id=self.team.pk,

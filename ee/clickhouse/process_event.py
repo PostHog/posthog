@@ -21,7 +21,8 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
 
-statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 def _capture_ee(
