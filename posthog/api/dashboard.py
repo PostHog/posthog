@@ -1,6 +1,6 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import posthoganalytics
 from django.core.cache import cache
@@ -14,10 +14,11 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Filter, Team
-from posthog.utils import StructuredViewSetMixin, generate_cache_key, render_template
+from posthog.utils import generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -110,11 +111,10 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
-        if not self.request.user.is_authenticated:
-            if "team_id" not in self.get_parents_query_dict() and self.request.GET.get("share_token"):
-                return queryset.filter(share_token=self.request.GET["share_token"])
-            else:
-                raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")
+        if self.request.GET.get("share_token"):
+            return queryset.filter(share_token=self.request.GET["share_token"])
+        elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
+            raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
 
         return queryset
 
@@ -130,6 +130,11 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
     legacy_team_compatibility = True
+
+    def get_parents_query_dict(self) -> Dict[str, Any]:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
+            return {}
+        return {"team_id": self.request.user.team.id}
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):
@@ -225,7 +230,7 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request, **kwargs):
-        team_id = self.get_parents_query_dict()["team_id"]
+        team_id = self.team_id
 
         for data in request.data["items"]:
             self.queryset.filter(team_id=team_id, pk=data["id"]).update(layouts=data["layouts"])

@@ -5,9 +5,9 @@ from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
 
 from posthog.api.user import UserSerializer
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.utils import StructuredViewSetMixin
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):

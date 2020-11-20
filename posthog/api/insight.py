@@ -9,13 +9,14 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person, Team
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-from posthog.utils import StructuredViewSetMixin, generate_cache_key
+from posthog.utils import generate_cache_key
 
 
 class InsightSerializer(serializers.ModelSerializer):
@@ -126,7 +127,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
@@ -147,7 +148,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
 
         filter = Filter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
@@ -167,7 +168,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
@@ -209,7 +210,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -248,7 +249,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"data": result})
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
         filter = Filter(request=request)
         if not filter.date_from:
             filter._date_from = "-11d"
@@ -268,7 +269,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
@@ -278,3 +279,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+
+class LegacyInsightViewSet(InsightViewSet):
+    legacy_team_compatibility = True

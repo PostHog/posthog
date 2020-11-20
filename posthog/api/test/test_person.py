@@ -18,9 +18,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
             )
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
-            with self.settings(DEBUG=True):
-                response = self.client.get("/api/projects/@current/persons/?search=has:email")
-                self.assertEqual(response.content, "xx")
+            response = self.client.get("/api/projects/@current/persons/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 

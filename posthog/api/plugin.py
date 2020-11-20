@@ -15,6 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.plugins import (
     can_configure_plugins_via_api,
@@ -26,7 +27,6 @@ from posthog.plugins import (
 )
 from posthog.plugins.utils import load_json_file
 from posthog.redis import get_client
-from posthog.utils import StructuredViewSetMixin
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -230,7 +230,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
         if not can_configure_plugins_via_api():
             return Response(status=404)
-        plugin_config = PluginConfig.objects.get(team_id=self.get_parents_query_dict()["team_id"], pk=pk)
+        plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)

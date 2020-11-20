@@ -90,12 +90,12 @@ if is_ee_enabled():
         projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
 else:
     # legacy endpoints (to be removed eventually)
-    router.register(r"insight", insight.InsightViewSet)
-    router.register(r"action", action.ActionViewSet)
-    router.register(r"person", person.PersonViewSet)
-    router.register(r"event", event.EventViewSet)
-    router.register(r"paths", paths.PathsViewSet, basename="paths")
-    router.register(r"element", element.ElementViewSet)
+    router.register(r"insight", insight.LegacyInsightViewSet)
+    router.register(r"action", action.LegacyActionViewSet)
+    router.register(r"person", person.LegacyPersonViewSet)
+    router.register(r"event", event.LegacyEventViewSet)
+    router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
+    router.register(r"element", element.LegacyElementViewSet)
     # nested endpoints
     projects_router.register(r"insights", insight.InsightViewSet, "project_insights", ["team_id"])
     projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])

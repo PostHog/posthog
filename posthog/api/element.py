@@ -2,9 +2,9 @@ from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
-from posthog.utils import StructuredViewSetMixin
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -47,7 +47,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
-        team_id = self.get_parents_query_dict()["team_id"]
+        team_id = self.team_id
         filter = Filter(request=request)
 
         events = (
@@ -114,9 +114,13 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=self.get_parents_query_dict()["team_id"], key=key
+                where=where, team_id=self.team_id, key=key
             ),
             params,
         )
 
         return response.Response([{"name": value.value} for value in values])
+
+
+class LegacyElementViewSet(ElementViewSet):
+    legacy_team_compatibility = True

@@ -32,7 +32,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         if request.GET.get("after"):
             filter._date_from = request.GET["after"]
@@ -83,7 +83,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
 
         # TODO: implement getting elements
-        team = request.user.team
+        team = self.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
@@ -93,7 +93,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def values(self, request: Request, **kwargs) -> Response:
 
         key = request.GET.get("key")
-        team = request.user.team
+        team = self.team
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
@@ -106,7 +106,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.request.user.team
+        team = self.self.team
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )

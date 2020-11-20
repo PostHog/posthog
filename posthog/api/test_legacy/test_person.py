@@ -239,7 +239,8 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
             self.assertEqual(
-                str(warnings.warning), "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.",
+                str(warnings.warning),
+                "/api/projects/@current/persons/by_distinct_id/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
             )
 
             # By Distinct ID
@@ -248,7 +249,8 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
             self.assertEqual(
-                str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
+                str(warnings.warning),
+                "/api/projects/@current/persons/by_email/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
             )
 
         def test_filter_id_or_uuid(self) -> None:

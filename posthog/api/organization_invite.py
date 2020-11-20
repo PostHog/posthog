@@ -5,11 +5,11 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.email import is_email_available
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
-from posthog.utils import StructuredViewSetMixin
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):

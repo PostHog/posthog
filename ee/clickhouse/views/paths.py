@@ -14,7 +14,7 @@ class ClickhousePathsViewSet(PathsViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request, **kwargs):
 
-        team = request.user.team
+        team = self.team
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
 
         resp = []
@@ -27,7 +27,7 @@ class ClickhousePathsViewSet(PathsViewSet):
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request, **kwargs):
 
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

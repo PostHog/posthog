@@ -4,8 +4,8 @@ from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from ee.models.hook import Hook
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.permissions import OrganizationMemberPermissions
-from posthog.utils import StructuredViewSetMixin
 
 
 class HookSerializer(serializers.ModelSerializer):

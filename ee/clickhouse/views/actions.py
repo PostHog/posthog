@@ -59,8 +59,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 

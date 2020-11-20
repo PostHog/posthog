@@ -10,9 +10,13 @@ from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.utils import CursorPagination
-from posthog.models import Event, Filter, Person, Team
-from posthog.utils import StructuredViewSetMixin, convert_property_value
+from posthog.api.utils import CursorPagination, StructuredViewSetMixin
+from posthog.models import Event, Filter, Person
+from posthog.utils import convert_property_value
+
+
+class PersonCursorPagination(CursorPagination):
+    ordering = "-id"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -57,7 +61,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
-    pagination_class = CursorPagination
+    pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
 
@@ -89,16 +93,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
             queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(
-                    team_id=self.get_parents_query_dict()["team_id"]
-                )
+                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=self.team_id)
             )
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
-        team_id = self.get_parents_query_dict()["team_id"]
+        team_id = self.team_id
         person = Person.objects.get(team_id=team_id, pk=pk)
         events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
         events.delete()
@@ -198,3 +200,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         else:
             return response.Response({})
+
+
+class LegacyPersonViewSet(PersonViewSet):
+    legacy_team_compatibility = True

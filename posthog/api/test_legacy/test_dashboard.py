@@ -1,11 +1,10 @@
 import json
 
-from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
-from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.test.base import TransactionBaseTest
 
 
 class TestDashboard(TransactionBaseTest):

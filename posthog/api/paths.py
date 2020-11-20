@@ -3,9 +3,10 @@ from rest_framework import request, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.models import Event, Filter, Team
 from posthog.queries import paths
-from posthog.utils import StructuredViewSetMixin, dict_from_cursor_fetchall, request_to_date_query
+from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
 class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -16,7 +17,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response(rows)
 
     def get_elements(self, request: request.Request):
-        all_events = Event.objects.filter(team_id=self.get_parents_query_dict()["team_id"], event="$autocapture")
+        all_events = Event.objects.filter(team_id=self.team_id, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 
         elements_readble = '\
@@ -38,7 +39,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response(resp)
 
     def get_list(self, request):
-        team = Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        team = self.team
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")
@@ -47,3 +48,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team,
         )
         return resp
+
+
+class LegacyPathsViewSet(PathsViewSet):
+    legacy_team_compatibility = True

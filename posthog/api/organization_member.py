@@ -7,10 +7,10 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
-from posthog.utils import StructuredViewSetMixin
 
 
 class OrganizationMemberObjectPermissions(BasePermission):

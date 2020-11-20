@@ -9,9 +9,9 @@ from rest_framework import exceptions, request, serializers, viewsets
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
+from posthog.api.utils import StructuredViewSetMixin
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
-from posthog.utils import StructuredViewSetMixin
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
