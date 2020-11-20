@@ -45,6 +45,8 @@ class UserSerializer(serializers.ModelSerializer):
     organization = serializers.SerializerMethodField(read_only=True)
     organizations = serializers.SerializerMethodField(read_only=True)
     plugin_access = serializers.SerializerMethodField(read_only=True)
+    current_organization_id = serializers.CharField(write_only=True)
+    current_team_id = serializers.IntegerField(write_only=True)
 
     class Meta:
         model = User
@@ -110,7 +112,7 @@ class UserSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             if attr == "current_organization_id":
                 instance.current_organization = instance.organizations.get(id=value)
-                instance.current_team = instance.organization.teams.first()
+                instance.current_team = instance.current_organization.teams.first()
             if attr == "current_team_id":
                 instance.current_team = instance.organization.teams.get(id=value)
             if attr in info.relations and info.relations[attr].to_many:

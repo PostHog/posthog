@@ -60,7 +60,7 @@ export function _TopNavigation(): JSX.Element {
                     style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
                     onClick={() =>
                         guardPremiumFeature(
-                            user,
+                            user?.organization,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple organizations',
@@ -110,7 +110,7 @@ export function _TopNavigation(): JSX.Element {
                 <a
                     onClick={() =>
                         guardPremiumFeature(
-                            user,
+                            user?.organization,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',

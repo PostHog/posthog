@@ -55,7 +55,6 @@ export function User(): JSX.Element {
 
 export function Organization(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -72,7 +71,7 @@ export function Organization(): JSX.Element {
                                         <a
                                             href="#"
                                             onClick={() => {
-                                                api.update('api/user/@me', {
+                                                api.update('api/users/@me', {
                                                     current_organization_id: organization.id,
                                                 }).then(() => {
                                                     location.reload()
@@ -90,7 +89,7 @@ export function Organization(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        currentOrganization,
+                                        user?.organization,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple organizations',
@@ -118,7 +117,6 @@ export function Organization(): JSX.Element {
 
 export function Projects(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -136,7 +134,7 @@ export function Projects(): JSX.Element {
                                         <a
                                             href="#"
                                             onClick={() => {
-                                                api.update('api/user/@me', { current_team_id: team.id }).then(() => {
+                                                api.update('api/users/@me', { current_team_id: team.id }).then(() => {
                                                     location.reload()
                                                 })
                                             }}
@@ -152,7 +150,7 @@ export function Projects(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        currentOrganization,
+                                        user?.organization,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple projects',
