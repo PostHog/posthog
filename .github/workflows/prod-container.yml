@@ -35,13 +35,6 @@ jobs:
                   ref: 'ecs'
                   path: 'deploy/'
 
-            - name: Link posthog-production at master
-              run: |
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
-                  cat requirements.txt >> deploy/requirements.txt
-
             - name: Build, tag, and push image to Amazon ECR
               id: build-image
               env:
