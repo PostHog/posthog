@@ -1,11 +1,8 @@
 name: Build production containers
 
-# on:
-#     push:
-#         branches: master
-
 on:
-    - pull_request
+    push:
+        branches: master
 
 jobs:
     build:
@@ -31,8 +28,7 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  # ref: 'master'
-                  ref: 'ecs'
+                  ref: 'master'
                   path: 'deploy/'
 
             - name: Build, tag, and push image to Amazon ECR
