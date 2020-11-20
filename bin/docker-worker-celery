@@ -2,7 +2,7 @@
 set -e
 
 if [ "$1" == "--with-beat" ]; then
-  ./bin/docker-worker-beat
+  ./bin/docker-worker-beat &
 fi
 
 # On heroku $WEB_CONCURRENCY contains suggested nr of forks per dyno type
@@ -12,3 +12,6 @@ if [[ -z "${WEB_CONCURRENCY}" ]]; then
 else
   celery -A posthog worker --concurrency $WEB_CONCURRENCY
 fi
+
+# Stop the beat!
+trap 'kill $(jobs -p)' EXIT
