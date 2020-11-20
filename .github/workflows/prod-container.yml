@@ -1,4 +1,4 @@
-name: Build production containers
+name: Build & Deploy Production Containers
 
 on:
     push:
@@ -6,7 +6,7 @@ on:
 
 jobs:
     build:
-        name: Build production Docker image
+        name: Build & Deploy Production Docker image
         runs-on: ubuntu-20.04
         steps:
             - name: Configure AWS credentials
