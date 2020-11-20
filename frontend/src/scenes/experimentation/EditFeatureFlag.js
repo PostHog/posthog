@@ -115,7 +115,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
 
             <Form.Item className={rrwebBlockClass} label="Filter by user properties">
                 <PropertyFilters
-                    pageKey="feature-flag"
+                    pageKey={'feature-flag-' + featureFlag.id}
                     propertyFilters={filters?.properties}
                     onChange={(properties) => setFilters({ properties })}
                     endpoint="person"

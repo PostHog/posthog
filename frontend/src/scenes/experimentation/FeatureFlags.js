@@ -23,10 +23,12 @@ function _FeatureFlags() {
         {
             title: 'Name',
             dataIndex: 'name',
+            sorter: (a, b) => ('' + a.name).localeCompare(b.name),
         },
         {
             title: 'Key',
             dataIndex: 'key',
+            sorter: (a, b) => ('' + a.key).localeCompare(b.key),
         },
 
         {
@@ -38,6 +40,7 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
+            sorter: (a, b) => moment(a.created_at).isBefore(b.created_at),
         },
         {
             title: 'Created by',
@@ -54,6 +57,7 @@ function _FeatureFlags() {
                     </div>
                 )
             },
+            sorter: (a, b) => a.rollout_percentage - b.rollout_percentage,
         },
         {
             title: 'Filters',
