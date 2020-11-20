@@ -21,7 +21,7 @@ export function OptInSessionRecording(): JSX.Element {
                     marginLeft: '10px',
                 }}
             >
-                Record user sessions
+                Record user sessions on Permitted Domains
             </label>
         </div>
     )

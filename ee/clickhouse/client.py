@@ -1,5 +1,8 @@
 import asyncio
+import hashlib
+import json
 from time import time
+from typing import Any, List, Tuple
 
 import sqlparse
 from aioch import Client
@@ -8,6 +11,7 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
 
+from posthog import redis
 from posthog.settings import (
     CLICKHOUSE,
     CLICKHOUSE_ASYNC,
@@ -21,6 +25,9 @@ from posthog.settings import (
     TEST,
 )
 
+CACHE_TTL = 60  # seconds
+
+
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = None  # type: Client
     ch_sync_pool = None  # type: ChPool
@@ -29,6 +36,9 @@ if PRIMARY_DB != CLICKHOUSE:
         return
 
     def sync_execute(query, args=None):
+        return
+
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None):
         return
 
 
@@ -74,6 +84,18 @@ else:
         connections_max=100,
     )
 
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL):
+        if not redis_client:
+            redis_client = redis.get_client()
+        key = _key_hash(query, args)
+        if redis_client.exists(key):
+            result = _deserialize(redis_client.get(key))
+            return result
+        else:
+            result = sync_execute(query, args)
+            redis_client.set(key, _serialize(result), ex=ttl)
+            return result
+
     def sync_execute(query, args=None):
         start_time = time()
         try:
@@ -85,6 +107,22 @@ else:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
         return result
+
+
+def _deserialize(result_bytes: bytes) -> List[Tuple]:
+    results = []
+    for x in json.loads(result_bytes):
+        results.append(tuple(x))
+    return results
+
+
+def _serialize(result: Any) -> bytes:
+    return json.dumps(result).encode("utf-8")
+
+
+def _key_hash(query: str, args: Any) -> bytes:
+    key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
+    return key
 
 
 def format_sql(sql, params):

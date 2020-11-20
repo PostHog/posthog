@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { Events } from '../events/Events'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { PersonTable } from './PersonTable'
@@ -10,6 +9,7 @@ import { CheckCircleTwoTone, DeleteOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
+import { EventsTable } from 'scenes/events'
 
 const { TabPane } = Tabs
 
@@ -143,7 +143,7 @@ function _Person({ _: distinctId, id }) {
                 />
             </Tabs>
             {activeTab === 'events' ? (
-                <Events isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+                <EventsTable isPersonPage={true} fixedFilters={{ person_id: person.id }} />
             ) : (
                 <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
             )}

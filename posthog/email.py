@@ -30,7 +30,11 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     Returns whether email services are available on this instance (i.e. settings are in place).
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
-    return bool(settings.EMAIL_HOST) and (not with_absolute_urls or settings.SITE_URL is not None)
+    return (
+        settings.EMAIL_ENABLED
+        and bool(settings.EMAIL_HOST)
+        and (not with_absolute_urls or settings.SITE_URL is not None)
+    )
 
 
 @app.task(ignore_result=True, max_retries=3)
@@ -92,9 +96,7 @@ class EmailMessage:
         self, campaign_key: str, subject: str, template_name: str, template_context: Optional[Dict] = None,
     ):
         if not is_email_available():
-            raise exceptions.ImproperlyConfigured(
-                "Email settings not configured! Set at least the EMAIL_HOST environment variable.",
-            )
+            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
 
         self.campaign_key = campaign_key
         self.subject = subject

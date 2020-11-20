@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from django.db import connection
@@ -8,7 +7,7 @@ from django.db.models.functions import Lag
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models import Event, Filter, Team
-from posthog.utils import relative_date_parse, request_to_date_query
+from posthog.utils import request_to_date_query
 
 from .base import BaseQuery
 

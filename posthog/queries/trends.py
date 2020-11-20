@@ -39,14 +39,7 @@ from posthog.models import (
 )
 from posthog.utils import append_data
 
-from .base import (
-    BaseQuery,
-    convert_to_comparison,
-    determine_compared_filter,
-    filter_events,
-    handle_compare,
-    process_entity_for_events,
-)
+from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
 
@@ -263,8 +256,6 @@ class Trends(BaseQuery):
                 .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
             )
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
 
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
@@ -317,13 +308,13 @@ class Trends(BaseQuery):
             metrics.update(data=list(accumulate(metrics["data"])))
         return entity_metrics
 
-    def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        actions = Action.objects.filter(team_id=team_id).order_by("-id")
+    def calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
-            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
+            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        self._set_default_dates(filter, team_id)
+        self._set_default_dates(filter, team.pk)
 
         result = []
         for entity in filter.entities:
@@ -332,21 +323,10 @@ class Trends(BaseQuery):
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     continue
-            if filter.compare:
-                compare_filter = determine_compared_filter(filter=filter)
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                entity_result = convert_to_comparison(entity_result, filter, "{} - {}".format(entity.name, "current"))
-                result.extend(entity_result)
-                previous_entity_result = self._serialize_entity(entity, compare_filter, team_id)
-                previous_entity_result = convert_to_comparison(
-                    previous_entity_result, filter, "{} - {}".format(entity.name, "previous")
-                )
-                result.extend(previous_entity_result)
-            else:
-                entity_result = self._serialize_entity(entity, filter, team_id)
-                result.extend(entity_result)
+            entities_list = handle_compare(filter, self._serialize_entity, team, entity=entity)
+            result.extend(entities_list)
 
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_trends(filter, team.pk)
+        return self.calculate_trends(filter, team)

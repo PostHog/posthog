@@ -427,8 +427,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 2})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 3})
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 5})
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 5.5})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 7.5})
+            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             return sign_up_action
 
         def test_sum_filtering(self):
@@ -478,7 +479,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_response = trends().run(
                 Filter(data={"events": [{"id": "sign up", "math": "max", "math_property": "some_number"}]}), self.team
             )
-            self.assertEqual(action_response[0]["data"][-1], 8)
+            self.assertEqual(action_response[0]["data"][-1], 7.5)
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
         def test_avg_filtering_non_number_resiliency(self):

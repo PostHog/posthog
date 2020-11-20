@@ -14,6 +14,7 @@ django-stubs==1.5.0       # via -r requirements-dev.in, djangorestframework-stub
 django==3.0.6             # via django-debug-toolbar, django-stubs
 djangorestframework-stubs==1.1.0  # via -r requirements-dev.in
 entrypoints==0.3          # via flake8
+fakeredis==1.4.4          # via -r requirements-dev.in
 flake8-bugbear==20.1.4    # via -r requirements-dev.in
 flake8-colors==0.1.6      # via -r requirements-dev.in
 flake8-commas==2.0.0      # via -r requirements-dev.in
@@ -35,8 +36,10 @@ pyflakes==2.1.1           # via flake8
 pyparsing==2.4.7          # via packaging
 python-dateutil==2.8.1    # via freezegun
 pytz==2020.1              # via django
+redis==3.5.3              # via fakeredis
 regex==2020.6.8           # via black
-six==1.14.0               # via flake8-print, freezegun, packaging, pip-tools, python-dateutil
+six==1.14.0               # via fakeredis, flake8-print, freezegun, packaging, pip-tools, python-dateutil
+sortedcontainers==2.3.0   # via fakeredis
 sqlparse==0.3.1           # via django, django-debug-toolbar
 toml==0.10.1              # via black
 typed-ast==1.4.1          # via black, mypy

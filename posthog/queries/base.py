@@ -42,7 +42,14 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
             for i in range(len(entity["labels"]))
         ]
         entity.update(
-            {"labels": labels, "days": days, "label": label, "dates": entity["days"], "compare": True,}
+            {
+                "labels": labels,
+                "days": days,
+                "label": "{} - {}".format(entity["label"], label),
+                "chartLabel": "{} - {}".format(entity["label"], label),
+                "dates": entity["days"],
+                "compare": True,
+            }
         )
     return trend_entity
 
@@ -54,19 +61,17 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
 """
 
 
-def handle_compare(entity: Entity, filter: Filter, func: Callable, team_id: int) -> List:
+def handle_compare(filter: Filter, func: Callable, team: Team, **kwargs) -> List:
     entities_list = []
-    trend_entity = func(entity=entity, filter=filter, team_id=team_id)
+    trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
     if filter.compare:
-        trend_entity = convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
+        trend_entity = convert_to_comparison(trend_entity, filter, "current")
         entities_list.extend(trend_entity)
 
         compared_filter = determine_compared_filter(filter)
-        compared_trend_entity = func(entity=entity, filter=compared_filter, team_id=team_id)
+        compared_trend_entity = func(filter=compared_filter, team_id=team.pk, **kwargs)
 
-        compared_trend_entity = convert_to_comparison(
-            compared_trend_entity, compared_filter, "{} - {}".format(entity.name, "previous"),
-        )
+        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous",)
         entities_list.extend(compared_trend_entity)
     else:
         entities_list.extend(trend_entity)
@@ -82,17 +87,16 @@ def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None)
     filters = Q()
     if filter.date_from:
         filters &= Q(timestamp__gte=filter.date_from)
-    if filter.date_to:
-        relativity = relativedelta(days=1)
-        if filter.interval == "hour":
-            relativity = relativedelta(hours=1)
-        elif filter.interval == "minute":
-            relativity = relativedelta(minutes=1)
-        elif filter.interval == "week":
-            relativity = relativedelta(weeks=1)
-        elif filter.interval == "month":
-            relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
-        filters &= Q(timestamp__lte=filter.date_to + relativity)
+    relativity = relativedelta(days=1)
+    if filter.interval == "hour":
+        relativity = relativedelta(hours=1)
+    elif filter.interval == "minute":
+        relativity = relativedelta(minutes=1)
+    elif filter.interval == "week":
+        relativity = relativedelta(weeks=1)
+    elif filter.interval == "month":
+        relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
+    filters &= Q(timestamp__lte=filter.date_to + relativity)
     if filter.properties:
         filters &= filter.properties_to_Q(team_id=team_id)
     if entity and entity.properties:

@@ -100,6 +100,6 @@ class Stickiness(BaseQuery):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
 
-            entity_resp = handle_compare(entity=entity, filter=filter, func=self._serialize_entity, team_id=team.pk)
+            entity_resp = handle_compare(filter=filter, func=self._serialize_entity, team=team, entity=entity)
             response.extend(entity_resp)
         return response

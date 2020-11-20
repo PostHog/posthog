@@ -4,7 +4,7 @@ import { signupLogic } from './logic'
 import hedgehogBlue from 'public/hedgehog-blue.png'
 import posthogLogo from 'public/posthog-icon.svg'
 import { Row, Space, Button, Input, Checkbox } from 'antd'
-import queryString from 'query-string'
+import { fromParams } from 'lib/utils'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 function Signup() {
@@ -19,7 +19,7 @@ function Signup() {
     const passwordInput = useRef(null)
     const { createAccount } = useActions(signupLogic)
     const { accountLoading } = useValues(signupLogic)
-    const { plan } = queryString.parse(location.search)
+    const { plan } = fromParams()
 
     const updateForm = (name, target, valueAttr = 'value') => {
         /* Validate password (if applicable) */

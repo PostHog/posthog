@@ -4,7 +4,6 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.decorators import TRENDS_ENDPOINT
 from posthog.models import Dashboard, DashboardItem, Filter, User
 
 from .base import BaseTest, TransactionBaseTest
@@ -128,7 +127,7 @@ class TestDashboard(TransactionBaseTest):
         self.assertEqual(len(items_response["results"]), 0)
 
     def test_dashboard_items_history_per_user(self):
-        test_user = User.objects.create_and_join(self.organization, self.team, "test@test.com", None)
+        test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
 
         item = DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
 

@@ -266,9 +266,9 @@ export function delay(ms: number): Promise<number> {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
-// We need this so the dashboard resizes itself properly, as the available div width will still
-// change when the sidebar's expansion is animating.
+/**
+ * Trigger a resize event on window.
+ */
 export function triggerResize(): void {
     try {
         window.dispatchEvent(new Event('resize'))
@@ -276,6 +276,12 @@ export function triggerResize(): void {
         // will break on IE11
     }
 }
+
+/**
+ * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
+ * We need this so the dashboard resizes itself properly, as the available div width will still
+ * change when the sidebar's expansion is animating.
+ */
 export function triggerResizeAfterADelay(): void {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
         window.setTimeout(triggerResize, delay)
@@ -408,8 +414,8 @@ export const dateMapping: Record<string, string[]> = {
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
     'Last 48 hours': ['-48h'],
-    'Last week': ['-7d'],
-    'Last 2 weeks': ['-14d'],
+    'Last 7 days': ['-7d'],
+    'Last 14 days': ['-14d'],
     'Last 30 days': ['-30d'],
     'Last 90 days': ['-90d'],
     'This month': ['mStart'],
@@ -435,6 +441,7 @@ export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: strin
 }
 
 export function humanizeNumber(number: number, digits: number = 1): string {
+    if (number === null) return '-'
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {
@@ -549,4 +556,20 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
         return true
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
+}
+
+/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
+export function camelCaseToTitle(camelCase: string): string {
+    const words: string[] = []
+    let currentWord: string = ''
+    for (const character of camelCase.trim()) {
+        if (character == character.toLowerCase() && character != character.toUpperCase()) {
+            currentWord += character
+        } else {
+            words.push(currentWord)
+            currentWord = character.toLowerCase()
+        }
+    }
+    if (currentWord) words.push(currentWord)
+    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }

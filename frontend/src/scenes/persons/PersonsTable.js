@@ -6,7 +6,7 @@ import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
-export function PeopleTable({ people, loading, actions, onChange }) {
+export function PersonsTable({ people, loading, actions, onChange }) {
     let columns = [
         {
             title: 'Person',

@@ -351,6 +351,20 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             events = _get_events_for_action(action)
             self.assertEqual(len(events), 1)
 
+        def test_no_steps(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
+            )
+            action1 = Action.objects.create(team=self.team)
+            action1.calculate_events()
+
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 0)
+
     return TestFilterByActions
 
 

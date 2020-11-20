@@ -122,8 +122,12 @@ def user(request):
                 "anonymize_ips": team.anonymize_ips,
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
+                "event_names_with_usage": team.event_names_with_usage
+                or [{"event": event, "volume": None, "usage_count": None} for event in team.event_names],
                 "event_properties": team.event_properties,
                 "event_properties_numerical": team.event_properties_numerical,
+                "event_properties_with_usage": team.event_properties_with_usage
+                or [{"key": key, "volume": None, "usage_count": None} for key in team.event_properties],
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
                 "session_recording_opt_in": team.session_recording_opt_in,
                 "plugins_opt_in": team.plugins_opt_in,
