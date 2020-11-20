@@ -128,6 +128,10 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
 
+class LegacyDashboardsViewSet(DashboardsViewSet):
+    legacy_team_compatibility = True
+
+
 class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
 
@@ -228,6 +232,10 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
         return response.Response(serializer.data)
+
+
+class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
+    legacy_team_compatibility = True
 
 
 @xframe_options_exempt

@@ -32,6 +32,16 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
+# legacy endpoints (to be removed eventually)
+router.register(r"annotation", annotation.LegacyAnnotationsViewSet)
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
+router.register(r"funnel", funnel.LegacyFunnelViewSet)
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
+router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
+router.register(r"cohort", cohort.LegacyCohortViewSet)
+router.register(
+    r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys"
+)  # TODO /users/:id/...
 # nested endpoints
 router.register(r"personal-api-keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"dashboards", dashboard.DashboardsViewSet, "shared_dashboards")
@@ -64,6 +74,13 @@ if is_ee_enabled():
         print("ClickHouse enabled but missing enterprise capabilities. Defaulting to Postgres.")
         print(e)
     else:
+        # legacy endpoints (to be removed eventually)
+        router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
+        router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
+        router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
+        router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
+        router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
+        router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
         # nested endpoints
         projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
@@ -72,6 +89,13 @@ if is_ee_enabled():
         projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
         projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
 else:
+    # legacy endpoints (to be removed eventually)
+    router.register(r"insight", insight.InsightViewSet)
+    router.register(r"action", action.ActionViewSet)
+    router.register(r"person", person.PersonViewSet)
+    router.register(r"event", event.EventViewSet)
+    router.register(r"paths", paths.PathsViewSet, basename="paths")
+    router.register(r"element", element.ElementViewSet)
     # nested endpoints
     projects_router.register(r"insights", insight.InsightViewSet, "project_insights", ["team_id"])
     projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])

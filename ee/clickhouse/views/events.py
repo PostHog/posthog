@@ -112,3 +112,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         )
 
         return Response({"result": snapshots})
+
+
+class LegacyClickhouseEventsViewSet(ClickhouseEventsViewSet):
+    legacy_team_compatibility = True

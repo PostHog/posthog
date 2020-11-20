@@ -61,3 +61,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         queryset = queryset.annotate(count=Count("people"))
         return queryset.select_related("created_by").order_by("id")
+
+
+class LegacyCohortViewSet(CohortViewSet):
+    legacy_team_compatibility = True

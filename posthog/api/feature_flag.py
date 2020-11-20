@@ -66,3 +66,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
+
+
+class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
+    legacy_team_compatibility = True

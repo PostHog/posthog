@@ -85,6 +85,10 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return queryset
 
 
+class LegacyAnnotationsViewSet(AnnotationsViewSet):
+    legacy_team_compatibility = True
+
+
 @receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")
 def annotation_created(sender, instance, created, raw, using, **kwargs):
     """Trigger action_defined hooks on Annotation creation."""

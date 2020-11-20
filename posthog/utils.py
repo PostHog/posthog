@@ -419,7 +419,13 @@ def get_redis_queue_depth() -> int:
 
 
 class StructuredViewSetMixin(NestedViewSetMixin):
+    legacy_team_compatibility: bool = False
+
     def get_parents_query_dict(self) -> Dict[str, Any]:
+        if self.legacy_team_compatibility:
+            if not self.request.user.is_authenticated:
+                raise AuthenticationFailed()
+            return {"team_id": self.request.user.team.id}
         result = {}
         for kwarg_name, kwarg_value in self.kwargs.items():
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
@@ -429,7 +435,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 query_value = kwarg_value
                 if query_value == "@current":
                     if not self.request.user.is_authenticated:
-                        raise AuthenticationFailed("Authenticate to use @current.")
+                        raise AuthenticationFailed()
                     if query_lookup == "team_id":
                         project = self.request.user.team
                         if project is None:

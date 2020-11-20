@@ -60,3 +60,7 @@ class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=timezone.now())
         return serializer.data
+
+
+class LegacyFunnelViewSet(FunnelViewSet):
+    legacy_team_compatibility = True

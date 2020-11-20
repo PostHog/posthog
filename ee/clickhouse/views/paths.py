@@ -31,3 +31,7 @@ class ClickhousePathsViewSet(PathsViewSet):
         filter = Filter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
+
+
+class LegacyClickhousePathsViewSet(ClickhousePathsViewSet):
+    legacy_team_compatibility = True
