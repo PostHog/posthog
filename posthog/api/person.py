@@ -10,10 +10,9 @@ from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.api.utils import CursorPagination
 from posthog.models import Event, Filter, Person, Team
 from posthog.utils import StructuredViewSetMixin, convert_property_value
-
-from .base import CursorPagination as BaseCursorPagination
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -36,11 +35,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if len(person.distinct_ids) > 0:
             return person.distinct_ids[-1]
         return person.pk
-
-
-class CursorPagination(BaseCursorPagination):
-    ordering = "-id"
-    page_size = 100
 
 
 class PersonFilter(filters.FilterSet):
