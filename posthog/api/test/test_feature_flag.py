@@ -29,21 +29,15 @@ class TestFeatureFlag(TransactionBaseTest):
             team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user,
         )
         # try updating into an existing feature flag
-        response = self.client.patch(
-            "/api/feature_flag/%s/" % another_feature_flag.pk,
-            data={"name": "Beta feature", "key": "beta-feature"},
-            content_type="application/json",
-        ).json()
+        response = self.update_feature_flag(another_feature_flag.pk, name="Beta feature", key="beta-feature")
         self.assertEqual(
             response,
             {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
         )
 
         # try updating the existing one
-        response = self.client.patch(
-            "/api/feature_flag/%s/" % feature_flag["id"],
-            data={"name": "Beta feature 3", "key": "beta-feature"},
-            content_type="application/json",
+        response = self.update_feature_flag(
+            feature_flag["id"], formatAsJson=False, name="Beta feature 3", key="beta-feature"
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature 3")
@@ -87,8 +81,10 @@ class TestFeatureFlag(TransactionBaseTest):
             content_type="application/json",
         ).json()
 
-    def update_feature_flag(self, id: int, **kwargs):
-        return self.client.patch("/api/feature_flag/%s/" % id, data=kwargs, content_type="application/json",).json()
+    def update_feature_flag(self, id: int, formatAsJson: bool = True, **kwargs):
+        response = self.client.patch("/api/feature_flag/%s/" % id, data=kwargs, content_type="application/json",)
+
+        return response.json() if formatAsJson else response
 
     def delete_feature_flag(self, id: int):
         return self.update_feature_flag(id, deleted=True)
