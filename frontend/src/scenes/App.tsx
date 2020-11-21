@@ -98,7 +98,7 @@ function _App(): JSX.Element {
                 >
                     {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
-                        <BillingToolbar />
+                        {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
                         {currentTeam &&
                         !currentTeam.ingested_event &&
                         !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (

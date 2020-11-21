@@ -31,8 +31,8 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "error", "from_json"]
-        read_only_fields = ["id", "name", "description", "config_schema", "tag", "error", "from_json"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "error"]
+        read_only_fields = ["id", "name", "description", "config_schema", "tag", "error"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and can_install_plugins_via_api():
@@ -58,7 +58,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return response
 
     def _get_validated_data_for_url(self, url: str) -> Dict:
-        validated_data: Dict[str, Any] = {"from_web": True}
+        validated_data: Dict[str, Any] = {}
         if url.startswith("file:"):
             plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
@@ -100,8 +100,7 @@ class PluginViewSet(viewsets.ModelViewSet):
                 return queryset
         else:
             if can_install_plugins_via_api():
-                # block update/delete for plugins that come from posthog.json
-                return queryset.filter(from_json=False)
+                return queryset
         return queryset.none()
 
     @action(methods=["GET"], detail=False)

@@ -8,9 +8,10 @@ from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.clickhouse_sessions import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessions
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
+from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models.filter import Filter

@@ -14,7 +14,8 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
     if len(steps) == 0:
-        return "", {}
+        # If no steps, it shouldn't match this part of the query
+        return "1=2", {}
 
     or_queries = []
     for index, step in enumerate(steps):

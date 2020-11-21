@@ -7,6 +7,7 @@ from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError
+from sentry_sdk import capture_exception
 
 from posthog.models import Element, Event, Person, SessionRecordingEvent, Team
 
@@ -68,7 +69,7 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
     save = False
     if not team.ingested_event:
         # First event for the team captured
-        for user in Team.objects.get(pk=team.pk).users.all():
+        for user in team.organization.members.all():
             posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
 
         team.ingested_event = True
@@ -219,7 +220,7 @@ def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> datetime.d
                 # otherwise we can't get a diff to add to now
                 return parser.isoparse(now) + (parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at))
             except TypeError as e:
-                pass
+                capture_exception(e)
         return parser.isoparse(data["timestamp"])
     now_datetime = parser.parse(now)
     if data.get("offset"):

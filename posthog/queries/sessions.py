@@ -11,11 +11,23 @@ from django.utils.timezone import now
 from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
-from posthog.queries.base import BaseQuery, determine_compared_filter
+from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.queries.session_recording import add_session_recording_ids
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
+DIST_LABELS = [
+    "0 seconds (1 event)",
+    "0-3 seconds",
+    "3-10 seconds",
+    "10-30 seconds",
+    "30-60 seconds",
+    "1-3 minutes",
+    "3-10 minutes",
+    "10-30 minutes",
+    "30-60 minutes",
+    "1+ hours",
+]
 
 
 class Sessions(BaseQuery):
@@ -30,20 +42,19 @@ class Sessions(BaseQuery):
         limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = filter.offset
 
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
         calculated = []
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
+
             calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, limit, offset)
-            calculated = convert_to_comparison(calculated, "current", filter)
+            calculated = convert_to_comparison(calculated, filter, "current")
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
                 events.filter(compare_filter.date_filter_Q), compare_filter, team, limit, offset
             )
-            converted_compared_calculated = convert_to_comparison(compared_calculated, "previous", filter)
+            converted_compared_calculated = convert_to_comparison(compared_calculated, filter, "previous")
             calculated.extend(converted_compared_calculated)
         else:
             # if session_type is None, it's a list of sessions which shouldn't have any date filtering
@@ -264,22 +275,10 @@ class Sessions(BaseQuery):
             base_query
         )
 
-        dist_labels = [
-            "0 seconds (1 event)",
-            "0-3 seconds",
-            "3-10 seconds",
-            "10-30 seconds",
-            "30-60 seconds",
-            "1-3 minutes",
-            "3-10 minutes",
-            "10-30 minutes",
-            "30-60 minutes",
-            "1+ hours",
-        ]
         cursor = connection.cursor()
         cursor.execute(distribution, params)
         calculated = cursor.fetchall()
-        result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
+        result = [{"label": DIST_LABELS[index], "count": calculated[0][index]} for index in range(len(DIST_LABELS))]
         return result
 
     def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
@@ -287,19 +286,3 @@ class Sessions(BaseQuery):
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
         return groups
-
-
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], label: str, filter: Filter) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
-        days = [i for i in range(len(entity["days"]))]
-        labels = ["{} {}".format(filter.interval or "Day", i) for i in range(len(entity["labels"]))]
-        entity.update(
-            {
-                "labels": labels,
-                "days": days,
-                "chartLabel": "{} - {}".format(entity["label"], label),
-                "dates": entity["days"],
-                "compare": True,
-            }
-        )
-    return trend_entity

@@ -21,7 +21,7 @@ class TestDecide(BaseTest):
         ).json()
 
     def test_user_on_own_site_enabled(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -32,7 +32,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
     def test_user_on_own_site_disabled(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "disabled"
         user.save()
 
@@ -45,7 +45,7 @@ class TestDecide(BaseTest):
         self.assertIsNone(response.get("toolbarVersion", None))
 
     def test_user_on_evil_site(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -56,7 +56,7 @@ class TestDecide(BaseTest):
         self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
 
     def test_user_on_local_host(self):
-        user = self.team.users.all()[0]
+        user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -76,14 +76,18 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide()
-        self.assertEqual(response["sessionRecording"], True)
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
 
     def test_user_session_recording_evil_site(self):
+        self.team.app_urls = ["https://example.com"]
         self.team.session_recording_opt_in = True
         self.team.save()
 
         response = self._post_decide(origin="evil.site.com")
         self.assertEqual(response["sessionRecording"], False)
+
+        response = self._post_decide(origin="https://example.com")
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]

@@ -33,7 +33,7 @@ function _Setup() {
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
                 </h2>
-                To integrate PostHog into your webiste and get event autocapture with no additional work, include the
+                To integrate PostHog into your website and get event autocapture with no additional work, include the
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
                 <code>{'<head>'}</code>&nbsp;tag.
                 <br />
@@ -78,7 +78,7 @@ function _Setup() {
                 </h2>
                 <p>
                     These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
-                    also where you'll be able to create Actions.
+                    also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
                 <Divider />

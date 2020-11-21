@@ -148,7 +148,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
                 )
         self._calculate_action(action)
-        return Response(ActionSerializer(action, context={"request": request}).data)
+        return Response(self.serializer_class(action, context={"request": request}).data)
 
     def _calculate_action(self, action: Action) -> None:
         calculate_action.delay(action_id=action.pk)

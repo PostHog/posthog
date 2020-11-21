@@ -3,7 +3,8 @@ set -e
 
 dropdb --if-exists posthog_e2e_test
 createdb posthog_e2e_test
-DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate
+DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate & yarn add cypress-terminal-report
 ./bin/start-frontend &
 CYPRESS_BASE_URL=http://localhost:8080 npx cypress open &
 DEBUG=1 TEST=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080
+yarn remove cypress-terminal-report

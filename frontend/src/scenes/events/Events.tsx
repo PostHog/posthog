@@ -8,8 +8,9 @@ import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
 import { EventsVolumeTable } from './EventsVolumeTable'
 import { PropertiesVolumeTable } from './PropertiesVolumeTable'
+import { eventsLogicType } from 'types/scenes/events/EventsType'
 
-const eventsLogic = kea({
+const eventsLogic = kea<eventsLogicType>({
     actions: {
         setTab: (tab: string) => ({ tab }),
     },
@@ -26,7 +27,8 @@ const eventsLogic = kea({
     }),
     urlToAction: ({ actions, values }) => ({
         '/events(/:tab)': ({ tab }: Record<string, string>) => {
-            if (tab !== values.tab && tab) actions.setTab(tab)
+            const currentTab = tab || 'live'
+            if (currentTab !== values.tab) actions.setTab(currentTab)
         },
     }),
 })
@@ -47,7 +49,7 @@ function _ManageEvents({}): JSX.Element {
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Events Stats" key="events">
+                <Tabs.TabPane tab="Events Stats" key="stats">
                     See all event names that have ever been sent to this team, including the volume and how often
                     queries where made using this event.
                     <br />

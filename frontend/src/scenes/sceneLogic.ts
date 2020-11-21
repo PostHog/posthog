@@ -47,11 +47,11 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './users/People'),
+    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
+    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
@@ -188,10 +188,11 @@ export const sceneLogic = kea<sceneLogicType>({
             posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
-            window.open(
-                `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
-            )
             posthog.capture('upgrade modal pricing interaction')
+            if (userLogic.values.user?.is_multi_tenancy) {
+                return router.actions.push('/organization/billing')
+            }
+            window.open(`https://posthog.com/pricing?o=enterprise`)
         },
         setScene: () => {
             posthog.capture('$pageview')
