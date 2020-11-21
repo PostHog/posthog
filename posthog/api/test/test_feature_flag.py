@@ -11,11 +11,7 @@ class TestFeatureFlag(TransactionBaseTest):
     TESTS_API = True
 
     def test_key_exists(self):
-        feature_flag = self.client.post(
-            "/api/feature_flag/",
-            data={"name": "Beta feature", "key": "beta-feature", "rollout_percentage": 50,},
-            content_type="application/json",
-        ).json()
+        feature_flag = self.create_feature_flag()
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
         self.assertTrue(feature_flag["is_simple_flag"])
 
@@ -52,6 +48,23 @@ class TestFeatureFlag(TransactionBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature 3")
 
+    def test_re_adding_feature_flag_after_deleting(self):
+        # Adding new feature flag
+        feature_flag = self.create_feature_flag()
+        self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
+
+        # Deleting the feature flag
+        self.delete_feature_flag(feature_flag["id"])
+        self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).deleted, True)
+
+        # Adding new feature flag with same key, diffrent name
+        re_adding_feature_flag = self.create_feature_flag(name="diffrent name", key="beta-feature")
+        self.assertNotEqual(
+            re_adding_feature_flag,
+            {"type": "validation_error", "code": "key-exists", "detail": "This key already exists.", "attr": None},
+        )
+        self.assertEqual(FeatureFlag.objects.get(pk=re_adding_feature_flag["id"]).name, "diffrent name")
+
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
             "/api/feature_flag/",
@@ -64,6 +77,21 @@ class TestFeatureFlag(TransactionBaseTest):
             content_type="application/json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
+
+    def create_feature_flag(
+        self, name: str = "Beta feature", key: str = "beta-feature", rollout_percentage: int = 50, **kwargs
+    ):
+        return self.client.post(
+            "/api/feature_flag/",
+            data={"name": name, "key": key, "rollout_percentage": rollout_percentage, **kwargs},
+            content_type="application/json",
+        ).json()
+
+    def update_feature_flag(self, id: int, **kwargs):
+        return self.client.patch("/api/feature_flag/%s/" % id, data=kwargs, content_type="application/json",).json()
+
+    def delete_feature_flag(self, id: int):
+        return self.update_feature_flag(id, deleted=True)
 
 
 class TestAPIFeatureFlag(APIBaseTest):
