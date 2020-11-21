@@ -21,6 +21,12 @@
                 },
                 "worker": {
                     "quantity": 1
+                },
+                "celeryworker": {
+                    "quantity": 0
+                },
+                "pluginworker": {
+                    "quantity": 0
                 }
             }
         },
@@ -48,6 +54,12 @@
         },
         "worker": {
             "quantity": 1
+        },
+        "celeryworker": {
+            "quantity": 0
+        },
+        "pluginworker": {
+            "quantity": 0
         }
     },
     "env": {

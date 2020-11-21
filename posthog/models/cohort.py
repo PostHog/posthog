@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields import JSONField
+from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -15,8 +16,11 @@ from .event import Event
 from .filter import Filter
 from .person import Person
 
-UPDATE_QUERY = """
+DELETE_QUERY = """
 DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id};
+"""
+
+UPDATE_QUERY = """
 INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
 {values_query}
 ON CONFLICT DO NOTHING
@@ -62,12 +66,16 @@ class Cohort(models.Model):
                 self.save()
 
             persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
-            sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-
-            query = UPDATE_QUERY.format(
-                cohort_id=self.pk,
-                values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
-            )
+            try:
+                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+            except EmptyResultSet:
+                query = DELETE_QUERY.format(cohort_id=self.pk)
+                params = {}
+            else:
+                query = "{}{}".format(DELETE_QUERY, UPDATE_QUERY).format(
+                    cohort_id=self.pk,
+                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                )
 
             cursor = connection.cursor()
             with transaction.atomic():

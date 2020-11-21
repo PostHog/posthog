@@ -212,7 +212,7 @@ SELECT
     ewap.distinct_id,
     ewap.elements_chain,
     ewap.created_at
-FROM events_with_array_props_view WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+FROM events_with_array_props_view ewap WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
