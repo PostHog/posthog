@@ -75,8 +75,22 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedScenes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
+interface sceneConfigType {
+    unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
+    hideMainNav?: boolean
+}
+
+export const sceneConfigurations: Record<string, sceneConfigType> = {
+    [Scene.PreflightCheck]: {
+        unauthenticated: true,
+    },
+    [Scene.Signup]: {
+        unauthenticated: true,
+    },
+    [Scene.SessionsPlayer]: {
+        hideMainNav: true,
+    },
+}
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
@@ -165,6 +179,17 @@ export const sceneLogic = kea<sceneLogicType>({
                 [actions.showUpgradeModal]: (_, { featureName }) => featureName,
                 [actions.hideUpgradeModal]: () => null,
                 [actions.takeToPricing]: () => null,
+            },
+        ],
+    }),
+    selectors: () => ({
+        sceneConfig: [
+            (selectors) => [selectors.scene],
+            (scene: string) => {
+                if (scene in sceneConfigurations) {
+                    return sceneConfigurations[scene]
+                }
+                return {} as sceneConfigType
             },
         ],
     }),

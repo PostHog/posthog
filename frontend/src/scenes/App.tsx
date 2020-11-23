@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { Scene, sceneLogic, unauthenticatedScenes } from 'scenes/sceneLogic'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -39,7 +39,7 @@ function _App(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { scene, params, loadedScenes } = useValues(sceneLogic)
+    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     // used for legacy navigation [Sidebar.js]
@@ -51,7 +51,7 @@ function _App(): JSX.Element | null {
     useEffect(() => {
         if (user) {
             // If user is already logged in, redirect away from unauthenticated routes like signup
-            if (unauthenticatedScenes.includes(scene)) {
+            if (sceneConfig.unauthenticated) {
                 replace('/')
                 return
             }
@@ -77,7 +77,7 @@ function _App(): JSX.Element | null {
     }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
     if (!user) {
-        return unauthenticatedScenes.includes(scene) ? (
+        return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <Scene {...params} /> <Toast />
             </Layout>
@@ -100,7 +100,9 @@ function _App(): JSX.Element | null {
             <UpgradeModal />
             <Layout>
                 {featureFlags['navigation-1775'] ? (
-                    <MainNavigation />
+                    sceneConfig.hideMainNav ? (
+                        <MainNavigation />
+                    ) : null
                 ) : (
                     <Sidebar
                         user={user}
