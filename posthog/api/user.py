@@ -3,7 +3,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import cast
+from typing import Optional, cast
 
 import posthoganalytics
 import requests
@@ -19,6 +19,7 @@ from rest_framework import exceptions, serializers
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.models import Event, Team, User
+from posthog.models.organization import Organization
 from posthog.plugins import can_configure_plugins_via_api, can_install_plugins_via_api, reload_plugins_on_workers
 from posthog.version import VERSION
 
@@ -32,16 +33,16 @@ class UserSerializer(serializers.ModelSerializer):
 # TODO: remake these endpoints with DRF!
 @authenticate_secondarily
 def user(request):
-    organization = request.user.organization
+    organization: Optional[Organization] = request.user.organization
     organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team = request.user.team
+    team: Optional[Team] = request.user.team
     teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
     user = cast(User, request.user)
 
     if request.method == "PATCH":
         data = json.loads(request.body)
 
-        if "team" in data:
+        if team is not None and "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
@@ -58,8 +59,9 @@ def user(request):
         if "user" in data:
             try:
                 user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
+                assert user.organization is not None, "Organization should have been just set"
                 user.current_team = user.organization.teams.first()
-            except KeyError:
+            except (KeyError, ValueError):
                 pass
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
@@ -67,14 +69,15 @@ def user(request):
                 pass
             except ObjectDoesNotExist:
                 return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            try:
-                user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
-            except (KeyError, TypeError):
-                pass
-            except ValueError:
-                return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
+            if user.organization is not None:
+                try:
+                    user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
+                except (KeyError, TypeError):
+                    pass
+                except ValueError:
+                    return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
+                except ObjectDoesNotExist:
+                    return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
@@ -86,9 +89,11 @@ def user(request):
                     "email": user.email if not user.anonymize_data else None,
                     "is_signed_up": True,
                     "toolbar_mode": user.toolbar_mode,
-                    "billing_plan": user.organization.billing_plan,
-                    "is_team_unique_user": (team.users.count() == 1),
-                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
+                    "billing_plan": user.organization.billing_plan if user.organization is not None else None,
+                    "is_team_unique_user": team.users.count() == 1 if team is not None else None,
+                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event)
+                    if team is not None
+                    else None,
                 },
             )
             user.save()
@@ -102,7 +107,9 @@ def user(request):
             "email_opt_in": user.email_opt_in,
             "anonymize_data": user.anonymize_data,
             "toolbar_mode": user.toolbar_mode,
-            "organization": {
+            "organization": None
+            if organization is None
+            else {
                 "id": organization.id,
                 "name": organization.name,
                 "billing_plan": organization.billing_plan,
@@ -112,8 +119,9 @@ def user(request):
                 "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
             },
             "organizations": organizations,
-            "team": team
-            and {
+            "team": None
+            if team is None
+            else {
                 "id": team.id,
                 "name": team.name,
                 "app_urls": team.app_urls,

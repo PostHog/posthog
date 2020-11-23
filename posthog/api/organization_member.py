@@ -1,14 +1,15 @@
 from typing import cast
 
+from django.db import transaction
 from django.db.models import Model, QuerySet, query
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.models import OrganizationMembership
-from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
@@ -37,6 +38,19 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+
+    def update(self, updated_membership, validated_data):
+        updated_membership = cast(OrganizationMembership, updated_membership)
+        raise_errors_on_nested_writes("update", self, validated_data)
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            organization=updated_membership.organization, user=self.context["request"].user
+        )
+        for attr, value in validated_data.items():
+            if attr == "level":
+                requesting_membership.validate_level_change(updated_membership, value)
+            setattr(updated_membership, attr, value)
+        updated_membership.save()
+        return updated_membership
 
 
 class OrganizationMemberViewSet(

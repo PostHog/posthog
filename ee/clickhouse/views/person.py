@@ -12,6 +12,7 @@ from posthog.models import Event, Person
 class ClickhousePerson(PersonViewSet):
     def destroy(self, request: request.Request, pk=None):  # type: ignore
         team = request.user.team
+        assert team is not None
         person = Person.objects.get(team=team, pk=pk)
         # TODO: Probably won't need this after a while
 

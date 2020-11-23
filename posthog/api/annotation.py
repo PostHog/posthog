@@ -6,11 +6,13 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -49,6 +51,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

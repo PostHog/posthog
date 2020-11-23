@@ -15,6 +15,7 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+import { DeleteProject } from './DeleteProject'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
@@ -73,26 +74,19 @@ function _Setup() {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 id="urls" className="subtitle">
-                    Permitted Domains/URLs
-                </h2>
+                <h2 id="urls">Permitted Domains/URLs</h2>
                 <p>
                     These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
                 <Divider />
-                <h2 id="webhook" className="subtitle">
-                    Slack / Microsoft Teams Integration
-                </h2>
+                <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
                 <WebhookIntegration />
-                <Divider />
-                <h2 id="datacapture" className="subtitle">
-                    Data Capture Configuration
-                </h2>
+                <h2 id="datacapture">Data Capture Configuration</h2>
                 <IPCapture />
                 <Divider />
-                <h2 className="subtitle">PostHog Toolbar</h2>
+                <h2>PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
                 <h2 id="sessionrecording" className="subtitle">
@@ -108,6 +102,9 @@ function _Setup() {
                     </a>{' '}
                     with us!
                 </p>
+                <Divider />
+                <h2 style={{ color: 'var(--danger)' }}>Danger Zone</h2>
+                <DeleteProject />
             </Card>
         </div>
     )

@@ -13,9 +13,11 @@ from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -132,6 +134,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     class Meta:
         model = PluginConfig

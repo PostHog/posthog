@@ -16,11 +16,13 @@ export const PIE_CHART_LABEL = 'Pie'
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
+    Owner = 15,
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'administrator'],
+    [OrganizationMembershipLevel.Owner, 'owner'],
 ])
 
 export enum AnnotationScope {

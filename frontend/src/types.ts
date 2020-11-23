@@ -1,3 +1,4 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { PluginConfigSchema } from 'posthog-plugins'
 export interface UserType {
     anonymize_data: boolean
@@ -8,8 +9,8 @@ export interface UserType {
     name: string
     opt_out_capture: null
     posthog_version: string
-    organization: OrganizationType
-    team: TeamType
+    organization: OrganizationType | null
+    team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
     teams: TeamType[]
@@ -51,6 +52,17 @@ export interface OrganizationType {
     billing_plan: string
     billing: OrganizationBilling
     teams: TeamType[]
+    membership_level: OrganizationMembershipLevel | null
+}
+
+export interface OrganizationMemberType {
+    joined_at: string
+    level: OrganizationMembershipLevel
+    membership_id: string
+    updated_at: string
+    user_email: string
+    user_first_name: string
+    user_id: number
 }
 
 export interface EventUsageType {

@@ -22,7 +22,9 @@ export enum Scene {
     OrganizationSettings = 'organizationSettings',
     OrganizationMembers = 'organizationMembers',
     OrganizationInvites = 'organizationInvites',
+    OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
+    ProjectCreateFirst = 'projectCreateFirst',
     InstanceStatus = 'instanceStatus',
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
@@ -58,7 +60,10 @@ export const scenes: Record<Scene, () => any> = {
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
     [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    [Scene.OrganizationCreateFirst]: () =>
+        import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
+    [Scene.ProjectCreateFirst]: () => import(/* webpackChunkName: 'projectCreateFirst' */ './project/Create'),
     [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
     [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
@@ -71,7 +76,7 @@ export const scenes: Record<Scene, () => any> = {
 }
 
 /* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
+export const unauthenticatedScenes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
@@ -97,10 +102,12 @@ export const routes: Record<string, Scene> = {
     '/annotations': Scene.Annotations,
     '/project/settings': Scene.ProjectSettings,
     '/project/plugins': Scene.Plugins,
+    '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
     '/organization/invites': Scene.OrganizationInvites,
     '/organization/billing': Scene.Billing,
+    '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.InstanceStatus,
     '/me/settings': Scene.MySettings,

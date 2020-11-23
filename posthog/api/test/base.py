@@ -24,8 +24,8 @@ class TestMixin:
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
-            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-            self.organization_membership = self.user.organization_memberships.get()
+            self.user: User = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+            self.organization_membership: OrganizationMembership = self.user.organization_memberships.get()
         if self.TESTS_API:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
@@ -72,7 +72,7 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
             organization=self.organization,
             email=email,
             password=password,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembership.Level.OWNER,
             **kwargs,
         )
 
