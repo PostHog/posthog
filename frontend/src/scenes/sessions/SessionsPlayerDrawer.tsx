@@ -1,11 +1,9 @@
 import React from 'react'
-import { Drawer } from 'antd'
+import { Button, Drawer } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Loading } from 'lib/utils'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
-import { Player } from 'posthog-react-rrweb-player'
-
-import 'posthog-react-rrweb-player/dist/index.css'
+import SessionsPlayer from 'scenes/sessions/SessionsPlayer'
 
 export default function SessionsPlayerDrawer(): JSX.Element {
     const { sessionPlayerData, sessionPlayerDataLoading, sessionRecordingNavigation: nav } = useValues(
@@ -16,22 +14,22 @@ export default function SessionsPlayerDrawer(): JSX.Element {
     return (
         <Drawer
             title="Session recording"
-            width={window.innerWidth - 300}
+            width={1000}
             onClose={closeSessionPlayer}
             destroyOnClose={true}
             visible={true}
+            footer={
+                <>
+                    {nav.prev && (
+                        <Button style={{ marginRight: 12 }} onClick={() => nav.prev && loadSessionPlayer(nav.prev)}>
+                            Previous
+                        </Button>
+                    )}
+                    {nav.next && <Button onClick={() => nav.next && loadSessionPlayer(nav.next)}>Next</Button>}
+                </>
+            }
         >
-            <div className="ph-no-capture" style={{ height: '90%' }}>
-                {sessionPlayerDataLoading ? (
-                    <Loading />
-                ) : (
-                    <Player
-                        events={sessionPlayerData}
-                        onPrevious={nav.prev ? () => loadSessionPlayer(nav.prev!) : undefined}
-                        onNext={nav.next ? () => loadSessionPlayer(nav.next!) : undefined}
-                    />
-                )}
-            </div>
+            {sessionPlayerDataLoading ? <Loading /> : <SessionsPlayer events={sessionPlayerData} />}
         </Drawer>
     )
 }

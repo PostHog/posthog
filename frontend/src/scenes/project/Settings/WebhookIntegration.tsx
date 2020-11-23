@@ -84,7 +84,7 @@ const logic = kea<logicType<UserType>>({
     }),
 })
 
-export function WebhookIntegration(): JSX.Element {
+export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
     const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
     const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
 
@@ -101,7 +101,10 @@ export function WebhookIntegration(): JSX.Element {
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder="integration disabled"
+                placeholder={
+                    user.is_multi_tenancy ? 'temporarily unavailable on PostHog Cloud' : 'integration disabled'
+                }
+                disabled={user.is_multi_tenancy}
             />
             <Button
                 type="primary"
@@ -109,6 +112,7 @@ export function WebhookIntegration(): JSX.Element {
                     e.preventDefault()
                     testAndSaveWebhook()
                 }}
+                disabled={user.is_multi_tenancy}
             >
                 {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
             </Button>

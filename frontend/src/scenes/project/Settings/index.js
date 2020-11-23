@@ -5,7 +5,6 @@ import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptInSessionRecording } from './OptInSessionRecording'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
-import { userLogic } from 'scenes/userLogic'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
@@ -19,8 +18,7 @@ import { DeleteProject } from './DeleteProject'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
-function _Setup() {
-    const { user } = useValues(userLogic)
+function _Setup({ user }) {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
@@ -81,8 +79,9 @@ function _Setup() {
                 </p>
                 <EditAppUrls />
                 <Divider />
-                <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
-                <WebhookIntegration />
+                <h2 id="webhook">Webhook Integration</h2>
+                <WebhookIntegration user={user} />
+                <Divider />
                 <h2 id="datacapture">Data Capture Configuration</h2>
                 <IPCapture />
                 <Divider />

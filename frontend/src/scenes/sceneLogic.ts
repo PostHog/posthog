@@ -77,21 +77,18 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-interface sceneConfigType {
+interface SceneConfig {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
 }
 
-export const sceneConfigurations: Record<string, sceneConfigType> = {
+export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.PreflightCheck]: {
         unauthenticated: true,
     },
     [Scene.Signup]: {
         unauthenticated: true,
-    },
-    [Scene.SessionsPlayer]: {
-        plain: true,
     },
     [Scene.Dashboard]: {
         dark: true,
@@ -106,6 +103,9 @@ export const sceneConfigurations: Record<string, sceneConfigType> = {
         plain: true,
     },
     [Scene.ProjectCreateFirst]: {
+        plain: true,
+    },
+    [Scene.SessionsPlayer]: {
         plain: true,
     },
 }
@@ -204,11 +204,8 @@ export const sceneLogic = kea<sceneLogicType>({
     selectors: () => ({
         sceneConfig: [
             (selectors) => [selectors.scene],
-            (scene: string) => {
-                if (scene in sceneConfigurations) {
-                    return sceneConfigurations[scene]
-                }
-                return {} as sceneConfigType
+            (scene: Scene): SceneConfig => {
+                return sceneConfigurations[scene] ?? {}
             },
         ],
     }),
