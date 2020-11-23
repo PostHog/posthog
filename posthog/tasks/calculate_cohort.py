@@ -11,7 +11,7 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 MAX_AGE_MINUTES = 15
-PARALLEL_COHORTS = 15
+PARALLEL_COHORTS = 5
 
 
 def calculate_cohorts() -> None:
