@@ -3,7 +3,7 @@ from uuid import uuid4
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.test_person import test_person_factory
+from posthog.api.test.test_persons import test_person_factory
 from posthog.models import Action, ActionStep, Event, Person
 
 
