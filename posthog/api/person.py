@@ -213,6 +213,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
         team = request.user.team
+        assert team is not None
         filter = RetentionFilter(request=request)
         offset = int(request.GET.get("offset", 0))
         people = self.retention_class().people(filter, team, offset)
