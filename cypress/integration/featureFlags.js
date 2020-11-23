@@ -10,7 +10,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-key').should('have.value', 'beta-feature')
 
         // select "add filter" and "property"
-        cy.get('[data-attr=new-prop-filter-feature-flag').click()
+        cy.get('[data-attr=new-prop-filter-feature-flag-undefined').click()
 
         // select the first property
         cy.get('[data-attr=property-filter-dropdown]').click()
