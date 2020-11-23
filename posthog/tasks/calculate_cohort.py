@@ -11,7 +11,7 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 MAX_AGE_MINUTES = 15
-PARALLEL_COHORTS = 15
+PARALLEL_COHORTS = 5
 
 
 def calculate_cohorts() -> None:
@@ -23,7 +23,7 @@ def calculate_cohorts() -> None:
         calculate_cohort.delay(cohort.id)
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, max_retries=1)
 def calculate_cohort(cohort_id: int) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
