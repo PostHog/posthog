@@ -61,6 +61,7 @@ class ClickhouseActions(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 

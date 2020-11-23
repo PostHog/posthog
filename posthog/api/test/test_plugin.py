@@ -98,7 +98,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -132,7 +131,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -160,7 +158,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)

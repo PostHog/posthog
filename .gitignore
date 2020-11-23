@@ -28,5 +28,4 @@ yarn-error.log
 yalc.lock
 cypress/screenshots/*
 docker-compose.prod.yml
-posthog.json
 .python-version

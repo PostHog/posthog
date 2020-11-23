@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import patch
 
 from django.test import tag
@@ -57,9 +58,9 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team
-        organization: Organization = user.organization
+        user = cast(User, User.objects.order_by("-pk")[0])
+        team = cast(Team, user.team)
+        organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com"},
@@ -101,8 +102,8 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk").get()
-        organization: Organization = user.organization
+        user = cast(User, User.objects.order_by("-pk").get())
+        organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Jane", "email": "hedgehog2@posthog.com",},

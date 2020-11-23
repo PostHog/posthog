@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.celery import update_cache_item_task
@@ -15,6 +16,7 @@ from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Filter, Person
 from posthog.models.action import Action
 from posthog.models.filters import RetentionFilter
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.utils import generate_cache_key
@@ -47,6 +49,7 @@ class InsightSerializer(serializers.ModelSerializer):
 
         request = self.context["request"]
         team = request.user.team
+        assert team is not None
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -75,6 +78,7 @@ class InsightSerializer(serializers.ModelSerializer):
 class InsightViewSet(viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -130,6 +134,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
@@ -213,6 +218,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = request.user.team
+        assert team is not None
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -252,7 +258,10 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = RetentionFilter(request=request)
+        if not filter.date_from:
+            filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
         return result
 
@@ -270,6 +279,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp

@@ -9,6 +9,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.utils import IntegrityError
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
@@ -94,7 +95,7 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
                 # otherwise we can't get a diff to add to now
                 return now + (parser.isoparse(data["timestamp"]) - sent_at)
             except TypeError as e:
-                pass
+                capture_exception(e)
         return parser.isoparse(data["timestamp"])
     now_datetime = now
     if data.get("offset"):
@@ -179,8 +180,8 @@ def log_event(
         "site_url": site_url,
         "data": json.dumps(data),
         "team_id": team_id,
-        "now": now.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M:%S.%f") if sent_at else "",
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_EVENTS_WAL, data=data)

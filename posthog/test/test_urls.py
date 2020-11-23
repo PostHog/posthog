@@ -1,7 +1,7 @@
 from django.test import Client, TestCase
 
-from posthog.models import Team, User, organization
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.api.test.base import BaseTest
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Team, User
 
 
 class TestUrls(TestCase):
@@ -42,7 +42,7 @@ class TestUrls(TestCase):
         user = User.objects.get(id=user.id)
         self.assertEqual(user.temporary_token, None)
 
-    def test_signup_link_invitation(self):
+    def test_invitation_signup_token(self):
         # create random team
         invited_email = "jane@acme.com"
         signup_token = "abcd1234"
@@ -61,3 +61,18 @@ class TestUrls(TestCase):
         self.assertTrue(
             OrganizationMembership.objects.filter(organization=organization, user__email=invited_email).exists()
         )
+
+
+class TestUrlsLoggedIn(BaseTest):
+    TESTS_API = True
+
+    def test_invitation_join(self):
+        organization, team, user = User.objects.bootstrap("test", "adminuser@posthog.com", None)
+        invite = OrganizationInvite.objects.create(
+            organization=organization, target_email=self.TESTS_EMAIL, created_by=user
+        )
+        with self.settings(TEST=False):
+            response = self.client.post(f"/signup/{invite.id}", follow=True,)
+        self.assertRedirects(response, "/")
+        self.assertEqual(organization.members.count(), 2)
+        self.assertTrue(OrganizationMembership.objects.filter(organization=organization, user=self.user).exists())

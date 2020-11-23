@@ -1,4 +1,4 @@
-name: Build production containers
+name: Build & Deploy Production Containers
 
 on:
     push:
@@ -6,7 +6,7 @@ on:
 
 jobs:
     build:
-        name: Build production Docker image
+        name: Build & Deploy Production Docker image
         runs-on: ubuntu-20.04
         steps:
             - name: Configure AWS credentials
@@ -31,14 +31,8 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
 
-            - name: Link posthog-production at master
-              run: |
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
-                  cat requirements.txt >> deploy/requirements.txt
-
             - name: Build, tag, and push image to Amazon ECR
+              id: build-image
               env:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                   ECR_REPOSITORY: posthog-production
@@ -46,3 +40,20 @@ jobs:
               run: |
                   docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                  echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+            - name: Fill in the new image ID in the Amazon ECS task definition
+              id: task-def
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: deploy/task-definition.json
+                  container-name: posthog-production
+                  image: ${{ steps.build-image.outputs.image }}
+
+            - name: Deploy Amazon ECS task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def.outputs.task-definition }}
+                  service: posthog-production
+                  cluster: posthog-production-cluster
+                  wait-for-service-stability: true
