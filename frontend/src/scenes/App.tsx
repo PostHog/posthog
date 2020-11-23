@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -20,15 +20,6 @@ import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
-
-const darkerScenes: Record<string, boolean> = {
-    dashboard: true,
-    insights: true,
-    funnel: true,
-    editFunnel: true,
-    paths: true,
-}
-const plainScenes: Scene[] = [Scene.Ingestion, Scene.OrganizationCreateFirst, Scene.ProjectCreateFirst]
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -84,9 +75,10 @@ function _App(): JSX.Element | null {
         ) : null
     }
 
-    if (!scene || plainScenes.includes(scene)) {
+    if (!scene || sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
+                {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
                 <Scene user={user} {...params} />
                 <Toast />
             </Layout>
@@ -100,9 +92,7 @@ function _App(): JSX.Element | null {
             <UpgradeModal />
             <Layout>
                 {featureFlags['navigation-1775'] ? (
-                    sceneConfig.hideMainNav ? (
-                        <MainNavigation />
-                    ) : null
+                    <MainNavigation />
                 ) : (
                     <Sidebar
                         user={user}
@@ -111,7 +101,7 @@ function _App(): JSX.Element | null {
                     />
                 )}
                 <Layout
-                    className={`${darkerScenes[scene] && 'bg-mid'}${
+                    className={`${sceneConfig.dark ? 'bg-mid' : ''}${
                         !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
                     }`}
                     style={{ minHeight: '100vh' }}

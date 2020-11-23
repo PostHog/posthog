@@ -77,7 +77,8 @@ export const scenes: Record<Scene, () => any> = {
 
 interface sceneConfigType {
     unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
-    hideMainNav?: boolean
+    dark?: boolean // Background is $bg_mid
+    plain?: boolean // Only keeps the main content and the top navigation bar
 }
 
 export const sceneConfigurations: Record<string, sceneConfigType> = {
@@ -88,7 +89,22 @@ export const sceneConfigurations: Record<string, sceneConfigType> = {
         unauthenticated: true,
     },
     [Scene.SessionsPlayer]: {
-        hideMainNav: true,
+        plain: true,
+    },
+    [Scene.Dashboard]: {
+        dark: true,
+    },
+    [Scene.Insights]: {
+        dark: true,
+    },
+    [Scene.Ingestion]: {
+        plain: true,
+    },
+    [Scene.OrganizationCreateFirst]: {
+        plain: true,
+    },
+    [Scene.ProjectCreateFirst]: {
+        plain: true,
     },
 }
 
