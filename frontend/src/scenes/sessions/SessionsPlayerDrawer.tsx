@@ -26,7 +26,17 @@ export default function SessionsPlayerDrawer(): JSX.Element {
                 destroyOnClose={true}
                 visible={true}
             >
-                {sessionPlayerDataLoading ? <Loading /> : <Player events={sessionPlayerData} />}
+                <div className="ph-no-capture" style={{ height: '90%' }}>
+                    {sessionPlayerDataLoading ? (
+                        <Loading />
+                    ) : (
+                        <Player
+                            events={sessionPlayerData}
+                            onPrevious={nav.prev ? () => loadSessionPlayer(nav.prev!) : undefined}
+                            onNext={nav.next ? () => loadSessionPlayer(nav.next!) : undefined}
+                        />
+                    )}
+                </div>
             </Drawer>
         )
     }
