@@ -40,9 +40,9 @@ export function DangerZone(): JSX.Element {
 
     return accessRestrictionReason ? (
         <Tooltip title={accessRestrictionReason}>
-            <div style={{ position: 'relative' }}>
+            <div className="overlay__parent overlay--danger">
                 {Content}
-                <div className="danger-overlay" />
+                <div className="overlay__child" />
             </div>
         </Tooltip>
     ) : (
