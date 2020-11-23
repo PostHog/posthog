@@ -103,7 +103,7 @@ function _Setup({ user }) {
                 <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
                 <OptInSessionRecording />
                 <p>
-                    This is a new feature of PostHog. Please <DangerZone />
+                    This is a new feature of PostHog. Please{' '}
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
                         share feedback
                     </a>{' '}
@@ -113,6 +113,7 @@ function _Setup({ user }) {
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                     Danger Zone
                 </h2>
+                <DangerZone />
             </Card>
         </div>
     )

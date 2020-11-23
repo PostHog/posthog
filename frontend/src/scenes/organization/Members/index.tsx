@@ -145,18 +145,23 @@ function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null
         })
     }
 
+    const allowDeletion =
+        // lower-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
+        (member.level < currentMembershipLevel || member.user_id === user.id) &&
+        // unless that user is the organization's owner, in which case they can't leave
+        member.level !== OrganizationMembershipLevel.Owner
+
     return (
         <div>
-            {member.level !== OrganizationMembershipLevel.Owner &&
-                (member.level < currentMembershipLevel || member.user_id === user.id) && (
-                    <a className="text-danger" onClick={handleClick}>
-                        {member.user_id !== user.id ? (
-                            <DeleteOutlined title="Remove Member" />
-                        ) : (
-                            <LogoutOutlined title="Leave Organization" />
-                        )}
-                    </a>
-                )}
+            {allowDeletion && (
+                <a className="text-danger" onClick={handleClick}>
+                    {member.user_id !== user.id ? (
+                        <DeleteOutlined title="Remove Member" />
+                    ) : (
+                        <LogoutOutlined title="Leave Organization" />
+                    )}
+                </a>
+            )}
         </div>
     )
 }
