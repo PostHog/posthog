@@ -39,7 +39,11 @@ export function OptInPlugins(): JSX.Element {
                 <>
                     <div style={{ marginBottom: 20 }}>
                         Plugin support requires the cooperation of the main PostHog application and the new NodeJS-based{' '}
-                        <a href="https://github.com/PostHog/posthog-plugins" target="_blank" rel="noreferrer noopener">
+                        <a
+                            href="https://github.com/PostHog/posthog-plugin-server"
+                            target="_blank"
+                            rel="noreferrer noopener"
+                        >
                             <code>posthog-plugin-server</code>
                         </a>
                         . In case the plugin server is not properly configured, you <em>might</em> experience data loss.

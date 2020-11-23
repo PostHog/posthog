@@ -33,5 +33,5 @@ export default function SessionsPlayer({ events }: { events: eventWithTime[] }):
         }
     }, [])
 
-    return <div ref={target} id="sessions-player" />
+    return <div ref={target} id="sessions-player" className="ph-no-capture" />
 }
