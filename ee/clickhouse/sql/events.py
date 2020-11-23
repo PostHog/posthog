@@ -254,8 +254,25 @@ LIMIT %(limit)s
     tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
-GET_PROPERTIES_VOLUME = """
-    SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC
+GET_PROPERTIES_FOR_TEAM = """
+    SELECT team_id, arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE timestamp > %(timestamp)s AND team_id = %(team_id)s GROUP BY team_id, key ORDER BY count DESC
 """
 
-GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+GET_PROPERTIES_LOW_VOLUME = """
+SELECT
+    team_id,
+    arrayJoin(array_property_keys) as key,
+    count(1) as count
+FROM events_with_array_props_view
+WHERE
+    timestamp > %(timestamp)s AND
+    team_id IN (
+        SELECT team_id
+        FROM events
+        GROUP BY team_id
+        HAVING count(1) < %(cutoff)s
+    )
+GROUP BY team_id, key ORDER BY count DESC
+"""
+
+GET_EVENTS_VOLUME = "SELECT team_id, event, count(1) as count FROM events WHERE timestamp > %(timestamp)s GROUP BY team_id, event ORDER BY count DESC"
