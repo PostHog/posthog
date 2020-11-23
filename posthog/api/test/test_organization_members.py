@@ -10,7 +10,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
     TESTS_API = True
 
     def test_delete_organization_member(self):
-        user = User.objects.create_and_join(self.organization, None, "test@x.com", None, "X")
+        user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
         response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
