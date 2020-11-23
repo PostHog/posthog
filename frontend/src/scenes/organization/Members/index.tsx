@@ -21,26 +21,35 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
+    (value) => typeof value === 'number'
+) as OrganizationMembershipLevel[]
+
 function isMembershipLevelChangeDisallowed(
     currentOrganization: OrganizationType | null,
     currentUser: UserType,
     memberChanged: OrganizationMemberType,
-    newLevel?: OrganizationMembershipLevel
+    newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
+    if (memberChanged.user_id === currentUser.id) return "You can't change your own access level."
     if (!currentMembershipLevel) return 'Your membership level is unknown.'
-    if (newLevel) {
-        if (newLevel >= currentMembershipLevel)
+    if (Array.isArray(newLevelOrAllowedLevels)) {
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) return false
+        if (!newLevelOrAllowedLevels.length)
+            return "You don't have the permissions to change this member's access level."
+    } else {
+        if (newLevelOrAllowedLevels === memberChanged.level)
+            return "It doesn't make sense to set the same level as before."
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) return false
+        if (newLevelOrAllowedLevels >= currentMembershipLevel)
             return 'You can only change access level of others to lower than your current one.'
-        if (newLevel === memberChanged.level) return "It doesn't make sense to set the same level as before."
     }
-    return currentMembershipLevel < OrganizationMembershipLevel.Admin
-        ? 'Only organization administrators can change access levels.'
-        : currentMembershipLevel <= memberChanged.level
-        ? 'You can only change access level of users with level lower than you.'
-        : memberChanged.user_id === currentUser.id
-        ? "You can't change your own access level."
-        : false
+    if (currentMembershipLevel < OrganizationMembershipLevel.Admin)
+        return "You don't have the permissions to change access levels."
+    if (currentMembershipLevel <= memberChanged.level)
+        return 'You can only change access level of members with level lower than you.'
+    return false
 }
 
 function LevelComponent(level: OrganizationMembershipLevel, member: OrganizationMemberType): JSX.Element | null {
@@ -77,7 +86,10 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
         </Button>
     )
 
-    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member)
+    const allowedLevels = membershipLevelIntegers.filter(
+        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
+    )
+    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
@@ -85,32 +97,28 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
         <Dropdown
             overlay={
                 <Menu>
-                    {Object.values(OrganizationMembershipLevel).map(
-                        (listLevel) =>
-                            typeof listLevel === 'number' &&
-                            !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel) && (
-                                <Menu.Item key={`${member.user_id}-level-${listLevel}`}>
-                                    <a href="#" onClick={generateHandleClick(listLevel)}>
-                                        {listLevel === OrganizationMembershipLevel.Owner ? (
-                                            <>
-                                                <CrownFilled style={{ marginRight: '0.5rem' }} />
-                                                Pass on organization ownership
-                                            </>
-                                        ) : listLevel > level ? (
-                                            <>
-                                                <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                                Promote to {organizationMembershipLevelToName.get(listLevel)}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                                Demote to {organizationMembershipLevelToName.get(listLevel)}
-                                            </>
-                                        )}
-                                    </a>
-                                </Menu.Item>
-                            )
-                    )}
+                    {allowedLevels.map((listLevel) => (
+                        <Menu.Item key={`${member.user_id}-level-${listLevel}`}>
+                            <a href="#" onClick={generateHandleClick(listLevel)}>
+                                {listLevel === OrganizationMembershipLevel.Owner ? (
+                                    <>
+                                        <CrownFilled style={{ marginRight: '0.5rem' }} />
+                                        Pass on organization ownership
+                                    </>
+                                ) : listLevel > level ? (
+                                    <>
+                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
+                                        Promote to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                ) : (
+                                    <>
+                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
+                                        Demote to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                )}
+                            </a>
+                        </Menu.Item>
+                    ))}
                 </Menu>
             }
         >
