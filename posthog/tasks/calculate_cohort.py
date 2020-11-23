@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from celery import shared_task
@@ -11,7 +12,7 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 MAX_AGE_MINUTES = 15
-PARALLEL_COHORTS = 5
+PARALLEL_COHORTS = os.environ.get("PARALLEL_COHORTS", 5)
 
 
 def calculate_cohorts() -> None:
