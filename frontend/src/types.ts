@@ -254,8 +254,6 @@ export interface PluginType {
     url: string
     tag: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    from_json: boolean
-    from_web: boolean
     error?: PluginErrorType
 }
 

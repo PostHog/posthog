@@ -29,8 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && yarn --frozen-lockfile \
     && cd .. \
     && yarn cache clean \
-    && npm uninstall -g yarn \
-    && apt-get purge -y nodejs curl \
+    && apt-get purge -y curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
     && rm -rf frontend/dist/*.map
