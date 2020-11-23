@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import rrwebPlayer from 'rrweb-player'
-import 'rrweb-player/dist/style.css'
 import { eventWithTime } from 'rrweb/typings/types'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+
+// import 'rrweb-player/dist/style.css'
 
 export default function SessionsPlayer({ events }: { events: eventWithTime[] }): JSX.Element {
     const target = useRef<HTMLDivElement | null>(null)
