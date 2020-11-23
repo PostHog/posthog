@@ -153,7 +153,7 @@ GROUP BY status
 
 ACTION_JOIN = """
 INNER JOIN posthog_action_events
-ON posthog_event".id = posthog_action_events.event_id
+ON posthog_event.id = posthog_action_events.event_id
 """
 
 

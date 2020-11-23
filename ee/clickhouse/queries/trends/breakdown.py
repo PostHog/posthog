@@ -45,7 +45,7 @@ class ClickhouseTrendsBreakdown:
             result.extend(all_result)
         else:
             result = self._format_breakdown_query(entity, filter, team_id)
-        print(result)
+
         return result
 
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
