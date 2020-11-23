@@ -77,14 +77,14 @@ class APITestMixin(ErrorResponsesMixin):
         )
 
     def setUp(self):
-        super().setUp()
+        super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.CONFIG_API_TOKEN)
         if self.CONFIG_USER_EMAIL:
             self.user = self._create_user(self.CONFIG_USER_EMAIL, self.CONFIG_PASSWORD)
             self.organization_membership = self.user.organization_memberships.get()
             if self.CONFIG_AUTO_LOGIN:
-                self.client.force_login(self.user)
+                self.client.force_login(self.user)  # type: ignore
 
 
 class APIBaseTest(APITestMixin, APITestCase):

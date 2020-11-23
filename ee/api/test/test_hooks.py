@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Type, cast
 
 from ee.api.test.base import APITransactionLicensedTest
 from ee.models.hook import Hook
@@ -17,11 +17,16 @@ class TestHooksAPI(APITransactionLicensedTest):
         self.assertEqual(hook.target, data["target"])
         self.assertEqual(hook.event, data["event"])
         self.assertEqual(hook.resource_id, None)
-        self.assertEqual(response.data["id"], hook.id)
-        self.assertEqual(response.data["event"], data["event"])
-        self.assertEqual(response.data["target"], data["target"])
-        self.assertEqual(response.data["resource_id"], None)
-        self.assertEqual(response.data["team"], self.team.id)
+        self.assertDictContainsSubset(
+            {
+                "id": hook.id,
+                "event": data["event"],
+                "target": data["target"],
+                "resource_id": None,
+                "team": self.team.id,
+            },
+            cast(dict, response.data),
+        )
 
     def test_create_hook_with_resource_id(self):
         data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created", "resource_id": "66"}
@@ -32,8 +37,13 @@ class TestHooksAPI(APITransactionLicensedTest):
         self.assertEqual(hook.target, data["target"])
         self.assertEqual(hook.event, data["event"])
         self.assertEqual(str(hook.resource_id), data["resource_id"])
-        self.assertEqual(response.data["id"], hook.id)
-        self.assertEqual(response.data["event"], data["event"])
-        self.assertEqual(response.data["target"], data["target"])
-        self.assertEqual(str(response.data["resource_id"]), data["resource_id"])
-        self.assertEqual(response.data["team"], self.team.id)
+        self.assertDictContainsSubset(
+            {
+                "id": hook.id,
+                "event": data["event"],
+                "target": data["target"],
+                "resource_id": int(data["resource_id"]),
+                "team": self.team.id,
+            },
+            cast(dict, response.data),
+        )

@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
@@ -100,8 +100,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().add_person_id(self.team_id)
+    def get_queryset(self):
+        queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
 
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)

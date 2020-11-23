@@ -14,7 +14,7 @@ class LicensedTestMixin:
     CONFIG_LICENSE_PLAN: Optional[str] = "enterprise"
 
     def setUp(self):
-        super().setUp()
+        super().setUp()  # type: ignore
         if self.CONFIG_LICENSE_PLAN:
             self.license = License.objects._create(
                 key=self.CONFIG_LICENSE_PLAN,
