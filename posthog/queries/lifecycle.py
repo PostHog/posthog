@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.utils import timezone
 
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filter import Filter
@@ -45,8 +46,9 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                           SELECT DISTINCT distinct_id,
                                                                           DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                                                           FROM posthog_event
+                                                          {action_join}
                                                           WHERE team_id = %(team_id)s
-                                                            AND event = %(event)s
+                                                            AND {event_condition}
                                                           GROUP BY distinct_id, day
                                                           HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                                  %(prev_date_from)s
@@ -57,8 +59,9 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                      SELECT DISTINCT distinct_id,
                                                                      DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
                                                      FROM posthog_event
+                                                     {action_join}
                                                      WHERE team_id = %(team_id)s
-                                                       AND event = %(event)s
+                                                       AND {event_condition}
                                                      GROUP BY distinct_id, sub_day
                                                      HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                             %(prev_date_from)s
@@ -74,8 +77,9 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                  SELECT DISTINCT distinct_id,
                                                                  DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
                                                  FROM posthog_event
+                                                 {action_join}
                                                  WHERE team_id = %(team_id)s
-                                                   AND event = %(event)s
+                                                   AND {event_condition}
                                                  GROUP BY distinct_id, day
                                                  HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                         %(prev_date_from)s
@@ -97,8 +101,9 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                                             SELECT DISTINCT distinct_id,
                                                                                             array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
                                                                             FROM posthog_event
+                                                                            {action_join}
                                                                             WHERE team_id = %(team_id)s
-                                                                              AND event = %(event)s
+                                                                              AND {event_condition}
                                                                               AND posthog_event.timestamp <= %(after_date_to)s
                                                                               AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
                                                                                   %(date_from)s
@@ -125,8 +130,9 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                    DATE_TRUNC(%(interval)s,
                                                               min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
                                    FROM posthog_event
+                                   {action_join}
                                    WHERE team_id = %(team_id)s
-                                     AND event = %(event)s
+                                     AND {event_condition}
                                    GROUP BY distinct_id
                                ) earliest ON e.distinct_id = earliest.distinct_id
                            ) e
@@ -143,6 +149,11 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
     GROUP BY day_start, status
     ) arrayified
 GROUP BY status
+"""
+
+ACTION_JOIN = """
+INNER JOIN posthog_action_events
+ON posthog_event".id = posthog_action_events.event_id
 """
 
 
@@ -212,7 +223,12 @@ class LifecycleTrend:
 
         with connection.cursor() as cursor:
             cursor.execute(
-                LIFECYCLE_SQL,
+                LIFECYCLE_SQL.format(
+                    action_join=ACTION_JOIN if entity.type == TREND_FILTER_TYPE_ACTIONS else "",
+                    event_condition="{} = %(event)s".format(
+                        "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
+                    ),
+                ),
                 {
                     "team_id": team_id,
                     "event": entity.id,
