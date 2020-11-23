@@ -243,7 +243,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             data-attr="menu-item-organization-members"
                         >
                             <TeamOutlined />
-                            <span className="sidebar-label">Team Members</span>
+                            <span className="sidebar-label">Teammates</span>
                             <Link to={'/organization/members'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item

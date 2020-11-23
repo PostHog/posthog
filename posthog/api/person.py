@@ -7,11 +7,13 @@ from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.utils import CursorPagination, StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import convert_property_value
 
 
@@ -64,6 +66,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:

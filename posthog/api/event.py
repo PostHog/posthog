@@ -6,6 +6,7 @@ from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
@@ -22,6 +23,7 @@ from posthog.models import (
     Team,
 )
 from posthog.models.event import EventManager
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
 from posthog.utils import convert_property_value
 
@@ -99,6 +101,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)

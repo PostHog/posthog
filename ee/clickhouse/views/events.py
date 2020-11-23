@@ -31,7 +31,6 @@ class ClickhouseEventsViewSet(EventViewSet):
         return distinct_to_person
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
         team = self.team
         filter = Filter(request=request)
         if request.GET.get("after"):

@@ -45,7 +45,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"], user__email=validated_data["target_email"]
         ).exists():
-            raise ValueError("A user with this email address already belongs to the organization.")
+            raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
         if OrganizationInvite.objects.filter(
             organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
         ).exists():
@@ -90,9 +90,7 @@ class OrganizationInviteViewSet(
         """
         parents_query_dict = self.get_parents_query_dict()
         return {
-            "request": self.request,
-            "format": self.format_kwarg,
-            "view": self,
+            **super().get_serializer_context(),
             "organization_id": (
                 self.request.user.organization.id
                 if parents_query_dict["organization_id"] == "@current"

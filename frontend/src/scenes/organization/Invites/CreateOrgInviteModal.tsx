@@ -47,7 +47,7 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                         setIsVisible(true)
                     }}
                 >
-                    Invite Team Member
+                    Invite Teammate
                 </span>
             ) : (
                 <div className="mb text-right">
@@ -59,13 +59,13 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                         }}
                         icon={<PlusOutlined />}
                     >
-                        Invite Team Member
+                        Invite Teammate
                     </Button>
                 </div>
             )}
 
             <Modal
-                title="Inviting Team member"
+                title="Inviting Teammate"
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}
@@ -95,8 +95,9 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
 
                 {!user?.email_service_available && (
                     <div>
-                        Emails are not enabled in your PostHog instance. Remember to <b>share the invite link</b> with
-                        the team member you want to invite.
+                        Emails are not enabled in your PostHog instance.
+                        <br />
+                        Remember to <b>share the invite link</b> with the team member you want to invite.
                     </div>
                 )}
             </Modal>

@@ -1,10 +1,12 @@
 from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.utils import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -32,6 +34,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.get_parents_query_dict()
@@ -94,6 +97,8 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # This samples a bunch of elements with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
+        team = request.user.team
+        assert team is not None
         values = Element.objects.raw(
             """
             SELECT
