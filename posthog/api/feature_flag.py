@@ -46,7 +46,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
-            if self.perform_destroy(validated_data["key"]):
+            if self.perform_destroy(validated_data["key"], request.user.team):
                 feature_flag = super().create(validated_data)
             else:
                 raise serializers.ValidationError("This key already exists.", code="key-exists")
@@ -59,8 +59,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
 
-    def perform_destroy(self, key: str) -> bool:
-        featureFlag = FeatureFlag.objects.all().filter(deleted=True, key=key).first()
+    def perform_destroy(self, key: str, team) -> bool:
+        featureFlag = FeatureFlag.objects.all().filter(deleted=True, key=key, team=team).first()
 
         if featureFlag:
             featureFlag.delete()
