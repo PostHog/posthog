@@ -39,9 +39,8 @@ router.register(r"funnel", funnel.LegacyFunnelViewSet)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
 router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
 router.register(r"cohort", cohort.LegacyCohortViewSet)
-router.register(
-    r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys"
-)  # TODO /users/:id/...
+# TODO: nest per user
+router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 # nested endpoints
 router.register(r"personal-api-keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"dashboards", dashboard.DashboardsViewSet, "shared_dashboards")
