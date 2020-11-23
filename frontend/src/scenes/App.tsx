@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { Scene, sceneLogic, unauthenticatedScenes } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -20,15 +20,6 @@ import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
-
-const darkerScenes: Record<string, boolean> = {
-    dashboard: true,
-    insights: true,
-    funnel: true,
-    editFunnel: true,
-    paths: true,
-}
-const plainScenes: Scene[] = [Scene.Ingestion, Scene.OrganizationCreateFirst, Scene.ProjectCreateFirst]
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -39,7 +30,7 @@ function _App(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { scene, params, loadedScenes } = useValues(sceneLogic)
+    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     // used for legacy navigation [Sidebar.js]
@@ -51,7 +42,7 @@ function _App(): JSX.Element | null {
     useEffect(() => {
         if (user) {
             // If user is already logged in, redirect away from unauthenticated routes like signup
-            if (unauthenticatedScenes.includes(scene)) {
+            if (sceneConfig.unauthenticated) {
                 replace('/')
                 return
             }
@@ -77,16 +68,17 @@ function _App(): JSX.Element | null {
     }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
     if (!user) {
-        return unauthenticatedScenes.includes(scene) ? (
+        return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
                 <Scene {...params} /> <Toast />
             </Layout>
         ) : null
     }
 
-    if (!scene || plainScenes.includes(scene)) {
+    if (!scene || sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
+                {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
                 <Scene user={user} {...params} />
                 <Toast />
             </Layout>
@@ -109,7 +101,7 @@ function _App(): JSX.Element | null {
                     />
                 )}
                 <Layout
-                    className={`${darkerScenes[scene] && 'bg-mid'}${
+                    className={`${sceneConfig.dark ? 'bg-mid' : ''}${
                         !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
                     }`}
                     style={{ minHeight: '100vh' }}
