@@ -14,7 +14,7 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
-import { DeleteProject } from './DeleteProject'
+import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
@@ -103,14 +103,13 @@ function _Setup({ user }) {
                 <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
                 <OptInSessionRecording />
                 <p>
-                    This is a new feature of PostHog. Please{' '}
+                    This is a new feature of PostHog. Please <DangerZone />
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
                         share feedback
                     </a>{' '}
                     with us!
                 </p>
                 <Divider />
-                <DeleteProject />
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                     Danger Zone
                 </h2>

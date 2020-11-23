@@ -8,12 +8,12 @@ import confirm from 'antd/lib/modal/confirm'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
-export function DeleteProject(): JSX.Element {
+export function DangerZone(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteCurrentTeam } = useActions(teamLogic)
 
-    function handleClick(): void {
+    function confirmDeleteProject(): void {
         confirm({
             title: currentTeam ? `Delete project ${currentTeam.name}?` : <i>Loading current project…</i>,
             content: 'Project deletion cannot be undone. You will lose all data within your project.',
@@ -28,19 +28,24 @@ export function DeleteProject(): JSX.Element {
         })
     }
 
-    const DeleteButton = (
-        <Button type="primary" danger onClick={handleClick}>
+    let accessRestrictionReason: string | null = null
+    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
+        accessRestrictionReason = 'This section is restricted to users at or above administrator level.'
+
+    const Content = (
+        <Button type="primary" danger onClick={confirmDeleteProject}>
             Delete Project
         </Button>
     )
 
-    let deletionDisabledReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
-        deletionDisabledReason = 'You must be an organization administrator to delete projects.'
-
-    return (
-        <div>
-            {deletionDisabledReason ? <Tooltip title={deletionDisabledReason}>{DeleteButton}</Tooltip> : DeleteButton}
-        </div>
+    return accessRestrictionReason ? (
+        <Tooltip title={accessRestrictionReason}>
+            <div style={{ position: 'relative' }}>
+                {Content}
+                <div className="danger-overlay" />
+            </div>
+        </Tooltip>
+    ) : (
+        Content
     )
 }
