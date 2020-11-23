@@ -10,6 +10,7 @@ interface SessionsPlayerButtonProps {
 }
 
 export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
+    // TODO: Work around no clickhouse support yet for session recording
     if (!session.session_recording_ids) {
         return null
     }
