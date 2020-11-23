@@ -44,7 +44,7 @@ class ClickhouseLifecycle:
         interval_increment, interval_string = self.get_interval(interval)
         trunc_func = get_interval_annotation_ch(interval)
         event_query = ""
-        event_params = {}
+        event_params: Dict[str, Any] = {}
 
         _, _, date_params = parse_timestamps(filter=filter)
 

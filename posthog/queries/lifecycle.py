@@ -167,7 +167,7 @@ def get_interval(period: str) -> Union[timedelta, relativedelta]:
     elif period == "month":
         return relativedelta(months=1)
     else:
-        raise ValueError("{period} not supported".format(period))
+        raise ValueError("{} not supported".format(period))
 
 
 def get_time_diff(
