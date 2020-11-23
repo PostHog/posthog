@@ -2,6 +2,10 @@ import { Divider } from 'antd'
 import React from 'react'
 import { ActionType } from '~/types'
 
+function eventToHumanName(event: string): string {
+    return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event
+}
+
 export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Element {
     if (!entity) return null
     return (
@@ -10,10 +14,7 @@ export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Elemen
                 entity.steps.map((step, index) => (
                     <div key={step.id}>
                         <strong>
-                            Match group {index + 1}:{' '}
-                            {step.event && step.event[0] == '$'
-                                ? step.event[1].toUpperCase() + step.event.slice(2)
-                                : step.event}
+                            Match group {index + 1}: {step.event && eventToHumanName(step.event)}
                         </strong>
                         <ul>
                             {step.selector && (

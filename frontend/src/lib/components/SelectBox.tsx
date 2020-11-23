@@ -1,12 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Col, Row, Input, Divider } from 'antd'
-import { actionFilterDropdownLogicType } from 'types/scenes/insights/ActionFilter/ActionFilterDropdownType'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
-import { EntityTypes } from '../../scenes/insights/trendsLogic'
-import Fuse from 'fuse.js'
 import { ActionType } from '~/types'
+import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
+import './SelectBox.scss'
+import { selectBoxLogicType } from 'types/lib/logic/selectBoxLogicType'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
@@ -24,103 +24,6 @@ export interface SelectedItem {
     category?: string
 }
 
-const scrollUpIntoView = (key: string): void => {
-    const searchList = document.querySelector('.search-list')
-    const item = document.querySelector('.action-filter-dropdown [datakey="' + key + '"]')
-    const diff = item?.getBoundingClientRect().top - searchList?.getBoundingClientRect().top
-    if (diff - 30 < 0) searchList.scrollTop = searchList.scrollTop + diff - 30
-}
-const scrollDownIntoView = (key: string): void => {
-    const searchList = document.querySelector('.search-list')
-    const item = document.querySelector('.action-filter-dropdown [datakey="' + key + '"]')
-    const diff = item?.getBoundingClientRect().top - searchList?.getBoundingClientRect().bottom
-    if (diff + 30 > 0) searchList.scrollTop = searchList.scrollTop + diff + 30
-}
-
-export const actionFilterDropdownLogic = kea({
-    actions: {
-        setSelectedItem: (item: SelectedItem) => ({ item }),
-        setSearch: (search: string) => ({ search }),
-        clickSelectedItem: (item: SelectedItem) => ({ item }),
-        setBlockMouseOver: (block: boolean) => ({ block }),
-        onKeyDown: (e) => ({ e }),
-    },
-    reducers: ({ props }) => ({
-        selectedItem: [
-            false,
-            {
-                setSelectedItem: (_, { item }: { item: SelectedItem }) => item,
-            },
-        ],
-        blockMouseOver: [
-            false,
-            {
-                setBlockMouseOver: (_, { block }: { block: boolean }) => block,
-            },
-        ],
-        search: [
-            false,
-            {
-                setSearch: (_, { search }: { search: string }) => search,
-            },
-        ],
-        RenderInfo: [
-            false,
-            {
-                setSelectedItem: (_, { item }: { item: SelectedItem }) => {
-                    return (
-                        props.items.filter((i) => i.dataSource.filter((i) => i.key === item.key).length > 0)[0]
-                            ?.renderInfo || false
-                    )
-                },
-            },
-        ],
-    }),
-    listeners: ({ props, values, actions }) => ({
-        clickSelectedItem: ({ item }: { item: SelectedItem }) => {
-            if (item.event) {
-                props.updateFilter(EntityTypes.EVENTS, item.event, item.event)
-            } else {
-                props.updateFilter(EntityTypes.ACTIONS, item.action.id, item.action.name)
-            }
-        },
-        setBlockMouseOver: ({ block }) => {
-            if (block) setTimeout(() => actions.setBlockMouseOver(false), 200)
-        },
-        onKeyDown: ({ e }) => {
-            let allSources = props.items.map((item) => item.dataSource).flat()
-            allSources = !values.search
-                ? allSources
-                : new Fuse(allSources, {
-                      keys: ['name'],
-                  })
-                      .search(values.search)
-                      .map((result) => result.item)
-            const currentIndex = allSources.findIndex((item: SelectedItem) => item.key === values.selectedItem.key) || 0
-
-            if (e.key === 'ArrowDown') {
-                const item = allSources[currentIndex + 1]
-                if (item) {
-                    actions.setSelectedItem(item)
-                    scrollDownIntoView(item.key)
-                    actions.setBlockMouseOver(true)
-                }
-            }
-            if (e.key === 'ArrowUp') {
-                const item = allSources[currentIndex - 1]
-                if (item) {
-                    actions.setSelectedItem(item)
-                    scrollUpIntoView(item.key)
-                    actions.setBlockMouseOver(true)
-                }
-            }
-            if (e.key === 'Enter') {
-                actions.clickSelectedItem(values.selectedItem)
-            }
-        },
-    }),
-})
-
 export function SelectBox({
     items,
     selectedItemKey,
@@ -133,12 +36,12 @@ export function SelectBox({
     onDismiss: CallableFunction
 }): JSX.Element {
     const dropdownRef = useRef()
-    const dropdownLogic = actionFilterDropdownLogic({ updateFilter: onSelect, items })
+    const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
     const { selectedItem, RenderInfo } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
     const deselect = (e): void => {
-        if (dropdownRef.current.contains(e.target)) {
+        if (dropdownRef?.current?.contains(e.target)) {
             return
         }
         onDismiss && onDismiss(e)
@@ -148,8 +51,7 @@ export function SelectBox({
         if (selectedItemKey) {
             const allSources = items.map((item) => item.dataSource).flat()
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || false)
-            const offset = document.querySelector('.action-filter-dropdown [datakey="' + selectedItemKey + '"]')
-                ?.offsetTop
+            const offset = document.querySelector('.search-list [datakey="' + selectedItemKey + '"]')?.offsetTop
             document.querySelector('.search-list').scrollTop = offset
         }
         document.addEventListener('mousedown', deselect)
@@ -160,7 +62,7 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="select-box">
+        <div ref={dropdownRef} className="select-box" tabIndex="0">
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
@@ -199,18 +101,12 @@ export function SelectUnit({
 }: {
     name: string | JSX.Element
     dataSource: SelectedItem[]
-    dropdownLogic: actionFilterDropdownLogicType
+    dropdownLogic: selectBoxLogicType
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
-    const data = !search
-        ? dataSource
-        : new Fuse(dataSource, {
-              keys: ['name'],
-          })
-              .search(search)
-              .map((result) => result.item)
+    const data = !search ? dataSource : searchItems(dataSource, search)
     return (
         <>
             <span onClick={() => setIsCollapsed(!isCollapsed)}>
