@@ -1,30 +1,45 @@
-import React, { useEffect, useRef } from 'react'
+import React, { ReactElement, RefObject, useEffect, useRef } from 'react'
 import { Select } from 'antd'
+import { SelectProps } from 'antd/lib/select'
 import './SelectGradientOverflow.scss'
 
-function DropdownGradientRenderer(props: Record<string, any>): JSX.Element {
-    useEffect(() => {
-        props.setScrollGradient()
-    })
-
-    return <div ref={props.innerRef}>{props.menu}</div>
+interface DropdownGradientRendererProps {
+    updateScrollGradient: () => void
+    innerRef: RefObject<HTMLDivElement>
+    menu: ReactElement
 }
 
-export function SelectGradientOverflow(props: Record<string, any>): JSX.Element {
-    /* Extend Ant Select component with a gradient overlay to indicate a scrollable list */
-    const dropdownRef = useRef(null as HTMLElement | null)
+function DropdownGradientRenderer({
+    updateScrollGradient,
+    innerRef,
+    menu,
+}: DropdownGradientRendererProps): JSX.Element {
+    useEffect(() => {
+        updateScrollGradient()
+    })
+    return <div ref={innerRef}>{menu}</div>
+}
 
-    const SetScrollGradient = (): void => {
-        const target = dropdownRef.current?.querySelector('.rc-virtual-list-holder')
+/**
+ * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
+ */
+export function SelectGradientOverflow(props: SelectProps<any>): JSX.Element {
+    const dropdownRef = useRef<HTMLDivElement>(null)
 
-        if (target === null || target === undefined) {
-            return
-        }
-
-        if (target.scrollTop + target.offsetHeight === target.scrollHeight) {
-            target.classList.remove('scroll-gradient')
+    function updateScrollGradient(): void {
+        const dropdown = dropdownRef.current
+        if (!dropdown) return
+        const holder: HTMLDivElement | null = dropdown.querySelector('.rc-virtual-list-holder')
+        if (!holder) return
+        if (holder.scrollTop > 0) {
+            dropdown.classList.add('scrollable-above')
         } else {
-            target.classList.add('scroll-gradient')
+            dropdown.classList.remove('scrollable-above')
+        }
+        if (holder.scrollHeight > holder.scrollTop + holder.offsetHeight) {
+            holder.classList.add('scrollable-below')
+        } else {
+            holder.classList.remove('scrollable-below')
         }
     }
 
@@ -32,10 +47,14 @@ export function SelectGradientOverflow(props: Record<string, any>): JSX.Element 
         <Select
             {...props}
             onPopupScroll={() => {
-                SetScrollGradient()
+                updateScrollGradient()
             }}
             dropdownRender={(menu) => (
-                <DropdownGradientRenderer menu={menu} innerRef={dropdownRef} setScrollGradient={SetScrollGradient} />
+                <DropdownGradientRenderer
+                    menu={menu}
+                    innerRef={dropdownRef}
+                    updateScrollGradient={updateScrollGradient}
+                />
             )}
         >
             {props.children}
