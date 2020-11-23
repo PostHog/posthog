@@ -24,7 +24,8 @@ SELECT groupArray(day_start), groupArray(counts), status FROM (
                         JOIN (
                             SELECT DISTINCT distinct_id, {trunc_func}(events.timestamp) subsequent_day FROM events WHERE team_id = %(team_id)s AND {event_query}
                             GROUP BY distinct_id, subsequent_day HAVING subsequent_day <= toDateTime(%(date_to)s) AND subsequent_day >= toDateTime(%(prev_date_from)s)
-                        ) events ON base.distinct_id = events.distinct_id WHERE subsequent_day > base_day
+                        ) events ON base.distinct_id = events.distinct_id 
+                        WHERE subsequent_day > base_day
                     )
                     GROUP BY distinct_id, base_day
                     UNION ALL
