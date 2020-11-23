@@ -88,9 +88,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Signup]: {
         unauthenticated: true,
     },
-    [Scene.SessionsPlayer]: {
-        plain: true,
-    },
     [Scene.Dashboard]: {
         dark: true,
     },
