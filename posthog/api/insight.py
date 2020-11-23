@@ -133,6 +133,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
