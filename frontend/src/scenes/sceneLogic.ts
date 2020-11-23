@@ -15,7 +15,7 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
-    SessionsPlayer = 'sessionsPlayer',
+    SessionsPlay = 'sessionsPlay',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
@@ -53,7 +53,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.SessionsPlayer]: () => import(/* webpackChunkName: 'sessionsPlayer' */ './sessions/SessionsPlayer'),
+    [Scene.SessionsPlay]: () => import(/* webpackChunkName: 'sessionsPlay' */ './sessions/SessionsPlay'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
@@ -105,7 +105,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectCreateFirst]: {
         plain: true,
     },
-    [Scene.SessionsPlayer]: {
+    [Scene.SessionsPlay]: {
         plain: true,
     },
 }
@@ -125,7 +125,7 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
-    '/sessions/play': Scene.SessionsPlayer,
+    '/sessions/play': Scene.SessionsPlay,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
