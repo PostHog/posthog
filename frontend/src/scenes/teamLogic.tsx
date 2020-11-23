@@ -4,6 +4,9 @@ import { teamLogicType } from 'types/scenes/teamLogicType'
 import { TeamType } from '~/types'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
+    actions: {
+        deleteCurrentTeam: true,
+    },
     loaders: ({ values }) => ({
         currentTeam: [
             null as TeamType | null,
@@ -22,11 +25,14 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
             },
         ],
     }),
-    listeners: {
+    listeners: ({ values }) => ({
+        deleteCurrentTeam: async () => {
+            if (values.currentTeam) api.delete(`api/projects/${values.currentTeam.id}`)
+        },
         createTeamSuccess: () => {
             window.location.href = '/project/settings'
         },
-    },
+    }),
     events: ({ actions }) => ({
         afterMount: [actions.loadCurrentTeam],
     }),

@@ -17,20 +17,6 @@ class PostHogConfig(AppConfig):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
-        # Skip plugin sync in manage.py scripts and in tests
-        # (the database tables might not yet be created)
-        if (
-            not settings.TEST
-            and not "makemigrations" in sys.argv
-            and not "migrate" in sys.argv
-            and not "manage.py" in " ".join(sys.argv)
-            and not "/mypy" in sys.argv[0]
-        ):
-            from posthog.plugins import sync_plugin_config
-
-            # syncs posthog.json['plugins'] and the Plugin/PluginConfig models
-            sync_plugin_config()
-
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":

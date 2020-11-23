@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
 import posthoganalytics
 from django.conf import settings
@@ -20,7 +20,12 @@ from rest_framework.decorators import action
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    CREATE_METHODS,
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+    ProjectMembershipNecessaryPermissions,
+)
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -29,11 +34,12 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if (
-            not getattr(settings, "MULTI_TENANCY", False)
-            and request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
-            and request.user.organizations.count() >= 1
+        if request.method in CREATE_METHODS and (
+            (request.user.organization is None)
+            or (
+                request.user.organization.teams.count() >= 1
+                and not request.user.organization.is_feature_available("organizations_projects")
+            )
         ):
             return False
         return True
@@ -77,9 +83,12 @@ class TeamSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict[str, Any]) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
+        organization = request.user.organization
+        if organization is None:
+            raise exceptions.ValidationError("You need to belong to an organization first!")
         with transaction.atomic():
             validated_data.setdefault("completed_snippet_onboarding", True)
-            team = Team.objects.create_with_data(**validated_data, organization=request.user.organization)
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
         return team
@@ -90,6 +99,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all()
     permission_classes = [
         permissions.IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
         OrganizationMemberPermissions,
         OrganizationAdminWritePermissions,
@@ -113,15 +123,6 @@ class TeamViewSet(viewsets.ModelViewSet):
             raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, obj)
         return obj
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.organization.teams.count() <= 1:
-            raise exceptions.ValidationError(
-                f"Cannot remove project since that would leave organization {instance.name} project-less, which is not supported yet."
-            )
-        self.perform_destroy(instance)
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str) -> response.Response:

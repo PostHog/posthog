@@ -24,12 +24,6 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
-    def test_no_delete_last_team(self):
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-        response = self.client.delete(f"/api/projects/{self.team.id}")
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-
     def test_no_delete_team_not_administrating_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

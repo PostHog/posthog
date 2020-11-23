@@ -4,10 +4,12 @@ import posthoganalytics
 from django.db import IntegrityError
 from django.db.models import QuerySet
 from rest_framework import response, serializers, status, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -60,6 +62,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
