@@ -21,6 +21,7 @@ class PathsViewSet(viewsets.ViewSet):
 
     def get_elements(self, request: request.Request):
         team = request.user.team
+        assert team is not None
         all_events = Event.objects.filter(team=team, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 

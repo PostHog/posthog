@@ -228,7 +228,9 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             where = ""
 
-        params.append(request.user.team.pk)
+        team = request.user.team
+        assert team is not None
+        params.append(team.pk)
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(

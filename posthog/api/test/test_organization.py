@@ -58,8 +58,8 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team
+        user = cast(User, User.objects.order_by("-pk")[0])
+        team = cast(Team, user.team)
         organization = cast(Organization, user.organization)
         self.assertEqual(
             response.data,

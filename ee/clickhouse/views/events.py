@@ -31,8 +31,8 @@ class ClickhouseEvents(EventViewSet):
         return distinct_to_person
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         if request.GET.get("after"):
             filter._date_from = request.GET["after"]
@@ -84,6 +84,7 @@ class ClickhouseEvents(EventViewSet):
 
         # TODO: implement getting elements
         team = request.user.team
+        assert team is not None
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
@@ -94,6 +95,7 @@ class ClickhouseEvents(EventViewSet):
 
         key = request.GET.get("key")
         team = request.user.team
+        assert team is not None
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
@@ -107,6 +109,7 @@ class ClickhouseEvents(EventViewSet):
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.request.user.team
+        assert team is not None
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )

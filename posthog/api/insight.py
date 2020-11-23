@@ -48,6 +48,7 @@ class InsightSerializer(serializers.ModelSerializer):
 
         request = self.context["request"]
         team = request.user.team
+        assert team is not None
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -215,6 +216,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = request.user.team
+        assert team is not None
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -254,6 +256,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         if not filter.date_from:
             filter._date_from = "-11d"
@@ -274,6 +277,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team
+        assert team is not None
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp

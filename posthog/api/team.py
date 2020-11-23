@@ -35,8 +35,11 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         if request.method in CREATE_METHODS and (
-            request.user.organization.teams.count() >= 1
-            and not request.user.organization.is_feature_available("organizations_projects")
+            (request.user.organization is None)
+            or (
+                request.user.organization.teams.count() >= 1
+                and not request.user.organization.is_feature_available("organizations_projects")
+            )
         ):
             return False
         return True

@@ -22,22 +22,23 @@ def cached_function(cache_type: CacheType, expiry_seconds: int = 30):
         def wrapper(*args, **kwargs):
             # prepare caching params
             request: HttpRequest = args[1]
-            team: Team = cast(User, request.user).team
-            if cache_type == CacheType.TRENDS:
-                filter = Filter(request=request)
-                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
-                payload = {"filter": filter.toJSON(), "team_id": team.pk}
-            elif cache_type == CacheType.FUNNEL:
-                pk = args[2]
-                cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
-                payload = {"funnel_id": pk, "team_id": team.pk}
-            else:
-                raise ValueError("Invalid cache type!")
-            # return cached result if possible
-            if not request.GET.get("refresh", False):
-                cached_result = cache.get(cache_key)
-                if cached_result:
-                    return cached_result["result"]
+            team = cast(User, request.user).team
+            if team is not None:
+                if cache_type == CacheType.TRENDS:
+                    filter = Filter(request=request)
+                    cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
+                    payload = {"filter": filter.toJSON(), "team_id": team.pk}
+                elif cache_type == CacheType.FUNNEL:
+                    pk = args[2]
+                    cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
+                    payload = {"funnel_id": pk, "team_id": team.pk}
+                else:
+                    raise ValueError("Invalid cache type!")
+                # return cached result if possible
+                if not request.GET.get("refresh", False):
+                    cached_result = cache.get(cache_key)
+                    if cached_result:
+                        return cached_result["result"]
             # call function being wrapped
             result = f(*args, **kwargs)
             # cache new data

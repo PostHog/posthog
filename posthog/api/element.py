@@ -43,6 +43,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request) -> response.Response:
         team = self.request.user.team
+        assert team is not None
         filter = Filter(request=request)
 
         events = (
@@ -89,6 +90,8 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         # This samples a bunch of elements with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
+        team = request.user.team
+        assert team is not None
         values = Element.objects.raw(
             """
             SELECT
@@ -109,7 +112,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=request.user.team.pk, key=key
+                where=where, team_id=team.pk, key=key
             ),
             params,
         )
