@@ -81,7 +81,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                     },
                 )
 
-                # Team 2 will fall in the cutoff so the low volume/high volume path for clickhouse will be tested
+                # First team will fall in the cutoff so the low volume/high volume path for clickhouse will be tested
                 cls = CalculateEventPropertyUsage(clickhouse_volume_cutoff=2)
                 cls.run()
             team = Team.objects.get(pk=self.team.pk)
