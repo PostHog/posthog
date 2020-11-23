@@ -23,7 +23,7 @@ def calculate_cohorts() -> None:
         calculate_cohort.delay(cohort.id)
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, max_retries=1)
 def calculate_cohort(cohort_id: int) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
