@@ -46,11 +46,11 @@ function _FeatureFlags() {
             },
         },
         {
-            title: 'Rollout Precentage',
-            render: function RenderRolloutPrecentage(_, featureFlag) {
+            title: 'Rollout Percentage',
+            render: function RenderRolloutPercentage(_, featureFlag) {
                 return (
-                    <div data-attr="rollout-precentage">
-                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''}
+                    <div data-attr="rollout-percentage">
+                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : 'N/A'}
                     </div>
                 )
             },
