@@ -40,7 +40,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
 
-    def update(self, updated_membership, validated_data):
+    def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(

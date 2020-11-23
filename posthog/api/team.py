@@ -81,7 +81,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "opt_out_capture",
         )
 
-    def create(self, validated_data: Dict[str, Any]) -> Team:
+    def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = request.user.organization
@@ -147,7 +147,7 @@ class TeamSignupSerializer(serializers.Serializer):
         password_validation.validate_password(value)
         return value
 
-    def create(self, validated_data):
+    def create(self, validated_data, **kwargs):
         is_first_user: bool = not User.objects.exists()
         realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 

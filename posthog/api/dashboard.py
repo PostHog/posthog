@@ -182,7 +182,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def update(self, instance: Model, validated_data: Dict) -> DashboardItem:
+    def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
