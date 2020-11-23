@@ -34,18 +34,6 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                 userUpdateSuccess: (_, payload) => payload.user,
             },
         ],
-        userLoading: [
-            false,
-            {
-                loadUser: () => true,
-                setUser: () => false,
-                userUpdateRequest: () => true,
-                userUpdateSuccess: () => false,
-                userUpdateFailure: () => false,
-                currentTeamUpdateRequest: () => true,
-                currentOrganizationUpdateRequest: () => true,
-            },
-        ],
     },
 
     events: ({ actions }) => ({
