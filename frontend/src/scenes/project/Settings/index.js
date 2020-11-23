@@ -88,26 +88,20 @@ function _Setup() {
                 <Divider />
                 <h2>PostHog Toolbar</h2>
                 <ToolbarSettings />
-                {(!user.is_multi_tenancy || featureFlags['session-recording-player']) && (
-                    <>
-                        <Divider />
-                        <h2 id="sessionrecording">
-                            Session recording <span style={{ fontSize: 16, color: '#F7A501' }}>BETA</span>
-                        </h2>
-                        <p>
-                            Watch sessions replays to see how users interact with your app and find out what can be
-                            improved.
-                        </p>
-                        <OptInSessionRecording />
-                        <p>
-                            This is a new feature of PostHog. Please{' '}
-                            <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                                share feedback
-                            </a>{' '}
-                            with us!
-                        </p>
-                    </>
-                )}
+                <Divider />
+                <h2 id="sessionrecording" className="subtitle">
+                    Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
+                </h2>
+                <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
+                <OptInSessionRecording />
+                <br />
+                <p>
+                    This is a new feature of PostHog. Please{' '}
+                    <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
+                        share feedback
+                    </a>{' '}
+                    with us!
+                </p>
                 <Divider />
                 <h2 style={{ color: 'var(--danger)' }}>Danger Zone</h2>
                 <DeleteProject />
