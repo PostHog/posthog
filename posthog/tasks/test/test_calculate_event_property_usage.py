@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from posthog.api.test.base import BaseTest
 from posthog.models import DashboardItem, Event
 from posthog.models.team import Team
-from posthog.tasks.calculate_event_property_usage import CalculateEventPropertyUsage, calculate_event_property_usage
+from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
 
 def test_calculate_event_property_usage(create_event: Callable) -> Callable:
@@ -14,7 +14,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
             self.team.event_names = ["$pageview", "custom event"]
             self.team.event_properties = ["$current_url", "team_id", "value"]
             self.team.save()
-            team2 = Team.objects.create(name="team 2", event_names=["$pageview"], event_properties=["$current_url"])
+            team2 = Team.objects.create()
             with freeze_time("2020-08-01"):
                 # ignore stuff older than 30 days
                 DashboardItem.objects.create(
@@ -81,11 +81,8 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                     },
                 )
 
-                # First team will fall in the cutoff so the low volume/high volume path for clickhouse will be tested
-                cls = CalculateEventPropertyUsage(clickhouse_volume_cutoff=2)
-                cls.run()
+                calculate_event_property_usage_for_team(self.team.pk)
             team = Team.objects.get(pk=self.team.pk)
-            team2 = Team.objects.get(pk=team2.pk)
             self.assertEqual(
                 team.event_names_with_usage,
                 [
@@ -100,9 +97,6 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                     {"key": "team_id", "usage_count": 1, "volume": 1},
                     {"key": "value", "usage_count": 0, "volume": 0},
                 ],
-            )
-            self.assertEqual(
-                team2.event_properties_with_usage, [{"key": "$current_url", "usage_count": 1, "volume": 1},],
             )
 
     return Test
