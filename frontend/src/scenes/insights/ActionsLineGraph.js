@@ -35,7 +35,7 @@ export function ActionsLineGraph({
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
-                type="line"
+                type={filters.shown_as === 'Lifecycle' ? 'bar' : 'line'}
                 color={color}
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}

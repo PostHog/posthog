@@ -833,7 +833,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, 2, 1, 0, 2, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
                 elif res["status"] == "returning":
                     self.assertEqual(res["data"], [1, 1, 0, 0, 0, 0, 0, 0])
                 elif res["status"] == "resurrecting":
@@ -902,7 +902,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, 2, 1, 0, 2, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
                 elif res["status"] == "returning":
                     self.assertEqual(res["data"], [1, 1, 0, 0, 0, 0, 0, 0])
                 elif res["status"] == "resurrecting":
@@ -970,7 +970,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, 2, 1, 0, 2, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
                 elif res["status"] == "returning":
                     self.assertEqual(res["data"], [1, 1, 0, 0, 0, 0, 0, 0])
                 elif res["status"] == "resurrecting":

@@ -224,31 +224,36 @@ export function LineGraph({
                           },
                           scales: {
                               xAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                          padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                                      },
-                                  },
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: {
+                                                autoSkip: true,
+                                                beginAtZero: true,
+                                                min: 0,
+                                                fontColor: axisLabelColor,
+                                                precision: 0,
+                                                padding: annotationsLoading || !annotationInRange ? 0 : 35,
+                                            },
+                                        },
                               ],
                               yAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                      },
-                                  },
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: {
+                                                autoSkip: true,
+                                                beginAtZero: true,
+                                                min: 0,
+                                                fontColor: axisLabelColor,
+                                                precision: 0,
+                                            },
+                                            stacked: true,
+                                        },
                               ],
                           },
                           onClick: (_, [point]) => {

@@ -20,6 +20,9 @@ export function ShownAsFilter({ filters, onChange }) {
                         <Select.Option data-attr="shownas-stickiness-option" value={'Stickiness'}>
                             {'Stickiness'}
                         </Select.Option>
+                        <Select.Option data-attr="shownas-lifecycle-option" value={'Lifecycle'}>
+                            {'Lifecycle'}
+                        </Select.Option>
                     </Select>
                 </Tooltip>
             </Row>

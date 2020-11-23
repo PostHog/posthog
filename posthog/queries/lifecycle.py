@@ -25,7 +25,11 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                       FROM unnest(ARRAY ['new', 'returning', 'resurrecting', 'dormant']) status
                   ) as sec
              UNION ALL
-             SELECT subsequent_day, count(DISTINCT person_id) counts, status
+             SELECT subsequent_day, 
+                        CASE WHEN status = 'dormant' THEN count(DISTINCT person_id) * -1
+                        ELSE count(DISTINCT person_id) 
+                        END as counts, 
+                        status
              FROM (
                       SELECT pdi.person_id, e.subsequent_day, e.status
                       FROM (

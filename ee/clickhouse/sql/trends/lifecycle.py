@@ -1,6 +1,6 @@
 LIFECYCLE_SQL = """
 SELECT groupArray(day_start), groupArray(counts), status FROM (
-    SELECT SUM(counts) as counts, day_start, status
+    SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, day_start, status
     FROM (
         SELECT {trunc_func}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start, toUInt16(0) AS counts, status
         from numbers(%(num_intervals)s) as main
