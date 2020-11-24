@@ -20,6 +20,7 @@ import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/logic'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -31,6 +32,7 @@ function _App(): JSX.Element | null {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     // used for legacy navigation [Sidebar.js]
@@ -40,6 +42,12 @@ function _App(): JSX.Element | null {
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     useEffect(() => {
+        if (!preflight.cloud && preflight.initiated && sceneConfig.unauthenticated) {
+            // If user is on an initiated self-hosted instance, redirect away from unauthenticated routes like signup
+            replace('/')
+            return
+        }
+
         if (user) {
             // If user is already logged in, redirect away from unauthenticated routes like signup
             if (sceneConfig.unauthenticated) {
