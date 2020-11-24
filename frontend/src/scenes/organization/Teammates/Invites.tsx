@@ -106,9 +106,8 @@ function _Invites(): JSX.Element {
             />
         </>
     ) : (
-        <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-            {invitesLoading ? 'Pending Organization Invites…' : 'No Pending Organization Invites'}
+        <div className="text-right">
             <CreateInviteModalWithButton />
-        </h2>
+        </div>
     )
 }
