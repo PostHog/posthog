@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -39,15 +39,15 @@ function _App(): JSX.Element | null {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
-
     useEffect(() => {
-        if (!preflight.cloud && preflight.initiated && sceneConfig.unauthenticated) {
-            // If user is on an initiated self-hosted instance, redirect away from unauthenticated routes like signup
-            replace('/')
+        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+            // If user is on an initiated self-hosted instance, redirect away from signup
+            replace('/login')
             return
         }
+    }, [scene, preflight])
 
+    useEffect(() => {
         if (user) {
             // If user is already logged in, redirect away from unauthenticated routes like signup
             if (sceneConfig.unauthenticated) {
@@ -75,10 +75,12 @@ function _App(): JSX.Element | null {
         }
     }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
+    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
+
     if (!user) {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <Scene {...params} /> <Toast />
+                <SceneComponent {...params} /> <Toast />
             </Layout>
         ) : null
     }
@@ -87,7 +89,7 @@ function _App(): JSX.Element | null {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
-                <Scene user={user} {...params} />
+                <SceneComponent user={user} {...params} />
                 <Toast />
             </Layout>
         )
@@ -122,7 +124,7 @@ function _App(): JSX.Element | null {
                         !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
                             <SendEventsOverlay />
                         ) : (
-                            <Scene user={user} {...params} />
+                            <SceneComponent user={user} {...params} />
                         )}
                         <Toast />
                     </Layout.Content>
