@@ -13,6 +13,7 @@ from posthog.decorators import CacheType
 from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
+from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,12 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
     filter_dict = json.loads(payload["filter"])
     filter = Filter(data=filter_dict)
     if cache_type == CacheType.TRENDS:
-        result = _calculate_trends(filter, int(payload["team_id"]))
+        result = _calculate_trends(filter, key, int(payload["team_id"]))
     elif cache_type == CacheType.FUNNEL:
-        result = _calculate_funnel(filter, int(payload["team_id"]))
+        result = _calculate_funnel(filter, key, int(payload["team_id"]))
 
     if result:
-        cache.set(key, {"result": result, "details": payload, "type": cache_type}, 25 * 60)
+        cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
 
 
 def update_cached_items() -> None:
@@ -42,16 +43,13 @@ def update_cached_items() -> None:
         .exclude(dashboard__deleted=True)
         .exclude(refreshing=True)
         .exclude(deleted=True)
+        .distinct("filters_hash")
     )
 
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
         filter = Filter(data=item.filters)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)
-
-        # if task is logged and loading leave it alone
-        if curr_data and curr_data.get("task_id", None):
-            continue
 
         cache_type = CacheType.FUNNEL if filter.insight == "FUNNELS" else CacheType.TRENDS
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
@@ -62,18 +60,18 @@ def update_cached_items() -> None:
     taskset.apply_async()
 
 
-def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+def _calculate_trends(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
     actions = Action.objects.filter(team_id=team_id)
     actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
+    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
     result = Trends().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
 
-def _calculate_funnel(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
+def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
+    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
     result = Funnel(filter=filter, team=Team(pk=team_id)).run()
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)

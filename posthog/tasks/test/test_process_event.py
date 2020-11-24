@@ -72,6 +72,20 @@ def test_process_event_factory(
             self.assertEqual(elements[1].order, 1)
             self.assertEqual(elements[1].text, "💻")
             self.assertEqual(event.distinct_id, "2")
+            team = Team.objects.get()
+            self.assertEqual(team.event_names, ["$autocapture"])
+            self.assertEqual(
+                team.event_names_with_usage, [{"event": "$autocapture", "volume": None, "usage_count": None,}]
+            )
+            self.assertEqual(team.event_properties, ["distinct_id", "token", "$ip"])
+            self.assertEqual(
+                team.event_properties_with_usage,
+                [
+                    {"key": "distinct_id", "usage_count": None, "volume": None},
+                    {"key": "token", "usage_count": None, "volume": None},
+                    {"key": "$ip", "usage_count": None, "volume": None},
+                ],
+            )
 
         def test_capture_no_element(self) -> None:
             user = self._create_user("tim")
