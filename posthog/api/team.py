@@ -12,7 +12,6 @@ from rest_framework import (
     request,
     response,
     serializers,
-    status,
     viewsets,
 )
 from rest_framework.decorators import action
@@ -22,6 +21,7 @@ from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
     CREATE_METHODS,
+    UninitiatedOrCloudOnly,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -173,4 +173,4 @@ class TeamSignupSerializer(serializers.Serializer):
 
 class TeamSignupViewset(generics.CreateAPIView):
     serializer_class = TeamSignupSerializer
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = [UninitiatedOrCloudOnly]

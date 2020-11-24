@@ -1,10 +1,10 @@
-from typing import Optional
-
+from posthog.models.user import User
 from django.db.models import Model
+from django.conf import settings
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
-from posthog.models import Organization, OrganizationMembership, organization
+from posthog.models import Organization, OrganizationMembership
 
 CREATE_METHODS = ["POST", "PUT"]
 
@@ -18,6 +18,15 @@ def extract_organization(object: Model) -> Organization:
         raise ValueError(
             "Object not compatible with organization-based permissions, as it does not have field `organization`!"
         )
+
+
+class UninitiatedOrCloudOnly(BasePermission):
+    """Only enable endpoint on uninitiated instances or on PostHog Cloud."""
+
+    message = "This endpoint is unavailable on initiated self-hosted instances of PostHog."
+
+    def has_permission(self, request: Request, view) -> bool:
+        return settings.MULTI_TENANCY or not User.objects.exists()
 
 
 class ProjectMembershipNecessaryPermissions(BasePermission):
