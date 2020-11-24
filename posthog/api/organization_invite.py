@@ -45,12 +45,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             organization_id=self.context["organization_id"], user__email=validated_data["target_email"]
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
-        if OrganizationInvite.objects.filter(
-            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
-        ).exists():
-            raise exceptions.ValidationError(
-                "An invite intended for this email already is active in this organization."
-            )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
