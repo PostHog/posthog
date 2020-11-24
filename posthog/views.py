@@ -1,3 +1,4 @@
+from posthog.models import User
 from typing import Dict, Union
 
 from django.conf import settings
@@ -99,4 +100,12 @@ def system_status(request):
 
 @never_cache
 def preflight_check(request):
-    return JsonResponse({"django": True, "redis": is_redis_alive() or TEST, "db": is_postgres_alive()})
+    return JsonResponse(
+        {
+            "django": True,
+            "redis": is_redis_alive() or TEST,
+            "db": is_postgres_alive(),
+            "initiated": User.objects.exists(),
+            "cloud": settings.MULTI_TENANCY,
+        }
+    )
