@@ -2,8 +2,13 @@ import secrets
 import string
 from typing import Optional
 
-import yaml
-from yaml.loader import FullLoader
+try:
+    import yaml
+    from yaml.loader import FullLoader
+except ImportError:
+    raise ImportError(
+        "Missing pyyaml! Install it with command `python3 -m pip install pyyaml` to run this configurator."
+    )
 
 FILE_PATH = "docker-compose.yml"
 
@@ -76,4 +81,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nConfiguration canceled.")

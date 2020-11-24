@@ -121,7 +121,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         )
 
     def test_deleting_feature_flag(self):
-        new_user = User.objects.create_and_join(self.organization, self.team, "new_annotations@posthog.com", None)
+        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)

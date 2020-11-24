@@ -15,6 +15,7 @@ class ClickhousePathsViewSet(PathsViewSet):
     def elements(self, request: request.Request):
 
         team = request.user.team
+        assert team is not None
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
 
         resp = []

@@ -17,15 +17,15 @@ class TestMixin:
     team: Team
 
     def _create_user(self, email: str, password: Optional[str] = None, name: str = "", **kwargs) -> User:
-        return User.objects.create_and_join(self.organization, self.team, email, password, name, **kwargs)
+        return User.objects.create_and_join(self.organization, email, password, name, **kwargs)
 
     def setUp(self):
         super().setUp()  # type: ignore
         self.organization: Organization = Organization.objects.create(name=self.TESTS_COMPANY_NAME)
         self.team: Team = Team.objects.create(organization=self.organization, api_token=self.TESTS_API_TOKEN)
         if self.TESTS_EMAIL:
-            self.user = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
-            self.organization_membership = self.user.organization_memberships.get()
+            self.user: User = self._create_user(self.TESTS_EMAIL, self.TESTS_PASSWORD)
+            self.organization_membership: OrganizationMembership = self.user.organization_memberships.get()
         if self.TESTS_API:
             self.client = Client()
             if self.TESTS_FORCE_LOGIN and self.TESTS_EMAIL:
@@ -70,10 +70,9 @@ class APIBaseTest(ErrorResponsesMixin, APITestCase):
     def _create_user(self, email: str, password: Optional[str] = None, **kwargs) -> User:
         return User.objects.create_and_join(
             organization=self.organization,
-            team=self.team,
             email=email,
             password=password,
-            level=OrganizationMembership.Level.ADMIN,
+            level=OrganizationMembership.Level.OWNER,
             **kwargs,
         )
 

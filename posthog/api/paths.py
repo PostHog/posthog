@@ -1,14 +1,18 @@
 from django.db import connection
 from rest_framework import request, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.models import Event, Filter
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
 class PathsViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
 
@@ -17,6 +21,7 @@ class PathsViewSet(viewsets.ViewSet):
 
     def get_elements(self, request: request.Request):
         team = request.user.team
+        assert team is not None
         all_events = Event.objects.filter(team=team, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 

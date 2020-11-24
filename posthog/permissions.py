@@ -20,6 +20,24 @@ def extract_organization(object: Model) -> Organization:
         )
 
 
+class ProjectMembershipNecessaryPermissions(BasePermission):
+    """Require organization and project membership to access endpoint."""
+
+    message = "You don't belong to any organization that has a project."
+
+    def has_permission(self, request: Request, view) -> bool:
+        return request.user.team is not None
+
+
+class OrganizationMembershipNecessaryPermissions(BasePermission):
+    """Require organization membership to access endpoint."""
+
+    message = "You don't belong to any organization."
+
+    def has_permission(self, request: Request, view) -> bool:
+        return request.user.organization is not None
+
+
 class OrganizationMemberPermissions(BasePermission):
     """Require organization membership to access object."""
 

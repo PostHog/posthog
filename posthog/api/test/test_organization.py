@@ -58,12 +58,12 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk")[0]
-        team: Team = user.team
-        organization: Organization = user.organization
-        self.assertDictContainsSubset(
+        user = cast(User, User.objects.order_by("-pk")[0])
+        team = cast(Team, user.team)
+        organization = cast(Organization, user.organization)
+        self.assertEqual(
+            response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "John", "email": "hedgehog@posthog.com"},
-            cast(dict, response.data),
         )
 
         # Assert that the user was properly created
@@ -102,11 +102,11 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        user: User = User.objects.order_by("-pk").get()
-        organization: Organization = user.organization
-        self.assertDictContainsSubset(
+        user = cast(User, User.objects.order_by("-pk").get())
+        organization = cast(Organization, user.organization)
+        self.assertEqual(
+            response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "name": "Jane", "email": "hedgehog2@posthog.com",},
-            cast(dict, response.data),
         )
 
         # Assert that the user was properly created

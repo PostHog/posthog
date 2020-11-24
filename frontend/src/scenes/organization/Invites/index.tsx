@@ -71,7 +71,7 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
             render: function InviteLink(id: string): JSX.Element {
                 const url = new URL(`/signup/${id}`, document.baseURI).href
                 return (
-                    <CopyToClipboardInline data-attr="invite-link" description="invite URL">
+                    <CopyToClipboardInline data-attr="invite-link" description="invite link">
                         {url}
                     </CopyToClipboardInline>
                 )

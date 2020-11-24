@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, status, viewsets
 
 from posthog.models import Organization
+from posthog.models.organization import OrganizationMembership
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 
@@ -16,9 +17,13 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         if (
+            # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and not request.user.organization.is_feature_available("organizations_projects")
+            and (
+                request.user.organization is None
+                or not request.user.organization.is_feature_available("organizations_projects")
+            )
             and request.user.organizations.count() >= 1
         ):
             return False
@@ -27,20 +32,26 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     teams = serializers.SerializerMethodField(read_only=True)
+    membership_level = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "updated_at", "teams", "available_features"]
+        fields = ["id", "name", "created_at", "updated_at", "teams", "available_features", "membership_level"]
         read_only_fields = ["id", "created_at", "updated_at", "available_features"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        request = self.context["request"]
-        organization, _, _ = Organization.objects.bootstrap(request.user, **validated_data)
+        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
 
     def get_teams(self, organization: Organization) -> List[dict]:
         return [row for row in organization.teams.order_by("-created_at").values("name", "id")]  # type: ignore
+
+    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+        membership = OrganizationMembership.objects.filter(
+            organization=organization, user=self.context["request"].user
+        ).first()
+        return membership.level if membership is not None else None
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -65,15 +76,15 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         self.perform_destroy(instance)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    def get_queryset(self) -> QuerySet:
+        return self.request.user.organizations.all()
+
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             return self.request.user.organization
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, obj)
-        return obj
-
-    def get_queryset(self) -> QuerySet:
-        return self.request.user.organizations.all()
+        organization = get_object_or_404(queryset, **filter_kwargs)
+        self.check_object_permissions(self.request, organization)
+        return organization

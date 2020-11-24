@@ -8,7 +8,7 @@ export function OptInSessionRecording(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <div>
+        <div style={{ marginBottom: '1em' }}>
             <Switch
                 data-attr="opt-in-session-recording-switch"
                 onChange={(checked) => {

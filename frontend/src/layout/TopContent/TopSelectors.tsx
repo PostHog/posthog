@@ -95,6 +95,10 @@ export function Organization(): JSX.Element {
                                         'multiple organizations',
                                         () => {
                                             setIsModalVisible(true)
+                                        },
+                                        {
+                                            cloud: false,
+                                            selfHosted: true,
                                         }
                                     )
                                 }}
