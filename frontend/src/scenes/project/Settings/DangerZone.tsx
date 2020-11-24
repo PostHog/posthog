@@ -30,12 +30,18 @@ export function DangerZone(): JSX.Element {
 
     let accessRestrictionReason: string | null = null
     if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
-        accessRestrictionReason = 'This section is restricted to users at or above administrator level.'
+        accessRestrictionReason = 'This section is restricted to administrators.'
 
     const Content = (
-        <Button type="primary" danger onClick={confirmDeleteProject}>
-            Delete Project
-        </Button>
+        <>
+            <div className="mt">
+                <Button type="primary" danger onClick={confirmDeleteProject} className="mr-05">
+                    Delete Project
+                </Button>
+                This will permanently delete your project plus <b>all the data and events</b> associated to it. Please
+                be certain.
+            </div>
+        </>
     )
 
     return accessRestrictionReason ? (
