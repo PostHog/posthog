@@ -1,10 +1,10 @@
-from posthog.models.user import User
-from django.db.models import Model
 from django.conf import settings
+from django.db.models import Model
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.models import Organization, OrganizationMembership
+from posthog.models.user import User
 
 CREATE_METHODS = ["POST", "PUT"]
 

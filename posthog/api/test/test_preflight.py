@@ -1,5 +1,6 @@
-from posthog.models import User
 from rest_framework import status
+
+from posthog.models import User
 
 from .base import BaseTest
 

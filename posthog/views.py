@@ -1,4 +1,3 @@
-from posthog.models import User
 from typing import Dict, Union
 
 from django.conf import settings
@@ -8,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.models import User
 from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,

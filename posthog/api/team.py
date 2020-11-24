@@ -5,15 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    generics,
-    permissions,
-    request,
-    response,
-    serializers,
-    viewsets,
-)
+from rest_framework import exceptions, generics, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.user import UserSerializer
@@ -21,10 +13,10 @@ from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
     CREATE_METHODS,
-    UninitiatedOrCloudOnly,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
+    UninitiatedOrCloudOnly,
 )
 
 

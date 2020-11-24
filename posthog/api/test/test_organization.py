@@ -1,4 +1,3 @@
-from posthog.settings import MULTI_TENANCY
 from typing import cast
 from unittest.mock import patch
 
@@ -6,6 +5,7 @@ from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
+from posthog.settings import MULTI_TENANCY
 
 from .base import APIBaseTest
 
