@@ -45,9 +45,9 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         distinct_id = str(UUIDT())
         distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
 
-        # Add first user more 3 distinct id's
+        # Add first user more 2 distinct id's
         if index == 0:
-            for i in range(0, 3):
+            for i in range(0, 2):
                 distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=str(UUIDT())))
 
         date = now() - relativedelta(days=days_ago)
