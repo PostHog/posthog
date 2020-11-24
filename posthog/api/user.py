@@ -3,7 +3,6 @@ import os
 import secrets
 import urllib.parse
 from typing import Any, Dict, List, Optional, Union, cast
-from typing import Optional, cast
 
 import posthoganalytics
 from django.conf import settings

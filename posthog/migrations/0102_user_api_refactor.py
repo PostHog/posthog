@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0100_action_step_max_length"),
+        ("posthog", "0101_org_owners"),
     ]
 
     operations = [

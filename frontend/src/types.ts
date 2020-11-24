@@ -61,7 +61,7 @@ export interface OrganizationMemberType {
     membership_id: string
     updated_at: string
     user_email: string
-    user_first_name: string
+    user_name: string
     user_id: number
 }
 

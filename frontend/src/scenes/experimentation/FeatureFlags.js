@@ -48,9 +48,7 @@ function _FeatureFlags() {
                 return featureFlag.created_by.name || featureFlag.created_by.email
             },
             sorter: (a, b) =>
-                (a.created_by.first_name || a.created_by.email).localeCompare(
-                    b.created_by.first_name || b.created_by.email
-                ),
+                (a.created_by.name || a.created_by.email).localeCompare(b.created_by.name || b.created_by.email),
         },
         {
             title: 'Rollout Percentage',

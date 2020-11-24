@@ -7,15 +7,7 @@ from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.db.models import Model
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    generics,
-    permissions,
-    request,
-    response,
-    serializers,
-    viewsets,
-)
+from rest_framework import exceptions, generics, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework.utils import model_meta
@@ -23,13 +15,13 @@ from rest_framework.utils import model_meta
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import OrganizationAdminWriteSpecialPutPermissions, OrganizationMemberPermissions
-from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.permissions import (
     CREATE_METHODS,
+    OrganizationAdminWriteSpecialPutPermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
 )
+from posthog.plugins.reload import reload_plugins_on_workers
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):

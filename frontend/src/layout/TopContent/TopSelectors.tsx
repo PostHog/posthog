@@ -89,7 +89,7 @@ export function Organization(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        user?.organization,
+                                        user,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple organizations',
@@ -154,7 +154,7 @@ export function Projects(): JSX.Element {
                                 href="#"
                                 onClick={() => {
                                     guardPremiumFeature(
-                                        user?.organization,
+                                        user,
                                         showUpgradeModal,
                                         'organizations_projects',
                                         'multiple projects',

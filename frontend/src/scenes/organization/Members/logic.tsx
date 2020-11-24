@@ -46,7 +46,7 @@ export const membersLogic = kea<membersLogicType>({
             toast(
                 <div>
                     <h1 className="text-success">
-                        <CheckCircleOutlined /> Made <b>{member.user_first_name}</b> organization{' '}
+                        <CheckCircleOutlined /> Made <b>{member.user_name}</b> organization{' '}
                         {organizationMembershipLevelToName.get(level)}.
                     </h1>
                 </div>
