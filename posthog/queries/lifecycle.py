@@ -162,8 +162,8 @@ ON posthog_event.id = posthog_action_events.event_id
 
 
 def get_interval(period: str) -> Union[timedelta, relativedelta]:
-    if period == "minute":
-        return timedelta(minutes=1)
+    if period == "hour":
+        return timedelta(hours=1)
     elif period == "day":
         return timedelta(days=1)
     elif period == "week":
@@ -251,7 +251,6 @@ class LifecycleTrend:
                 additional_values = {"label": label, "status": val[2]}
                 parsed_result = parse_response(val, filter, additional_values)
                 res.append(parsed_result)
-
         return res
 
 

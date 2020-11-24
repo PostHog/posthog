@@ -32,7 +32,7 @@ export function ActionsLineGraph({
     }, [toParams(otherFilters)])
 
     return results && !resultsLoading ? (
-        filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
+        filters.session || results.reduce((total, item) => total + item.count, 0) !== 0 ? (
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
