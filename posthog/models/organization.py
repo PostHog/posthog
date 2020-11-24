@@ -179,7 +179,7 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
-        self.delete()
+        self.objects.filter(target_email=self.target_email).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than 3 days."""
