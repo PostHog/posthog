@@ -32,8 +32,11 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType>({
         tags: [
             ['activating', 'watched', 'deleted'] as string[], // TODO: Temp values for testing
             {
-                createTag: () => {
+                createTag: async () => {
                     const newTag = [values.addingTag]
+                    const promise = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 3000)) // TODO: Temp to simulate loading
+                    await promise()
+
                     actions.toggleAddingTagShown()
                     return values.tags.concat(newTag)
                 },

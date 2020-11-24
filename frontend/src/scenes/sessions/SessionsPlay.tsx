@@ -9,16 +9,18 @@ import {
     UserOutlined,
     FieldTimeOutlined,
     PlusOutlined,
+    SyncOutlined,
 } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { hot } from 'react-hot-loader/root'
 import { colorForString } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
+import { IconExternalLink } from 'lib/components/icons'
 
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
-    const { addingTagShown, addingTag, tags } = useValues(sessionsPlayLogic)
+    const { addingTagShown, addingTag, tags, tagsLoading } = useValues(sessionsPlayLogic)
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
@@ -64,8 +66,9 @@ function _SessionsPlay(): JSX.Element {
                         </div>
                         <div>
                             <UserOutlined style={{ marginRight: 4 }} />
-                            <Link to="" target="_blank">
-                                marius@posthog.com
+                            <Link to="" target="_blank" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                                <span style={{ marginRight: 4 }}>marius@posthog.com</span>
+                                <IconExternalLink />
                             </Link>
                         </div>
                         <div className="mt">
@@ -103,10 +106,12 @@ function _SessionsPlay(): JSX.Element {
                                     size="small"
                                     onBlur={toggleAddingTagShown}
                                     ref={addTagInput}
-                                    style={{ width: 78, display: !addingTagShown ? 'none' : 'initial' }}
+                                    style={{ width: 78, display: !addingTagShown ? 'none' : 'flex' }}
                                     value={addingTag}
                                     onChange={(e) => setAddingTag(e.target.value)}
                                     onPressEnter={createTag}
+                                    disabled={tagsLoading}
+                                    prefix={tagsLoading ? <SyncOutlined spin /> : null}
                                 />
                             </span>
                         </div>
