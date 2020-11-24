@@ -1,5 +1,5 @@
 import React from 'react'
-import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
+import { Table, Modal, Button, Dropdown, Menu, Tooltip, Card, Divider } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './logic'
 import {
@@ -13,13 +13,13 @@ import {
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
-import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { Invites } from '../Invites'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -214,18 +214,22 @@ function _Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Organization Members"
-                caption="View and manage all organization members here. Build an even better product together."
+                title="Teammates"
+                caption="View and manage teammates here. Build an even better product together."
             />
-            <CreateOrgInviteModalWithButton />
-            <Table
-                dataSource={members}
-                columns={columns}
-                rowKey="membership_id"
-                pagination={false}
-                style={{ marginTop: '1rem' }}
-                loading={membersLoading}
-            />
+            <Card>
+                <Invites user={user} />
+                <Divider />
+                <h2 className="subtitle">Organization Members</h2>
+                <Table
+                    dataSource={members}
+                    columns={columns}
+                    rowKey="membership_id"
+                    pagination={false}
+                    style={{ marginTop: '1rem' }}
+                    loading={membersLoading}
+                />
+            </Card>
         </>
     )
 }

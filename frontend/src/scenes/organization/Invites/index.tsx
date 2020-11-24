@@ -1,46 +1,57 @@
-import React, { useCallback } from 'react'
+import React from 'react'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './logic'
-import { CreateOrgInviteModalWithButton } from './CreateOrgInviteModal'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
-import { UserType } from '~/types'
+import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { PageHeader } from 'lib/components/PageHeader'
+import { CreateOrgInviteModalWithButton } from './CreateOrgInviteModal'
 
+function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
+    const url = new URL(`/signup/${id}`, document.baseURI).href
+    return invite.is_expired ? (
+        <b>Expired! Delete and recreate</b>
+    ) : (
+        <CopyToClipboardInline data-attr="invite-link" description="invite link">
+            {url}
+        </CopyToClipboardInline>
+    )
+}
+
+function makeActionsComponent(
+    deleteInvite: (invite: OrganizationInviteType) => void
+): (_: any, invite: OrganizationInviteType) => JSX.Element {
+    return function ActionsComponent(_, invite: OrganizationInviteType): JSX.Element {
+        return (
+            <div>
+                <a
+                    className="text-danger"
+                    onClick={() => {
+                        invite.is_expired
+                            ? deleteInvite(invite)
+                            : Modal.confirm({
+                                  title: `Delete invite for ${invite.target_email}?`,
+                                  icon: <ExclamationCircleOutlined />,
+                                  okText: 'Delete',
+                                  okType: 'danger',
+                                  onOk() {
+                                      deleteInvite(invite)
+                                  },
+                              })
+                    }}
+                >
+                    <DeleteOutlined />
+                </a>
+            </div>
+        )
+    }
+}
 export const Invites = hot(_Invites)
-function _Invites({ user }: { user: UserType }): JSX.Element {
+function _Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(invitesLogic)
     const { deleteInvite } = useActions(invitesLogic)
-    const { confirm } = Modal
-
-    const ActionsComponent = useCallback(
-        (_text, invite) => {
-            function handleClick(): void {
-                confirm({
-                    title: `Delete invite?`,
-                    icon: <ExclamationCircleOutlined />,
-                    okText: 'Delete',
-                    okType: 'danger',
-                    cancelText: 'Cancel',
-                    onOk() {
-                        deleteInvite(invite)
-                    },
-                })
-            }
-
-            return (
-                <div>
-                    <a className="text-danger" onClick={handleClick}>
-                        <DeleteOutlined />
-                    </a>
-                </div>
-            )
-        },
-        [user]
-    )
 
     const columns = [
         {
@@ -65,31 +76,26 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
                 `${createdByFirstName} (${invite.created_by_email})`,
         },
         {
-            title: 'Link',
+            title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: function InviteLink(id: string): JSX.Element {
-                const url = new URL(`/signup/${id}`, document.baseURI).href
-                return (
-                    <CopyToClipboardInline data-attr="invite-link" description="invite link">
-                        {url}
-                    </CopyToClipboardInline>
-                )
-            },
+            render: InviteLinkComponent,
         },
         {
             title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
-            render: ActionsComponent,
+            render: makeActionsComponent(deleteInvite),
         },
     ]
 
-    return (
+    return invites.length ? (
         <>
-            <PageHeader title="Organization Invites" caption="Create, send out, and delete organization invites." />
-            <CreateOrgInviteModalWithButton />
+            <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
+                Pending Organization Invites
+                <CreateOrgInviteModalWithButton />
+            </h2>
             <Table
                 dataSource={invites}
                 columns={columns}
@@ -99,5 +105,10 @@ function _Invites({ user }: { user: UserType }): JSX.Element {
                 style={{ marginTop: '1rem' }}
             />
         </>
+    ) : (
+        <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
+            {invitesLoading ? 'Pending Organization Invites…' : 'No Pending Organization Invites'}
+            <CreateOrgInviteModalWithButton />
+        </h2>
     )
 }
