@@ -75,7 +75,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                         : []
                 }
                 const urlParams = toParams(params)
-                const res = await api.get(`api/projects/@current/insights/retention/?${urlParams}`)
+                const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
                 return res
             },
@@ -86,7 +86,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 const people = values.retention.data[rowIndex].values[0].people
 
                 if (people.length === 0) return []
-                const results = (await api.get('api/projects/@current/persons/?id=' + people.join(','))).results
+                const results = (await api.get('api/person/?id=' + people.join(','))).results
                 results.sort(function (a, b) {
                     return people.indexOf(a.id) - people.indexOf(b.id)
                 })
@@ -247,7 +247,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
                 if (next) {
                     const params = toParams({ id: next, offset })
-                    const referenceResults = await api.get(`api/projects/@current/persons/references/?${params}`)
+                    const referenceResults = await api.get(`api/person/references/?${params}`)
                     const retentionCopy = { ...values.retention }
                     if (referenceResults.offset) {
                         retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
@@ -267,7 +267,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         },
         loadMorePeople: async ({ selectedIndex, peopleIds }) => {
             if (peopleIds.length === 0) actions.updatePeople(selectedIndex, [])
-            const peopleResult = (await api.get('api/projects/@current/persons/?id=' + peopleIds.join(','))).results
+            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
             peopleResult.sort(function (a, b) {
                 return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
             })

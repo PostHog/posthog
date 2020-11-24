@@ -162,14 +162,12 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
                 response = await api.update(
                     `${apiURL}${
                         apiURL.endsWith('/') ? '' : '/'
-                    }api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
+                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`,
                     actionToSave
                 )
             } else {
                 response = await api.create(
-                    `${apiURL}${
-                        apiURL.endsWith('/') ? '' : '/'
-                    }api/projects/@current/actions/?temporary_token=${temporaryToken}`,
+                    `${apiURL}${apiURL.endsWith('/') ? '' : '/'}api/action/?temporary_token=${temporaryToken}`,
                     actionToSave
                 )
             }
@@ -210,7 +208,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
                 await api.delete(
                     `${apiURL}${
                         apiURL.endsWith('/') ? '' : '/'
-                    }api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
+                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`
                 )
 
                 actionsLogic.actions.deleteAction({ id: selectedActionId })

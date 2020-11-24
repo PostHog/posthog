@@ -50,7 +50,7 @@ export const pathsLogic = kea({
                 loadPaths: async (_, breakpoint) => {
                     const filter = { ...values.filter, properties: values.properties }
                     const params = toParams(filter)
-                    const paths = await api.get(`api/projects/@current/insights/path${params ? `/?${params}` : ''}`)
+                    const paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                     breakpoint()
                     return { paths, filter }
                 },

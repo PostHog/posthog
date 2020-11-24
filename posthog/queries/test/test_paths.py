@@ -89,27 +89,19 @@ def paths_test_factory(paths, event_factory, person_factory):
 
             with freeze_time("2012-01-15T03:21:34.000Z"):
                 date_from = now() - relativedelta(days=7)
-                response = self.client.get(
-                    "/api/projects/@current/paths/?date_from=" + date_from.strftime("%Y-%m-%d")
-                ).json()
+                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
                 self.assertEqual(len(response), 4)
 
                 date_to = now()
-                response = self.client.get(
-                    "/api/projects/@current/paths/?date_to=" + date_to.strftime("%Y-%m-%d")
-                ).json()
+                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
                 self.assertEqual(len(response), 4)
 
                 date_from = now() + relativedelta(days=7)
-                response = self.client.get(
-                    "/api/projects/@current/paths/?date_from=" + date_from.strftime("%Y-%m-%d")
-                ).json()
+                response = self.client.get("/api/paths/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
                 self.assertEqual(len(response), 0)
 
                 date_to = now() - relativedelta(days=7)
-                response = self.client.get(
-                    "/api/projects/@current/paths/?date_to=" + date_to.strftime("%Y-%m-%d")
-                ).json()
+                response = self.client.get("/api/paths/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
                 self.assertEqual(len(response), 0)
 
                 date_from = now() - relativedelta(days=7)
@@ -298,7 +290,7 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertEqual(response[2]["target"], "3_<a> goodbye1")
             self.assertEqual(response[2]["value"], 1)
 
-            elements = self.client.get("/api/projects/@current/paths/elements/").json()
+            elements = self.client.get("/api/paths/elements/").json()
             self.assertEqual(elements[0]["name"], "<a> goodbye1")  # first since captured twice
             self.assertEqual(elements[1]["name"], "<a> goodbye")
             self.assertEqual(elements[2]["name"], "<a> hello")
@@ -425,7 +417,7 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
             )
 
-            response = self.client.get("/api/projects/@current/paths/?type=%24pageview&start=%2Fpricing").json()
+            response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
 
             response = paths().run(
                 team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),

@@ -37,7 +37,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                             }
                             return result
                         }, [] as string[])
-                    const dest = `${url || 'api/projects/@current/persons/'}${qs.length ? '?' + qs.join('&') : ''}`
+                    const dest = `${url || 'api/person/'}${qs.length ? '?' + qs.join('&') : ''}`
                     return await api.get(dest)
                 },
             },

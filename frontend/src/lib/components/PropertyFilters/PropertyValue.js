@@ -31,15 +31,15 @@ export function PropertyValue({
             })
             setOptionsCache({ ...optionsCache, [value]: true })
         } else {
-            api.get(
-                endpoint || 'api/projects/@current/' + type + 's/values/?key=' + key + (value ? '&value=' + value : '')
-            ).then((propValues) => {
-                setOptions({
-                    [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
-                    ...options,
-                })
-                setOptionsCache({ ...optionsCache, [value]: true })
-            })
+            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+                (propValues) => {
+                    setOptions({
+                        [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
+                        ...options,
+                    })
+                    setOptionsCache({ ...optionsCache, [value]: true })
+                }
+            )
         }
     }
 

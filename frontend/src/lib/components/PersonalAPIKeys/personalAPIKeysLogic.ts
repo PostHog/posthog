@@ -11,17 +11,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
             [] as PersonalAPIKeyType[],
             {
                 loadKeys: async () => {
-                    const response: PersonalAPIKeyType[] = await api.get('api/personal-api-keys/')
+                    const response: PersonalAPIKeyType[] = await api.get('api/personal_api_key/')
                     return response
                 },
                 createKey: async (label: string) => {
-                    const newKey: PersonalAPIKeyType = await api.create('api/personal-api-keys/', {
+                    const newKey: PersonalAPIKeyType = await api.create('api/personal_api_key/', {
                         label,
                     })
                     return [newKey, ...values.keys]
                 },
                 deleteKey: async (key: PersonalAPIKeyType) => {
-                    await api.delete(`api/personal-api-keys/${key.id}/`)
+                    await api.delete(`api/personal_api_key/${key.id}/`)
                     return (values.keys as PersonalAPIKeyType[]).filter((filteredKey) => filteredKey.id != key.id)
                 },
             },

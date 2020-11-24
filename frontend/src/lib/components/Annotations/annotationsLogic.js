@@ -40,7 +40,7 @@ export const annotationsLogic = kea({
                     scope: 'dashboard_item',
                     deleted: false,
                 }
-                const response = await api.get('api/projects/@current/annotations/?' + toParams(params))
+                const response = await api.get('api/annotation/?' + toParams(params))
                 return response.results
             },
         },
@@ -119,7 +119,7 @@ export const annotationsLogic = kea({
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
-            await api.create('api/projects/@current/annotations', {
+            await api.create('api/annotation', {
                 content,
                 date_marker: moment(date_marker),
                 created_at,
@@ -131,7 +131,7 @@ export const annotationsLogic = kea({
         deleteAnnotation: async ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
-                    endpoint: 'annotations',
+                    endpoint: 'annotation',
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadAnnotations({}),
                 })

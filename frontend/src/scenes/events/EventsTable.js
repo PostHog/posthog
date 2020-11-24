@@ -159,7 +159,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
-                    href={`/api/projects/@current/events.csv?${toParams({
+                    href={`/api/event.csv?${toParams({
                         properties,
                         ...(fixedFilters || {}),
                         ...(eventFilter ? { event: eventFilter } : {}),

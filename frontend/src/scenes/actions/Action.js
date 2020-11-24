@@ -38,7 +38,7 @@ let actionLogic = kea({
         action: {
             loadAction: async () => {
                 actions.setIsComplete(false)
-                let action = await api.get('api/projects/@current/actions/' + props.id)
+                let action = await api.get('api/action/' + props.id)
                 actions.checkIsFinished(action)
                 return action
             },

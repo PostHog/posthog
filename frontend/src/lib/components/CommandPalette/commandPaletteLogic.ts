@@ -228,7 +228,7 @@ export const commandPaletteLogic = kea<
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/projects/@current/persons/?key_identifier=' + input)
+                const response = await api.get('api/person/?key_identifier=' + input)
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
@@ -608,7 +608,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-keys')
+                                        push('/my/settings', {}, 'personal_api_key')
                                     },
                                 }
                             return null

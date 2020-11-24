@@ -11,7 +11,7 @@ class TestFeatureFlag(TransactionBaseTest):
 
     def test_key_exists(self):
         feature_flag = self.client.post(
-            "/api/projects/@current/feature-flags/",
+            "/api/feature_flag/",
             data={"name": "Beta feature", "key": "beta-feature", "rollout_percentage": 50,},
             content_type="application/json",
         ).json()
@@ -20,9 +20,7 @@ class TestFeatureFlag(TransactionBaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/projects/@current/feature-flags",
-            data={"name": "Beta feature", "key": "beta-feature"},
-            content_type="application/json",
+            "/api/feature_flag", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
         ).json()
 
         self.assertEqual(
@@ -35,7 +33,7 @@ class TestFeatureFlag(TransactionBaseTest):
         )
         # try updating into an existing feature flag
         response = self.client.patch(
-            "/api/projects/@current/feature-flags/%s/" % another_feature_flag.pk,
+            "/api/feature_flag/%s/" % another_feature_flag.pk,
             data={"name": "Beta feature", "key": "beta-feature"},
             content_type="application/json",
         ).json()
@@ -46,7 +44,7 @@ class TestFeatureFlag(TransactionBaseTest):
 
         # try updating the existing one
         response = self.client.patch(
-            "/api/projects/@current/feature-flags/%s/" % feature_flag["id"],
+            "/api/feature_flag/%s/" % feature_flag["id"],
             data={"name": "Beta feature 3", "key": "beta-feature"},
             content_type="application/json",
         )
@@ -55,7 +53,7 @@ class TestFeatureFlag(TransactionBaseTest):
 
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
-            "/api/projects/@current/feature-flags/",
+            "/api/feature_flag/",
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -78,8 +76,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/projects/@current/feature-flags/",
-            {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
+            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
@@ -98,7 +95,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/projects/@current/feature-flags/{instance.pk}",
+            f"/api/feature_flag/{instance.pk}",
             {
                 "name": "Updated name",
                 "rollout_percentage": 65,
@@ -129,7 +126,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.client.force_login(new_user)
 
         with patch("posthoganalytics.capture") as mock_capture:
-            response = self.client.delete(f"/api/projects/@current/feature-flags/{instance.pk}/")
+            response = self.client.delete(f"/api/feature_flag/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FeatureFlag.objects.filter(pk=instance.pk).exists())
@@ -147,7 +144,7 @@ class TestAPIFeatureFlag(APIBaseTest):
 
         self.client.force_login(user)
 
-        response = self.client.delete(f"/api/projects/@current/feature-flags/{self.feature_flag.pk}/")
+        response = self.client.delete(f"/api/feature_flag/{self.feature_flag.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(FeatureFlag.objects.filter(pk=self.feature_flag.pk).exists())
 

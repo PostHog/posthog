@@ -25,7 +25,7 @@ function _MySettings(): JSX.Element {
                 </h2>
                 <ChangePassword />
                 <Divider />
-                <h2 id="personal-api-keys" className="subtitle">
+                <h2 id="personal_api_key" className="subtitle">
                     Personal API Keys
                 </h2>
                 <PersonalAPIKeys />

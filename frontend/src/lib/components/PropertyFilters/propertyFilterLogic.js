@@ -34,7 +34,7 @@ export const propertyFilterLogic = kea({
     loaders: () => ({
         personProperties: {
             loadPersonProperties: async () => {
-                return (await api.get('api/projects/@current/persons/properties')).map((property) => ({
+                return (await api.get('api/person/properties')).map((property) => ({
                     label: property.name,
                     value: property.name,
                 }))

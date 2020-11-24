@@ -16,7 +16,7 @@ class TestCohort(BaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/projects/@current/cohorts",
+            "/api/cohort",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
             content_type="application/json",
         )
@@ -25,7 +25,7 @@ class TestCohort(BaseTest):
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
         response = self.client.patch(
-            "/api/projects/@current/cohorts/%s/" % response.json()["id"],
+            "/api/cohort/%s/" % response.json()["id"],
             data={"name": "whatever2", "groups": [{"properties": {"team_id": 6}}]},
             content_type="application/json",
         )

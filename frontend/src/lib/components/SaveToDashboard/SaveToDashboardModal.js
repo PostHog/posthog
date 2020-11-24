@@ -58,7 +58,7 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/projects/@current/dashboard-items', {
+            const response = await api.create('api/dashboard_item', {
                 filters,
                 type,
                 name,
@@ -66,7 +66,7 @@ export function SaveToDashboardModal({
             })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
-                    await api.create('api/projects/@current/annotations', {
+                    await api.create('api/annotation', {
                         content,
                         date_marker: moment(date_marker),
                         created_at,
@@ -76,7 +76,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/projects/@current/dashboard-items/${fromItem}`, { filters, type })
+            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
         }
         toast(
             <div data-attr="success-toast">

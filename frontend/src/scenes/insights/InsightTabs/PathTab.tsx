@@ -39,7 +39,7 @@ export function PathTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Start Point</h4>
             <PropertyValue
-                endpoint={filter?.path_type === AUTOCAPTURE && 'api/projects/@current/paths/elements'}
+                endpoint={filter?.path_type === AUTOCAPTURE && 'api/paths/elements'}
                 outerOptions={
                     filter.type === CUSTOM_EVENT &&
                     customEventNames.map((name) => ({

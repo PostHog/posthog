@@ -26,7 +26,7 @@ function _Person({ _: distinctId, id }) {
 
     useEffect(() => {
         if (distinctId) {
-            api.get(`api/projects/@current/persons/?distinct_id=${distinctId}`).then((response) => {
+            api.get(`api/person/?distinct_id=${distinctId}`).then((response) => {
                 if (response.results.length > 0) {
                     setPerson(response.results[0])
                 } else {
@@ -34,7 +34,7 @@ function _Person({ _: distinctId, id }) {
                 }
             })
         } else {
-            api.get(`api/projects/@current/persons/${id}`).then(setPerson)
+            api.get(`api/person/${id}`).then(setPerson)
         }
     }, [distinctId, id])
 

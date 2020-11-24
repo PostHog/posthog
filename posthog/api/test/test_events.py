@@ -33,7 +33,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
 
             with self.assertNumQueries(10):
-                response = self.client.get("/api/projects/@current/events/?distinct_id=2").json()
+                response = self.client.get("/api/event/?distinct_id=2").json()
             self.assertEqual(response["results"][0]["person"], "tim@posthog.com")
             self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
             self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
@@ -50,7 +50,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
             with self.assertNumQueries(7):
-                response = self.client.get("/api/projects/@current/events/?event=event_name").json()
+                response = self.client.get("/api/event/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
         def test_filter_events_by_properties(self):
@@ -66,8 +66,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
 
             with self.assertNumQueries(7):
                 response = self.client.get(
-                    "/api/projects/@current/events/?properties=%s"
-                    % (json.dumps([{"key": "$browser", "value": "Safari"}]))
+                    "/api/event/?properties=%s" % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
@@ -84,7 +83,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="random event", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            response = self.client.get("/api/projects/@current/events/?person_id=%s" % person.pk).json()
+            response = self.client.get("/api/event/?person_id=%s" % person.pk).json()
             self.assertEqual(len(response["results"]), 2)
             self.assertEqual(response["results"][0]["elements"], [])
 
@@ -151,7 +150,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
             team2 = Team.objects.create()
             event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
-            response = self.client.get("/api/projects/@current/events/values/?key=random_prop").json()
+            response = self.client.get("/api/event/values/?key=random_prop").json()
 
             keys = [resp["name"].replace(" ", "") for resp in response]
             self.assertCountEqual(
@@ -159,10 +158,10 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             )
             self.assertEqual(len(response), 6)
 
-            response = self.client.get("/api/projects/@current/events/values/?key=random_prop&value=qw").json()
+            response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
             self.assertEqual(response[0]["name"], "qwerty")
 
-            response = self.client.get("/api/projects/@current/events/values/?key=random_prop&value=6").json()
+            response = self.client.get("/api/event/values/?key=random_prop&value=6").json()
             self.assertEqual(response[0]["name"], "565")
 
         def test_before_and_after(self):
@@ -183,24 +182,20 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             ActionStep.objects.create(action=action, event="sign up")
             action.calculate_events()
 
-            response = self.client.get(
-                "/api/projects/@current/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
-            ).json()
+            response = self.client.get("/api/event/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk).json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event1.pk)
 
-            response = self.client.get(
-                "/api/projects/@current/events/?before=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
-            ).json()
+            response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk).json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
             # without action
-            response = self.client.get("/api/projects/@current/events/?after=2020-01-09T00:00:00.000Z").json()
+            response = self.client.get("/api/event/?after=2020-01-09T00:00:00.000Z").json()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual(response["results"][0]["id"], event1.pk)
 
-            response = self.client.get("/api/projects/@current/events/?before=2020-01-09T00:00:00.000Z").json()
+            response = self.client.get("/api/event/?before=2020-01-09T00:00:00.000Z").json()
             self.assertEqual(len(response["results"]), 2)
             self.assertEqual(response["results"][0]["id"], event2.pk)
             self.assertEqual(response["results"][1]["id"], event3.pk)
@@ -215,9 +210,9 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                     timestamp=timezone.datetime(2019, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
                     + relativedelta(days=idx, seconds=idx),
                 )
-            response = self.client.get("/api/projects/@current/events/?distinct_id=1").json()
+            response = self.client.get("/api/event/?distinct_id=1").json()
             self.assertEqual(len(response["results"]), 100)
-            self.assertIn("http://testserver/api/projects/@current/events/?distinct_id=1&before=", response["next"])
+            self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
             from posthog.ee import is_ee_enabled
@@ -233,13 +228,13 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             action = Action.objects.create(team=self.team)
             action.calculate_events()
 
-            response = self.client.get("/api/projects/@current/events/?action_id=%s" % action.pk)
+            response = self.client.get("/api/event/?action_id=%s" % action.pk)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.json()["results"]), 0)
 
         def test_get_single_action(self):
             event1 = event_factory(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-            response = self.client.get("/api/projects/@current/events/%s/" % event1.id)
+            response = self.client.get("/api/event/%s/" % event1.id)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["event"], "sign up")
             self.assertEqual(response.json()["properties"], {"key": "test_val"})

@@ -15,11 +15,11 @@ export const featureFlagLogic = kea({
             [],
             {
                 loadFeatureFlags: async () => {
-                    return (await api.get('api/projects/@current/feature-flags/')).results
+                    return (await api.get('api/feature_flag/')).results
                 },
                 updateFeatureFlag: async (featureFlag) => {
                     try {
-                        return await api.update('api/projects/@current/feature-flags/' + featureFlag.id, featureFlag)
+                        return await api.update('api/feature_flag/' + featureFlag.id, featureFlag)
                     } catch (err) {
                         if (err[0] === 'key-exists') {
                             toast.error('A feature flag with that key already exists')
@@ -32,7 +32,7 @@ export const featureFlagLogic = kea({
                 createFeatureFlag: async (featureFlag) => {
                     let create
                     try {
-                        create = await api.create('api/projects/@current/feature-flags/', featureFlag)
+                        create = await api.create('api/feature_flag/', featureFlag)
                     } catch (err) {
                         if (err[0] === 'key-exists') {
                             toast.error('A feature flag with that key already exists')
@@ -46,7 +46,7 @@ export const featureFlagLogic = kea({
                 deleteFeatureFlag: async (featureFlag) => {
                     try {
                         return deleteWithUndo({
-                            endpoint: 'feature-flags',
+                            endpoint: 'feature_flag',
                             object: { name: featureFlag.name, id: featureFlag.id },
                             callback: () => actions.loadFeatureFlags(),
                         })

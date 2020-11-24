@@ -18,7 +18,7 @@ export const cohortLogic = kea({
     loaders: () => ({
         personProperties: {
             loadPersonProperties: async () => {
-                const properties = await api.get('api/projects/@current/persons/properties')
+                const properties = await api.get('api/person/properties')
                 return properties.map((property) => ({
                     label: property.name,
                     value: property.name,
@@ -51,14 +51,14 @@ export const cohortLogic = kea({
     listeners: ({ sharedListeners }) => ({
         saveCohort: async ({ cohort }) => {
             if (cohort.id) {
-                cohort = await api.update('api/projects/@current/cohorts/' + cohort.id, cohort)
+                cohort = await api.update('api/cohort/' + cohort.id, cohort)
             } else {
-                cohort = await api.create('api/projects/@current/cohorts', cohort)
+                cohort = await api.create('api/cohort', cohort)
             }
             sharedListeners.pollIsFinished(cohort)
         },
         checkIsFinished: async ({ cohort }) => {
-            cohort = await api.get('api/projects/@current/cohorts/' + cohort.id)
+            cohort = await api.get('api/cohort/' + cohort.id)
             sharedListeners.pollIsFinished(cohort)
         },
     }),
@@ -94,7 +94,7 @@ export const cohortLogic = kea({
     events: ({ values, actions, props }) => ({
         afterMount: async () => {
             if (props.id) {
-                const cohort = await api.get('api/projects/@current/cohorts/' + props.id)
+                const cohort = await api.get('api/cohort/' + props.id)
                 return actions.setCohort(cohort)
             }
             actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })

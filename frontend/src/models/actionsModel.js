@@ -14,7 +14,7 @@ export const actionsModel = kea({
         actions: {
             __default: [],
             loadActions: async () => {
-                const response = await api.get(`api/projects/@current/actions/?${props.params ? props.params : ''}`)
+                const response = await api.get(`api/action/?${props.params ? props.params : ''}`)
                 return response.results
             },
         },

@@ -41,21 +41,19 @@ class TestAction(
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     def test_is_calculating_always_false(self, patch_delay):
-        create = self.client.post(
-            "/api/projects/@current/actions/", data={"name": "ooh",}, content_type="application/json",
-        ).json()
+        create = self.client.post("/api/action/", data={"name": "ooh",}, content_type="application/json",).json()
         self.assertEqual(create["is_calculating"], False)
         self.assertFalse(patch_delay.called)
 
-        response = self.client.get("/api/projects/@current/actions/").json()
+        response = self.client.get("/api/action/").json()
         self.assertEqual(response["results"][0]["is_calculating"], False)
 
-        response = self.client.get("/api/projects/@current/actions/%s/" % create["id"]).json()
+        response = self.client.get("/api/action/%s/" % create["id"]).json()
         self.assertEqual(response["is_calculating"], False)
 
         # Make sure we're not re-calculating actions
         response = self.client.patch(
-            "/api/projects/@current/actions/%s/" % create["id"], data={"name": "ooh",}, content_type="application/json",
+            "/api/action/%s/" % create["id"], data={"name": "ooh",}, content_type="application/json",
         ).json()
         self.assertEqual(response["name"], "ooh")
         self.assertEqual(response["is_calculating"], False)
@@ -69,8 +67,8 @@ class TestAction(
         _create_event(event="another event", team=self.team, distinct_id="test")
         # test team leakage
         _create_event(event="custom event", team=team2, distinct_id="test")
-        response = self.client.get("/api/projects/@current/actions/").json()
+        response = self.client.get("/api/action/").json()
         self.assertEqual(response["results"][0]["count"], None)
 
-        response = self.client.get("/api/projects/@current/actions/%s/" % action.pk).json()
+        response = self.client.get("/api/action/%s/" % action.pk).json()
         self.assertEqual(response["count"], 1)

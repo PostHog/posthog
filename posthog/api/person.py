@@ -116,11 +116,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request, **kwargs):
         """
-        DEPRECATED in favor of /api/projects/@current/persons/?distinct_id={id}
+        DEPRECATED in favor of /api/person/?distinct_id={id}
         """
         warnings.warn(
-            "/api/projects/@current/persons/by_distinct_id/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
-            DeprecationWarning,
+            "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
         )
         result = self.get_by_distinct_id(request)
         return response.Response(result)
@@ -132,11 +131,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def by_email(self, request, **kwargs):
         """
-        DEPRECATED in favor of /api/projects/@current/persons/?email={email}
+        DEPRECATED in favor of /api/person/?email={email}
         """
         warnings.warn(
-            "/api/projects/@current/persons/by_email/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
-            DeprecationWarning,
+            "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
         )
         result = self.get_by_email(request)
         return response.Response(result)

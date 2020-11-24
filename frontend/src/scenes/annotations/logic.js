@@ -7,9 +7,7 @@ export const annotationsTableLogic = kea({
         annotations: {
             __default: [],
             loadAnnotations: async () => {
-                const response = await api.get(
-                    'api/projects/@current/annotations/?' + toParams({ order: '-updated_at' })
-                )
+                const response = await api.get('api/annotation/?' + toParams({ order: '-updated_at' }))
                 actions.setNext(response.next)
                 return response.results
             },
@@ -43,15 +41,15 @@ export const annotationsTableLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         updateAnnotation: async ({ id, content }) => {
-            await api.update(`api/projects/@current/annotations/${id}`, { content })
+            await api.update(`api/annotation/${id}`, { content })
         },
         restoreAnnotation: async ({ id }) => {
-            await api.update(`api/projects/@current/annotations/${id}`, { deleted: false })
+            await api.update(`api/annotation/${id}`, { deleted: false })
             actions.loadAnnotations({})
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
-                endpoint: 'annotations',
+                endpoint: 'annotation',
                 object: { name: 'Annotation', id },
                 callback: () => actions.loadAnnotations({}),
             })

@@ -33,11 +33,11 @@ def test_element_factory(create_event: Callable) -> Callable:
             )
             team2 = Team.objects.create()
             create_event(team=team2, distinct_id="test", event="$autocapture", elements=[Element(tag_name="bla")])
-            response = self.client.get("/api/projects/@current/elements/values/?key=tag_name").json()
+            response = self.client.get("/api/element/values/?key=tag_name").json()
             self.assertEqual(response[0]["name"], "a")
             self.assertEqual(len(response), 1)
 
-            response = self.client.get("/api/projects/@current/elements/values/?key=text&value=click").json()
+            response = self.client.get("/api/element/values/?key=text&value=click").json()
             self.assertEqual(response[0]["name"], "click here")
             self.assertEqual(len(response), 1)
 
@@ -79,14 +79,14 @@ def test_element_factory(create_event: Callable) -> Callable:
             )
 
             with self.assertNumQueries(6):
-                response = self.client.get("/api/projects/@current/elements/stats/").json()
+                response = self.client.get("/api/element/stats/").json()
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["hash"], event1.elements_hash)
             self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
             self.assertEqual(response[1]["count"], 1)
 
             response = self.client.get(
-                "/api/projects/@current/elements/stats/?properties=%s"
+                "/api/element/stats/?properties=%s"
                 % json.dumps([{"key": "$current_url", "value": "http://example.com/demo"}])
             ).json()
             self.assertEqual(len(response), 1)

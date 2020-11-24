@@ -55,8 +55,8 @@ export const pluginsLogic = kea<
                     const pluginConfigs: Record<string, PluginConfigType> = {}
 
                     const [{ results }, globalResults] = await Promise.all([
-                        api.get('api/projects/@current/plugin-configs'),
-                        api.get('api/projects/@current/plugin-configs/global_plugins/'),
+                        api.get('api/plugin_config'),
+                        api.get('api/plugin_config/global_plugins/'),
                     ])
 
                     for (const pluginConfig of results as PluginConfigType[]) {
@@ -79,28 +79,25 @@ export const pluginsLogic = kea<
 
                     let response
                     if (editingPlugin.pluginConfig.id) {
-                        response = await api.update(
-                            `api/projects/@current/plugin-configs/${editingPlugin.pluginConfig.id}`,
-                            formData
-                        )
+                        response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
                         formData.append('plugin', editingPlugin.id.toString())
                         formData.append('order', '0')
-                        response = await api.create(`api/projects/@current/plugin-configs/`, formData)
+                        response = await api.create(`api/plugin_config/`, formData)
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
                     const { pluginConfigs } = values
-                    const response = await api.update(`api/projects/@current/plugin-configs/${id}`, {
+                    const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 resetPluginConfigError: async ({ id }) => {
                     const { pluginConfigs } = values
-                    const response = await api.update(`api/projects/@current/plugin-configs/${id}`, {
+                    const response = await api.update(`api/plugin_config/${id}`, {
                         error: null,
                     })
                     return { ...pluginConfigs, [response.plugin]: response }

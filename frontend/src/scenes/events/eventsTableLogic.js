@@ -31,7 +31,7 @@ const formatEvents = (events, newEvents, apiUrl) => {
 }
 // props:
 // - fixedFilters
-// - apiUrl = 'api/projects/@current/events/'
+// - apiUrl = 'api/event/'
 // - live = false
 export const eventsTableLogic = kea({
     // Set a unique key based on the fixed filters.
@@ -222,7 +222,7 @@ export const eventsTableLogic = kea({
                     orderBy: [values.orderBy],
                 })
 
-                const events = await api.get(`${props.apiUrl || 'api/projects/@current/events/'}?${urlParams}`)
+                const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
                 breakpoint()
                 actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
@@ -248,7 +248,7 @@ export const eventsTableLogic = kea({
                 params.after = event.timestamp || event.event.timestamp
             }
 
-            const events = await api.get(`${props.apiUrl || 'api/projects/@current/events/'}?${toParams(params)}`)
+            const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
             breakpoint()
 
             if (props.live) {
