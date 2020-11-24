@@ -24,6 +24,7 @@ export function _TopNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
+    const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
     const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
@@ -133,7 +134,7 @@ export function _TopNavigation(): JSX.Element {
     return (
         <>
             <div className="navigation-spacer" />
-            <div className="navigation-top">
+            <div className={`navigation-top${sceneConfig.plain ? ' full-width' : ''}`}>
                 <div style={{ justifyContent: 'flex-start' }}>
                     <div className="hide-gte-lg menu-toggle" onClick={() => setMenuCollapsed(!menuCollapsed)}>
                         <IconMenu />
