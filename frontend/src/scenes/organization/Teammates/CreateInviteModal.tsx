@@ -8,7 +8,7 @@ import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
+export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 'standalone' | 'sidebar' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
@@ -41,7 +41,7 @@ export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'butto
 
     return (
         <>
-            {type === 'text' ? (
+            {type === 'sidebar' ? (
                 <span
                     className="sidebar-label"
                     onClick={() => {

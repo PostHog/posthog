@@ -276,9 +276,9 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/me/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
-                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-inviteTeam">
+                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-invite-teammate">
                         <PlusOutlined />
-                        <CreateInviteModalWithButton type="text" />
+                        <CreateInviteModalWithButton type="sidebar" />
                     </Menu.Item>
                 </Menu>
 
