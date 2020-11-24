@@ -27,9 +27,6 @@ class Command(BaseCommand):
                     "event_properties": ["$current_url", "$browser", "$os"],
                 },
             )
-            user.current_organization = organization
-            user.current_team = team
-            user.save()
             heroku_app_name = os.getenv("HEROKU_APP_NAME")
             base_url = (
                 f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
