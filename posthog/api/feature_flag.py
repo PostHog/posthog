@@ -60,6 +60,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -69,7 +71,3 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
-
-
-class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    legacy_team_compatibility = True

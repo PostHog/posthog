@@ -57,7 +57,3 @@ class ClickhouseElementViewSet(ElementViewSet):
             GET_VALUES.format(), {"team_id": self.team.id, "regex": select_regex, "filter_regex": filter_regex}
         )
         return response.Response([{"name": value[0]} for value in result])
-
-
-class LegacyClickhouseElementViewSet(ClickhouseElementViewSet):
-    legacy_team_compatibility = True

@@ -60,6 +60,8 @@ class PersonFilter(filters.FilterSet):
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -201,7 +203,3 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         else:
             return response.Response({})
-
-
-class LegacyPersonViewSet(PersonViewSet):
-    legacy_team_compatibility = True

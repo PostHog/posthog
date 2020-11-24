@@ -22,7 +22,7 @@ def extract_organization(object: Model) -> Organization:
                 return object.project.organization  # type: ignore
             except AttributeError:
                 pass
-    raise ValueError("Model not compatible with organization-based permissions!")
+    raise ValueError("Object not compatible with organization-based permissions!")
 
 
 class ProjectMembershipNecessaryPermissions(BasePermission):

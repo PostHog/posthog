@@ -72,6 +72,8 @@ class InsightSerializer(serializers.ModelSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -283,7 +285,3 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
-
-
-class LegacyInsightViewSet(InsightViewSet):
-    legacy_team_compatibility = True

@@ -41,6 +41,8 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Funnel.objects.all()
     serializer_class = FunnelSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -63,7 +65,3 @@ class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=timezone.now())
         return serializer.data
-
-
-class LegacyFunnelViewSet(FunnelViewSet):
-    legacy_team_compatibility = True

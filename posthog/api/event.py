@@ -98,6 +98,8 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
@@ -285,7 +287,3 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response({"result": snapshots})
-
-
-class LegacyEventViewSet(EventViewSet):
-    legacy_team_compatibility = True

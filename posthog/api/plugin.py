@@ -220,6 +220,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 
 class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 

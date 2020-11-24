@@ -33,15 +33,16 @@ def api_not_found(request):
 
 router = DefaultRouterPlusPlus()
 # legacy endpoints (to be removed eventually)
-router.register(r"annotation", annotation.LegacyAnnotationsViewSet)
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
-router.register(r"funnel", funnel.LegacyFunnelViewSet)
-router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)
-router.register(r"dashboard_item", dashboard.LegacyDashboardItemsViewSet)
-router.register(r"cohort", cohort.LegacyCohortViewSet)
-router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"annotation", annotation.AnnotationsViewSet)
+router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
+router.register(r"funnel", funnel.FunnelViewSet)
+router.register(r"dashboard", dashboard.DashboardsViewSet)
+router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
+router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"plugin", plugin.PluginViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
+router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+projects_router = router.register(r"projects", team.TeamViewSet)
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
@@ -52,28 +53,28 @@ organizations_router.register(
 
 if is_ee_enabled():
     try:
-        from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
-        from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
-        from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
-        from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
-        from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
-        from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
+        from ee.clickhouse.views.actions import ClickhouseActionsViewSet
+        from ee.clickhouse.views.element import ClickhouseElementViewSet
+        from ee.clickhouse.views.events import ClickhouseEventsViewSet
+        from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
+        from ee.clickhouse.views.paths import ClickhousePathsViewSet
+        from ee.clickhouse.views.person import ClickhousePersonViewSet
     except ImportError as e:
         print("ClickHouse enabled but missing enterprise capabilities. Defaulting to Postgres.")
         print(e)
     else:
         # legacy endpoints (to be removed eventually)
-        router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
-        router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")
-        router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")
-        router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
-        router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
-        router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
+        router.register(r"action", ClickhouseActionsViewSet, basename="action")
+        router.register(r"event", ClickhouseEventsViewSet, basename="event")
+        router.register(r"insight", ClickhouseInsightsViewSet, basename="insight")
+        router.register(r"person", ClickhousePersonViewSet, basename="person")
+        router.register(r"paths", ClickhousePathsViewSet, basename="paths")
+        router.register(r"element", ClickhouseElementViewSet, basename="element")
 else:
     # legacy endpoints (to be removed eventually)
-    router.register(r"insight", insight.LegacyInsightViewSet)
-    router.register(r"action", action.LegacyActionViewSet)
-    router.register(r"person", person.LegacyPersonViewSet)
-    router.register(r"event", event.LegacyEventViewSet)
-    router.register(r"paths", paths.LegacyPathsViewSet, basename="paths")
-    router.register(r"element", element.LegacyElementViewSet)
+    router.register(r"insight", insight.InsightViewSet)
+    router.register(r"action", action.ActionViewSet)
+    router.register(r"person", person.PersonViewSet)
+    router.register(r"event", event.EventViewSet)
+    router.register(r"paths", paths.PathsViewSet, basename="paths")
+    router.register(r"element", element.ElementViewSet)

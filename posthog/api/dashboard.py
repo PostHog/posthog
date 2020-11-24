@@ -95,6 +95,8 @@ class DashboardSerializer(serializers.ModelSerializer):
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Dashboard.objects.all()
     serializer_class = DashboardSerializer
     authentication_classes = [
@@ -129,11 +131,8 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
+    def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
 
-class LegacyDashboardsViewSet(DashboardsViewSet):
-    legacy_team_compatibility = True
-
-    def get_parents_query_dict(self) -> Dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
         return {"team_id": self.request.user.team.id}
@@ -200,6 +199,8 @@ class DashboardItemSerializer(serializers.ModelSerializer):
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = DashboardItem.objects.all()
     serializer_class = DashboardItemSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -240,10 +241,6 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
         return response.Response(serializer.data)
-
-
-class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
-    legacy_team_compatibility = True
 
 
 @xframe_options_exempt

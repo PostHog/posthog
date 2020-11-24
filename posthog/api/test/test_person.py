@@ -5,8 +5,7 @@ from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.tasks.process_event import process_event
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 def test_person_factory(event_factory, person_factory, get_events, get_people):
@@ -19,7 +18,6 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
             )
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
-
             response = self.client.get("/api/person/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -216,14 +214,14 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
 
         def test_delete_person(self):
-            person = person_factory(
-                team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
-            )
-            event_factory(event="test", team=self.team, distinct_id="person_1")
-            event_factory(event="test", team=self.team, distinct_id="anonymous_id")
-            event_factory(event="test", team=self.team, distinct_id="someone_else")
-
-            response = self.client.delete(f"/api/person/{person.pk}/")
+            with self.settings(DEBUG=1):
+                person = person_factory(
+                    team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+                )
+                event_factory(event="test", team=self.team, distinct_id="person_1")
+                event_factory(event="test", team=self.team, distinct_id="anonymous_id")
+                event_factory(event="test", team=self.team, distinct_id="someone_else")
+                response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.data, None)
             self.assertEqual(len(get_people()), 0)

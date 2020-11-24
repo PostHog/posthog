@@ -80,7 +80,3 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = Filter(request=request)
         result = ClickhouseRetention().run(filter, team)
         return Response({"data": result})
-
-
-class LegacyClickhouseInsightsViewSet(ClickhouseInsightsViewSet):
-    legacy_team_compatibility = True

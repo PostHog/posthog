@@ -51,6 +51,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
 
 class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -86,10 +88,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 
         return queryset
-
-
-class LegacyAnnotationsViewSet(AnnotationsViewSet):
-    legacy_team_compatibility = True
 
 
 @receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")

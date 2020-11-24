@@ -17,7 +17,3 @@ class ClickhousePersonViewSet(PersonViewSet):
         delete_person(person.uuid, delete_events=True, team_id=team.pk)
         person.delete()
         return response.Response(status=204)
-
-
-class LegacyClickhousePersonViewSet(ClickhousePersonViewSet):
-    legacy_team_compatibility = True

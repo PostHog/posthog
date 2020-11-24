@@ -26,6 +26,8 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [
@@ -125,7 +127,3 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response([{"name": value.value} for value in values])
-
-
-class LegacyElementViewSet(ElementViewSet):
-    legacy_team_compatibility = True
