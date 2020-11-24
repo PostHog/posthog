@@ -45,9 +45,7 @@ export function PersonTable({ properties }) {
         if (Array.isArray(properties))
             return (
                 <div>
-                    {mapShowAllValuesForKey &&
-                    mapShowAllValuesForKey[_key] !== undefined &&
-                    !mapShowAllValuesForKey[_key] ? (
+                    {mapShowAllValuesForKey && _key in mapShowAllValuesForKey && !mapShowAllValuesForKey[_key] ? (
                         <>
                             {properties.slice(0, PERSON_DISTINCT_ID_MAX_SIZE).map((item, index) => (
                                 <span key={index}>
@@ -61,7 +59,6 @@ export function PersonTable({ properties }) {
                                         return { ...prev, [_key]: true }
                                     })
                                 }
-                                disabled={mapShowAllValuesForKey[_key]}
                                 style={{ marginRight: '10px' }}
                             >
                                 Show All
