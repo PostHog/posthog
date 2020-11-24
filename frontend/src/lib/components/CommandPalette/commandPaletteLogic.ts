@@ -486,17 +486,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Organization Members',
-                        synonyms: ['teammates'],
+                        display: 'Go to Teammates',
+                        synonyms: ['organization', 'members', 'invites'],
                         executor: () => {
                             push('/organization/members')
-                        },
-                    },
-                    {
-                        icon: SendOutlined,
-                        display: 'Go to Organization Invites',
-                        executor: () => {
-                            push('/organization/invites')
                         },
                     },
                     {
