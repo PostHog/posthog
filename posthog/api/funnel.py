@@ -6,7 +6,7 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Funnel
 from posthog.permissions import ProjectMembershipNecessaryPermissions

@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.plugins import (

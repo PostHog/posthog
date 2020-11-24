@@ -18,6 +18,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
             )
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+
             response = self.client.get("/api/person/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -220,6 +221,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             event_factory(event="test", team=self.team, distinct_id="person_1")
             event_factory(event="test", team=self.team, distinct_id="anonymous_id")
             event_factory(event="test", team=self.team, distinct_id="someone_else")
+
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.data, None)

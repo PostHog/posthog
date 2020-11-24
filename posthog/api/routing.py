@@ -1,17 +1,11 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from rest_framework.exceptions import APIException, AuthenticationFailed, NotFound
-from rest_framework.pagination import CursorPagination as BaseCursorPagination
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.models import Organization, Team
-
-
-class CursorPagination(BaseCursorPagination):
-    ordering = "-created_at"
-    page_size = 100
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -23,7 +17,13 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 
 
 class StructuredViewSetMixin(NestedViewSetMixin):
+    # This flag disables nested routing handling, reverting to the old request.user.team behavior
+    # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False
+
+    # Rewrite filter queries, so that for example foreign keys can be access
+    # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
+    filter_rewrite_rules: Dict[str, str] = {}
 
     @property
     def team_id(self) -> int:
@@ -49,13 +49,28 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     def organization(self) -> Organization:
         return Organization.objects.get(id=self.get_parents_query_dict()["organization_id"])
 
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.get_parents_query_dict()
+        for source, destination in self.filter_rewrite_rules.items():
+            parents_query_dict[destination] = parents_query_dict[source]
+            del parents_query_dict[source]
+        if parents_query_dict:
+            try:
+                return queryset.filter(**parents_query_dict)
+            except ValueError:
+                raise NotFound()
+        else:
+            return queryset
+
     def get_parents_query_dict(self) -> Dict[str, Any]:
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
             return {"team_id": self.request.user.team.id}
         result = {}
+        # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
+            # drf-extensions nested parameters are prefixed
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
                 query_lookup = kwarg_name.replace(
                     extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX, "", 1

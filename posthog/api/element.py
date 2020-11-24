@@ -3,7 +3,7 @@ from rest_framework import authentication, exceptions, request, response, serial
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -27,6 +27,7 @@ class ElementSerializer(serializers.ModelSerializer):
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+    filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
@@ -37,18 +38,6 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-
-    def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
-        parents_query_dict["group__team_id"] = parents_query_dict["team_id"]  # adjust queryset lookup just for elements
-        del parents_query_dict["team_id"]
-        if parents_query_dict:
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

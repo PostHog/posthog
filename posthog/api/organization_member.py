@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
