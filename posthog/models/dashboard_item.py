@@ -34,5 +34,6 @@ class DashboardItem(models.Model):
 
 @receiver(pre_save, sender=DashboardItem)
 def dashboard_item_saved(sender, instance: DashboardItem, **kwargs):
-    filter = Filter(data=instance.filters)
-    instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+    if instance.filters and instance.filters != {}:
+        filter = Filter(data=instance.filters)
+        instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
