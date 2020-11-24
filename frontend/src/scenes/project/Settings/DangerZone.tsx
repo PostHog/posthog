@@ -1,8 +1,8 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined, LockOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import confirm from 'antd/lib/modal/confirm'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -32,26 +32,18 @@ export function DangerZone(): JSX.Element {
     if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
         accessRestrictionReason = 'This section is restricted to administrators.'
 
-    const Content = (
-        <>
-            <div className="mt">
-                <Button type="primary" danger onClick={confirmDeleteProject} className="mr-05">
-                    Delete Project
-                </Button>
-                This will permanently delete your project plus <b>all the data and events</b> associated to it. Please
-                be certain.
-            </div>
-        </>
-    )
-
     return accessRestrictionReason ? (
-        <Tooltip title={accessRestrictionReason}>
-            <div className="overlay__parent overlay--danger">
-                {Content}
-                <div className="overlay__child" />
-            </div>
-        </Tooltip>
+        <div className="access-restricted">
+            <LockOutlined className="text-warning" />
+            {accessRestrictionReason}
+        </div>
     ) : (
-        Content
+        <div className="mt">
+            <Button type="primary" danger onClick={confirmDeleteProject} className="mr-05">
+                Delete Project
+            </Button>
+            This will permanently delete your project plus <b>all the data and events</b> associated to it. Please be
+            certain.
+        </div>
     )
 }
