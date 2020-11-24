@@ -5,7 +5,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.models import Element, ElementGroup, Event, Team
-from posthog.test.base import BaseTest
+
+from .base import BaseTest
 
 
 def test_element_factory(create_event: Callable) -> Callable:

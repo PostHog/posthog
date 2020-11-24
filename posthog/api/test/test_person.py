@@ -5,7 +5,8 @@ from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.tasks.process_event import process_event
-from posthog.test.base import APIBaseTest
+
+from .base import APIBaseTest
 
 
 def test_person_factory(event_factory, person_factory, get_events, get_people):
@@ -239,8 +240,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
             self.assertEqual(
-                str(warnings.warning),
-                "/api/projects/@current/persons/by_distinct_id/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
+                str(warnings.warning), "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.",
             )
 
             # By Distinct ID
@@ -249,8 +249,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
             self.assertEqual(
-                str(warnings.warning),
-                "/api/projects/@current/persons/by_email/ endpoint is deprecated; use /api/projects/@current/persons/ instead.",
+                str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
             )
 
         def test_filter_id_or_uuid(self) -> None:

@@ -2,7 +2,8 @@ from typing import cast
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.base import TransactionBaseTest
+
+from .base import TransactionBaseTest
 
 
 class TestOrganizationMembersAPI(TransactionBaseTest):

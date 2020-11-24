@@ -1,7 +1,6 @@
-from django.conf import settings
-
 from posthog.models import PersonalAPIKey
-from posthog.test.base import TransactionBaseTest
+
+from .base import TransactionBaseTest
 
 
 class TestPersonalAPIKeysAPI(TransactionBaseTest):
@@ -9,7 +8,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
 
     def test_create_personal_api_key(self):
         label = "Test key uno"
-        response = self.client.post("/api/personal-api-keys", {"label": label})
+        response = self.client.post("/api/personal_api_keys", {"label": label})
         self.assertEqual(response.status_code, 201)
         key: PersonalAPIKey = PersonalAPIKey.objects.get()
         response_data = response.json()
@@ -27,7 +26,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         )
 
     def test_create_personal_api_key_label_required(self):
-        response = self.client.post("/api/personal-api-keys/", {"label": ""})
+        response = self.client.post("/api/personal_api_keys/", {"label": ""})
         self.assertEqual(response.status_code, 400)
         response_data = response.json()
         self.assertDictEqual(
@@ -39,7 +38,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
-        response = self.client.delete(f"/api/personal-api-keys/{key.id}/")
+        response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(len(PersonalAPIKey.objects.all()), 0)
 
@@ -51,7 +50,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         other_key = PersonalAPIKey(label="Other test", team=self.team, user=other_user)
         other_key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 2)
-        response = self.client.get("/api/personal-api-keys")
+        response = self.client.get("/api/personal_api_keys")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         self.assertEqual(len(response_data), 1)
@@ -71,7 +70,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         my_label = "Test"
         my_key = PersonalAPIKey(label=my_label, team=self.team, user=self.user)
         my_key.save()
-        response = self.client.get(f"/api/personal-api-keys/{my_key.id}/")
+        response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         response_data.pop("created_at")
@@ -90,7 +89,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         other_user = self._create_user("abc@def.xyz")
         other_key = PersonalAPIKey(label="Other test", team=self.team, user=other_user)
         other_key.save()
-        response = self.client.get(f"/api/personal-api-keys/{other_key.id}/")
+        response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         self.assertEqual(response.status_code, 404)
         response_data = response.json()
         self.assertDictEqual(response_data, self.ERROR_RESPONSE_NOT_FOUND)
@@ -101,27 +100,25 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     TESTS_FORCE_LOGIN = False
 
     def test_no_key(self):
-        response_1 = self.client.get("/api/projects/@current/dashboards/")
-        self.assertEqual(response_1.status_code, 403)
-        response_2 = self.client.get("/api/projects/1/")
-        self.assertEqual(response_2.status_code, 401)
+        response = self.client.get("/api/dashboard/")
+        self.assertEqual(response.status_code, 403)
 
     def test_header_resilient(self):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
-        response = self.client.get("/api/projects/@current/dashboards/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  ")
+        response = self.client.get("/api/dashboard/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  ")
         self.assertEqual(response.status_code, 200)
 
     def test_query_string(self):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
-        response = self.client.get(f"/api/projects/@current/dashboards/?personal_api_key={key.value}")
+        response = self.client.get(f"/api/dashboard/?personal_api_key={key.value}")
         self.assertEqual(response.status_code, 200)
 
     def test_body(self):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
-        response = self.client.get("/api/projects/@current/dashboards/", {"personal_api_key": key.value})
+        response = self.client.get("/api/dashboard/", {"personal_api_key": key.value})
         self.assertEqual(response.status_code, 200)
 
     def test_user_not_active(self):
