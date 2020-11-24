@@ -129,16 +129,18 @@ class OrganizationMembership(UUIDModel):
             raise exceptions.PermissionDenied("You can't change your own access level.")
         if membership_being_updated.organization_id != self.organization_id:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-        if membership_being_updated.level >= self.level:
-            raise exceptions.PermissionDenied("You can only change access level of others with level lower than you.")
+        if membership_being_updated.level > self.level:
+            raise exceptions.PermissionDenied(
+                "You can only change access level of others with level lower or equal to you."
+            )
         if new_level == OrganizationMembership.Level.OWNER:
             if self.level != OrganizationMembership.Level.OWNER:
                 raise exceptions.PermissionDenied("You can only pass on organization ownership if you're its owner.")
             self.level = OrganizationMembership.Level.ADMIN
             self.save()
-        elif new_level >= self.level:
+        elif new_level > self.level:
             raise exceptions.PermissionDenied(
-                "You can only change access level of others to lower than your current one."
+                "You can only change access level of others to lower or equal to your current one."
             )
 
     __repr__ = sane_repr("organization", "user", "level")

@@ -57,7 +57,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             },
         )
 
-    def test_change_organization_member_level_lower_than_current_only(self):
+    def test_admin_can_promote_to_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
@@ -68,18 +68,9 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {"level": OrganizationMembership.Level.ADMIN},
             content_type="application/json",
         )
-        self.assertDictEqual(
-            cast(dict, response.json()),
-            {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You can only change access level of others to lower than your " "current one.",
-                "type": "authentication_error",
-            },
-        )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
-        self.assertEqual(updated_membership.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
 
     def test_change_organization_member_level_requires_admin(self):
         user = User.objects.create_user("test@x.com", None, "X")
