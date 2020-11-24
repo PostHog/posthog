@@ -22,6 +22,8 @@ describe('Person Show All Distinct Checks', () => {
     })
 
     it('Should have Show All Distinct Id Button', () => {
+        cy.get('.ant-input').type('smith.nunez@gmail.com').type('{enter}')
+
         cy.contains('smith.nunez@gmail.com').click()
         cy.get('[data-cy="show-more-distinct-id"]').should('exist')
         cy.get('[data-cy="show-more-distinct-id"]').click()
