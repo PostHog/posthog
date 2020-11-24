@@ -1,6 +1,7 @@
 import json
 
 from django.core.cache import cache
+from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -53,7 +54,7 @@ class TestDashboard(TransactionBaseTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
-    def test_return_results(self):
+    def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -75,13 +76,29 @@ class TestDashboard(TransactionBaseTest):
         )
 
         with self.assertNumQueries(7):
-            with freeze_time("2020-01-04T13:00:01Z"):
-                response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
-        self.assertEqual(
-            Dashboard.objects.get().last_accessed_at.isoformat(), "2020-01-04T13:00:01+00:00",
-        )
+        self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+    def test_no_cache_available(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            # Pretend we cached something a while ago, but we won't have anything in the redis cache
+            item = DashboardItem.objects.create(
+                dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
+            )
+
+        with freeze_time("2020-01-20T13:00:01Z"):
+            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+
+        self.assertEqual(response["items"][0]["result"], None)
+        self.assertEqual(response["items"][0]["last_refresh"], None)
 
     def test_dashboard(self):
         # create

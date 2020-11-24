@@ -1,6 +1,6 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import posthoganalytics
 from django.core.cache import cache
@@ -133,6 +133,8 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 
 class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField()
+    _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
         model = DashboardItem
@@ -181,14 +183,34 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
+        # avoid running this function 2x
+        if self._get_result:
+            return self._get_result
+
+        # If it's more than a day old, don't return anything
+        if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
+            import ipdb
+
+            ipdb.set_trace()
+            return None
+
         if not dashboard_item.filters:
             return None
         filter = Filter(data=dashboard_item.filters)
         cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
         result = cache.get(cache_key)
         if not result or result.get("task_id", None):
-            return None
-        return result["result"]
+            self._get_result = None
+        else:
+            self._get_result = result["result"]
+        return self._get_result
+
+    def get_last_refresh(self, dashboard_item: DashboardItem):
+        if self.get_result(dashboard_item):
+            return dashboard_item.last_refresh
+        dashboard_item.last_refresh = None
+        dashboard_item.save()
+        return None
 
 
 class DashboardItemsViewSet(viewsets.ModelViewSet):
