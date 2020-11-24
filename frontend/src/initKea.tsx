@@ -17,7 +17,7 @@ export function initKea(): void {
                 onFailure({ error, reducerKey, actionKey }) {
                     toast.error(
                         <div>
-                            <h1>Error on {identifierToHuman(reducerKey)}.</h1>
+                            <h1>Error on {identifierToHuman(reducerKey)}</h1>
                             <p>
                                 Attempting to {identifierToHuman(actionKey, false)} returned an error:{' '}
                                 <span className="error-details">{error.detail}</span>
