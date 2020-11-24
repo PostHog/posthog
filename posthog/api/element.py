@@ -38,18 +38,6 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
-    def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
-        parents_query_dict["group__team_id"] = parents_query_dict["team_id"]  # adjust queryset lookup just for elements
-        del parents_query_dict["team_id"]
-        if parents_query_dict:
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
-
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         team_id = self.team_id
