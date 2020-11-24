@@ -33,8 +33,7 @@ function isMembershipLevelChangeDisallowed(
     if (!currentMembershipLevel) return 'Your membership level is unknown.'
     if (Array.isArray(newLevelOrAllowedLevels)) {
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) return false
-        if (!newLevelOrAllowedLevels.length)
-            return "You don't have the permissions to change this member's access level."
+        if (!newLevelOrAllowedLevels.length) return "You don't have permission to change this member's access level."
     } else {
         if (newLevelOrAllowedLevels === memberChanged.level)
             return "It doesn't make sense to set the same level as before."
@@ -43,7 +42,7 @@ function isMembershipLevelChangeDisallowed(
             return 'You can only change access level of others to lower than your current one.'
     }
     if (currentMembershipLevel < OrganizationMembershipLevel.Admin)
-        return "You don't have the permissions to change access levels."
+        return "You don't have permission to change access levels."
     if (currentMembershipLevel <= memberChanged.level)
         return 'You can only change access level of members with level lower than you.'
     return false
