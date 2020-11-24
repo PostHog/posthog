@@ -13,11 +13,7 @@ class TestFeatureFlag(TransactionBaseTest):
     def test_key_exists(self):
         feature_flag = self.client.post(
             "/api/feature_flag/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "rollout_percentage": 50,
-            },
+            data={"name": "Beta feature", "key": "beta-feature", "rollout_percentage": 50,},
             content_type="application/json",
         ).json()
         self.assertEqual(FeatureFlag.objects.get(pk=feature_flag["id"]).name, "Beta feature")
@@ -25,9 +21,7 @@ class TestFeatureFlag(TransactionBaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/api/feature_flag",
-            data={"name": "Beta feature", "key": "beta-feature"},
-            content_type="application/json",
+            "/api/feature_flag", data={"name": "Beta feature", "key": "beta-feature"}, content_type="application/json",
         ).json()
 
         self.assertEqual(
@@ -36,11 +30,7 @@ class TestFeatureFlag(TransactionBaseTest):
         )
 
         another_feature_flag = FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="some feature",
-            key="some-feature",
-            created_by=self.user,
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user,
         )
         # try updating into an existing feature flag
         response = self.client.patch(
@@ -80,23 +70,14 @@ class TestAPIFeatureFlag(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.organization, self.team, self.user = User.objects.bootstrap("Feature Flags", "ff@posthog.com", None)
-        self.feature_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="red_button",
-        )
+        self.feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button",)
 
     @patch("posthoganalytics.capture")
     def test_creating_feature_flag(self, mock_capture):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/feature_flag/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "rollout_percentage": 50,
-            },
+            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
@@ -106,12 +87,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "feature flag created",
-            {
-                "rollout_percentage": 50,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-            },
+            {"rollout_percentage": 50, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
         )
 
     @patch("posthoganalytics.capture")
@@ -126,12 +102,7 @@ class TestAPIFeatureFlag(APIBaseTest):
                 "rollout_percentage": 65,
                 "filters": {
                     "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@posthog.com",
-                            "operator": "icontains",
-                        },
+                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},
                     ],
                 },
             },
@@ -146,12 +117,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "feature flag updated",
-            {
-                "rollout_percentage": 65,
-                "has_filters": True,
-                "filter_count": 1,
-                "created_at": instance.created_at,
-            },
+            {"rollout_percentage": 65, "has_filters": True, "filter_count": 1, "created_at": instance.created_at,},
         )
 
     def test_deleting_feature_flag(self):
@@ -170,12 +136,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_called_once_with(
             new_user.distinct_id,
             "feature flag deleted",
-            {
-                "rollout_percentage": None,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-            },
+            {"rollout_percentage": None, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
         )
 
     @patch("posthoganalytics.capture")
@@ -197,12 +158,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            "/api/feature_flag/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "rollout_percentage": 50,
-            },
+            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
