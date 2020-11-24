@@ -34,8 +34,8 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/invites' && !user?.email_service_available)
-                push('/organization/invites')
+            if (location.pathname !== '/organization/members' && !user?.email_service_available)
+                push('/organization/members')
         }
     }
 
@@ -50,18 +50,16 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                     Invite Teammate
                 </span>
             ) : (
-                <div className="mb text-right">
-                    <Button
-                        type="primary"
-                        data-attr="invite-teammate-button"
-                        onClick={() => {
-                            setIsVisible(true)
-                        }}
-                        icon={<PlusOutlined />}
-                    >
-                        Invite Teammate
-                    </Button>
-                </div>
+                <Button
+                    type="primary"
+                    data-attr="invite-teammate-button"
+                    onClick={() => {
+                        setIsVisible(true)
+                    }}
+                    icon={<PlusOutlined />}
+                >
+                    Invite Teammate
+                </Button>
             )}
 
             <Modal
@@ -72,6 +70,7 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                 onCancel={closeModal}
                 visible={isVisible}
             >
+                <p>The invite will only work with the specified email address and will expire after 3 days.</p>
                 <form
                     onSubmit={(e) => {
                         e.preventDefault()
