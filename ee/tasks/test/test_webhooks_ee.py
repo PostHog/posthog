@@ -23,7 +23,7 @@ class TestWebhooksEE(BaseTest):
     @patch("requests.post")
     def test_post_event_to_webhook_ee(self, requests_post):
 
-        self.team.incoming_webhook = "http://slack.com/hook"
+        self.team.slack_incoming_webhook = "http://slack.com/hook"
         self.team.save()
         _create_action(team=self.team, name="user paid", post_to_slack=True)
         _create_action(team=self.team, name="user not paid", post_to_slack=True)

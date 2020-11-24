@@ -35,7 +35,7 @@ const logic = kea<logicType<UserType>>({
     }),
 
     defaults: () => (state: Record<string, any>) => ({
-        editedWebhook: userLogic.selectors.user(state, {})?.team?.incoming_webhook,
+        editedWebhook: userLogic.selectors.user(state, {})?.team?.slack_incoming_webhook,
     }),
 
     reducers: () => ({
@@ -82,7 +82,7 @@ const logic = kea<logicType<UserType>>({
             }
         },
         saveWebhook: async () => {
-            userLogic.actions.userUpdateRequest({ team: { incoming_webhook: values.editedWebhook } }, 'webhook')
+            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'webhook')
         },
         handleTestError: ({ error }) => {
             toast.error(

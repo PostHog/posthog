@@ -247,7 +247,7 @@ class EventManager(models.QuerySet):
                 Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
                 team = kwargs.get("team", event.team)
                 if (
-                    should_post_webhook and team and team.incoming_webhook and not is_ee_enabled()
+                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
                 ):  # ee will handle separately
                     celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
 

@@ -45,7 +45,7 @@ def user(request):
         if team is not None and "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
-            team.incoming_webhook = data["team"].get("incoming_webhook", team.incoming_webhook)
+            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             if data["team"].get("plugins_opt_in") is not None:
@@ -128,7 +128,7 @@ def user(request):
                 "api_token": team.api_token,
                 "opt_out_capture": team.opt_out_capture,
                 "anonymize_ips": team.anonymize_ips,
-                "incoming_webhook": team.incoming_webhook,
+                "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
                 "event_names_with_usage": team.event_names_with_usage
                 or [{"event": event, "volume": None, "usage_count": None} for event in team.event_names],

@@ -54,7 +54,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "api_token",
             "app_urls",
             "name",
-            "incoming_webhook",
+            "slack_incoming_webhook",
             "event_names",
             "event_properties",
             "event_properties_numerical",
