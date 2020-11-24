@@ -40,7 +40,7 @@ function _SessionsPlay(): JSX.Element {
     return (
         <div className="session-player">
             <Row gutter={16} style={{ height: '100%' }}>
-                <Col span={18}>
+                <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05">
                         <b>Current URL: </b> https://posthog.com/docs
                         <span className="float-right">
@@ -55,7 +55,7 @@ function _SessionsPlay(): JSX.Element {
                         )}
                     </div>
                 </Col>
-                <Col span={6} className="sidebar">
+                <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session #2191</h3>
                         <div className="mb-05">
