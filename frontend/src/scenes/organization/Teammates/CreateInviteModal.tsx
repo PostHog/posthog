@@ -98,7 +98,7 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
                         type="warning"
                         message={
                             <>
-                                Emails are not enabled in your PostHog instance.
+                                Sending emails is not enabled in your PostHog instance.
                                 <br />
                                 Remember to <b>share the invite link</b> with the team member you want to invite.
                             </>
