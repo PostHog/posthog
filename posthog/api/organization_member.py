@@ -22,10 +22,11 @@ class OrganizationMemberObjectPermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership)
+        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user_id=request.user.id, organization=organization
+        )
         try:
-            membership.validate_update(
-                OrganizationMembership.objects.get(user_id=request.user.id, organization=organization)
-            )
+            requesting_membership.validate_update(membership)
         except exceptions.ValidationError:
             return False
         return True
