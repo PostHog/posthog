@@ -46,10 +46,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             feature_flag = super().create(validated_data)
         except IntegrityError:
-            if self.perform_destroy(validated_data["key"]):
-                feature_flag = super().create(validated_data)
-            else:
-                raise serializers.ValidationError("This key already exists.", code="key-exists")
+            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
         return feature_flag
 
@@ -58,15 +55,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             return super().update(instance, validated_data)
         except IntegrityError:
             raise serializers.ValidationError("This key already exists.", code="key-exists")
-
-    def perform_destroy(self, key: str) -> bool:
-        featureFlag = FeatureFlag.objects.all().filter(deleted=True, key=key).first()
-
-        if featureFlag:
-            featureFlag.delete()
-            return True
-
-        return False
 
 
 class FeatureFlagViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
