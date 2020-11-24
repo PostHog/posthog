@@ -129,7 +129,7 @@ class User(AbstractUser):
             self.save()
             return membership
 
-    def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+    def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
