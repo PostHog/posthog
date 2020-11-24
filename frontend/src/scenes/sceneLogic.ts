@@ -21,7 +21,6 @@ export enum Scene {
     FeatureFlags = 'featureFlags',
     OrganizationSettings = 'organizationSettings',
     OrganizationMembers = 'organizationMembers',
-    OrganizationInvites = 'organizationInvites',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
@@ -59,7 +58,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
@@ -105,7 +103,6 @@ export const routes: Record<string, Scene> = {
     '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
-    '/organization/invites': Scene.OrganizationInvites,
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
