@@ -217,7 +217,7 @@ def demo(request):
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         _recalculate(team=team)
-        user.current_team = team
+    user.current_team = team
     user.save()
     if "$pageview" not in team.event_names:
         team.event_names.append("$pageview")
