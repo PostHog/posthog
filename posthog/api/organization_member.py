@@ -16,18 +16,19 @@ from posthog.permissions import OrganizationMemberPermissions, extract_organizat
 class OrganizationMemberObjectPermissions(BasePermission):
     """Require organization admin level to change object, allowing everyone read AND delete."""
 
-    message = "Your cannot edit other organization members or remove anyone but yourself."
+    message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view, object: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        if request.method == "DELETE" and object.user_id == request.user.id:
-            return True
-        organization = extract_organization(object)
-        return (
-            OrganizationMembership.objects.get(user_id=request.user.id, organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
+        organization = extract_organization(membership)
+        try:
+            membership.validate_update(
+                OrganizationMembership.objects.get(user_id=request.user.id, organization=organization)
+            )
+        except exceptions.ValidationError:
+            return False
+        return True
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
@@ -47,7 +48,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         )
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_level_change(updated_membership, value)
+                requesting_membership.validate_update(updated_membership, value)
             setattr(updated_membership, attr, value)
         updated_membership.save()
         return updated_membership
