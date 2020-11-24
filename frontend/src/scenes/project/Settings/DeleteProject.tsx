@@ -29,7 +29,7 @@ export function DeleteProject(): JSX.Element {
     }
 
     const DeleteButton = (
-        <Button type="primary" danger onClick={handleClick}>
+        <Button type="primary" danger onClick={handleClick} data-attr="delete-project-button">
             Delete Project
         </Button>
     )
