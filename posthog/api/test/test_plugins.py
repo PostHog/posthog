@@ -23,24 +23,24 @@ class TestPluginAPI(APIBaseTest):
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 400)
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 400)
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=False):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 400)  # already installed, tested separately below
 
     def test_update_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
-        api_url = "/api/plugins/{}".format(response.data["id"])  # type: ignore
+        api_url = "/api/plugin/{}".format(response.data["id"])  # type: ignore
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             response = self.client.patch(api_url, {"url": repo_url})
             self.assertEqual(response.status_code, 200)
@@ -57,9 +57,9 @@ class TestPluginAPI(APIBaseTest):
     def test_delete_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
-        api_url = "/api/plugins/{}".format(response.data["id"])  # type: ignore
+        api_url = "/api/plugin/{}".format(response.data["id"])  # type: ignore
 
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.delete(api_url)
@@ -73,9 +73,9 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 204)
 
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):  # create again
-            response = self.client.post("/api/plugins/", {"url": repo_url})
+            response = self.client.post("/api/plugin/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
-        api_url = "/api/plugins/{}".format(response.data["id"])  # type: ignore
+        api_url = "/api/plugin/{}".format(response.data["id"])  # type: ignore
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.delete(api_url)
             self.assertEqual(response.status_code, 204)
@@ -83,7 +83,7 @@ class TestPluginAPI(APIBaseTest):
     def test_create_plugin_repo_url(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             self.assertEqual(mock_reload.call_count, 0)
-            response = self.client.post("/api/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
             self.assertEqual(response.status_code, 201)
             self.assertEqual(
                 response.data,
@@ -102,7 +102,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(Plugin.objects.count(), 1)
             self.assertEqual(mock_reload.call_count, 1)
 
-            self.client.delete("/api/plugins/{}".format(response.data["id"]))  # type: ignore
+            self.client.delete("/api/plugin/{}".format(response.data["id"]))  # type: ignore
             self.assertEqual(Plugin.objects.count(), 0)
             self.assertEqual(mock_reload.call_count, 2)
 
@@ -110,7 +110,7 @@ class TestPluginAPI(APIBaseTest):
         with self.settings(PLUGINS_INSTALL_VIA_API=True):
             self.assertEqual(mock_reload.call_count, 0)
             response = self.client.post(
-                "/api/plugins/",
+                "/api/plugin/",
                 {
                     "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]
@@ -136,7 +136,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(mock_reload.call_count, 1)
 
             response2 = self.client.patch(
-                "/api/plugins/{}".format(response.data["id"]),  # type: ignore
+                "/api/plugin/{}".format(response.data["id"]),  # type: ignore
                 {
                     "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]
@@ -164,7 +164,7 @@ class TestPluginAPI(APIBaseTest):
 
     def test_plugin_repository(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.get("/api/plugins/repository/")
+            response = self.client.get("/api/plugin/repository/")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.data,
@@ -186,28 +186,28 @@ class TestPluginAPI(APIBaseTest):
                 ],
             )
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
-            response = self.client.get("/api/plugins/repository/")
+            response = self.client.get("/api/plugin/repository/")
             self.assertEqual(response.status_code, 400)
 
     def test_plugin_status(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.get("/api/plugins/status/")
+            response = self.client.get("/api/plugin/status/")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, {"status": "offline"})
 
             get_client().set("@posthog-plugin-server/ping", now().isoformat())
-            response = self.client.get("/api/plugins/status/")
+            response = self.client.get("/api/plugin/status/")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, {"status": "online"})
 
         with self.settings(PLUGINS_INSTALL_VIA_API=False, PLUGINS_CONFIGURE_VIA_API=False):
-            response = self.client.get("/api/plugins/status/")
+            response = self.client.get("/api/plugin/status/")
             self.assertEqual(response.status_code, 400)
 
     def test_create_plugin_config(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
             self.assertEqual(mock_reload.call_count, 0)
-            response = self.client.post("/api/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
             self.assertEqual(response.status_code, 201)
             self.assertEqual(Plugin.objects.count(), 1)
             self.assertEqual(PluginConfig.objects.count(), 0)
@@ -253,7 +253,7 @@ class TestPluginAPI(APIBaseTest):
 
     def test_create_plugin_config_auth(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
             plugin_id = response.data["id"]  # type: ignore
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=False):
             response = self.client.post(
@@ -276,7 +276,7 @@ class TestPluginAPI(APIBaseTest):
 
     def test_update_plugin_config_auth(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
             plugin_id = response.data["id"]  # type: ignore
             response = self.client.post(
                 "/api/plugin_config/",
@@ -304,7 +304,7 @@ class TestPluginAPI(APIBaseTest):
 
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
-            response = self.client.post("/api/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
             plugin_id = response.data["id"]  # type: ignore
             response = self.client.post(
                 "/api/plugin_config/",
@@ -336,7 +336,7 @@ class TestPluginAPI(APIBaseTest):
 
             self.assertEqual(PluginAttachment.objects.count(), 0)
             response = self.client.post(
-                "/api/plugins/",
+                "/api/plugin/",
                 {
                     "url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(
                         HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]

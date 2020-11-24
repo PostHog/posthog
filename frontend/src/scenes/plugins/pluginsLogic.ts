@@ -25,7 +25,7 @@ export const pluginsLogic = kea<
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/plugins')
+                    const { results } = await api.get('api/plugin')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
@@ -34,7 +34,7 @@ export const pluginsLogic = kea<
                 },
                 installPlugin: async ({ pluginUrl, type }) => {
                     const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
-                    const response = await api.create('api/plugins', { url })
+                    const response = await api.create('api/plugin', { url })
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -42,7 +42,7 @@ export const pluginsLogic = kea<
                     if (!editingPlugin) {
                         return plugins
                     }
-                    await api.delete(`api/plugins/${editingPlugin.id}`)
+                    await api.delete(`api/plugin/${editingPlugin.id}`)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
@@ -108,7 +108,7 @@ export const pluginsLogic = kea<
             {} as Record<string, PluginRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('api/plugins/repository')
+                    const results = await api.get('api/plugin/repository')
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
                         repository[plugin.name] = plugin

@@ -108,7 +108,7 @@ function _FeatureFlags() {
                             <EditOutlined onClick={() => setOpenFeatureFlag(featureFlag)} />
                         </Link>
                         <DeleteWithUndo
-                            endpoint="feature-flags"
+                            endpoint="feature_flag"
                             object={featureFlag}
                             className="text-danger"
                             style={{ marginLeft: 8 }}
