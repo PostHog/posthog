@@ -6,6 +6,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.utils import generate_cache_key
 
 from .base import BaseTest, TransactionBaseTest
 
@@ -60,20 +61,23 @@ class TestDashboard(TransactionBaseTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
+        filter = Filter(data=filter_dict)
 
-        item = DashboardItem.objects.create(
-            dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team,
-        )
+        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
         DashboardItem.objects.create(
-            dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team,
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(response["items"][0]["result"], None)
+
         # cache results
         self.client.get(
             "/api/action/trends/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
+        item = DashboardItem.objects.get(pk=item.pk)
+        self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
         with self.assertNumQueries(7):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()

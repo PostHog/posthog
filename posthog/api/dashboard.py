@@ -183,27 +183,17 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
-        # avoid running this function 2x
-        if self._get_result:
-            return self._get_result
-
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
-            import ipdb
-
-            ipdb.set_trace()
             return None
 
-        if not dashboard_item.filters:
+        if not dashboard_item.filters_hash:
             return None
-        filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
-        result = cache.get(cache_key)
+
+        result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
-            self._get_result = None
-        else:
-            self._get_result = result["result"]
-        return self._get_result
+            return None
+        return result["result"]
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
         if self.get_result(dashboard_item):
