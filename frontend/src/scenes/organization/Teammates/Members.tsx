@@ -1,7 +1,7 @@
 import React from 'react'
-import { Table, Modal, Button, Dropdown, Menu, Tooltip, Card, Divider } from 'antd'
+import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { membersLogic } from './logic'
+import { membersLogic } from './membersLogic'
 import {
     DeleteOutlined,
     ExclamationCircleOutlined,
@@ -12,14 +12,11 @@ import {
     CrownFilled,
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { hot } from 'react-hot-loader/root'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { PageHeader } from 'lib/components/PageHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { Invites } from '../Invites'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -169,12 +166,7 @@ function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null
     )
 }
 
-interface MembersProps {
-    user: UserType
-}
-
-export const Members = hot(_Members)
-function _Members({ user }: MembersProps): JSX.Element {
+export function Members({ user }: { user: UserType }): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
     const columns: ColumnsType<Record<string, any>> = [
@@ -213,23 +205,15 @@ function _Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                title="Teammates"
-                caption="View and manage teammates here. Build an even better product together."
+            <h2 className="subtitle">Organization Members</h2>
+            <Table
+                dataSource={members}
+                columns={columns}
+                rowKey="membership_id"
+                pagination={false}
+                style={{ marginTop: '1rem' }}
+                loading={membersLoading}
             />
-            <Card>
-                <Invites user={user} />
-                <Divider />
-                <h2 className="subtitle">Organization Members</h2>
-                <Table
-                    dataSource={members}
-                    columns={columns}
-                    rowKey="membership_id"
-                    pagination={false}
-                    style={{ marginTop: '1rem' }}
-                    loading={membersLoading}
-                />
-            </Card>
         </>
     )
 }

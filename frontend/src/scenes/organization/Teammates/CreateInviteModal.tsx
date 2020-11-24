@@ -1,14 +1,14 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { invitesLogic } from './logic'
+import { invitesLogic } from './invitesLogic'
 import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
+export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)

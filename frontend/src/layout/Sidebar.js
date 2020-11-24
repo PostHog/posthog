@@ -34,7 +34,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CreateOrgInviteModalWithButton } from 'scenes/organization/Invites/CreateOrgInviteModal'
+import { CreateInviteModalWithButton } from 'scenes/organization/Teammates/CreateInviteModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -288,7 +288,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.SubMenu>
                     <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-inviteTeam">
                         <PlusOutlined />
-                        <CreateOrgInviteModalWithButton type="text" />
+                        <CreateInviteModalWithButton type="text" />
                     </Menu.Item>
                 </Menu>
 

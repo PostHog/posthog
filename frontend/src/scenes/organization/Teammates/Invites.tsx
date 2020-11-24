@@ -1,13 +1,13 @@
 import React from 'react'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
-import { invitesLogic } from './logic'
+import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { hot } from 'react-hot-loader/root'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { CreateOrgInviteModalWithButton } from './CreateOrgInviteModal'
+import { CreateInviteModalWithButton } from './CreateInviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -94,7 +94,7 @@ function _Invites(): JSX.Element {
         <>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Pending Organization Invites
-                <CreateOrgInviteModalWithButton />
+                <CreateInviteModalWithButton />
             </h2>
             <Table
                 dataSource={invites}
@@ -108,7 +108,7 @@ function _Invites(): JSX.Element {
     ) : (
         <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
             {invitesLoading ? 'Pending Organization Invites…' : 'No Pending Organization Invites'}
-            <CreateOrgInviteModalWithButton />
+            <CreateInviteModalWithButton />
         </h2>
     )
 }
