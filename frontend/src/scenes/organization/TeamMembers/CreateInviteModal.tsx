@@ -48,7 +48,7 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
                         setIsVisible(true)
                     }}
                 >
-                    Invite Teammate
+                    Invite Team Member
                 </span>
             ) : (
                 <Button
@@ -59,12 +59,12 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
                     }}
                     icon={<PlusOutlined />}
                 >
-                    Invite Teammate
+                    Invite Team Member
                 </Button>
             )}
 
             <Modal
-                title={`Inviting Teammate${user?.organization ? ' to ' + user?.organization?.name : ''}`}
+                title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}

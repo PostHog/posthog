@@ -57,7 +57,8 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Teammates'),
+    [Scene.OrganizationMembers]: () =>
+        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
