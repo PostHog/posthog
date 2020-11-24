@@ -557,19 +557,3 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
 }
-
-/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
-export function camelCaseToTitle(camelCase: string | number): string {
-    const words: string[] = []
-    let currentWord: string = ''
-    for (const character of String(camelCase).trim()) {
-        if (character === character.toLowerCase()) {
-            currentWord += character
-        } else {
-            words.push(currentWord)
-            currentWord = character.toLowerCase()
-        }
-    }
-    if (currentWord) words.push(currentWord)
-    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
-}
