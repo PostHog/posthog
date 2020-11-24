@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from './EmptyStates'
+import { ACTIONS_BAR_CHART } from 'lib/constants'
 
 export function ActionsLineGraph({
     dashboardItemId = null,
@@ -35,7 +36,7 @@ export function ActionsLineGraph({
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
-                type={filters.shown_as === 'Lifecycle' ? 'bar' : 'line'}
+                type={filters.shown_as === 'Lifecycle' || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
                 color={color}
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}

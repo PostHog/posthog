@@ -144,7 +144,7 @@ export function BreakdownFilter({ filters, onChange }) {
                 <Button
                     shape="round"
                     type={breakdown ? 'primary' : 'default'}
-                    disabled={shown_as == 'Stickiness'}
+                    disabled={shown_as == 'Stickiness' || shown_as == 'Lifecycle'}
                     data-attr="add-breakdown-button"
                 >
                     {label || 'Add breakdown'}

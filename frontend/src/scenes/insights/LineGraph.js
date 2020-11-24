@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { formatLabel } from '~/lib/utils'
-import { getChartColors } from 'lib/colors'
+import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -112,10 +112,11 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
+        const color = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
 
         return {
-            borderColor: colorList[index],
-            backgroundColor: (type === 'bar' || type === 'doughnut') && colorList[index],
+            borderColor: color,
+            backgroundColor: (type === 'bar' || type === 'doughnut') && color,
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,

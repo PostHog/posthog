@@ -2,7 +2,14 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS } from '~/lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    STICKINESS,
+    ACTIONS_PIE_CHART,
+    ACTIONS_BAR_CHART,
+    ACTIONS_TABLE,
+} from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
@@ -29,6 +36,7 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
+            disabled={filters.shown_as === 'Lifecycle'}
         >
             <Select.OptGroup label={'Line Chart'}>
                 <Select.Option
@@ -44,9 +52,12 @@ export function ChartFilter(props) {
                     Cumulative
                 </Select.Option>
             </Select.OptGroup>
-            <Select.Option value="ActionsTable">Table</Select.Option>
-            <Select.Option value="ActionsPie" disabled={filters.session}>
+            <Select.Option value={ACTIONS_TABLE}>Table</Select.Option>
+            <Select.Option value={ACTIONS_PIE_CHART} disabled={filters.session}>
                 Pie
+            </Select.Option>
+            <Select.Option value={ACTIONS_BAR_CHART} disabled={filters.session}>
+                Bar
             </Select.Option>
         </Select>,
     ]
