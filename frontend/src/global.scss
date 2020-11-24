@@ -59,6 +59,8 @@ style files without adding already imported styles. */
 }
 
 .subtitle {
+    display: flex;
+    align-items: center;
     margin-top: 24px;
     font-size: 22px;
     line-height: 26px;
@@ -234,6 +236,10 @@ style files without adding already imported styles. */
 }
 
 // Card styles
+.ant-card-body > :first-child {
+    margin-top: 0;
+}
+
 .card-elevated {
     @extend .mixin-elevated;
 }
