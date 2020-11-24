@@ -1,10 +1,12 @@
 import json
 
 from django.core.cache import cache
+from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.utils import generate_cache_key
 
 from .base import BaseTest, TransactionBaseTest
 
@@ -53,35 +55,54 @@ class TestDashboard(TransactionBaseTest):
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
 
-    def test_return_results(self):
+    def test_return_cached_results(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        filter = Filter(data=filter_dict)
+
+        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        DashboardItem.objects.create(
+            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        )
+        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        self.assertEqual(response["items"][0]["result"], None)
+
+        # cache results
+        self.client.get(
+            "/api/action/trends/?events=%s&properties=%s"
+            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
+        )
+        item = DashboardItem.objects.get(pk=item.pk)
+        self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
+
+        with self.assertNumQueries(7):
+            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+
+        self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
+        self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+    def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        item = DashboardItem.objects.create(
-            dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team,
-        )
-        DashboardItem.objects.create(
-            dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team,
-        )
-        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            # Pretend we cached something a while ago, but we won't have anything in the redis cache
+            item = DashboardItem.objects.create(
+                dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
+            )
+
+        with freeze_time("2020-01-20T13:00:01Z"):
+            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+
         self.assertEqual(response["items"][0]["result"], None)
-        # cache results
-        self.client.get(
-            "/api/action/trends/?events=%s&properties=%s"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-
-        with self.assertNumQueries(7):
-            with freeze_time("2020-01-04T13:00:01Z"):
-                response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
-
-        self.assertEqual(
-            Dashboard.objects.get().last_accessed_at.isoformat(), "2020-01-04T13:00:01+00:00",
-        )
-        self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+        self.assertEqual(response["items"][0]["last_refresh"], None)
 
     def test_dashboard(self):
         # create
