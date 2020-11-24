@@ -43,6 +43,7 @@ export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'butto
         <>
             {type === 'text' ? (
                 <span
+                    className="sidebar-label"
                     onClick={() => {
                         setIsVisible(true)
                     }}
@@ -63,7 +64,7 @@ export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'butto
             )}
 
             <Modal
-                title="Inviting Teammate"
+                title={`Inviting Teammate${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}
@@ -93,11 +94,16 @@ export function CreateInviteModalWithButton({ type = 'button' }: { type?: 'butto
                 {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
 
                 {!user?.email_service_available && (
-                    <div>
-                        Emails are not enabled in your PostHog instance.
-                        <br />
-                        Remember to <b>share the invite link</b> with the team member you want to invite.
-                    </div>
+                    <Alert
+                        type="warning"
+                        message={
+                            <>
+                                Emails are not enabled in your PostHog instance.
+                                <br />
+                                Remember to <b>share the invite link</b> with the team member you want to invite.
+                            </>
+                        }
+                    />
                 )}
             </Modal>
         </>
