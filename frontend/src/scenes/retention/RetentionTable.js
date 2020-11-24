@@ -66,7 +66,6 @@ export function RetentionTable({ dashboardItemId = null }) {
                 rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
-                rowKey="date"
                 loading={retentionLoading}
                 onRow={(_, rowIndex) => {
                     return {
