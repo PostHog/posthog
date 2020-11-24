@@ -7,11 +7,12 @@ from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.utils import CursorPagination, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import convert_property_value
@@ -19,6 +20,7 @@ from posthog.utils import convert_property_value
 
 class PersonCursorPagination(CursorPagination):
     ordering = "-id"
+    page_size = 100
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):

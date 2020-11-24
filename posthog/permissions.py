@@ -22,7 +22,7 @@ def extract_organization(object: Model) -> Organization:
                 return object.project.organization  # type: ignore
             except AttributeError:
                 pass
-    raise ValueError("Model not compatible with organization-based permissions!")
+    raise ValueError("Object not compatible with organization-based permissions!")
 
 
 class ProjectMembershipNecessaryPermissions(BasePermission):
@@ -30,7 +30,7 @@ class ProjectMembershipNecessaryPermissions(BasePermission):
 
     message = "You don't belong to any organization that has a project."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_object_permission(self, request: Request, view, object) -> bool:
         return request.user.team is not None
 
 
@@ -39,14 +39,14 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
 
     message = "You don't belong to any organization."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_object_permission(self, request: Request, view, object) -> bool:
         return request.user.organization is not None
 
 
 class OrganizationMemberPermissions(BasePermission):
-    """Require organization membership to access object."""
+    """Require relevant organization membership to access object."""
 
-    message = "You don't belong to the organization."
+    message = "You don't belong to the relevant organization."
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object)

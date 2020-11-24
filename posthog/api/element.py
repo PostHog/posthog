@@ -3,7 +3,7 @@ from rest_framework import authentication, exceptions, request, response, serial
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, ElementGroup, Event, Filter, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -26,6 +26,8 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    filter_rewrite_rules = {"team_id": "group__team_id"}
+
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [

@@ -204,7 +204,8 @@ export function DashboardItem({
                             <Tooltip
                                 title={
                                     <i>
-                                        Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}
+                                        Refreshed:{' '}
+                                        {item.last_refresh ? moment(item.last_refresh).fromNow() : 'just now'}
                                     </i>
                                 }
                             >

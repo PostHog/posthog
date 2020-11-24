@@ -115,18 +115,18 @@ class TeamViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            obj = self.request.user.team
-            if obj is None:
+            team = self.request.user.team
+            if team is None:
                 raise exceptions.NotFound("Current project not found.")
-            return obj
+            return team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
-            obj = get_object_or_404(queryset, **filter_kwargs)
+            team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, obj)
-        return obj
+        self.check_object_permissions(self.request, team)
+        return team
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:

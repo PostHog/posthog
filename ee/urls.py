@@ -1,6 +1,6 @@
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api.utils import DefaultRouterPlusPlus
+from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import hooks, license
 

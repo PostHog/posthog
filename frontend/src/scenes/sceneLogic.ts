@@ -1,6 +1,6 @@
 import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
-import { camelCaseToTitle, delay } from 'lib/utils'
+import { identifierToHuman, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
@@ -238,7 +238,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
+            document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {

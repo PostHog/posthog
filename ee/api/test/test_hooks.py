@@ -9,8 +9,7 @@ class TestHooksAPI(APITransactionLicensedTest):
 
     def test_create_hook(self):
         data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created"}
-        with self.settings(DEBUG=1):
-            response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         self.assertEqual(response.status_code, 201)
         hook: Type[Hook] = Hook.objects.first()
         self.assertEqual(hook.team, self.team)

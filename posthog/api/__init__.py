@@ -1,6 +1,6 @@
 from rest_framework import decorators, exceptions
 
-from posthog.api.utils import DefaultRouterPlusPlus
+from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.ee import is_ee_enabled
 
 from . import (

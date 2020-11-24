@@ -1,6 +1,6 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional
 
 import posthoganalytics
 from django.core.cache import cache
@@ -15,7 +15,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
-from posthog.api.utils import StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Filter, Team
@@ -129,6 +129,12 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
+    def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
+
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
+            return {}
+        return {"team_id": self.request.user.team.id}
+
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
     legacy_team_compatibility = True
@@ -141,6 +147,8 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class DashboardItemSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField()
+    _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
         model = DashboardItem
@@ -189,14 +197,24 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
-        if not dashboard_item.filters:
+        # If it's more than a day old, don't return anything
+        if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None
-        filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
-        result = cache.get(cache_key)
+
+        if not dashboard_item.filters_hash:
+            return None
+
+        result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]
+
+    def get_last_refresh(self, dashboard_item: DashboardItem):
+        if self.get_result(dashboard_item):
+            return dashboard_item.last_refresh
+        dashboard_item.last_refresh = None
+        dashboard_item.save()
+        return None
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

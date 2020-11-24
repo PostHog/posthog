@@ -165,7 +165,7 @@ export function ActionsTable() {
                 size="small"
                 columns={columns}
                 loading={actionsLoading}
-                rowKey={(action) => action.id}
+                rowKey="id"
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 data-attr="actions-table"
                 dataSource={actions}

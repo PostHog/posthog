@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.api.utils import StructuredViewSetMixin
 from posthog.mixins import AnalyticsDestroyModelMixin
