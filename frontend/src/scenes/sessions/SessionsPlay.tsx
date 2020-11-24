@@ -119,6 +119,23 @@ function _SessionsPlay(): JSX.Element {
                     <div className="mt" />
                     <Card className="card-elevated">
                         <h3 className="l3">Event timeline</h3>
+                        <p className="text-muted text-small">
+                            Click on an item to jump to that point in the recording.
+                        </p>
+                        <div className="timeline">
+                            <div className="line" />
+                            <div className="timeline-items">
+                                <div>
+                                    <Tag>https://posthog.com/blog/the-post-1</Tag>
+                                </div>
+                                <div>
+                                    <Tag>https://posthog.com/docs</Tag>
+                                </div>
+                                <div>
+                                    <Tag>https://posthog.com/docs/integrations/message-formatting/#user</Tag>
+                                </div>
+                            </div>
+                        </div>
                     </Card>
                 </Col>
             </Row>
