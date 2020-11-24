@@ -151,6 +151,17 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
+                    {dropDownCondition() && (
+                        <ActionFilterDropdown
+                            logic={logic}
+                            onClickOutside={(e) => {
+                                if (node.current.contains(e.target)) {
+                                    return
+                                }
+                                selectFilter(null)
+                            }}
+                        />
+                    )}
                 </Col>
                 <Col>
                     {!hideMathSelector && (
@@ -205,17 +216,6 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         style={{ marginBottom: 0 }}
                     />
                 </div>
-            )}
-            {dropDownCondition() && (
-                <ActionFilterDropdown
-                    logic={logic}
-                    onClickOutside={(e) => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        selectFilter(null)
-                    }}
-                />
             )}
         </div>
     )
