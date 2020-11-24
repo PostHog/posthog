@@ -29,7 +29,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
         if not site_url:
             site_url = settings.SITE_URL
 
-        if team.slack_incoming_webhook:
+        if team.incoming_webhook:
             for action in actions:
                 qs = Event.objects.filter(pk=_event.pk).query_db_by_action(action)
                 if qs:
@@ -43,7 +43,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
                         message = {
                             "text": message_markdown,
                         }
-                    requests.post(team.slack_incoming_webhook, verify=False, json=message)
+                    requests.post(team.incoming_webhook, verify=False, json=message)
 
         _event.delete()
 

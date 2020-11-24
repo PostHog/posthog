@@ -21,7 +21,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
     const { setAction, saveAction } = useActions(logic)
 
     const [edited, setEdited] = useState(false)
-    const slackEnabled = user?.team?.slack_incoming_webhook
+    const slackEnabled = user?.team?.incoming_webhook
 
     if (actionLoading || !action) return <Loading />
 

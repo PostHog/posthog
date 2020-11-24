@@ -95,7 +95,7 @@ def get_formatted_message(action: Action, event: Event, site_url: str,) -> Tuple
 
 
 def determine_webhook_type(team: Team) -> str:
-    if "slack.com" in team.slack_incoming_webhook:
+    if "slack.com" in team.incoming_webhook:
         return "slack"
     return "teams"
 
@@ -110,7 +110,7 @@ def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
         if not site_url:
             site_url = settings.SITE_URL
 
-        if team.slack_incoming_webhook and actions:
+        if team.incoming_webhook and actions:
             for action in actions:
                 message_text, message_markdown = get_formatted_message(action, event, site_url,)
                 if determine_webhook_type(team) == "slack":
@@ -122,6 +122,6 @@ def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
                     message = {
                         "text": message_markdown,
                     }
-                requests.post(team.slack_incoming_webhook, verify=False, json=message)
+                requests.post(team.incoming_webhook, verify=False, json=message)
     except:
         self.retry(countdown=2 ** self.request.retries)

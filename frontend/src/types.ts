@@ -90,7 +90,7 @@ export interface TeamType {
     event_names_with_usage: EventUsageType[]
     event_properties_with_usage: PropertyUsageType[]
     opt_out_capture: boolean
-    slack_incoming_webhook: string
+    incoming_webhook: string
     session_recording_opt_in: boolean
     plugins_opt_in: boolean
     ingested_event: boolean
