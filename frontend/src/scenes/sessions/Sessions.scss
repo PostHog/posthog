@@ -3,4 +3,8 @@
 .session-player {
     padding: $default_spacing * 2 $default_spacing;
     height: calc(100vh - #{$top_nav_height});
+
+    .tag-wrapper {
+        margin-top: $default_spacing / 2;
+    }
 }
