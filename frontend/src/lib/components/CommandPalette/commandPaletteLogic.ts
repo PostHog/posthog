@@ -608,7 +608,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-key')
+                                        push('/my/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             return null

@@ -214,14 +214,13 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
 
         def test_delete_person(self):
-            with self.settings(DEBUG=1):
-                person = person_factory(
-                    team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
-                )
-                event_factory(event="test", team=self.team, distinct_id="person_1")
-                event_factory(event="test", team=self.team, distinct_id="anonymous_id")
-                event_factory(event="test", team=self.team, distinct_id="someone_else")
-                response = self.client.delete(f"/api/person/{person.pk}/")
+            person = person_factory(
+                team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+            )
+            event_factory(event="test", team=self.team, distinct_id="person_1")
+            event_factory(event="test", team=self.team, distinct_id="anonymous_id")
+            event_factory(event="test", team=self.team, distinct_id="someone_else")
+            response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.data, None)
             self.assertEqual(len(get_people()), 0)

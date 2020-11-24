@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.test_events import test_event_api_factory
+from posthog.api.test.test_event import test_event_api_factory
 from posthog.models import Action, ActionStep, Event, Person
 
 
