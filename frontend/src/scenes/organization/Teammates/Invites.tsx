@@ -1,5 +1,5 @@
 import React from 'react'
-import { Table, Modal } from 'antd'
+import { Table, Modal, Divider } from 'antd'
 import { useValues, useActions } from 'kea'
 import { invitesLogic } from './invitesLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -104,6 +104,7 @@ function _Invites(): JSX.Element {
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
             />
+            <Divider />
         </>
     ) : (
         <div className="text-right">

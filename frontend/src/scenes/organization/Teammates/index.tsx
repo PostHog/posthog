@@ -1,5 +1,5 @@
 import React from 'react'
-import { Card, Divider } from 'antd'
+import { Card } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,7 +16,6 @@ function _Teammates({ user }: { user: UserType }): JSX.Element {
             />
             <Card>
                 <Invites />
-                <Divider />
                 <Members user={user} />
             </Card>
         </>
