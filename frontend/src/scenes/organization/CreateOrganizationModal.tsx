@@ -39,6 +39,9 @@ export function CreateOrganizationModal({
                     setErrorMessage('Your organization needs a name!')
                 }
             }}
+            okButtonProps={{
+                'data-attr': 'create-organization-ok',
+            }}
             onCancel={closeModal}
             visible={isVisible}
         >

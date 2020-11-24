@@ -20,6 +20,9 @@ export function DeleteProject(): JSX.Element {
             icon: <ExclamationCircleOutlined color={red.primary} />,
             okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
             okType: 'danger',
+            okButtonProps: {
+                'data-attr': 'delete-project-ok',
+            },
             cancelText: 'Cancel',
             onOk() {
                 deleteCurrentTeam()

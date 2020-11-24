@@ -40,6 +40,9 @@ export function CreateProjectModal({
                     setErrorMessage('Your project needs a name!')
                 }
             }}
+            okButtonProps={{
+                'data-attr': 'create-project-ok',
+            }}
             onCancel={closeModal}
             visible={isVisible}
         >
