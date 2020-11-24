@@ -40,6 +40,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+        read_only_fields = ["user_id", "joined_at", "updated_at"]
 
     def update(self, updated_membership, validated_data):
         updated_membership = cast(OrganizationMembership, updated_membership)

@@ -13,6 +13,8 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         response = self.client.delete(f"/api/organizations/@current/members/{user.id}/")
         self.assertEqual(response.status_code, 403)
         self.assertTrue(membership_queryset.exists())
@@ -88,7 +90,7 @@ class TestOrganizationMembersAPI(TransactionBaseTest):
             {
                 "attr": None,
                 "code": "permission_denied",
-                "detail": "Your cannot edit other organization members or remove anyone but yourself.",
+                "detail": "You can only edit others if you are an admin.",
                 "type": "authentication_error",
             },
         )
