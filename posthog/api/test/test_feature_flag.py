@@ -150,3 +150,27 @@ class TestAPIFeatureFlag(APIBaseTest):
         self.assertTrue(FeatureFlag.objects.filter(pk=self.feature_flag.pk).exists())
 
         mock_capture.assert_not_called()
+
+
+    def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature")
+        instance.delete()
+
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature", "rollout_percentage": 50,},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        self.assertEqual(instance.key, "alpha-feature")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {"rollout_percentage": 50, "has_filters": False, "filter_count": 0, "created_at": instance.created_at,},
+        )
+
+
+
