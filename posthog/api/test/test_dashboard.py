@@ -6,9 +6,8 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.test.base import BaseTest, TransactionBaseTest
 from posthog.utils import generate_cache_key
-
-from .base import BaseTest, TransactionBaseTest
 
 
 class TestDashboard(TransactionBaseTest):
@@ -31,9 +30,9 @@ class TestDashboard(TransactionBaseTest):
     def test_token_auth(self):
         self.client.logout()
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
-        test_no_token = self.client.get("/api/dashboard/%s/" % (dashboard.pk))
+        test_no_token = self.client.get(f"/api/dashboard/{dashboard.pk}/")
         self.assertEqual(test_no_token.status_code, 403)
-        response = self.client.get("/api/dashboard/%s/?share_token=testtoken" % (dashboard.pk))
+        response = self.client.get(f"/api/dashboard/{dashboard.pk}/?share_token=testtoken")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["name"], "public dashboard")
 

@@ -1,8 +1,8 @@
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Event, Filter, Person, Team
 from posthog.queries.sessions import Sessions
+from posthog.test.base import BaseTest
 
 
 def sessions_test_factory(sessions, event_factory):

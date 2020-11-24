@@ -4,9 +4,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recording import SessionRecording, add_session_recording_ids
+from posthog.test.base import BaseTest
 
 
 def session_recording_test_factory(session_recording, add_ids, event_factory):

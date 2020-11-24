@@ -105,9 +105,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
     if filters.get("date_from"):
-        date_from = relative_date_parse(filters["date_from"])
+        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
         if filters["date_from"] == "all":
-            date_from = None  # type: ignore
+            date_from = None
     else:
         date_from = datetime.datetime.today() - relativedelta(days=7)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)

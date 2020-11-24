@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
@@ -39,7 +40,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         model = OrganizationMembership
         fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
 
-    def update(self, updated_membership, validated_data):
+    def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
@@ -54,7 +55,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
 
 class OrganizationMemberViewSet(
-    NestedViewSetMixin,
+    StructuredViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -65,18 +66,6 @@ class OrganizationMemberViewSet(
     queryset = OrganizationMembership.objects.all()
     lookup_field = "user_id"
     ordering = ["level", "-joined_at"]
-
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        parents_query_dict = self.get_parents_query_dict()
-        if parents_query_dict:
-            if parents_query_dict["organization_id"] == "@current":
-                parents_query_dict["organization_id"] = self.request.user.organization.id
-            try:
-                return queryset.filter(**parents_query_dict)
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())

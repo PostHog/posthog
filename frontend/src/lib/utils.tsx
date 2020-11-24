@@ -91,7 +91,7 @@ export function SceneLoading(): JSX.Element {
 }
 
 export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
-    api.update('api/' + props.endpoint + '/' + props.object.id, {
+    api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
     }).then(() => {

@@ -1,6 +1,3 @@
-import json
-from typing import List
-
 from rest_framework import request, response
 
 from ee.clickhouse.models.person import delete_person
@@ -9,10 +6,9 @@ from posthog.models import Event, Person
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
-class ClickhousePerson(PersonViewSet):
-    def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
-        assert team is not None
+class ClickhousePersonViewSet(PersonViewSet):
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        team = self.team
         person = Person.objects.get(team=team, pk=pk)
         # TODO: Probably won't need this after a while
 
