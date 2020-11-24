@@ -54,14 +54,12 @@ export function RetentionTable({ dashboardItemId = null }) {
     function dismissModal() {
         setModalVisible(false)
     }
-
     return (
         <>
             <Table
                 data-attr="retention-table"
                 size="small"
                 className="retention-table"
-                rowKey="date"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
                 dataSource={retention.data}
