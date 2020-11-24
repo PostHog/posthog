@@ -5,7 +5,6 @@ import { Menu, Layout, Modal } from 'antd'
 import {
     SmileOutlined,
     TeamOutlined,
-    SendOutlined,
     UserOutlined,
     RiseOutlined,
     UsergroupAddOutlined,
@@ -246,15 +245,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <TeamOutlined />
                             <span className="sidebar-label">Teammates</span>
                             <Link to={'/organization/members'} onClick={collapseSidebar} />
-                        </Menu.Item>
-                        <Menu.Item
-                            key="organizationInvites"
-                            style={itemStyle}
-                            data-attr="menu-item-organization-invites"
-                        >
-                            <SendOutlined />
-                            <span className="sidebar-label">Invites</span>
-                            <Link to={'/organization/invites'} onClick={collapseSidebar} />
                         </Menu.Item>
 
                         {featureFlags['billing-management-page'] && (
