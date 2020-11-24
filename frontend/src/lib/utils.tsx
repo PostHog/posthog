@@ -529,17 +529,27 @@ export function sampleSingle<T>(items: T[]): T[] {
     return [items[Math.floor(Math.random() * items.length)]]
 }
 
-export function identifierToHuman(input: string, capitalize: boolean = true): string | null {
-    /* Converts a camelCase, PascalCase or snake_case string to a human-friendly string.
-    (e.g. `feature_flags` or `featureFlags` becomes "Feature Flags") */
-    const match = input.match(/[A-Za-z][a-z]*/g)
-    if (!match) return null
-
-    return match
-        .map((group) => {
-            return capitalize ? group[0].toUpperCase() + group.substr(1).toLowerCase() : group.toLowerCase()
-        })
-        .join(' ')
+/** Convert camelCase, PascalCase or snake_case to Title Case. */
+export function identifierToHuman(identifier: string | number): string {
+    const words: string[] = []
+    let currentWord: string = ''
+    for (const character of String(identifier).trim()) {
+        if (character === '_' || character === '-') {
+            if (currentWord) words.push(currentWord)
+            currentWord = ''
+        } else if (
+            character === character.toLowerCase() &&
+            (!'0123456789'.includes(character) ||
+                (currentWord && '0123456789'.includes(currentWord[currentWord.length - 1])))
+        ) {
+            currentWord += character
+        } else {
+            if (currentWord) words.push(currentWord)
+            currentWord = character.toLowerCase()
+        }
+    }
+    if (currentWord) words.push(currentWord)
+    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
@@ -556,20 +566,4 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
         return true
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
-}
-
-/** Convert camelCase to Title Case. Useful for generating page title from internal scene name. */
-export function camelCaseToTitle(camelCase: string | number): string {
-    const words: string[] = []
-    let currentWord: string = ''
-    for (const character of String(camelCase).trim()) {
-        if (character === character.toLowerCase()) {
-            currentWord += character
-        } else {
-            words.push(currentWord)
-            currentWord = character.toLowerCase()
-        }
-    }
-    if (currentWord) words.push(currentWord)
-    return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }
