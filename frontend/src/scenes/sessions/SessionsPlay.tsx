@@ -47,7 +47,7 @@ function _SessionsPlay(): JSX.Element {
                             <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
                         </span>
                     </div>
-                    <div className="ph-no-capture" style={{ height: '90%', position: 'relative' }}>
+                    <div className="ph-no-capture player-container">
                         {sessionPlayerDataLoading ? (
                             <Loading />
                         ) : (
@@ -55,7 +55,7 @@ function _SessionsPlay(): JSX.Element {
                         )}
                     </div>
                 </Col>
-                <Col span={6}>
+                <Col span={6} className="sidebar">
                     <Card className="card-elevated">
                         <h3 className="l3">Session #2191</h3>
                         <div className="mb-05">
@@ -125,6 +125,15 @@ function _SessionsPlay(): JSX.Element {
                         <div className="timeline">
                             <div className="line" />
                             <div className="timeline-items">
+                                <div>
+                                    <Tag>https://posthog.com/blog/the-post-1</Tag>
+                                </div>
+                                <div className="current">
+                                    <Tag>https://posthog.com/docs</Tag>
+                                </div>
+                                <div>
+                                    <Tag>https://posthog.com/docs/integrations/message-formatting/#user</Tag>
+                                </div>
                                 <div>
                                     <Tag>https://posthog.com/blog/the-post-1</Tag>
                                 </div>
