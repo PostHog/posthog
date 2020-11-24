@@ -54,6 +54,7 @@ export function PersonTable({ properties }) {
                                 </span>
                             ))}
                             <Button
+                                data-cy="show-more-distinct-id"
                                 onClick={() =>
                                     setMapShowAllValuesForKey((prev) => {
                                         return { ...prev, [_key]: true }
