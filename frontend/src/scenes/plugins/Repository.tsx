@@ -3,14 +3,15 @@ import { Col, Row } from 'antd'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginCard, PluginLoading } from './PluginCard'
+import { Subtitle } from 'lib/components/PageHeader'
 
 export function Repository(): JSX.Element {
     const { repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
 
     return (
         <div>
-            <h2 className="subtitle">Available</h2>
-            <Row gutter={16}>
+            <Subtitle subtitle="Available" />
+            <Row gutter={16} style={{ marginTop: 16 }}>
                 {(!repositoryLoading || uninstalledPlugins.length > 0) && (
                     <>
                         {uninstalledPlugins.map((plugin) => {
