@@ -152,8 +152,7 @@ class TestAPIFeatureFlag(APIBaseTest):
         mock_capture.assert_not_called()
 
     def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature")
-        instance.delete()
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 
         self.client.force_login(self.user)
 
@@ -162,4 +161,16 @@ class TestAPIFeatureFlag(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        self.assertEqual(instance.key, "alpha-feature")
+
+    def test_updating_a_feature_flag_with_same_team_and_key_of_a_deleted_one(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
+
+        self.client.force_login(self.user)
+
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+
+        response = self.client.patch(f"/api/feature_flag/{instance.pk}", {"key": "alpha-feature",}, format="json",)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
