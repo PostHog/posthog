@@ -1,7 +1,7 @@
 from django.test import Client, TestCase
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, DashboardItem, Event, Funnel, Person, Team, User
+from posthog.test.base import BaseTest
 
 
 class TestDemo(BaseTest):

@@ -1,4 +1,3 @@
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, Event, Person
 from posthog.tasks.webhooks import (
     determine_webhook_type,
@@ -8,6 +7,7 @@ from posthog.tasks.webhooks import (
     get_user_details,
     get_value_of_token,
 )
+from posthog.test.base import BaseTest
 
 
 class TestWebhookMessage(BaseTest):

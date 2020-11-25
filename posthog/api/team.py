@@ -7,6 +7,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, generics, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework_extensions.routers import NestedRouterMixin
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
@@ -72,7 +73,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "opt_out_capture",
         )
 
-    def create(self, validated_data: Dict[str, Any]) -> Team:
+    def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = request.user.organization
@@ -106,18 +107,21 @@ class TeamViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            return self.request.user.team
+            team = self.request.user.team
+            if team is None:
+                raise exceptions.NotFound("Current project not found.")
+            return team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
-            obj = get_object_or_404(queryset, **filter_kwargs)
+            team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, obj)
-        return obj
+        self.check_object_permissions(self.request, team)
+        return team
 
     @action(methods=["PATCH"], detail=True)
-    def reset_token(self, request: request.Request, id: str) -> response.Response:
+    def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.api_token = generate_random_token()
         team.save()
@@ -135,7 +139,7 @@ class TeamSignupSerializer(serializers.Serializer):
         password_validation.validate_password(value)
         return value
 
-    def create(self, validated_data):
+    def create(self, validated_data, **kwargs):
         is_first_user: bool = not User.objects.exists()
         realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 

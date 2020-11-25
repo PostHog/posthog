@@ -6,6 +6,7 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Funnel
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -33,23 +34,26 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         return funnel.get_steps()
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
-        request = self.context["request"]
-        funnel = Funnel.objects.create(team=request.user.team, created_by=request.user, **validated_data)
+        funnel = Funnel.objects.create(
+            team_id=self.context["team_id"], created_by=self.context["request"].user, **validated_data
+        )
         return funnel
 
 
-class FunnelViewSet(viewsets.ModelViewSet):
+class FunnelViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Funnel.objects.all()
     serializer_class = FunnelSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team)
+        return queryset
 
-    def retrieve(self, request, pk=None):
+    def retrieve(self, request, pk=None, **kwargs):
         data = self._retrieve(request, pk)
         return Response(data)
 

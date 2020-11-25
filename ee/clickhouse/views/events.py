@@ -19,7 +19,7 @@ from posthog.models.action import Action
 from posthog.utils import convert_property_value
 
 
-class ClickhouseEvents(EventViewSet):
+class ClickhouseEventsViewSet(EventViewSet):
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
@@ -31,8 +31,7 @@ class ClickhouseEvents(EventViewSet):
         return distinct_to_person
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team
-        assert team is not None
+        team = self.team
         filter = Filter(request=request)
         if request.GET.get("after"):
             filter._date_from = request.GET["after"]
@@ -83,19 +82,17 @@ class ClickhouseEvents(EventViewSet):
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
 
         # TODO: implement getting elements
-        team = request.user.team
-        assert team is not None
+        team = self.team
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": team.pk, "event_id": pk},)
         result = ClickhouseEventSerializer(query_result[0], many=False).data
 
         return Response(result)
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: Request) -> Response:
+    def values(self, request: Request, **kwargs) -> Response:
 
         key = request.GET.get("key")
-        team = request.user.team
-        assert team is not None
+        team = self.team
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
@@ -108,8 +105,7 @@ class ClickhouseEvents(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.request.user.team
-        assert team is not None
+        team = self.self.team
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )
