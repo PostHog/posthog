@@ -400,3 +400,49 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)
+
+    def test_reorder_plugin_config(self):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            response = self.client.post("/api/plugin/", {"url": "https://github.com/PostHog/helloworldplugin"})
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 0)
+            plugin_id = response.data["id"]  # type: ignore
+            response = self.client.post(
+                "/api/plugin_config/",
+                {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            )
+            plugin_config_id = response.data["id"]  # type: ignore
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 1)
+            self.assertEqual(
+                response.data,
+                {
+                    "id": plugin_config_id,
+                    "plugin": plugin_id,
+                    "enabled": True,
+                    "order": 0,
+                    "config": {"bar": "moop"},
+                    "error": None,
+                },
+            )
+            response = self.client.patch(
+                "/api/plugin_config/{}".format(plugin_config_id),
+                {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
+            )
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 1)
+            self.assertEqual(
+                response.data,
+                {
+                    "id": plugin_config_id,
+                    "plugin": plugin_id,
+                    "enabled": False,
+                    "order": 1,
+                    "config": {"bar": "soup"},
+                    "error": None,
+                },
+            )
+            self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(PluginConfig.objects.count(), 1)

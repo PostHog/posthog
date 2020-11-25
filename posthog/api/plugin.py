@@ -10,6 +10,7 @@ from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.timezone import now
+from django.db import transaction
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -17,7 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -134,7 +135,6 @@ class PluginViewSet(viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     class Meta:
         model = PluginConfig
@@ -221,12 +221,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 class PluginConfigViewSet(viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if can_configure_plugins_via_api():
-            return queryset.filter(team_id=self.request.user.team.pk)
-        return queryset.none()
+        if not can_configure_plugins_via_api():
+            return self.queryset.none()
+        else:
+            return super().get_queryset().order_by("enabled", "order", "plugin_id").filter(team=self.request.user.team)
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
@@ -251,3 +252,18 @@ class PluginConfigViewSet(viewsets.ModelViewSet):
             response.append(plugin)
 
         return Response(response)
+
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self, request: request.Request):
+        if not can_configure_plugins_via_api():
+            return Response()
+        new_order = {plugin_id: index for index, plugin_id in enumerate(request.data)}
+        with transaction.atomic():
+            for plugin in self.get_queryset().only("pk", "order"):
+                try:
+                    plugin.order = new_order[plugin.pk]
+                except KeyError:
+                    raise ValidationError(f"Plugin ID {plugin.pk} missing in new order!")
+                else:
+                    plugin.save()
+        return Response()
