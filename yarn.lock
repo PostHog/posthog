@@ -8220,6 +8220,18 @@ posthog-plugins@0.1.3:
   resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.1.3.tgz#3a47f1303733720c308f33f67162ca2823845bbf"
   integrity sha512-6VElUUux/AA+uetGWk9p0+cep8+ByE0P0Zv8cypT9z/3hLUhueTjrvQZDL835656BOPtVRdBOxjBqQ7fYog57g==
 
+posthog-react-rrweb-player@^1.0.6:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.6.tgz#ad41c6967708bd828f0e90d863d54f9b8ef52695"
+  integrity sha512-g4nmIIMhR0yV9penNpV3g+YnI+ddKgj9sLKT+hQa8Rgi3e/qEe67yd6kfAHtmwjcSTl8wRgiA9ribVw51zcWMg==
+  dependencies:
+    rc-slider "^9.6.2"
+    react-transition-group "^4.4.1"
+    rrweb "^0.9.9"
+    screenfull "^5.0.2"
+    use-debounce "^5.1.0"
+    use-local-storage-state "^6.0.0"
+
 prelude-ls@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/prelude-ls/-/prelude-ls-1.2.1.tgz#debc6489d7a6e6b0e7611888cec880337d316396"
@@ -8709,6 +8721,17 @@ rc-select@~11.4.0:
     rc-virtual-list "^3.2.0"
     warning "^4.0.3"
 
+rc-slider@^9.6.2:
+  version "9.6.4"
+  resolved "https://registry.yarnpkg.com/rc-slider/-/rc-slider-9.6.4.tgz#19af39ad22927de2f6d524e0a14f3b1cf17ba659"
+  integrity sha512-TgmfOh1Jj9fHsW2eDeldFy4mOKwyHn4krl4K6gqbXhGFND7jVRdfA0m7TDUx3gGeX7A17fM1QZymMO/NRJmoLw==
+  dependencies:
+    "@babel/runtime" "^7.10.1"
+    classnames "^2.2.5"
+    rc-tooltip "^5.0.1"
+    rc-util "^5.0.0"
+    shallowequal "^1.1.0"
+
 rc-slider@~9.6.1:
   version "9.6.1"
   resolved "https://registry.yarnpkg.com/rc-slider/-/rc-slider-9.6.1.tgz#bfa8b3dc3b5d2c4600889af47a72f678d8878805"
@@ -8983,7 +9006,7 @@ react-toastify@^5.5.0:
     prop-types "^15.7.2"
     react-transition-group "^4"
 
-react-transition-group@^4:
+react-transition-group@^4, react-transition-group@^4.4.1:
   version "4.4.1"
   resolved "https://registry.yarnpkg.com/react-transition-group/-/react-transition-group-4.4.1.tgz#63868f9325a38ea5ee9535d828327f85773345c9"
   integrity sha512-Djqr7OQ2aPUiYurhPalTrVy9ddmFCCzwhqQmtN+J3+3DzLO209Fdr70QrN8Z3DsglWql6iY1lDWAfpFiBtuKGw==
@@ -9396,13 +9419,6 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-player@^0.6.2:
-  version "0.6.4"
-  resolved "https://registry.yarnpkg.com/rrweb-player/-/rrweb-player-0.6.4.tgz#0335f1e968b6c1013987dd660eb44ef8981db793"
-  integrity sha512-h2XJfkSv0gqTxxVrWrqQ5BnBBjIpjkUrh3GEJNiIKnI3k+1YMt02alMl+jy+1k4XssTeXnvwnkj2KHthHdO/LQ==
-  dependencies:
-    rrweb "^0.9.9"
-
 rrweb-snapshot@^0.8.4:
   version "0.8.4"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-0.8.4.tgz#3f8bf1270975f9dfad60321a29067d2ea39e3c39"
@@ -9552,7 +9568,7 @@ schema-utils@^3.0.0:
     ajv "^6.12.5"
     ajv-keywords "^3.5.2"
 
-screenfull@^5.0.0:
+screenfull@^5.0.0, screenfull@^5.0.2:
   version "5.0.2"
   resolved "https://registry.yarnpkg.com/screenfull/-/screenfull-5.0.2.tgz#b9acdcf1ec676a948674df5cd0ff66b902b0bed7"
   integrity sha512-cCF2b+L/mnEiORLN5xSAz6H3t18i2oHh9BA8+CQlAh5DRw2+NFAGQJOSYbcGw8B2k04g/lVvFcfZ83b3ysH5UQ==
@@ -10772,6 +10788,16 @@ url@^0.11.0:
   dependencies:
     punycode "1.3.2"
     querystring "0.2.0"
+
+use-debounce@^5.1.0:
+  version "5.1.0"
+  resolved "https://registry.yarnpkg.com/use-debounce/-/use-debounce-5.1.0.tgz#3df34bd7449da7dd2dbb10a6513efe701fc79d02"
+  integrity sha512-fU7O7iel2bA19fxSiPfRkieVGxrow503phSUAGZ/EqiJtCPrU9AdUdrKOAdgh803IrjdIzhj+8eDsDGn4OPy8g==
+
+use-local-storage-state@^6.0.0:
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/use-local-storage-state/-/use-local-storage-state-6.0.0.tgz#017c69c64178faa336a2c02ea7910fc146e8168a"
+  integrity sha512-lLql7/6CFNM6xDz5xpNDsK8oxVjjskRDMm3gKhLkWT+mJ2zePbH4XtDp1x+sOhtVr4INPtDcb41/ut8iQ+SKFg==
 
 use@^3.1.0:
   version "3.1.1"
