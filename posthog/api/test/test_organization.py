@@ -8,6 +8,7 @@ from posthog.models import Dashboard, Organization, OrganizationMembership, Team
 from posthog.settings import MULTI_TENANCY
 from posthog.test.base import APIBaseTest
 
+
 class TestOrganizationAPI(APIBaseTest):
     def test_no_create_organization_without_license_selfhosted(self):
         with self.settings(MULTI_TENANCY=False):
