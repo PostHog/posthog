@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react'
-import './Sessions.scss'
+import { Player } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Tag } from 'antd'
-import { Loading } from 'lib/utils'
 import {
     AppleOutlined,
     ChromeOutlined,
@@ -11,16 +10,21 @@ import {
     PlusOutlined,
     SyncOutlined,
 } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
 import { hot } from 'react-hot-loader/root'
-import { colorForString } from 'lib/utils'
 import { useActions, useValues } from 'kea'
+import { Link } from 'lib/components/Link'
+import { colorForString } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
+import './Sessions.scss'
+import './SessionsPlayer.scss'
 
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
-    const { addingTagShown, addingTag, tags, tagsLoading } = useValues(sessionsPlayLogic)
+    const { sessionPlayerData, sessionPlayerDataLoading, addingTagShown, addingTag, tags, tagsLoading } = useValues(
+        sessionsPlayLogic
+    )
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
@@ -30,8 +34,6 @@ function _SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
-    // TODO: TEMPORARY VALUES FOR TESTING
-    const sessionPlayerDataLoading = false
     const removeTag = (tag: string): void => {
         alert(`removed tag ${tag}`)
     }
@@ -48,11 +50,7 @@ function _SessionsPlay(): JSX.Element {
                         </span>
                     </div>
                     <div className="ph-no-capture player-container">
-                        {sessionPlayerDataLoading ? (
-                            <Loading />
-                        ) : (
-                            <div style={{ height: '100%', backgroundColor: '#C4C4C4' }} />
-                        )}
+                        {sessionPlayerDataLoading ? <Loading /> : <Player events={sessionPlayerData!} />}
                     </div>
                 </Col>
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
