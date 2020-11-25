@@ -1,11 +1,11 @@
-import React, { useEffect } from 'react'
+import React, { PropsWithChildren, useEffect } from 'react'
 import { Drawer as AntDrawer } from 'antd'
 import { DrawerProps } from 'antd/lib/drawer'
 
 /**
  * Ant Drawer extended to add class 'drawer-open' to <body> when drawer is out. Used to alter e.g. Papercups widget.
  */
-export function Drawer(props: DrawerProps): JSX.Element {
+export function Drawer(props: PropsWithChildren<DrawerProps>): JSX.Element {
     const { visible } = props
 
     useEffect(() => {
