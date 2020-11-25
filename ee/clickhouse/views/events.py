@@ -105,7 +105,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.self.team
+        team = self.team
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )
