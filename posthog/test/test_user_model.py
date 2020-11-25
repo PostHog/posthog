@@ -6,7 +6,7 @@ from django.test import tag
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestUser(BaseTest):
