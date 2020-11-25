@@ -9,8 +9,11 @@ export function Drawer(props: PropsWithChildren<DrawerProps>): JSX.Element {
     const { visible } = props
 
     useEffect(() => {
-        if (visible) document.body.classList.add('drawer-open')
-        else document.body.classList.remove('drawer-open')
+        if (visible) {
+            document.body.classList.add('drawer-open')
+        } else {
+            document.body.classList.remove('drawer-open')
+        }
     }, [visible])
 
     return <AntDrawer {...props} />
