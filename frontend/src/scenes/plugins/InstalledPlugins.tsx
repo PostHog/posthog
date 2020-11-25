@@ -2,13 +2,13 @@ import React from 'react'
 import { Button, Col, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { PluginCard, PluginLoading } from './PluginCard'
 import { userLogic } from 'scenes/userLogic'
 
 export function InstalledPlugins(): JSX.Element {
     const { installedPlugins, loading } = useValues(pluginsLogic)
-    const { setPluginTab } = useActions(pluginsLogic)
+    const { setPluginTab, startReorderingPlugins } = useActions(pluginsLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -19,6 +19,13 @@ export function InstalledPlugins(): JSX.Element {
                 </h2>
                 {user?.plugin_access.install && (
                     <div className="float-right mb" style={{ marginBottom: 16 }}>
+                        <Button
+                            icon={<OrderedListOutlined />}
+                            style={{ marginRight: 16 }}
+                            onClick={startReorderingPlugins}
+                        >
+                            Reorder plugins
+                        </Button>
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
                             Install new plugin
                         </Button>

@@ -12,6 +12,7 @@ import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 import { LocalPlugin } from 'scenes/plugins/LocalPlugin'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PluginsOrderDrawer } from './PluginsOrderDrawer'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -61,6 +62,7 @@ function _Plugins(): JSX.Element {
                         )}
                     </Tabs>
                     <PluginDrawer />
+                    <PluginsOrderDrawer />
                 </>
             ) : (
                 <div style={{ maxWidth: 600, marginTop: 20 }}>

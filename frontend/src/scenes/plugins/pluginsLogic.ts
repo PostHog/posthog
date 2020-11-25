@@ -18,6 +18,8 @@ export const pluginsLogic = kea<
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setPluginTab: (tab: string) => ({ tab }),
         resetPluginConfigError: (id: number) => ({ id }),
+        startReorderingPlugins: true,
+        stopReorderingPlugins: true,
     },
 
     loaders: ({ values }) => ({
@@ -127,6 +129,13 @@ export const pluginsLogic = kea<
                 savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
+            },
+        ],
+        reorderingPlugins: [
+            false,
+            {
+                startReorderingPlugins: () => true,
+                stopReorderingPlugins: () => false,
             },
         ],
         customPluginUrl: [
