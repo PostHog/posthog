@@ -29,8 +29,6 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag: string
     archive: Buffer | null
-    from_json: boolean
-    from_web: boolean
     error?: PluginError
 }
 
