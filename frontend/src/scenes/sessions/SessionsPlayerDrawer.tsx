@@ -5,6 +5,7 @@ import { Loading } from 'lib/utils'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { Player } from 'posthog-react-rrweb-player'
 
+import 'rrweb/dist/rrweb.min.css'
 import 'posthog-react-rrweb-player/dist/index.css'
 
 export default function SessionsPlayerDrawer(): JSX.Element {
