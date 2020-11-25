@@ -1,7 +1,8 @@
 from typing import Any, List, Optional, cast
-from django.utils import timezone
+
 import requests
 from django.db import models
+from django.utils import timezone
 
 
 class LicenseError(Exception):

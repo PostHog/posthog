@@ -22,9 +22,9 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
-from posthog.settings import print_warning
 
 from posthog.redis import get_client
+from posthog.settings import print_warning
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
