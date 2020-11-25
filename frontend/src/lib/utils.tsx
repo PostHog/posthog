@@ -24,7 +24,9 @@ export function uuid(): string {
 
 export function toParams(obj: Record<string, any>): string {
     function handleVal(val: any): string {
-        if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
+        if (val._isAMomentObject) {
+            return encodeURIComponent(val.format('YYYY-MM-DD'))
+        }
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
@@ -173,12 +175,16 @@ export function debounce(func: (...args: any) => void, wait: number, immediate: 
         const context = this // eslint-disable-line
         function later(): void {
             timeout = undefined
-            if (!immediate) func.apply(context, args)
+            if (!immediate) {
+                func.apply(context, args)
+            }
         }
         const callNow = immediate && !timeout
         clearTimeout(timeout)
         timeout = setTimeout(later, wait)
-        if (callNow) func.apply(context, args)
+        if (callNow) {
+            func.apply(context, args)
+        }
     }
 }
 
@@ -225,8 +231,11 @@ export function formatProperty(property: Record<string, any>): string {
 // Format a label that gets returned from the /insights api
 export function formatLabel(label: string, action: Record<string, any>): string {
     const math = 'Total'
-    if (action.math === 'dau') label += ` (${action.math.toUpperCase()}) `
-    else label += ` (${math}) `
+    if (action.math === 'dau') {
+        label += ` (${action.math.toUpperCase()}) `
+    } else {
+        label += ` (${math}) `
+    }
     if (action?.properties?.length) {
         label += ` (${action.properties
             .map((property) => operatorMap[property.operator || 'exact'].split(' ')[0] + ' ' + property.value)
@@ -239,7 +248,9 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
     if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
         api.delete('api/person/' + person.id).then(() => {
             toast('Person succesfully deleted.')
-            if (callback) callback()
+            if (callback) {
+                callback()
+            }
         })
     }
 }
@@ -340,18 +351,25 @@ export function humanFriendlyDiff(from: moment.MomentInput, to: moment.MomentInp
 }
 
 export function humanFriendlyDetailedTime(date: moment.MomentInput | null, withSeconds: boolean = false): string {
-    if (!date) return 'Never'
+    if (!date) {
+        return 'Never'
+    }
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (moment(date).isSame(moment(), 'm')) return 'Just now'
+    if (moment(date).isSame(moment(), 'm')) {
+        return 'Just now'
+    }
     if (moment(date).isSame(today, 'd')) {
         formatString = '[Today] h:mm'
     } else if (moment(date).isSame(yesterday, 'd')) {
         formatString = '[Yesterday] h:mm'
     }
-    if (withSeconds) formatString += ':ss a'
-    else formatString += ' a'
+    if (withSeconds) {
+        formatString += ':ss a'
+    } else {
+        formatString += ' a'
+    }
     return moment(date).format(formatString)
 }
 
@@ -362,25 +380,37 @@ export function stripHTTP(url: string): string {
 }
 
 export function isURL(string: string): boolean {
-    if (!string) return false
+    if (!string) {
+        return false
+    }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
     return !!string.match?.(regexp)
 }
 
 export function isEmail(string: string): boolean {
-    if (!string) return false
+    if (!string) {
+        return false
+    }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
     const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
 export function eventToName(event: EventType): string {
-    if (event.event !== '$autocapture') return event.event
+    if (event.event !== '$autocapture') {
+        return event.event
+    }
     let name = ''
-    if (event.properties.$event_type === 'click') name += 'clicked '
-    if (event.properties.$event_type === 'change') name += 'typed something into '
-    if (event.properties.$event_type === 'submit') name += 'submitted '
+    if (event.properties.$event_type === 'click') {
+        name += 'clicked '
+    }
+    if (event.properties.$event_type === 'change') {
+        name += 'typed something into '
+    }
+    if (event.properties.$event_type === 'submit') {
+        name += 'submitted '
+    }
 
     if (event.elements.length > 0) {
         if (event.elements[0].tag_name === 'a') {
@@ -390,7 +420,9 @@ export function eventToName(event: EventType): string {
         } else {
             name += event.elements[0].tag_name
         }
-        if (event.elements[0].text) name += ' with text "' + event.elements[0].text + '"'
+        if (event.elements[0].text) {
+            name += ' with text "' + event.elements[0].text + '"'
+        }
     }
     return name
 }
@@ -401,12 +433,19 @@ export function determineDifferenceType(
 ): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
     const first = moment(firstDate)
     const second = moment(secondDate)
-    if (first.diff(second, 'years') !== 0) return 'year'
-    else if (first.diff(second, 'months') !== 0) return 'month'
-    else if (first.diff(second, 'weeks') !== 0) return 'week'
-    else if (first.diff(second, 'days') !== 0) return 'day'
-    else if (first.diff(second, 'hours') !== 0) return 'hour'
-    else return 'minute'
+    if (first.diff(second, 'years') !== 0) {
+        return 'year'
+    } else if (first.diff(second, 'months') !== 0) {
+        return 'month'
+    } else if (first.diff(second, 'weeks') !== 0) {
+        return 'week'
+    } else if (first.diff(second, 'days') !== 0) {
+        return 'day'
+    } else if (first.diff(second, 'hours') !== 0) {
+        return 'hour'
+    } else {
+        return 'minute'
+    }
 }
 
 export const dateMapping: Record<string, string[]> = {
@@ -427,21 +466,30 @@ export const dateMapping: Record<string, string[]> = {
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function dateFilterToText(dateFrom: string | moment.Moment, dateTo: string | moment.Moment): string {
-    if (moment.isMoment(dateFrom) && moment.isMoment(dateTo))
+    if (moment.isMoment(dateFrom) && moment.isMoment(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
+    }
     dateFrom = dateFrom as string
     dateTo = dateTo as string
-    if (isDate.test(dateFrom) && isDate.test(dateTo)) return `${dateFrom} - ${dateTo}`
-    if (dateFrom === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
+    if (isDate.test(dateFrom) && isDate.test(dateTo)) {
+        return `${dateFrom} - ${dateTo}`
+    }
+    if (dateFrom === 'dStart') {
+        return 'Today'
+    } // Changed to "last 24 hours" but this is backwards compatibility
     let name = 'Last 7 days'
     Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo) name = key
+        if (value[0] === dateFrom && value[1] === dateTo) {
+            name = key
+        }
     })[0]
     return name
 }
 
 export function humanizeNumber(number: number, digits: number = 1): string {
-    if (number === null) return '-'
+    if (number === null) {
+        return '-'
+    }
     // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (const currentPrefix of SI_PREFIXES) {
@@ -492,7 +540,9 @@ export function groupBy<T>(items: T[], groupResolver: (item: T) => string | numb
     const itemsGrouped: Record<string | number, T[]> = {}
     for (const item of items) {
         const group = groupResolver(item)
-        if (!(group in itemsGrouped)) itemsGrouped[group] = [] // Ensure there's an array to push to
+        if (!(group in itemsGrouped)) {
+            itemsGrouped[group] = []
+        } // Ensure there's an array to push to
         itemsGrouped[group].push(item)
     }
     return itemsGrouped
@@ -512,10 +562,14 @@ export function uniqueBy<T>(items: T[], uniqueResolver: (item: T) => any): T[] {
 }
 
 export function sample<T>(items: T[], size: number): T[] {
-    if (size > items.length) throw Error('Sample size cannot exceed items array length!')
+    if (size > items.length) {
+        throw Error('Sample size cannot exceed items array length!')
+    }
     const results: T[] = []
     const internalItems = [...items]
-    if (size === items.length) return internalItems
+    if (size === items.length) {
+        return internalItems
+    }
     for (let i = 0; i < size; i++) {
         const index = Math.floor(Math.random() * internalItems.length)
         results.push(internalItems[index])
@@ -525,7 +579,9 @@ export function sample<T>(items: T[], size: number): T[] {
 }
 
 export function sampleSingle<T>(items: T[]): T[] {
-    if (!items.length) throw Error('Items array is empty!')
+    if (!items.length) {
+        throw Error('Items array is empty!')
+    }
     return [items[Math.floor(Math.random() * items.length)]]
 }
 
@@ -535,7 +591,9 @@ export function identifierToHuman(identifier: string | number): string {
     let currentWord: string = ''
     for (const character of String(identifier).trim()) {
         if (character === '_' || character === '-') {
-            if (currentWord) words.push(currentWord)
+            if (currentWord) {
+                words.push(currentWord)
+            }
             currentWord = ''
         } else if (
             character === character.toLowerCase() &&
@@ -544,11 +602,15 @@ export function identifierToHuman(identifier: string | number): string {
         ) {
             currentWord += character
         } else {
-            if (currentWord) words.push(currentWord)
+            if (currentWord) {
+                words.push(currentWord)
+            }
             currentWord = character.toLowerCase()
         }
     }
-    if (currentWord) words.push(currentWord)
+    if (currentWord) {
+        words.push(currentWord)
+    }
     return words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ')
 }
 

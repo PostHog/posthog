@@ -64,7 +64,9 @@ function filterClientSideParams(filters) {
 }
 
 function autocorrectInterval({ date_from, interval }) {
-    if (!interval) return 'day' // undefined/uninitialized
+    if (!interval) {
+        return 'day'
+    } // undefined/uninitialized
 
     const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
     const hour_disabled = disableHourFor[date_from] && interval === 'hour'
@@ -124,7 +126,9 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (values.results.length === 0 && props.cachedResults) return props.cachedResults
+                if (values.results.length === 0 && props.cachedResults) {
+                    return props.cachedResults
+                }
                 let response
                 if (
                     props.view === ViewType.SESSIONS ||

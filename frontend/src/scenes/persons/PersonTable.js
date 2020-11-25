@@ -42,7 +42,7 @@ export function PersonTable({ properties }) {
     return _propertiesTable(props)
 
     function _propertiesTable(properties, _key = null) {
-        if (Array.isArray(properties))
+        if (Array.isArray(properties)) {
             return (
                 <div>
                     {mapShowAllValuesForKey && _key in mapShowAllValuesForKey && !mapShowAllValuesForKey[_key] ? (
@@ -75,7 +75,7 @@ export function PersonTable({ properties }) {
                     )}
                 </div>
             )
-        else if (properties instanceof Object)
+        } else if (properties instanceof Object) {
             return (
                 <Table
                     columns={columns}
@@ -86,7 +86,7 @@ export function PersonTable({ properties }) {
                     dataSource={Object.entries(properties)}
                 />
             )
-        else if (properties === true || properties === false) {
+        } else if (properties === true || properties === false) {
             return (
                 <Dropdown
                     overlay={
@@ -117,7 +117,9 @@ export function PersonTable({ properties }) {
                     required={true}
                 />
             )
-        } else return null
+        } else {
+            return null
+        }
     }
 }
 PersonTable.propTypes = {

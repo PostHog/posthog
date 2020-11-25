@@ -15,7 +15,9 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
     }, [toParams(filters)])
 
     let data = results
-    if (!filters.session) data = data.sort((a, b) => b.count - a.count)
+    if (!filters.session) {
+        data = data.sort((a, b) => b.count - a.count)
+    }
     return data && !resultsLoading ? (
         data[0] && (filters.session || data[0].labels) ? (
             <Table

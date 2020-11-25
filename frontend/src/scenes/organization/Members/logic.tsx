@@ -52,7 +52,9 @@ export const membersLogic = kea<membersLogicType>({
                 </div>
             )
             // reload organization to account for no longer being organization owner
-            if (level === OrganizationMembershipLevel.Owner) organizationLogic.actions.loadCurrentOrganization()
+            if (level === OrganizationMembershipLevel.Owner) {
+                organizationLogic.actions.loadCurrentOrganization()
+            }
             actions.loadMembers()
         },
     }),

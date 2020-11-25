@@ -28,11 +28,16 @@ function isMembershipLevelChangeDisallowed(
     newLevel?: OrganizationMembershipLevel
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
-    if (!currentMembershipLevel) return 'Your membership level is unknown.'
+    if (!currentMembershipLevel) {
+        return 'Your membership level is unknown.'
+    }
     if (newLevel) {
-        if (newLevel >= currentMembershipLevel)
+        if (newLevel >= currentMembershipLevel) {
             return 'You can only change access level of others to lower than your current one.'
-        if (newLevel === memberChanged.level) return "It doesn't make sense to set the same level as before."
+        }
+        if (newLevel === memberChanged.level) {
+            return "It doesn't make sense to set the same level as before."
+        }
     }
     return currentMembershipLevel < OrganizationMembershipLevel.Admin
         ? 'Only organization administrators can change access levels.'
@@ -48,11 +53,15 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
 
-    if (!user) return null
+    if (!user) {
+        return null
+    }
 
     function generateHandleClick(listLevel: OrganizationMembershipLevel): () => void {
         return function handleClick() {
-            if (!user) throw Error
+            if (!user) {
+                throw Error
+            }
             if (listLevel === OrganizationMembershipLevel.Owner) {
                 Modal.confirm({
                     centered: true,
@@ -124,12 +133,16 @@ function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
 
-    if (!user) return null
+    if (!user) {
+        return null
+    }
 
     const currentMembershipLevel = currentOrganization?.membership_level ?? -1
 
     function handleClick(): void {
-        if (!user) throw Error
+        if (!user) {
+            throw Error
+        }
         Modal.confirm({
             title: `${member.user_id == user.id ? 'Leave' : `Remove ${member.user_first_name} from`} organization ${
                 user.organization?.name
@@ -140,7 +153,9 @@ function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null
             cancelText: 'Cancel',
             onOk() {
                 removeMember(member)
-                if (member.user_id == user.id) location.reload()
+                if (member.user_id == user.id) {
+                    location.reload()
+                }
             },
         })
     }
