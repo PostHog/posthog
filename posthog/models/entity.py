@@ -7,7 +7,7 @@ from .property import Property, PropertyMixin
 
 class Entity(PropertyMixin):
     """
-    Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
+    Entities represent either Action or Event objects, nested in Filter objects.
     This object isn't a table in the database. It gets stored against the specific models itself as JSON.
     This class just allows for stronger typing of this object.
     """

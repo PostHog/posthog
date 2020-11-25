@@ -2,11 +2,10 @@ from unittest.mock import patch
 
 from django.test.utils import tag
 
+from ee.api.test.base import APILicensedTest
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-
-from .base import APILicensedTest
 
 
 class TestTeamEnterpriseAPI(APILicensedTest):

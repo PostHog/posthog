@@ -1,13 +1,30 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Table, Input } from 'antd'
 import { Menu, Dropdown } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
+import { PERSON_DISTINCT_ID_MAX_SIZE } from 'lib/constants'
+import { Button } from 'antd'
+
 export function PersonTable({ properties }) {
     const keyMappingKeys = Object.keys(keyMapping.event)
     const onChange = properties.onChange._handleChange
     const props = { ...properties.props, distinct_id: properties.distinct_id }
+    const [mapShowAllValuesForKey, setMapShowAllValuesForKey] = useState(undefined)
+
+    useEffect(() => {
+        const showAllValuesForKey = {}
+
+        Object.keys(props).map((key) => {
+            if (Array.isArray(props[key]) && props[key].length > PERSON_DISTINCT_ID_MAX_SIZE) {
+                showAllValuesForKey[key] = false
+            }
+        })
+
+        setMapShowAllValuesForKey(showAllValuesForKey)
+    }, [])
+
     const columns = [
         {
             title: 'key',
@@ -28,12 +45,34 @@ export function PersonTable({ properties }) {
         if (Array.isArray(properties))
             return (
                 <div>
-                    {properties.map((item, index) => (
-                        <span key={index}>
-                            {_propertiesTable(item, _key)}
-                            <br />
-                        </span>
-                    ))}
+                    {mapShowAllValuesForKey && _key in mapShowAllValuesForKey && !mapShowAllValuesForKey[_key] ? (
+                        <>
+                            {properties.slice(0, PERSON_DISTINCT_ID_MAX_SIZE).map((item, index) => (
+                                <span key={index}>
+                                    {_propertiesTable(item, _key)}
+                                    <br />
+                                </span>
+                            ))}
+                            <Button
+                                data-cy="show-more-distinct-id"
+                                onClick={() =>
+                                    setMapShowAllValuesForKey((prev) => {
+                                        return { ...prev, [_key]: true }
+                                    })
+                                }
+                                style={{ marginRight: '10px' }}
+                            >
+                                Show All
+                            </Button>
+                        </>
+                    ) : (
+                        properties.map((item, index) => (
+                            <span key={index}>
+                                {_propertiesTable(item, _key)}
+                                <br />
+                            </span>
+                        ))
+                    )}
                 </div>
             )
         else if (properties instanceof Object)

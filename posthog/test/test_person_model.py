@@ -2,8 +2,8 @@ import datetime
 
 import pytz
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Event, Person
+from posthog.test.base import BaseTest
 
 
 class TestPerson(BaseTest):

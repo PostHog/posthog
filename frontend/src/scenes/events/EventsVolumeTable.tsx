@@ -62,6 +62,7 @@ export function EventsVolumeTable(): JSX.Element {
             <Table
                 dataSource={user?.team.event_names_with_usage}
                 columns={columns}
+                rowKey="event"
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}

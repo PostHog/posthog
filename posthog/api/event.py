@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
     Action,
@@ -21,9 +22,9 @@ from posthog.models import (
     PersonDistinctId,
     Team,
 )
+from posthog.models.event import EventManager
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
-from posthog.queries.sessions import Sessions
 from posthog.utils import convert_property_value
 
 
@@ -96,26 +97,25 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
-class EventViewSet(viewsets.ModelViewSet):
+class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+    def get_queryset(self):
+        queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
 
-        team = self.request.user.team
-        queryset = queryset.add_person_id(team.pk)  # type: ignore
-
-        if self.action == "list" or self.action == "sessions" or self.action == "actions":  # type: ignore
-            queryset = self._filter_request(self.request, queryset, team)
+        if self.action == "list" or self.action == "sessions" or self.action == "actions":
+            queryset = self._filter_request(self.request, queryset)
 
         order_by = self.request.GET.get("orderBy")
         order_by = ["-timestamp"] if not order_by else list(json.loads(order_by))
-        return queryset.filter(team=team).order_by(*order_by)
+        return queryset.order_by(*order_by)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
             if key == "event":
                 queryset = queryset.filter(event=request.GET["event"])
@@ -136,7 +136,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
             elif key == "properties":
                 filter = Filter(data={"properties": json.loads(value)})
-                queryset = queryset.filter(filter.properties_to_Q(team_id=team.pk))
+                queryset = queryset.filter(filter.properties_to_Q(team_id=self.team_id))
         return queryset
 
     @staticmethod
@@ -151,18 +151,18 @@ class EventViewSet(viewsets.ModelViewSet):
         }
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:
-        team = self.request.user.team
+        team_id = self.team_id
         distinct_ids = []
         hash_ids = []
         for event in events:
             distinct_ids.append(event.distinct_id)
             if event.elements_hash:
                 hash_ids.append(event.elements_hash)
-        people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids).prefetch_related(
-            Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-        )
+        people = Person.objects.filter(
+            team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
+        ).prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
+            groups = ElementGroup.objects.filter(team_id=team_id, hash__in=hash_ids).prefetch_related("element_set")
         else:
             groups = ElementGroup.objects.none()
         for event in events:
@@ -214,13 +214,13 @@ class EventViewSet(viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_values(request)
         return response.Response(result)
 
     def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
         key = request.GET.get("key")
-        params = [key, key]
+        params: List[Optional[Union[str, int]]] = [key, key]
         if request.GET.get("value"):
             where = " AND properties ->> %s LIKE %s"
             params.append(key)
@@ -228,9 +228,7 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             where = ""
 
-        team = request.user.team
-        assert team is not None
-        params.append(team.pk)
+        params.append(self.team_id)
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw(
@@ -259,8 +257,10 @@ class EventViewSet(viewsets.ModelViewSet):
         return [{"name": convert_property_value(value.value)} for value in values]
 
     @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request) -> response.Response:
-        team = self.request.user.team
+    def sessions(self, request: request.Request, **kwargs) -> response.Response:
+        from posthog.queries.sessions import Sessions
+
+        team = self.team
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
@@ -281,7 +281,7 @@ class EventViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        team = self.request.user.team
+        team = self.team
         snapshots = SessionRecording().run(
             team=team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
         )
