@@ -44,7 +44,7 @@ function _Status(): JSX.Element {
                 <Table
                     className="system-status-table"
                     size="small"
-                    rowKey={(item): string => item.metric}
+                    rowKey="metric"
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     dataSource={systemStatus}
                     columns={columns}

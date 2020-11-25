@@ -5,6 +5,7 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.email import is_email_available
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
@@ -45,12 +46,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             organization_id=self.context["organization_id"], user__email=validated_data["target_email"]
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
-        if OrganizationInvite.objects.filter(
-            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
-        ).exists():
-            raise exceptions.ValidationError(
-                "An invite intended for this email already is active in this organization."
-            )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
@@ -64,7 +59,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
 
 class OrganizationInviteViewSet(
-    NestedViewSetMixin,
+    StructuredViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -77,20 +72,11 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by(self.ordering)
-
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        parents_query_dict = self.get_parents_query_dict()
-        self.get_serializer_context()
-        if parents_query_dict:
-            if parents_query_dict["organization_id"] == "@current":
-                parents_query_dict["organization_id"] = self.request.user.organization.id
-            try:
-                return queryset.filter(**parents_query_dict).select_related("created_by")
-            except ValueError:
-                raise exceptions.NotFound()
-        else:
-            return queryset
+        return (
+            self.filter_queryset_by_parents_lookups(super().get_queryset())
+            .select_related("created_by")
+            .order_by(self.ordering)
+        )
 
     def get_serializer_context(self):
         """

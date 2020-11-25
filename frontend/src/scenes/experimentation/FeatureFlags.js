@@ -23,10 +23,12 @@ function _FeatureFlags() {
         {
             title: 'Name',
             dataIndex: 'name',
+            sorter: (a, b) => ('' + a.name).localeCompare(b.name),
         },
         {
             title: 'Key',
             dataIndex: 'key',
+            sorter: (a, b) => ('' + a.key).localeCompare(b.key),
         },
 
         {
@@ -38,22 +40,28 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
+            sorter: (a, b) => a.created_at > b.created_at,
         },
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, featureFlag) {
                 return featureFlag.created_by.first_name || featureFlag.created_by.email
             },
+            sorter: (a, b) =>
+                (a.created_by.first_name || a.created_by.email).localeCompare(
+                    b.created_by.first_name || b.created_by.email
+                ),
         },
         {
-            title: 'Rollout Precentage',
-            render: function RenderRolloutPrecentage(_, featureFlag) {
+            title: 'Rollout Percentage',
+            render: function RenderRolloutPercentage(_, featureFlag) {
                 return (
-                    <div data-attr="rollout-precentage">
-                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : ''}
+                    <div data-attr="rollout-percentage">
+                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : 'N/A'}
                     </div>
                 )
             },
+            sorter: (a, b) => a.rollout_percentage - b.rollout_percentage,
         },
         {
             title: 'Filters',

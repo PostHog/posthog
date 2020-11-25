@@ -14,7 +14,13 @@ export function IngestionContainer({ children }: { children: React.ReactNode }):
     return (
         <div
             className="background"
-            style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center' }}
+            style={{
+                display: 'flex',
+                height: 'calc(100vh - 50px)',
+                width: '100vw',
+                alignItems: 'center',
+                justifyContent: 'center',
+            }}
         >
             {children}
         </div>

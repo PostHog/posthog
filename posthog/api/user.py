@@ -198,7 +198,7 @@ def change_password(request):
     except (TypeError, json.decoder.JSONDecodeError):
         return JsonResponse({"error": "Cannot parse request body"}, status=400)
 
-    old_password = body.get("oldPassword")
+    old_password = body.get("currentPassword")
     new_password = body.get("newPassword")
 
     user = cast(User, request.user)

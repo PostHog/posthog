@@ -80,6 +80,7 @@ export function PropertiesVolumeTable(): JSX.Element {
                     .filter((item: PropertyUsageType) =>
                         keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true
                     )}
+                rowKey="event"
                 columns={columns}
                 style={{ marginBottom: '4rem' }}
                 size="small"
