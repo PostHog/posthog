@@ -33,20 +33,22 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
             <PageHeader
-                title="Plugins"
-                caption={
+                title={
                     <>
-                        <span>Plugins enable you to extend PostHog's core functionality.</span>
-                        <Tag color="orange" style={{ marginLeft: 8 }}>
-                            BETA
-                        </Tag>
+                        Plugins
+                        <sup>
+                            <Tag color="orange" style={{ marginLeft: 8 }}>
+                                BETA
+                            </Tag>
+                        </sup>
                     </>
                 }
+                caption="Plugins enable you to extend PostHog's core functionality."
+                buttons={user.team?.plugins_opt_in && <OptOutPlugins />}
             />
 
-            {user.team.plugins_opt_in ? (
+            {user.team?.plugins_opt_in ? (
                 <>
                     <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
                         <TabPane tab="Installed" key="installed">
