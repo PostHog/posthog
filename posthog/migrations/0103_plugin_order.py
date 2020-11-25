@@ -19,7 +19,7 @@ def no_op(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0101_org_owners"),
+        ("posthog", "0102_dashboarditem_filters_hash"),
     ]
 
     operations = [
