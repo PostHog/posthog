@@ -190,7 +190,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             except ImportError:
                 pass
             else:
-                license: License = License.objects.first_valid()
+                license = License.objects.first_valid()
                 if license is not None and "google_login" in license.available_features:
                     google_login_paid_for = True
             if google_login_paid_for:

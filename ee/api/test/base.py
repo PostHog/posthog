@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 
 from django.utils import timezone
 
@@ -16,7 +16,7 @@ class LicensedTestMixin:
     def setUp(self):
         super().setUp()  # type: ignore
         if self.CONFIG_LICENSE_PLAN:
-            self.license = super(LicenseManager, License.objects).create(
+            self.license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key=self.CONFIG_LICENSE_PLAN,
                 plan=self.CONFIG_LICENSE_PLAN,
                 valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
