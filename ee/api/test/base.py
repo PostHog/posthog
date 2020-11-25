@@ -2,7 +2,7 @@ from typing import Optional
 
 from django.utils import timezone
 
-from ee.models.license import License
+from ee.models.license import License, LicenseManager
 from posthog.api.test.base import APIBaseTest, BaseTest, TransactionBaseTest
 
 
@@ -16,7 +16,7 @@ class APILicensedTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         if self.CONFIG_LICENSE_PLAN:
-            self.license = License.objects._create(
+            self.license = super(LicenseManager, License.objects).create(
                 key=self.CONFIG_LICENSE_PLAN,
                 plan=self.CONFIG_LICENSE_PLAN,
                 valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
