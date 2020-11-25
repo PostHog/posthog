@@ -122,6 +122,11 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    def get_parents_query_dict(self) -> Dict[str, Any]:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
+            return {}
+        return {"team_id": self.request.user.team.id}
+
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
