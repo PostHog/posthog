@@ -22,9 +22,15 @@ import './SessionsPlayer.scss'
 
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
-    const { sessionPlayerData, sessionPlayerDataLoading, addingTagShown, addingTag, tags, tagsLoading } = useValues(
-        sessionsPlayLogic
-    )
+    const {
+        sessionRecordingId,
+        sessionPlayerData,
+        sessionPlayerDataLoading,
+        addingTagShown,
+        addingTag,
+        tags,
+        tagsLoading,
+    } = useValues(sessionsPlayLogic)
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
@@ -74,7 +80,7 @@ function _SessionsPlay(): JSX.Element {
                 </Col>
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
-                        <h3 className="l3">Session #2191</h3>
+                        <h3 className="l3">Session {sessionRecordingId}</h3>
                         <div className="mb-05">
                             <FieldTimeOutlined /> 3 minute session on Oct 19
                         </div>
