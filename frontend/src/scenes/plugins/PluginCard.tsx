@@ -73,7 +73,9 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                     <div
                         style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}
                         onClick={(e) => {
-                            if (!switchDisabled) e.stopPropagation()
+                            if (!switchDisabled) {
+                                e.stopPropagation()
+                            }
                         }}
                     >
                         {pluginConfig && (

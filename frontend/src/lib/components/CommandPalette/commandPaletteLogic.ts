@@ -94,8 +94,12 @@ const GLOBAL_COMMAND_SCOPE = 'global'
 function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
     let results = source.resolver instanceof Function ? source.resolver(argument, prefixApplied) : source.resolver
-    if (!results) return [] // skip if no result
-    if (!Array.isArray(results)) results = [results] // work with a single result and with an array of results
+    if (!results) {
+        return []
+    } // skip if no result
+    if (!Array.isArray(results)) {
+        results = [results]
+    } // work with a single result and with an array of results
     const resultsWithCommand: CommandResult[] = results.map((result) => {
         return { ...result, source }
     })
@@ -200,7 +204,9 @@ export const commandPaletteLogic = kea<
             posthog.capture('palette shown', { isMobile: isMobile() })
         },
         togglePalette: () => {
-            if (values.isPaletteShown) posthog.capture('palette shown', { isMobile: isMobile() })
+            if (values.isPaletteShown) {
+                posthog.capture('palette shown', { isMobile: isMobile() })
+            }
         },
         executeResult: ({ result }: { result: CommandResult }) => {
             if (result.executor === true) {
@@ -209,7 +215,9 @@ export const commandPaletteLogic = kea<
             } else {
                 const possibleFlow = result.executor?.() || null
                 actions.activateFlow(possibleFlow)
-                if (!possibleFlow) actions.hidePalette()
+                if (!possibleFlow) {
+                    actions.hidePalette()
+                }
             }
             // Capture command execution, without useless data
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -222,7 +230,9 @@ export const commandPaletteLogic = kea<
         },
         deregisterScope: ({ scope }) => {
             for (const command of Object.values(values.commandRegistrations)) {
-                if (command.scope === scope) actions.deregisterCommand(command.key)
+                if (command.scope === scope) {
+                    actions.deregisterCommand(command.key)
+                }
             }
         },
         setInput: async ({ input }, breakpoint) => {
@@ -290,9 +300,11 @@ export const commandPaletteLogic = kea<
             (commandRegistrations: CommandRegistrations) => {
                 const array: RegExpCommandPairs = []
                 for (const command of Object.values(commandRegistrations)) {
-                    if (command.prefixes)
+                    if (command.prefixes) {
                         array.push([new RegExp(`^\\s*(${command.prefixes.join('|')})(?:\\s+(.*)|$)`, 'i'), command])
-                    else array.push([null, command])
+                    } else {
+                        array.push([null, command])
+                    }
                 }
                 return array
             },
@@ -312,8 +324,12 @@ export const commandPaletteLogic = kea<
                 activeFlow: CommandFlow | null,
                 isSqueak: boolean
             ) => {
-                if (!isPaletteShown || isSqueak) return []
-                if (activeFlow) return resolveCommand(activeFlow, argument)
+                if (!isPaletteShown || isSqueak) {
+                    return []
+                }
+                if (activeFlow) {
+                    return resolveCommand(activeFlow, argument)
+                }
                 let directResults: CommandResult[] = []
                 let prefixedResults: CommandResult[] = []
                 for (const [regexp, command] of regexpCommandPairs) {
@@ -329,8 +345,11 @@ export const commandPaletteLogic = kea<
                 let fusableResults: CommandResult[] = []
                 let guaranteedResults: CommandResult[] = []
                 for (const result of allResults) {
-                    if (result.guarantee) guaranteedResults.push(result)
-                    else fusableResults.push(result)
+                    if (result.guarantee) {
+                        guaranteedResults.push(result)
+                    } else {
+                        fusableResults.push(result)
+                    }
                 }
                 fusableResults = uniqueBy(fusableResults, (result) => result.display)
                 guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
@@ -349,10 +368,14 @@ export const commandPaletteLogic = kea<
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
                 const resultsGrouped: { [scope: string]: CommandResult[] } = {}
-                if (activeFlow) resultsGrouped[activeFlow.scope ?? '?'] = []
+                if (activeFlow) {
+                    resultsGrouped[activeFlow.scope ?? '?'] = []
+                }
                 for (const result of commandSearchResults) {
                     const scope: string = result.source.scope ?? '?'
-                    if (!(scope in resultsGrouped)) resultsGrouped[scope] = [] // Ensure there's an array to push to
+                    if (!(scope in resultsGrouped)) {
+                        resultsGrouped[scope] = []
+                    } // Ensure there's an array to push to
                     resultsGrouped[scope].push({ ...result })
                 }
                 let rollingGroupIndex = 0
@@ -536,7 +559,9 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: (argument) => {
                     // don't try evaluating if there's no argument or if it's a plain number already
-                    if (!argument || !isNaN(+argument)) return null
+                    if (!argument || !isNaN(+argument)) {
+                        return null
+                    }
                     try {
                         const result = +Parser.evaluate(argument)
                         return isNaN(result)
@@ -570,7 +595,7 @@ export const commandPaletteLogic = kea<
                             },
                         })
                     )
-                    if (argument && isURL(argument))
+                    if (argument && isURL(argument)) {
                         results.push({
                             icon: LinkOutlined,
                             display: `Open ${argument}`,
@@ -579,6 +604,7 @@ export const commandPaletteLogic = kea<
                                 open(argument)
                             },
                         })
+                    }
                     results.push({
                         icon: LinkOutlined,
                         display: 'Open PostHog Docs',
@@ -602,7 +628,7 @@ export const commandPaletteLogic = kea<
                         icon: TagOutlined,
                         scope: 'Creating Personal API Key',
                         resolver: (argument) => {
-                            if (argument?.length)
+                            if (argument?.length) {
                                 return {
                                     icon: KeyOutlined,
                                     display: `Create Key "${argument}"`,
@@ -611,6 +637,7 @@ export const commandPaletteLogic = kea<
                                         push('/my/settings', {}, 'personal-api-keys')
                                     },
                                 }
+                            }
                             return null
                         },
                     }),
@@ -628,7 +655,7 @@ export const commandPaletteLogic = kea<
                         icon: TagOutlined,
                         scope: 'Creating Dashboard',
                         resolver: (argument) => {
-                            if (argument?.length)
+                            if (argument?.length) {
                                 return {
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
@@ -636,6 +663,7 @@ export const commandPaletteLogic = kea<
                                         dashboardsModel.actions.addDashboard({ name: argument, push: true })
                                     },
                                 }
+                            }
                             return null
                         },
                     }),

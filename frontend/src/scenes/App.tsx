@@ -48,10 +48,14 @@ function _App(): JSX.Element | null {
             }
             // Redirect to org/project creation if necessary
             if (!currentOrganizationLoading && !currentOrganization?.id) {
-                if (location.pathname !== '/organization/create') replace('/organization/create')
+                if (location.pathname !== '/organization/create') {
+                    replace('/organization/create')
+                }
                 return
             } else if (!currentTeamLoading && !currentTeam?.id) {
-                if (location.pathname !== '/project/create') replace('/project/create')
+                if (location.pathname !== '/project/create') {
+                    replace('/project/create')
+                }
                 return
             }
         }
@@ -85,7 +89,9 @@ function _App(): JSX.Element | null {
         )
     }
 
-    if (!currentOrganization?.id || !currentTeam?.id) return null
+    if (!currentOrganization?.id || !currentTeam?.id) {
+        return null
+    }
 
     return (
         <>

@@ -24,7 +24,7 @@ export function PersonsTable({ people, loading, actions, onChange }) {
             },
         },
     ]
-    if (actions)
+    if (actions) {
         columns.push({
             title: 'Actions',
             render: function RenderActions(person) {
@@ -35,6 +35,7 @@ export function PersonsTable({ people, loading, actions, onChange }) {
                 )
             },
         })
+    }
 
     return (
         <Table

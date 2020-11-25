@@ -38,8 +38,9 @@ export function DeleteProject(): JSX.Element {
     )
 
     let deletionDisabledReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
+    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin) {
         deletionDisabledReason = 'You must be an organization administrator to delete projects.'
+    }
 
     return (
         <div>

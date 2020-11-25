@@ -7,7 +7,9 @@ import { Button, Card, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 
 const isSubmitDisabled = (cohorts) => {
-    if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => Object.keys(group).length)
+    if (cohorts && cohorts.groups) {
+        return !cohorts.groups.some((group) => Object.keys(group).length)
+    }
     return true
 }
 
@@ -15,7 +17,9 @@ export function Cohort({ onChange }) {
     const { setCohort, saveCohort } = useActions(cohortLogic({ onChange, id: fromParams()['cohort'] }))
     const { personProperties, cohort } = useValues(cohortLogic({ onChange, id: fromParams()['cohort'] }))
 
-    if (!cohort) return null
+    if (!cohort) {
+        return null
+    }
     return (
         cohort.groups.length > 0 && (
             <div style={{ maxWidth: 750 }} className="mb">
