@@ -93,6 +93,7 @@ SECURE_SSL_REDIRECT = secure_cookies
 
 if not TEST:
     if os.environ.get("SENTRY_DSN"):
+        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
