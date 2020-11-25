@@ -208,14 +208,15 @@ label.disabled {
     }
 }
 
-.Papercups-toggleButtonContainer,
-.Papercups-chatWindowContainer {
-    transition: transform 0.3s cubic-bezier(0.7, 0.3, 0.1, 1);
+.Papercups-toggleButtonContainer {
+    transition: bottom 0.5s ease-out;
 }
 
 .drawer-open {
-    .Papercups-toggleButtonContainer,
-    .Papercups-chatWindowContainer {
-        transform: translateY(-53px) !important;
+    .Papercups-toggleButtonContainer {
+        bottom: 60px !important;
+    }
+    #bottom-notice {
+        height: 0px !important;
     }
 }
