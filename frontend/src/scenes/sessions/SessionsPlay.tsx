@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react'
-import { Player } from 'posthog-react-rrweb-player'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { EventIndex, Player, PlayerRef } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Tag } from 'antd'
 import {
     AppleOutlined,
@@ -28,6 +28,12 @@ function _SessionsPlay(): JSX.Element {
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
+    const [playerTime, setCurrentPlayerTime] = useState(0)
+    const playerRef = useRef<PlayerRef>(null)
+    const eventIndex: EventIndex = useMemo(() => new EventIndex(sessionPlayerData || []), [sessionPlayerData])
+    const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
+    const pageVisitEvents = useMemo(() => eventIndex.pageChangeEvents(), [eventIndex])
+
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
             addTagInput.current.focus()
@@ -44,13 +50,26 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05">
-                        <b>Current URL: </b> https://posthog.com/docs
+                        {pageEvent ? (
+                            <>
+                                <b>Current URL: </b>
+                                {pageEvent.href}
+                            </>
+                        ) : null}
                         <span className="float-right">
                             <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
                         </span>
                     </div>
                     <div className="ph-no-capture player-container">
-                        {sessionPlayerDataLoading ? <Loading /> : <Player events={sessionPlayerData!} />}
+                        {sessionPlayerDataLoading ? (
+                            <Loading />
+                        ) : (
+                            <Player
+                                ref={playerRef}
+                                events={sessionPlayerData || []}
+                                onPlayerTimeChange={setCurrentPlayerTime}
+                            />
+                        )}
                     </div>
                 </Col>
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
@@ -123,24 +142,11 @@ function _SessionsPlay(): JSX.Element {
                         <div className="timeline">
                             <div className="line" />
                             <div className="timeline-items">
-                                <div>
-                                    <Tag>https://posthog.com/blog/the-post-1</Tag>
-                                </div>
-                                <div className="current">
-                                    <Tag>https://posthog.com/docs</Tag>
-                                </div>
-                                <div>
-                                    <Tag>https://posthog.com/docs/integrations/message-formatting/#user</Tag>
-                                </div>
-                                <div>
-                                    <Tag>https://posthog.com/blog/the-post-1</Tag>
-                                </div>
-                                <div>
-                                    <Tag>https://posthog.com/docs</Tag>
-                                </div>
-                                <div>
-                                    <Tag>https://posthog.com/docs/integrations/message-formatting/#user</Tag>
-                                </div>
+                                {pageVisitEvents.map(({ href, playerTime }, index) => (
+                                    <div className={index === atPageIndex ? 'current' : undefined} key={index}>
+                                        <Tag onClick={() => playerRef.current?.seek(playerTime)}>{href}</Tag>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </Card>
