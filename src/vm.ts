@@ -66,7 +66,7 @@ export function prepareForRun(
     if (!pluginConfig.vm?.methods[method]) {
         return null
     }
-    
+
     const { vm } = pluginConfig.vm
 
     if (event?.properties?.token) {
