@@ -7,7 +7,6 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.base import BaseTest
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -16,6 +15,7 @@ from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> Event:

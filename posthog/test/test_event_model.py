@@ -1,8 +1,8 @@
 from unittest.mock import call, patch
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Person, Team
 from posthog.models.event import Selector, SelectorPart
+from posthog.test.base import BaseTest
 
 
 def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):

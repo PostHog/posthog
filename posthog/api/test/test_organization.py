@@ -5,8 +5,7 @@ from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationAPI(APIBaseTest):
