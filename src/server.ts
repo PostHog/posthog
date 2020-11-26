@@ -16,7 +16,7 @@ const defaultConfig: PluginsServerConfig = {
 }
 
 export async function startPluginsServer(config: PluginsServerConfig): Promise<void> {
-    console.info(`⚡ Starting posthog-plugin-server v${version}!`)
+    console.info(`⚡ Starting posthog-plugin-server v${version}…`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -51,4 +51,6 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
         redis.set('@posthog-plugin-server/ping', new Date().toISOString())
         redis.expire('@posthog-plugin-server/ping', 60)
     })
+
+    console.info(`✅ Started posthog-plugin-server v${version}!`)
 }

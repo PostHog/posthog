@@ -1,11 +1,30 @@
+import yargs from 'yargs'
 import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
-import yargs from 'yargs'
+import { startWebServer } from './web/server'
+
+type Argv = {
+    config: string
+    disableWeb: boolean
+    webPort: number
+    webHostname: string
+}
 
 yargs
     .scriptName('posthog-plugins')
-    .option('config', { alias: 'c', describe: 'json string of config options', type: 'string' })
-    .command(['start', '$0'], 'start the server', ({ argv }) => {
-        startPluginsServer(argv.config ? JSON.parse(argv.config) : {})
-    })
-    .help().argv
+    .option('config', { alias: 'c', describe: 'Config options JSON.', type: 'string' })
+    .option('disable-web', { describe: 'Whether web server should be disabled.', type: 'boolean' })
+    .option('web-port', { alias: 'p', describe: 'Web server port.', type: 'number' })
+    .option('web-hostname', { alias: 'h', describe: 'Web server hostname.', type: 'string' })
+    .help()
+    .command({
+        command: ['start', '$0'],
+        describe: 'start the server',
+        handler: ({ config, disableWeb, webPort, webHostname }: Argv) => {
+            const parsedConfig: PluginsServerConfig = config ? JSON.parse(config) : {}
+            startPluginsServer(parsedConfig)
+            if (!disableWeb) {
+                startWebServer(webPort, webHostname)
+            }
+        },
+    }).argv
