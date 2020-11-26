@@ -13,6 +13,7 @@
         "clean": "rimraf dist/*",
         "compile": "rollup -c",
         "lint": "eslint .",
+        "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
         "prepublish": "yarn test && yarn build"
     },
