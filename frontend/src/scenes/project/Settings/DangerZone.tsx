@@ -42,8 +42,7 @@ export function DangerZone(): JSX.Element {
             <Button type="primary" danger onClick={confirmDeleteProject} className="mr-05">
                 Delete Project
             </Button>
-            This will permanently delete your project plus <b>all the data and events</b> associated to it. Please be
-            certain.
+            This will <b>permanently delete</b> your project and data associated to it. Please be certain.
         </div>
     )
 }
