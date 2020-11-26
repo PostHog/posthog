@@ -1,33 +1,35 @@
 import React from 'react'
-import { useActions } from 'kea'
-import { green } from '@ant-design/colors'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { SessionType } from '~/types'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+
+import './Sessions.scss'
+import { fromParams, toParams } from 'lib/utils'
+import { Link } from 'lib/components/Link'
+
+function sessionPlayerUrl(sessionRecordingId: string): string {
+    const params = { ...fromParams(), sessionRecordingId }
+    return location.pathname + '?' + toParams(params)
+}
 
 interface SessionsPlayerButtonProps {
     session: SessionType
 }
 
 export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
-    // TODO: Work around no clickhouse support yet for session recording
     if (!session.session_recording_ids) {
         return null
     }
 
-    const { loadSessionPlayer } = useActions(sessionsTableLogic)
-
     return (
         <>
             {session.session_recording_ids.map((sessionRecordingId: string) => (
-                <PlayCircleOutlined
+                <Link
+                    to={sessionPlayerUrl(sessionRecordingId)}
+                    className="sessions-player-button"
                     key={sessionRecordingId}
-                    style={{ color: green.primary, marginRight: 5, fontSize: 16 }}
-                    onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation()
-                        loadSessionPlayer(sessionRecordingId)
-                    }}
-                />
+                >
+                    <PlayCircleOutlined />
+                </Link>
             ))}
         </>
     )

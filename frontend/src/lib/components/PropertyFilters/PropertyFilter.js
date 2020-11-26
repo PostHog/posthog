@@ -118,7 +118,9 @@ function PropertyPaneContents({
                                     onComplete()
                                 } else {
                                     // clear value if switching from nonparametric (flag) to parametric
-                                    if (isOperatorFlag(operator)) newValue = undefined
+                                    if (isOperatorFlag(operator)) {
+                                        newValue = undefined
+                                    }
                                 }
                                 setThisFilter(propkey, newValue, newOperator.value, type)
                             }}

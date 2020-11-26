@@ -6,16 +6,24 @@ import Fuse from 'fuse.js'
 const scrollUpIntoView = (key: string): void => {
     const searchList = document.querySelector('.search-list')
     const item = document.querySelector('.search-list [datakey="' + key + '"]')
-    if (!item || !searchList) return
+    if (!item || !searchList) {
+        return
+    }
     const diff = item.getBoundingClientRect().top - searchList.getBoundingClientRect().top
-    if (diff - 30 < 0) searchList.scrollTop = searchList.scrollTop + diff - 30
+    if (diff - 30 < 0) {
+        searchList.scrollTop = searchList.scrollTop + diff - 30
+    }
 }
 const scrollDownIntoView = (key: string): void => {
     const searchList = document.querySelector('.search-list')
     const item = document.querySelector('.search-list [datakey="' + key + '"]')
-    if (!item || !searchList) return
+    if (!item || !searchList) {
+        return
+    }
     const diff = item.getBoundingClientRect().top - searchList.getBoundingClientRect().bottom
-    if (diff + 30 > 0) searchList.scrollTop = searchList.scrollTop + diff + 30
+    if (diff + 30 > 0) {
+        searchList.scrollTop = searchList.scrollTop + diff + 30
+    }
 }
 
 export const searchItems = (sources: SelectedItem[], search: string): SelectedItem[] => {
@@ -72,7 +80,9 @@ export const selectBoxLogic = kea({
             }
         },
         setBlockMouseOver: ({ block }: { block: boolean }) => {
-            if (block) setTimeout(() => actions.setBlockMouseOver(false), 200)
+            if (block) {
+                setTimeout(() => actions.setBlockMouseOver(false), 200)
+            }
         },
         onKeyDown: ({ e }: { e: React.KeyboardEvent }) => {
             let allSources = props.items.map((item) => item.dataSource).flat()

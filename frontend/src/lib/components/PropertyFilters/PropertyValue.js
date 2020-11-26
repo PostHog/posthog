@@ -21,7 +21,9 @@ export function PropertyValue({
     const [options, setOptions] = useState({})
 
     function loadPropertyValues(value) {
-        if (type === 'cohort') return
+        if (type === 'cohort') {
+            return
+        }
         let key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
@@ -63,7 +65,9 @@ export function PropertyValue({
             loading={optionsCache[input] === 'loading'}
             onSearch={(input) => {
                 setInput(input)
-                if (!optionsCache[input] && !isOperatorFlag(operator)) loadPropertyValues(input)
+                if (!optionsCache[input] && !isOperatorFlag(operator)) {
+                    loadPropertyValues(input)
+                }
             }}
             data-attr="prop-val"
             dropdownMatchSelectWidth={350}

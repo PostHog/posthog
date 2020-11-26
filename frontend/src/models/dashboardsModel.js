@@ -32,7 +32,9 @@ export const dashboardsModel = kea({
                     pinned: true,
                     use_template: useTemplate,
                 })
-                if (show) router.actions.push(`/dashboard/${result.id}`)
+                if (show) {
+                    router.actions.push(`/dashboard/${result.id}`)
+                }
                 return result
             },
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),

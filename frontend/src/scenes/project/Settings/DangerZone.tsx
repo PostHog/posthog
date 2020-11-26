@@ -32,8 +32,9 @@ export function DangerZone(): JSX.Element {
     }
 
     let accessRestrictionReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
+    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin) {
         accessRestrictionReason = 'This section is restricted to administrators.'
+    }
 
     return accessRestrictionReason ? (
         <div className="access-restricted">

@@ -44,10 +44,14 @@ style files without adding already imported styles. */
     font-size: 10px;
 }
 
+.page-title-row {
+    margin-top: 16px;
+}
+
 .page-title {
     font-size: 28px;
     line-height: 34px;
-    margin-top: 32px;
+    margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
 }
@@ -58,8 +62,12 @@ style files without adding already imported styles. */
     margin-bottom: 32px;
 }
 
+.subtitle-row {
+    margin-top: 8px;
+}
+
 .subtitle {
-    margin-top: 24px;
+    margin-top: 12px;
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
@@ -301,7 +309,7 @@ style files without adding already imported styles. */
 
 // Overlays styles
 #bottom-notice {
-    z-index: 1000000000;
+    z-index: 999;
     display: flex;
     flex-direction: row;
     position: fixed;

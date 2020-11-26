@@ -1,0 +1,11 @@
+@import '~/vars';
+
+.sessions-player-button {
+    color: #52c41a;
+    font-size: 16px;
+    margin-right: 5px;
+
+    &:visited * {
+        color: $text_muted;
+    }
+}

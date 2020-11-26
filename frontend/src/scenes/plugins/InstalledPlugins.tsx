@@ -5,6 +5,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PlusOutlined } from '@ant-design/icons'
 import { PluginCard, PluginLoading } from './PluginCard'
 import { userLogic } from 'scenes/userLogic'
+import { Subtitle } from 'lib/components/PageHeader'
 
 export function InstalledPlugins(): JSX.Element {
     const { installedPlugins, loading } = useValues(pluginsLogic)
@@ -13,19 +14,19 @@ export function InstalledPlugins(): JSX.Element {
 
     return (
         <div>
-            <Row>
-                <h2 className="subtitle" style={{ flex: 1 }}>
-                    Installed {!loading || installedPlugins.length > 0 ? `(${installedPlugins.length})` : ''}
-                </h2>
-                {user?.plugin_access.install && (
-                    <div className="float-right mb" style={{ marginBottom: 16 }}>
+            <Subtitle
+                subtitle={
+                    'Installed' + (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
+                }
+                buttons={
+                    user?.plugin_access.install && (
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => setPluginTab('available')}>
                             Install new plugin
                         </Button>
-                    </div>
-                )}
-            </Row>
-            <Row gutter={16}>
+                    )
+                }
+            />
+            <Row gutter={16} style={{ marginTop: 16 }}>
                 {(!loading || installedPlugins.length > 0) && (
                     <>
                         {installedPlugins.map((plugin) => {
