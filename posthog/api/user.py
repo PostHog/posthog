@@ -235,7 +235,7 @@ def test_slack_webhook(request):
 
     if not webhook:
         return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "Greetings from PostHog!"}
+    message = {"text": "_Greetings_ from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
 
