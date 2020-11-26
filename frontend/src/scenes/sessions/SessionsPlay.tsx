@@ -4,7 +4,6 @@ import { Card, Col, Input, Row, Tag } from 'antd'
 import {
     AppleOutlined,
     ChromeOutlined,
-    PushpinOutlined,
     UserOutlined,
     FieldTimeOutlined,
     PlusOutlined,
@@ -17,6 +16,7 @@ import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './Sessions.scss'
 import './SessionsPlayer.scss'
 
@@ -36,7 +36,9 @@ function _SessionsPlay(): JSX.Element {
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
-    const eventIndex: EventIndex = useMemo(() => new EventIndex(sessionPlayerData || []), [sessionPlayerData])
+    const eventIndex: EventIndex = useMemo(() => new EventIndex(sessionPlayerData?.snapshots || []), [
+        sessionPlayerData,
+    ])
     const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
     const pageVisitEvents = useMemo(() => eventIndex.pageChangeEvents(), [eventIndex])
 
@@ -45,11 +47,6 @@ function _SessionsPlay(): JSX.Element {
             addTagInput.current.focus()
         }
     }, [addingTagShown])
-
-    const removeTag = (tag: string): void => {
-        alert(`removed tag ${tag}`)
-    }
-    // END TEMPORARY VALUES FOR TESTING
 
     return (
         <div className="session-player">
@@ -62,7 +59,7 @@ function _SessionsPlay(): JSX.Element {
                                 {pageEvent.href}
                             </>
                         ) : null}
-                        <span className="float-right">
+                        <span className="float-right" style={{ display: 'none' }}>
                             <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
                         </span>
                     </div>
@@ -72,7 +69,7 @@ function _SessionsPlay(): JSX.Element {
                         ) : (
                             <Player
                                 ref={playerRef}
-                                events={sessionPlayerData || []}
+                                events={sessionPlayerData?.snapshots || []}
                                 onPlayerTimeChange={setCurrentPlayerTime}
                             />
                         )}
@@ -84,29 +81,27 @@ function _SessionsPlay(): JSX.Element {
                         <div className="mb-05">
                             <FieldTimeOutlined /> 3 minute session on Oct 19
                         </div>
-                        <div className="mb-05">
-                            <PushpinOutlined /> Paris, FR
-                        </div>
-                        <div>
-                            <UserOutlined style={{ marginRight: 4 }} />
-                            <Link to="" target="_blank" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                                <span style={{ marginRight: 4 }}>marius@posthog.com</span>
-                                <IconExternalLink />
-                            </Link>
-                        </div>
-                        <div className="mt">
+                        {sessionPlayerData?.person && (
+                            <div>
+                                <UserOutlined style={{ marginRight: 4 }} />
+                                <Link
+                                    to={`/person/${encodeURIComponent(sessionPlayerData.person.distinct_ids[0])}`}
+                                    className={rrwebBlockClass + ' ph-no-capture'}
+                                    target="_blank"
+                                    style={{ display: 'inline-flex', alignItems: 'center' }}
+                                >
+                                    <span style={{ marginRight: 4 }}>{sessionPlayerData.person.name}</span>
+                                    <IconExternalLink />
+                                </Link>
+                            </div>
+                        )}
+                        <div className="mt" style={{ display: 'none' }}>
                             <div>
                                 <b>Tags</b>
                             </div>
                             {tags.map((tag, index) => {
                                 return (
-                                    <Tag
-                                        key={index}
-                                        color={colorForString(tag)}
-                                        closable
-                                        onClose={() => removeTag(tag)}
-                                        className="tag-wrapper"
-                                    >
+                                    <Tag key={index} color={colorForString(tag)} closable className="tag-wrapper">
                                         {tag}
                                     </Tag>
                                 )

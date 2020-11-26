@@ -26,7 +26,7 @@ class SessionRecording:
         person = (
             PersonSerializer(Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)).data
             if distinct_id
-            else {}
+            else None
         )
 
         return {"snapshots": list(sorted(snapshots, key=lambda s: s["timestamp"])), "person": person}

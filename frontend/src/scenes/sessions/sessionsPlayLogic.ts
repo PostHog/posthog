@@ -3,8 +3,14 @@ import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
+import { PersonType } from '~/types'
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<eventWithTime>>({
+interface SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+}
+
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
     actions: {
         toggleAddingTagShown: () => {},
         setAddingTag: (payload: string) => ({ payload }),
@@ -17,7 +23,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<eventWithTime>>({
             },
         ],
         sessionPlayerData: [
-            null as null | eventWithTime[],
+            null as null | SessionPlayerData,
             {
                 loadRecording: () => null,
             },
@@ -66,10 +72,9 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<eventWithTime>>({
             },
         ],
         sessionPlayerData: {
-            loadRecording: async (sessionRecordingId: string): Promise<eventWithTime[]> => {
+            loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
                 const params = toParams({ session_recording_id: sessionRecordingId })
                 const response = await api.get(`api/event/session_recording?${params}`)
-                console.log('loadRecording', response.result)
                 return response.result
             },
         },
