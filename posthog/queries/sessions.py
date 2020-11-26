@@ -34,8 +34,8 @@ class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = (
             Event.objects.filter(team=team)
-            .filter(filter.properties_to_Q(team_id=team.pk))
             .add_person_id(team.pk)
+            .filter(filter.properties_to_Q(team_id=team.pk))
             .order_by("-timestamp")
         )
 
