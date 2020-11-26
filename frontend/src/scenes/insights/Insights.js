@@ -26,12 +26,13 @@ import {
     RETENTION_TABLE,
     PATHS_VIZ,
     FUNNEL_VIZ,
+    RETENTION_GRAPH,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
-import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
@@ -71,7 +72,7 @@ const showChartFilter = {
     [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.RETENTION}`]: true,
     [`${ViewType.PATHS}`]: false,
 }
 
@@ -96,8 +97,10 @@ function determineInsightType(activeView, display) {
         return display || ACTIONS_LINE_GRAPH_LINEAR
     } else if (activeView === ViewType.FUNNELS) {
         return FUNNEL_VIZ
-    } else if (activeView === ViewType.RETENTION) {
+    } else if (activeView === ViewType.RETENTION && display !== ACTIONS_LINE_GRAPH_LINEAR) {
         return RETENTION_TABLE
+    } else if (activeView === ViewType.RETENTION && display === ACTIONS_LINE_GRAPH_LINEAR) {
+        return RETENTION_GRAPH
     } else if (activeView === ViewType.PATHS) {
         return PATHS_VIZ
     } else {
@@ -236,7 +239,7 @@ function _Insights() {
                                         [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
                                         [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
                                         [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                        [`${ViewType.RETENTION}`]: <RetentionTable />,
+                                        [`${ViewType.RETENTION}`]: <RetentionContainer />,
                                         [`${ViewType.PATHS}`]: <Paths />,
                                     }[activeView]
                                 }
