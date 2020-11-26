@@ -86,6 +86,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
                 if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
                     return null
                 }
+                // TODO: Client-side timestamp, needs review
                 return moment(sessionPlayerData.snapshots[0].timestamp).format('lll')
             },
         ],
