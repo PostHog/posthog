@@ -13,6 +13,7 @@
         "clean": "rimraf dist/*",
         "compile": "rollup -c",
         "lint": "eslint .",
+        "lint:fix": "eslint --fix .",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
         "prepublish": "yarn test && yarn build"
@@ -26,6 +27,7 @@
     "dependencies": {
         "adm-zip": "^0.4.16",
         "celery-node": "^0.5.0",
+        "fastify": "^3.8.0",
         "gunzip-maybe": "^1.4.2",
         "ioredis": "^4.19.2",
         "node-fetch": "^2.6.1",
