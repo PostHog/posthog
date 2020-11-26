@@ -28,9 +28,13 @@ export function SelectGradientOverflow(props: SelectProps<any>): JSX.Element {
 
     function updateScrollGradient(): void {
         const dropdown = dropdownRef.current
-        if (!dropdown) return
+        if (!dropdown) {
+            return
+        }
         const holder: HTMLDivElement | null = dropdown.querySelector('.rc-virtual-list-holder')
-        if (!holder) return
+        if (!holder) {
+            return
+        }
         if (holder.scrollTop > 0) {
             dropdown.classList.add('scrollable-above')
         } else {

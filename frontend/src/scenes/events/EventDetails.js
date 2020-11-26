@@ -17,7 +17,9 @@ export function EventDetails({ event }) {
     for (let key of Object.keys(event.properties)) {
         if (keyMapping.event[key] && keyMapping.event[key].hide) {
             hiddenPropsCount += 1
-            if (showHiddenProps) visibleHiddenProperties[key] = event.properties[key]
+            if (showHiddenProps) {
+                visibleHiddenProperties[key] = event.properties[key]
+            }
         }
         if (!keyMapping.event[key] || !keyMapping.event[key].hide) {
             displayedEventProperties[key] = event.properties[key]

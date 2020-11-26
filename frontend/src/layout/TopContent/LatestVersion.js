@@ -10,7 +10,9 @@ import { CheckOutlined, BulbOutlined } from '@ant-design/icons'
 
 export function LatestVersion() {
     const { user } = useValues(userLogic)
-    if (user.opt_out_capture) return null
+    if (user.opt_out_capture) {
+        return null
+    }
     const [changelogOpen, setChangelogOpen] = useState(false)
     const latestVersion = useLatestVersion(user.posthog_version)
     const isApp = window.location.href.indexOf('app.posthog.com') > -1

@@ -201,8 +201,9 @@ function _Insights() {
                                     {showChartFilter[activeView] && (
                                         <ChartFilter
                                             onChange={(display) => {
-                                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
+                                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                                     clearAnnotationsToCreate()
+                                                }
                                             }}
                                             displayMap={displayMap}
                                             filters={allFilters}

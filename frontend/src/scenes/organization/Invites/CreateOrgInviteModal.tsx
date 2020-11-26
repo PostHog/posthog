@@ -21,7 +21,9 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
         setIsVisible(false)
-        if (emailRef.current) emailRef.current.setValue('')
+        if (emailRef.current) {
+            emailRef.current.setValue('')
+        }
     }, [setIsVisible, setErrorMessage])
 
     const handleSubmit = (): void => {
@@ -34,8 +36,9 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/invites' && !user?.email_service_available)
+            if (location.pathname !== '/organization/invites' && !user?.email_service_available) {
                 push('/organization/invites')
+            }
         }
     }
 

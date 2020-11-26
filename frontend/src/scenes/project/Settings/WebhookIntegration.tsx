@@ -5,13 +5,33 @@ import { Input, Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
 import { UserType } from '~/types'
+import { toast } from 'react-toastify'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+const WEBHOOK_SERVICES: Record<string, string> = {
+    Slack: 'slack.com',
+    Discord: 'discord.com',
+    Teams: 'office.com',
+}
+
+function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain + '/')) return service
+    }
+    return 'your webhook service'
+}
+
+function adjustDiscordWebhook(webhookUrl: string): string {
+    // We need Discord webhook URLs to end with /slack for proper handling, this ensures that
+    return webhookUrl.replace(/\/*(?:posthog|slack)?\/?$/, '/slack')
+}
 
 const logic = kea<logicType<UserType>>({
     actions: () => ({
         setEditedWebhook: (webhook: string) => ({ webhook }),
         saveWebhook: (webhook: string) => ({ webhook }),
-        testAndSaveWebhook: true,
-        setError: (error: string) => ({ error }),
+        testThenSaveWebhook: true,
+        handleTestError: (error: string) => ({ error }),
     }),
 
     defaults: () => (state: Record<string, any>) => ({
@@ -30,70 +50,78 @@ const logic = kea<logicType<UserType>>({
             false,
             {
                 saveWebhook: () => true,
-                testAndSaveWebhook: () => true,
-                setError: () => false,
+                testThenSaveWebhook: () => true,
+                handleTestError: () => false,
                 [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? false : state,
+                    updateKey === 'webhook' ? false : state,
                 [userLogic.actionTypes.userUpdateFailure]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? false : state,
-            },
-        ],
-        isSaved: [
-            false,
-            {
-                saveWebhook: () => false,
-                testAndSaveWebhook: () => false,
-                [userLogic.actionTypes.userUpdateSuccess]: (state, { updateKey }) =>
-                    updateKey === 'slack' ? true : state,
-                setEditedWebhook: () => false,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                saveWebhook: () => null,
-                testAndSaveWebhook: () => null,
-                setError: (_, { error }) => error,
-                setEditedWebhook: () => null,
+                    updateKey === 'webhook' ? false : state,
             },
         ],
     }),
 
     listeners: ({ actions, values }) => ({
-        testAndSaveWebhook: async () => {
-            const { editedWebhook } = values
+        testThenSaveWebhook: async () => {
+            let { editedWebhook } = values
+
+            if (editedWebhook?.includes('discord.com/')) {
+                editedWebhook = adjustDiscordWebhook(editedWebhook)
+                actions.setEditedWebhook(editedWebhook)
+            }
+
             if (editedWebhook) {
                 try {
                     const response = await api.create('api/user/test_slack_webhook', { webhook: editedWebhook })
-
-                    if (response.success) {
-                        actions.saveWebhook(editedWebhook)
-                    } else {
-                        actions.setError(response.error)
-                    }
+                    if (response.success) actions.saveWebhook(editedWebhook)
+                    else actions.handleTestError(response.error)
                 } catch (error) {
-                    actions.setError(error.message)
+                    actions.handleTestError(error.message)
                 }
             } else {
                 actions.saveWebhook(editedWebhook)
             }
         },
         saveWebhook: async () => {
-            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'slack')
+            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'webhook')
+        },
+        handleTestError: ({ error }) => {
+            toast.error(
+                <div>
+                    <h1>
+                        {capitalizeFirstLetter(resolveWebhookService(values.editedWebhook))} webhook validation returned
+                        error:
+                    </h1>
+                    <p>{error}</p>
+                </div>
+            )
+        },
+        [userLogic.actionTypes.userUpdateSuccess]: ({ updateKey }) => {
+            if (updateKey === 'webhook') {
+                toast.success(
+                    values.editedWebhook
+                        ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                              values.editedWebhook
+                          )}.`
+                        : 'Webhook integration disabled.'
+                )
+            }
         },
     }),
 })
 
 export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
-    const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
-    const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
+    const { isSaving, editedWebhook } = useValues(logic)
+    const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
 
     return (
         <div>
             <p>
+                Send notifications when selected Actions are performed by users.
+                <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
-                <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>.
+                <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
+                supported.
             </p>
             <Input
                 value={editedWebhook}
@@ -102,7 +130,9 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
                 placeholder={
-                    user.is_multi_tenancy ? 'temporarily unavailable on PostHog Cloud' : 'integration disabled'
+                    user.is_multi_tenancy
+                        ? 'temporarily unavailable on PostHog Cloud'
+                        : 'integration disabled – enter URL to enable'
                 }
                 disabled={user.is_multi_tenancy}
             />
@@ -110,27 +140,12 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    testAndSaveWebhook()
+                    testThenSaveWebhook()
                 }}
                 disabled={user.is_multi_tenancy}
             >
                 {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
             </Button>
-
-            {error && (
-                <span className="text-danger" style={{ marginLeft: 10 }}>
-                    Error: {error}
-                </span>
-            )}
-
-            {isSaved && (
-                <span className="text-success" style={{ marginLeft: 10 }}>
-                    Success:{' '}
-                    {editedWebhook
-                        ? `you should see a message on ${editedWebhook.includes('slack.com') ? 'Slack' : 'Teams'}`
-                        : 'integration disabled'}
-                </span>
-            )}
         </div>
     )
 }

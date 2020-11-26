@@ -1,5 +1,16 @@
 @import '~/vars';
 
+
+.sessions-player-button {
+    color: #52c41a;
+    font-size: 16px;
+    margin-right: 5px;
+
+    &:visited * {
+        color: $text_muted;
+    }
+}
+
 .session-player {
     padding: $default_spacing * 2 $default_spacing 0;
     height: calc(100vh - #{$top_nav_height});

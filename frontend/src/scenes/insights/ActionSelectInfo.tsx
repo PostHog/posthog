@@ -7,7 +7,9 @@ function eventToHumanName(event: string): string {
 }
 
 export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Element {
-    if (!entity) return null
+    if (!entity) {
+        return null
+    }
     return (
         <div className="select-box-info">
             {entity.steps &&

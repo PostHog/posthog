@@ -13,7 +13,7 @@ from posthog.models.team import Team
 def parse_prop_clauses(
     filters: List[Property], team_id: int, prepend: str = "", table_name: str = ""
 ) -> Tuple[str, Dict]:
-    final = ""
+    final = []
     params: Dict[str, Any] = {"team_id": team_id}
     if table_name != "":
         table_name += "."
@@ -23,22 +23,28 @@ def parse_prop_clauses(
             cohort = Cohort.objects.get(pk=prop.value)
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
-            final += "AND {table_name}distinct_id IN ({clause}) ".format(table_name=table_name, clause=person_id_query)
+            final.append(
+                "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
+            )
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(prop, idx, "{}person".format(prepend))
-            final += " AND {table_name}distinct_id IN ({filter_query})".format(
-                filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+            final.append(
+                "AND {table_name}distinct_id IN ({filter_query})".format(
+                    filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query), table_name=table_name
+                )
             )
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, prepend, prop_var="{}properties".format(table_name)
             )
-            final += " {filter_query} AND {table_name}team_id = %(team_id)s".format(
-                table_name=table_name, filter_query=filter_query
+            final.append(
+                "{filter_query} AND {table_name}team_id = %(team_id)s".format(
+                    table_name=table_name, filter_query=filter_query
+                )
             )
             params.update(filter_params)
-    return final, params
+    return " ".join(final), params
 
 
 def prop_filter_json_extract(
