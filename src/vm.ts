@@ -18,9 +18,6 @@ export function createPluginConfigVM(
     })
     vm.freeze(createConsole(), 'console')
     vm.freeze(fetch, 'fetch')
-
-    vm.run('const exports = {};')
-    vm.run('const __pluginLocalMeta = { global: {} };')
     vm.freeze(
         {
             cache: createCache(server, pluginConfig.plugin.name, pluginConfig.team_id),
@@ -29,25 +26,28 @@ export function createPluginConfigVM(
         },
         '__pluginHostMeta'
     )
-    vm.run(`const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };`)
-    vm.run(`${libJs} ; ${indexJs}`)
-    // remain backwards compatible with 1) compiled and non-compiled js, 2) setupPlugin and old setupTeam
-    vm.run(`;global.setupPlugin 
-            ? global.setupPlugin(__pluginMeta) 
-            : exports.setupPlugin 
-                ? exports.setupPlugin(__pluginMeta) 
-                : global.setupTeam 
-                    ? global.setupTeam(__pluginMeta) 
-                    : exports.setupTeam 
-                        ? exports.setupTeam(__pluginMeta) 
-                        : false;`)
+    vm.run(
+        `
+        const module = {};
+        const exports = {};
+        const __pluginLocalMeta = { global: {} };
+        const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };
+        const __getGlobalWithMeta = (key) => {
+            const method = exports[key] || (module.exports ? module.exports[key] : null) || global[key];
+            if (!method) { return null };
+            return (...args) => method(...args, __pluginMeta)
+        } 
+        `
+    )
+    vm.run(`${libJs} ; ${indexJs} ;`)
+    vm.run(`(function () { const setupPlugin = __getGlobalWithMeta('setupPlugin'); setupPlugin && setupPlugin(); })();`)
 
     const global = vm.run('global')
     const exports = vm.run('exports')
 
     vm.run(`
     const __methods = {
-        processEvent: exports.processEvent || global.processEvent ? (...args) => (exports.processEvent || global.processEvent)(...args, __pluginMeta) : null
+        processEvent: __getGlobalWithMeta('processEvent')
     }`)
 
     return {
