@@ -1,0 +1,28 @@
+name: CI
+
+on:
+    - pull_request
+
+jobs:
+    code-quality:
+        name: Code quality and functionality checks
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+
+            - name: Install package.json dependencies with Yarn
+              run: yarn
+
+            - name: Check formatting with prettier
+              run: yarn prettier:check
+
+            - name: Lint with ESLint
+              run: yarn lint
+
+            - name: Test with Jest
+              run: yarn test
