@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
 import { PersonType } from '~/types'
-
+import moment from 'moment'
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
@@ -79,4 +79,15 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
             },
         },
     }),
+    selectors: {
+        sessionTimestamp: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData): string | null => {
+                if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
+                    return null
+                }
+                return moment(sessionPlayerData.snapshots[0].timestamp).format('lll')
+            },
+        ],
+    },
 })

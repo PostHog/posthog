@@ -23,13 +23,13 @@ import './SessionsPlayer.scss'
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
     const {
-        sessionRecordingId,
         sessionPlayerData,
         sessionPlayerDataLoading,
         addingTagShown,
         addingTag,
         tags,
         tagsLoading,
+        sessionTimestamp,
     } = useValues(sessionsPlayLogic)
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
@@ -59,6 +59,7 @@ function _SessionsPlay(): JSX.Element {
                                 {pageEvent.href}
                             </>
                         ) : null}
+                        {/* TODO: Not implemented */}
                         <span className="float-right" style={{ display: 'none' }}>
                             <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
                         </span>
@@ -77,9 +78,10 @@ function _SessionsPlay(): JSX.Element {
                 </Col>
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
-                        <h3 className="l3">Session {sessionRecordingId}</h3>
-                        <div className="mb-05" style={{ display: 'none' }}>
-                            <FieldTimeOutlined /> 3 minute session on Oct 19
+                        <h3 className="l3">Session Information</h3>
+                        <div className="mb-05">
+                            {/* TODO: Add session duration information */}
+                            <FieldTimeOutlined /> {sessionTimestamp}
                         </div>
                         {sessionPlayerData?.person && (
                             <div>
