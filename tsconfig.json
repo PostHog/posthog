@@ -11,7 +11,7 @@
         "sourceMap": true,
         "baseUrl": "./src",
         "outDir": "./dist",
-        "types": ["node"],
+        "types": ["node", "jest"],
         "resolveJsonModule": true,
         "strict": true
     },
