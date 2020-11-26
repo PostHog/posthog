@@ -28,12 +28,12 @@ export function createPluginConfigVM(
     )
     vm.run(
         `
-        const module = {};
+        const module = { exports: {} };
         const exports = {};
         const __pluginLocalMeta = { global: {} };
         const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };
         const __getGlobalWithMeta = (key) => {
-            const method = exports[key] || (module.exports ? module.exports[key] : null) || global[key];
+            const method = exports[key] || module.exports[key] || global[key];
             if (!method) { return null };
             return (...args) => method(...args, __pluginMeta)
         } 
