@@ -5,7 +5,7 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
+import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
@@ -45,10 +45,7 @@ function cleanFilters(filters) {
     return {
         ...filters,
         interval: autocorrectInterval(filters),
-        display:
-            filters.session && filters.session === 'dist'
-                ? ACTIONS_TABLE
-                : filters.display || ACTIONS_LINE_GRAPH_LINEAR,
+        display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],

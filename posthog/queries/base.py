@@ -1,12 +1,11 @@
 import copy
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q, QuerySet
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Entity, Event, Filter, Team
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.utils import get_compare_period_dates
 
 """
@@ -113,5 +112,5 @@ class BaseQuery:
         The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
     """
 
-    def run(self, filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         raise NotImplementedError("You need to implement run")

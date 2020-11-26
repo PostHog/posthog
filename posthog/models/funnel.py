@@ -14,7 +14,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from .action import Action
 from .entity import Entity
 from .event import Event
-from .filters import Filter
+from .filter import Filter
 from .utils import namedtuplefetchall
 
 

@@ -1,7 +1,7 @@
 import datetime
 import json
 from distutils.util import strtobool
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -23,17 +23,21 @@ from posthog.constants import (
     INTERVAL,
     OFFSET,
     PATH_TYPE,
+    PERIOD,
     PROPERTIES,
+    RETENTION_TYPE,
     SELECTOR,
     SESSION,
     SHOWN_AS,
     START_POINT,
+    TARGET_ENTITY,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity
-from posthog.models.property import Property, PropertyMixin
 from posthog.utils import relative_date_parse
+
+from .entity import Entity
+from .property import Property, PropertyMixin
 
 
 class Filter(PropertyMixin):
@@ -59,8 +63,11 @@ class Filter(PropertyMixin):
     insight: Optional[str] = None
     session_type: Optional[str] = None
     path_type: Optional[str] = None
+    retention_type: Optional[str] = None
     start_point: Optional[str] = None
+    target_entity: Optional[Entity] = None
     _offset: Optional[str] = None
+    period: str = "Day"
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -88,8 +95,11 @@ class Filter(PropertyMixin):
         self.insight = data.get(INSIGHT)
         self.session_type = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
+        self.retention_type = data.get(RETENTION_TYPE)
         self.start_point = data.get(START_POINT)
+        self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
         self._offset = data.get(OFFSET)
+        self.period = data.get(PERIOD) or "Day"
 
         if data.get(ACTIONS):
             self.entities.extend(

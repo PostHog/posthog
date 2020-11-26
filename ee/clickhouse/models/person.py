@@ -31,7 +31,7 @@ from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import is_ee_enabled
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
