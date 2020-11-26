@@ -16,7 +16,9 @@ const WEBHOOK_SERVICES: Record<string, string> = {
 
 function resolveWebhookService(webhookUrl: string): string {
     for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
-        if (webhookUrl.includes(domain + '/')) return service
+        if (webhookUrl.includes(domain + '/')) {
+            return service
+        }
     }
     return 'your webhook service'
 }
@@ -72,8 +74,11 @@ const logic = kea<logicType<UserType>>({
             if (editedWebhook) {
                 try {
                     const response = await api.create('api/user/test_slack_webhook', { webhook: editedWebhook })
-                    if (response.success) actions.saveWebhook(editedWebhook)
-                    else actions.handleTestError(response.error)
+                    if (response.success) {
+                        actions.saveWebhook(editedWebhook)
+                    } else {
+                        actions.handleTestError(response.error)
+                    }
                 } catch (error) {
                     actions.handleTestError(error.message)
                 }

@@ -636,7 +636,9 @@ export function hashCodeForString(s: string): number {
     Forked from https://github.com/segmentio/evergreen/
     */
     let hash = 0
-    if (s.trim().length === 0) return hash
+    if (s.trim().length === 0) {
+        return hash
+    }
     for (let i = 0; i < s.length; i++) {
         const char = s.charCodeAt(i)
         hash = (hash << 5) - hash + char
