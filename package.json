@@ -8,7 +8,7 @@
         "test": "yarn lint",
         "start": "yarn start:dev",
         "start:dist": "node dist/index.js --config \"{\\\"BASE_DIR\\\": \\\"../posthog\\\"}\"",
-        "start:dev": "ts-node src/index.ts --config \"{\\\"BASE_DIR\\\": \\\"../posthog\\\"}\"",
+        "start:dev": "ts-node-dev --exit-child src/index.ts --config \"{\\\"BASE_DIR\\\": \\\"../posthog\\\"}\"",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "compile": "rollup -c",
@@ -73,6 +73,7 @@
         "rollup-plugin-node-resolve": "^5.2.0",
         "rollup-plugin-typescript2": "^0.29.0",
         "ts-node": "^9.0.0",
+        "ts-node-dev": "^1.0.0",
         "typescript": "^4.0.5"
     },
     "husky": {
