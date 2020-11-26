@@ -1,11 +1,10 @@
 import React from 'react'
-import { useActions } from 'kea'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { SessionType } from '~/types'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 
 import './Sessions.scss'
 import { fromParams, toParams } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 function sessionPlayerUrl(sessionRecordingId: string): string {
     const params = { ...fromParams(), sessionRecordingId }
@@ -21,23 +20,16 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
         return null
     }
 
-    const { loadSessionPlayer } = useActions(sessionsTableLogic)
-
     return (
         <>
             {session.session_recording_ids.map((sessionRecordingId: string) => (
-                <a
-                    href={sessionPlayerUrl(sessionRecordingId)}
+                <Link
+                    to={sessionPlayerUrl(sessionRecordingId)}
                     className="sessions-player-button"
                     key={sessionRecordingId}
-                    onClick={(event: React.MouseEvent) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        loadSessionPlayer(sessionRecordingId)
-                    }}
                 >
                     <PlayCircleOutlined />
-                </a>
+                </Link>
             ))}
         </>
     )
