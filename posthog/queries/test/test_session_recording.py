@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.models import SessionRecordingEvent
+from posthog.models import Person, SessionRecordingEvent
 from posthog.queries.session_recording import SessionRecording, add_session_recording_ids
 from posthog.test.base import BaseTest
 
@@ -13,20 +13,23 @@ def session_recording_test_factory(session_recording, add_ids, event_factory):
     class TestSessionRecording(BaseTest):
         def test_query_run(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
+                Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
+
                 self.create_snapshot("user", "1", now())
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=10))
                 self.create_snapshot("user2", "2", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
-                snapshots = session_recording().run(team=self.team, filter=None, session_recording_id="1")
+                session = session_recording().run(team=self.team, filter=None, session_recording_id="1")
                 self.assertEqual(
-                    snapshots,
+                    session["snapshots"],
                     [{"timestamp": 1_600_000_000}, {"timestamp": 1_600_000_010}, {"timestamp": 1_600_000_030},],
                 )
+                self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
 
         def test_query_run_with_no_such_session(self):
-            snapshots = session_recording().run(team=self.team, filter=None, session_recording_id="xxx")
-            self.assertEqual(snapshots, [])
+            session = session_recording().run(team=self.team, filter=None, session_recording_id="xxx")
+            self.assertEqual(session, {"snapshots": [], "person": {}})
 
         def test_add_session_recording_ids(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
