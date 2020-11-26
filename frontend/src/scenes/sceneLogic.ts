@@ -195,14 +195,14 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
     }),
-    selectors: () => ({
+    selectors: {
         sceneConfig: [
             (selectors) => [selectors.scene],
             (scene: Scene): SceneConfig => {
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-    }),
+    },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
 
