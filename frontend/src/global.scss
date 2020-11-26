@@ -375,3 +375,27 @@ style files without adding already imported styles. */
         }
     }
 }
+
+// Overlays
+
+.overlay__parent {
+    position: relative;
+}
+
+.overlay__child {
+    transition: opacity 0.25s ease;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    .overlay--danger & {
+        background: repeating-linear-gradient(
+            -45deg,
+            rgba(255, 255, 255, 0.5),
+            rgba(255, 255, 255, 0.5) 0.75rem,
+            var(--danger) 0.5rem,
+            var(--danger) 20px
+        );
+    }
+}
