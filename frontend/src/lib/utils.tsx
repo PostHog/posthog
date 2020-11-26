@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
 import { EventType } from '~/types'
+import { lightColors } from './colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -628,4 +629,27 @@ export function someParentMatchesSelector(element: HTMLElement, selector: string
         return true
     }
     return element.parentElement ? someParentMatchesSelector(element.parentElement, selector) : false
+}
+
+export function hashCodeForString(s: string): number {
+    /* Hash function that returns a number for a given string. Useful for using the same colors for tags or avatars.
+    Forked from https://github.com/segmentio/evergreen/
+    */
+    let hash = 0
+    if (s.trim().length === 0) {
+        return hash
+    }
+    for (let i = 0; i < s.length; i++) {
+        const char = s.charCodeAt(i)
+        hash = (hash << 5) - hash + char
+        hash &= hash // Convert to 32bit integer
+    }
+    return Math.abs(hash)
+}
+
+export function colorForString(s: string): string {
+    /*
+    Returns a color name for a given string, where the color will always be the same for the same string.
+    */
+    return lightColors[hashCodeForString(s) % lightColors.length]
 }

@@ -9,3 +9,84 @@
         color: $text_muted;
     }
 }
+
+.session-player {
+    padding: $default_spacing * 2 $default_spacing 0;
+    height: calc(100vh - #{$top_nav_height});
+
+    .player-container {
+        height: calc(100% - 30px);
+        position: relative;
+    }
+
+    .tag-wrapper {
+        margin-top: $default_spacing / 2;
+    }
+
+    .ant-row {
+        > .ant-col {
+            height: calc(100% - #{$default_spacing});
+        }
+    }
+
+    .sidebar {
+        overflow: auto;
+    }
+
+    .timeline {
+        display: flex;
+        align-items: stretch;
+        position: relative;
+
+        .line {
+            background-color: $border;
+            width: 2px;
+            margin-right: $default_spacing / 2;
+            border-radius: $radius;
+        }
+
+        .timeline-items {
+            width: calc(100% - 2px - #{$default_spacing / 2}); // 2px width of .line + margin
+
+            > div {
+                margin-bottom: $default_spacing / 2;
+                max-width: 100%;
+
+                &:before {
+                    height: 12px;
+                    width: 12px;
+                    border-radius: 50%;
+                    background-color: $border;
+                    content: '';
+                    display: inline-block;
+                    position: absolute;
+                    left: -5px;
+                    margin-top: 6px;
+                    cursor: pointer;
+                }
+
+                &.current {
+                    &:before {
+                        background-color: $blue_300 !important;
+                    }
+                }
+
+                &.current {
+                    .ant-tag {
+                        background-color: $blue_100;
+                        border-color: $blue_500;
+                        color: $blue_700;
+                    }
+                }
+
+                .ant-tag {
+                    max-width: 100%;
+                    overflow: hidden;
+                    white-space: nowrap;
+                    text-overflow: ellipsis;
+                    cursor: pointer;
+                }
+            }
+        }
+    }
+}
