@@ -9,7 +9,9 @@ from posthog.constants import RETENTION_TYPE
 
 def forward(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
-    for item in DashboardItem.objects.filter(filters__insight="RETENTION", filters__selectedDate__isnull=False):
+    for item in DashboardItem.objects.filter(
+        filters__insight="RETENTION", filters__selectedDate__isnull=False, dashboard__isnull=False
+    ):
         item.filters.pop("selectedDate")
         item.save()
 
