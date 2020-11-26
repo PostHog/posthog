@@ -52,9 +52,9 @@ export function RetentionLineGraph({
                     dashboardItemId
                         ? null
                         : (point) => {
-                              const { day } = point
-                              loadPeople(day - 1) // start from 0
-                              setDay(day - 1)
+                              const { index } = point
+                              loadPeople(index) // start from 0
+                              setDay(index)
                               setModalVisible(true)
                           }
                 }
