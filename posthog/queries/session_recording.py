@@ -6,11 +6,12 @@ from django.db.models import F, Max, Min
 from posthog.models import Filter, Person, SessionRecordingEvent, Team
 from posthog.queries.base import BaseQuery
 
-PersonProperties = Dict[str, Any]
+DistinctId = str
+Snapshots = List[Any]
 
 
 class SessionRecording:
-    def query_recording_snapshots(self, team: Team, session_id: str) -> Tuple[Optional[str], List[Any]]:
+    def query_recording_snapshots(self, team: Team, session_id: str) -> Tuple[Optional[DistinctId], Snapshots]:
         events = SessionRecordingEvent.objects.filter(team=team, session_id=session_id)
 
         if len(events) == 0:

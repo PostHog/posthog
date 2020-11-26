@@ -5,7 +5,9 @@ from typing import Any, Callable, List, Optional, Tuple
 from ee.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.queries.base import BaseQuery
+from posthog.queries.session_recording import DistinctId
 from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
+from posthog.queries.session_recording import Snapshots
 from posthog.queries.session_recording import add_session_recording_ids as _add_session_recording_ids
 
 SINGLE_RECORDING_QUERY = """
@@ -33,7 +35,7 @@ SESSIONS_RECORING_LIST_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time
 
 
 class SessionRecording(BaseSessionRecording):
-    def query_recording_snapshots(self, team: Team, session_id: str) -> Tuple[Optional[str], List[Any]]:
+    def query_recording_snapshots(self, team: Team, session_id: str) -> Tuple[Optional[DistinctId], Snapshots]:
         response = sync_execute(SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id})
         if len(response) == 0:
             return None, []
