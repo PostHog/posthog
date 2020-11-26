@@ -75,8 +75,20 @@ function PreflightCheck() {
         },
         {
             id: 'redis',
-            name: 'Queue processing (Redis)',
+            name: 'Cache & Queue (Redis)',
             status: preflight.redis,
+        },
+        {
+            id: 'redis',
+            name: 'Background Jobs (Celery)',
+            status: preflight.celery,
+        },
+        {
+            id: 'redis',
+            name: 'Posthog Plugin Server',
+            status: preflight.plugins,
+            caption: 'Not required if not using plugins',
+            failedState: 'not-required',
         },
         {
             id: 'frontend',
