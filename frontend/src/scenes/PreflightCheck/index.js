@@ -60,7 +60,7 @@ function PreflightCheck() {
     const [state, setState] = useState({})
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
-    const isReady = preflight.django && preflight.db && preflight.redis
+    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery
 
     const checks = [
         {
