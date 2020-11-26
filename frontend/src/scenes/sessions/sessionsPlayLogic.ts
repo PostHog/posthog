@@ -50,8 +50,8 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: { sessionRecordingId: string }) => {
-            const sessionRecordingId = params.sessionRecordingId
+        '*': (_: any, params: { id: string }) => {
+            const sessionRecordingId = params.id
             if (sessionRecordingId !== values.sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)
             }
