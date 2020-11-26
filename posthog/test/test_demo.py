@@ -13,5 +13,8 @@ class TestDemo(BaseTest):
         self.assertEqual(Event.objects.count(), 192)
         self.assertEqual(Person.objects.count(), 100)
         self.assertEqual(Action.objects.count(), 4)
-        self.assertEqual(Action.objects.all()[1].events.count(), 9)
+
+        action_event_counts = [action.events.count() for action in Action.objects.all()]
+        self.assertCountEqual(action_event_counts, [2, 9, 100, 145])
+
         self.assertIn("$pageview", demo_team.event_names)
