@@ -4,9 +4,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Dashboard, Event, Person
 from posthog.tasks.status_report import status_report
+from posthog.test.base import BaseTest
 from posthog.version import VERSION
 
 

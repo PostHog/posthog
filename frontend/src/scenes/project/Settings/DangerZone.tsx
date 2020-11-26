@@ -20,6 +20,9 @@ export function DangerZone(): JSX.Element {
             icon: <ExclamationCircleOutlined color={red.primary} />,
             okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
             okType: 'danger',
+            okButtonProps: {
+                'data-attr': 'delete-project-ok',
+            },
             cancelText: 'Cancel',
             onOk() {
                 deleteCurrentTeam()
@@ -39,7 +42,13 @@ export function DangerZone(): JSX.Element {
         </div>
     ) : (
         <div className="mt">
-            <Button type="primary" danger onClick={confirmDeleteProject} className="mr-05">
+            <Button
+                type="primary"
+                danger
+                onClick={confirmDeleteProject}
+                className="mr-05"
+                data-attr="delete-project-button"
+            >
                 Delete Project
             </Button>
             This will <b>permanently delete</b> your project and data associated to it. Please be certain.

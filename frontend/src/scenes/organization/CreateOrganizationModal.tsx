@@ -28,6 +28,7 @@ export function CreateOrganizationModal({
             title="Creating an Organization"
             okText="Create Organization"
             cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
+            closable={!!setIsVisible}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
@@ -37,6 +38,9 @@ export function CreateOrganizationModal({
                 } else {
                     setErrorMessage('Your organization needs a name!')
                 }
+            }}
+            okButtonProps={{
+                'data-attr': 'create-organization-ok',
             }}
             onCancel={closeModal}
             visible={isVisible}
