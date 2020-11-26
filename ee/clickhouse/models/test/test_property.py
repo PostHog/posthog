@@ -6,7 +6,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import BaseTest

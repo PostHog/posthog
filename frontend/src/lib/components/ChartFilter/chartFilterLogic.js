@@ -1,8 +1,7 @@
 import { kea } from 'kea'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from '~/lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR } from '~/lib/constants'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
 
 export const chartFilterLogic = kea({
     actions: () => ({
@@ -32,8 +31,6 @@ export const chartFilterLogic = kea({
         '/insights': (_, { display }) => {
             if (display) {
                 actions.setChartFilter(display)
-            } else if (insight === ViewType.RETENTION) {
-                actions.setChartFilter(ACTIONS_TABLE)
             }
         },
     }),
