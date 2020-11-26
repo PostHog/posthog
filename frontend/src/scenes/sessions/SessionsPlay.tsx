@@ -78,7 +78,7 @@ function _SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session {sessionRecordingId}</h3>
-                        <div className="mb-05">
+                        <div className="mb-05" style={{ display: 'none' }}>
                             <FieldTimeOutlined /> 3 minute session on Oct 19
                         </div>
                         {sessionPlayerData?.person && (
