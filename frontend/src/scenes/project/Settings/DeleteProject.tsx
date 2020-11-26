@@ -20,6 +20,9 @@ export function DeleteProject(): JSX.Element {
             icon: <ExclamationCircleOutlined color={red.primary} />,
             okText: currentTeam ? `Delete ${currentTeam.name}` : <i>Loading current project…</i>,
             okType: 'danger',
+            okButtonProps: {
+                'data-attr': 'delete-project-ok',
+            },
             cancelText: 'Cancel',
             onOk() {
                 deleteCurrentTeam()
@@ -29,14 +32,15 @@ export function DeleteProject(): JSX.Element {
     }
 
     const DeleteButton = (
-        <Button type="primary" danger onClick={handleClick}>
+        <Button type="primary" danger onClick={handleClick} data-attr="delete-project-button">
             Delete Project
         </Button>
     )
 
     let deletionDisabledReason: string | null = null
-    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin)
+    if ((currentOrganization?.membership_level ?? -1) < OrganizationMembershipLevel.Admin) {
         deletionDisabledReason = 'You must be an organization administrator to delete projects.'
+    }
 
     return (
         <div>

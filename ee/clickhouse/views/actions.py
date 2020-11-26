@@ -45,7 +45,7 @@ class ClickhouseActionSerializer(ActionSerializer):
         return False
 
 
-class ClickhouseActions(ActionViewSet):
+class ClickhouseActionsViewSet(ActionViewSet):
     serializer_class = ClickhouseActionSerializer
 
     # Don't calculate actions in Clickhouse as it's on the fly
@@ -59,9 +59,7 @@ class ClickhouseActions(ActionViewSet):
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        team = request.user.team
-        assert team is not None
+        team = self.team
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 

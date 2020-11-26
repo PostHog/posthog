@@ -2,7 +2,8 @@ from typing import Dict, Union
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection, connections
+from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
@@ -21,7 +22,13 @@ from .utils import get_redis_heartbeat
 
 
 def health(request):
-    return HttpResponse("ok", content_type="text/plain")
+    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    status = 503 if plan else 200
+    if status == 503:
+        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
+    if status == 200:
+        return HttpResponse("ok", status=status, content_type="text/plain")
 
 
 def stats(request):

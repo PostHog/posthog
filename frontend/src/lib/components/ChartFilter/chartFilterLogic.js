@@ -29,9 +29,12 @@ export const chartFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { display, insight }) => {
-            if (display) actions.setChartFilter(display)
-            else if (insight === ViewType.RETENTION) actions.setChartFilter(ACTIONS_TABLE)
+        '/insights': (_, { display }) => {
+            if (display) {
+                actions.setChartFilter(display)
+            } else if (insight === ViewType.RETENTION) {
+                actions.setChartFilter(ACTIONS_TABLE)
+            }
         },
     }),
 })

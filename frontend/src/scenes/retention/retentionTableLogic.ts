@@ -57,10 +57,18 @@ function cleanFilters(filters): any {
 function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): string {
     let params: Record<string, any> = { ...values.filters }
     params['properties'] = values.properties
-    if (values.selectedDate) params['date_to'] = values.selectedDate.toISOString()
-    if (values.period) params['period'] = dateOptions[values.period]
-    if (values.startEntity) params['target_entity'] = values.startEntity
-    if (values.retentionType) params['retention_type'] = values.retentionType
+    if (values.selectedDate) {
+        params['date_to'] = values.selectedDate.toISOString()
+    }
+    if (values.period) {
+        params['period'] = dateOptions[values.period]
+    }
+    if (values.startEntity) {
+        params['target_entity'] = values.startEntity
+    }
+    if (values.retentionType) {
+        params['retention_type'] = values.retentionType
+    }
     if (values.returningEntity) {
         params['actions'] = Array.isArray(values.filters.returningEntity.actions)
             ? values.filters.returningEntity.actions
@@ -102,7 +110,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 } else {
                     const people = values.retention.data[rowIndex].values[0].people
 
-                    if (people.length === 0) return []
+                    if (people.length === 0) {
+                        return []
+                    }
                     const results = (await api.get('api/person/?id=' + people.join(','))).results
                     results.sort(function (a, b) {
                         return people.indexOf(a.id) - people.indexOf(b.id)
@@ -248,7 +258,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     urlToAction: ({ actions, values, key }) => ({
         '/insights': (_, searchParams: Record<string, any>) => {
             if (searchParams.insight === ViewType.RETENTION) {
-                if (key != DEFAULT_RETENTION_LOGIC_KEY) return
+                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
+                    return
+                }
 
                 const cleanSearchParams = cleanFilters(searchParams)
                 const cleanedFilters = cleanFilters(values.filters)
@@ -257,9 +269,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                     actions.clearRetention()
                     actions.clearPeople()
                 }
-                if (!objectsEqual(cleanSearchParams, cleanedFilters)) actions.setFilters(cleanSearchParams)
-                if (!objectsEqual(searchParams.properties, values.properties))
+                if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
+                    actions.setFilters(cleanSearchParams)
+                }
+                if (!objectsEqual(searchParams.properties, values.properties)) {
                     actions.setProperties(searchParams.properties || [])
+                }
             }
         },
     }),
@@ -292,14 +307,18 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                         ...referenceResults.result,
                     ]
                     actions.updateRetention(retentionCopy)
-                    if (index === 0) peopleToAdd = referenceResults.result
+                    if (index === 0) {
+                        peopleToAdd = referenceResults.result
+                    }
                 }
             }
 
             actions.loadMorePeople(selectedIndex, peopleToAdd)
         },
         loadMorePeople: async ({ selectedIndex, peopleIds }) => {
-            if (peopleIds.length === 0) actions.updatePeople(selectedIndex, [])
+            if (peopleIds.length === 0) {
+                actions.updatePeople(selectedIndex, [])
+            }
             const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
             peopleResult.sort(function (a, b) {
                 return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)

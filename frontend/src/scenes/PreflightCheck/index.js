@@ -24,12 +24,19 @@ function PreflightItem({ name, status, caption, failedState }) {
     */
     let textColor
 
-    if (status) textColor = green.primary
-    else if (status === false) {
-        if (failedState === 'warning') textColor = volcano.primary
-        else if (failedState === 'not-required') textColor = grey.primary
-        else textColor = red.primary
-    } else textColor = grey.primary
+    if (status) {
+        textColor = green.primary
+    } else if (status === false) {
+        if (failedState === 'warning') {
+            textColor = volcano.primary
+        } else if (failedState === 'not-required') {
+            textColor = grey.primary
+        } else {
+            textColor = red.primary
+        }
+    } else {
+        textColor = grey.primary
+    }
 
     return (
         <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
@@ -104,7 +111,9 @@ function PreflightCheck() {
 
     useEffect(() => {
         const mode = localStorage.getItem('preflightMode')
-        if (mode) handleModeChange(mode)
+        if (mode) {
+            handleModeChange(mode)
+        }
     }, [])
 
     return (

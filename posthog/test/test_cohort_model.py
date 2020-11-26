@@ -3,8 +3,8 @@ from unittest.mock import patch
 from django.test import tag
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Element, Event, Person, Team
+from posthog.test.base import BaseTest
 
 
 class TestCohort(BaseTest):

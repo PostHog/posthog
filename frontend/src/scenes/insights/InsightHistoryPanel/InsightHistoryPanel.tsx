@@ -43,55 +43,93 @@ export const determineFilters = (
     const result = []
     if (viewType === ViewType.TRENDS) {
         let count = 0
-        if (filters.events) count += filters.events.length
-        if (filters.actions) count += filters.actions.length
+        if (filters.events) {
+            count += filters.events.length
+        }
+        if (filters.actions) {
+            count += filters.actions.length
+        }
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
-            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            if (filters.events) {
+                filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
+            }
+            if (filters.actions) {
+                filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            }
             result.push({ key: 'Entities', value: entity })
         }
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
-        if (filters.shown_as) result.push({ key: 'Shown As', value: `${filters.shown_as}` })
-        if (filters.breakdown) result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
+        if (filters.interval) {
+            result.push({ key: 'Interval', value: `${filters.interval}` })
+        }
+        if (filters.shown_as) {
+            result.push({ key: 'Shown As', value: `${filters.shown_as}` })
+        }
+        if (filters.breakdown) {
+            result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
+        }
+        if (filters.compare) {
+            result.push({ key: 'Compare', value: `${filters.compare}` })
+        }
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result.push({ key: 'Session', value: `${filters.session}` })
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
+        if (filters.session) {
+            result.push({ key: 'Session', value: `${filters.session}` })
+        }
+        if (filters.interval) {
+            result.push({ key: 'Interval', value: `${filters.interval}` })
+        }
+        if (filters.compare) {
+            result.push({ key: 'Compare', value: `${filters.compare}` })
+        }
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.display)
+        if (filters.display) {
             result.push({
                 key: 'Display',
                 value: `${filters.display === ACTIONS_LINE_GRAPH_LINEAR ? 'Graph' : 'Table'}`,
             })
+        }
         if (filters.startEntity) {
-            if (filters.startEntity.events)
+            if (filters.startEntity.events) {
                 result.push({ key: 'Target', value: `${filters.startEntity.events[0].name}` })
-            else if (filters.startEntity.actions)
+            } else if (filters.startEntity.actions) {
                 result.push({ key: 'Target', value: `${filters.startEntity.actions[0].name}` })
+            }
         }
         if (filters.returningEntity) {
-            if (filters.returningEntity.events)
+            if (filters.returningEntity.events) {
                 result.push({ key: 'Returning Event', value: `${filters.returningEntity.events[0].name}` })
-            else if (filters.returningEntity.actions)
+            } else if (filters.returningEntity.actions) {
                 result.push({ key: 'Returning Event', value: `${filters.returningEntity.actions[0].name}` })
+            }
         }
-        if (filters.selectedDate) result.push({ key: 'Current Date', value: `${filters.selectedDate}\n` })
+        if (filters.selectedDate) {
+            result.push({ key: 'Current Date', value: `${filters.selectedDate}\n` })
+        }
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type || filters.path_type}` })
-        if (filters.start) result.push({ key: 'Start Point', value: `Specified` })
+        if (filters.type) {
+            result.push({ key: 'Path Type', value: `${filters.type || filters.path_type}` })
+        }
+        if (filters.start) {
+            result.push({ key: 'Start Point', value: `Specified` })
+        }
     } else if (viewType === ViewType.FUNNELS) {
         let count = 0
-        if (filters.events) count += filters.events.length
-        if (filters.actions) count += filters.actions.length
+        if (filters.events) {
+            count += filters.events.length
+        }
+        if (filters.actions) {
+            count += filters.actions.length
+        }
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
-            if (filters.actions)
+            if (filters.events) {
+                filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
+            }
+            if (filters.actions) {
                 filters.actions.forEach((action: Entity) =>
                     entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
                 )
+            }
             result.push({ key: 'Entities', value: entity })
         }
     }
@@ -102,8 +140,9 @@ export const determineFilters = (
         )
         result.push({ key: 'Properties', value: properties })
     }
-    if (filters.date_from || filters.date_to)
+    if (filters.date_from || filters.date_to) {
         result.push({ key: 'Date Range', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
+    }
     return (
         <Table
             showHeader={false}

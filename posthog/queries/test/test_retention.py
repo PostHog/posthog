@@ -14,6 +14,7 @@ from posthog.constants import (
 from posthog.models import Action, ActionStep, Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.queries.retention import Retention
+from posthog.test.base import BaseTest
 
 
 # parameterize tests to reuse in EE

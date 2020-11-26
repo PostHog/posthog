@@ -16,7 +16,9 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
 
     const isExecutable = !!result.executor
     useEffect(() => {
-        if (focused) ref.current?.scrollIntoView()
+        if (focused) {
+            ref.current?.scrollIntoView()
+        }
     }, [focused])
 
     return (
@@ -31,7 +33,9 @@ function CommandResult({ result, focused }: CommandResultProps): JSX.Element {
                 onMouseLeaveResult()
             }}
             onClick={() => {
-                if (isExecutable) executeResult(result)
+                if (isExecutable) {
+                    executeResult(result)
+                }
             }}
             title={result.display}
             ref={ref}
@@ -73,7 +77,9 @@ export function CommandResults(): JSX.Element {
         if (event.key === 'Enter' && commandSearchResults.length) {
             const result = commandSearchResults[activeResultIndex]
             const isExecutable = !!result.executor
-            if (isExecutable) executeResult(result)
+            if (isExecutable) {
+                executeResult(result)
+            }
         } else if (event.key === 'ArrowDown') {
             onArrowDown(commandSearchResults.length - 1)
         } else if (event.key === 'ArrowUp') {
