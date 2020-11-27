@@ -2,7 +2,6 @@ from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
-from sentry_sdk import capture_exception
 
 from posthog.models.filter import Filter
 from posthog.utils import generate_cache_key
