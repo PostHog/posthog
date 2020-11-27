@@ -2,13 +2,12 @@ import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Layout } from 'antd'
+import { Alert, Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
 import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
-import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +20,7 @@ import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
+import { Link } from 'lib/components/Link'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -125,13 +125,19 @@ function _App(): JSX.Element | null {
                     {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
-                        {currentTeam &&
-                        !currentTeam.ingested_event &&
-                        !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
-                            <SendEventsOverlay />
-                        ) : (
-                            <SceneComponent user={user} {...params} />
+                        {currentTeam && !currentTeam.ingested_event && (
+                            <Alert
+                                type="warning"
+                                style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
+                                message={
+                                    <>
+                                        You haven't sent any events to this project yet. Grab{' '}
+                                        <Link to="/project/settings">a snippet or library</Link> to get started!
+                                    </>
+                                }
+                            />
                         )}
+                        <SceneComponent user={user} {...params} />
                         <Toast />
                     </Layout.Content>
                 </Layout>
