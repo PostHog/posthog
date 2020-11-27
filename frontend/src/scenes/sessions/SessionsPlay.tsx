@@ -56,6 +56,11 @@ function _SessionsPlay(): JSX.Element {
         }
     }, [addingTagShown])
 
+    const seekEvent = (playerTime: number): void => {
+        setCurrentPlayerTime(playerTime)
+        playerRef.current?.seek(playerTime)
+    }
+
     return (
         <div className="session-player">
             <Row gutter={16} style={{ height: '100%' }}>
@@ -182,7 +187,7 @@ function _SessionsPlay(): JSX.Element {
                                 <div className="timeline-items">
                                     {pageVisitEvents.map(({ href, playerTime }, index) => (
                                         <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                            <Tag onClick={() => playerRef.current?.seek(playerTime)}>{href}</Tag>
+                                            <Tag onClick={() => seekEvent(playerTime)}>{href}</Tag>
                                         </div>
                                     ))}
                                 </div>
