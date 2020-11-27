@@ -309,7 +309,7 @@ style files without adding already imported styles. */
 
 // Overlays styles
 #bottom-notice {
-    z-index: 999;
+    z-index: 10500;
     display: flex;
     flex-direction: row;
     position: fixed;

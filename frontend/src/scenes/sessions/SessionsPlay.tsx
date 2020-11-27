@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Player, PlayerRef } from 'posthog-react-rrweb-player'
-import { Card, Col, Input, Row, Tag } from 'antd'
+import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
     AppleOutlined,
     ChromeOutlined,
@@ -51,16 +51,22 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05">
-                        {pageEvent ? (
+                        {sessionPlayerDataLoading && <Skeleton paragraph={{ rows: 0 }} active />}
+
+                        {!sessionPlayerDataLoading && (
                             <>
-                                <b>Current URL: </b>
-                                {pageEvent.href}
+                                {pageEvent ? (
+                                    <>
+                                        <b>Current URL: </b>
+                                        {pageEvent.href}
+                                    </>
+                                ) : null}
+                                {/* TODO: Not implemented */}
+                                <span className="float-right" style={{ display: 'none' }}>
+                                    <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
+                                </span>
                             </>
-                        ) : null}
-                        {/* TODO: Not implemented */}
-                        <span className="float-right" style={{ display: 'none' }}>
-                            <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
-                        </span>
+                        )}
                     </div>
                     <div className="ph-no-capture player-container">
                         {sessionPlayerDataLoading ? (
@@ -77,62 +83,78 @@ function _SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        <div className="mb-05" style={{ display: 'none' }}>
-                            {/* TODO: Add session duration information */}
-                            <FieldTimeOutlined /> {sessionTimestamp}
-                        </div>
-                        {sessionPlayerData?.person && (
+                        {sessionPlayerDataLoading && (
                             <div>
-                                <UserOutlined style={{ marginRight: 4 }} />
-                                <Link
-                                    to={`/person/${encodeURIComponent(sessionPlayerData.person.distinct_ids[0])}`}
-                                    className={rrwebBlockClass + ' ph-no-capture'}
-                                    target="_blank"
-                                    style={{ display: 'inline-flex', alignItems: 'center' }}
-                                >
-                                    <span style={{ marginRight: 4 }}>{sessionPlayerData.person.name}</span>
-                                    <IconExternalLink />
-                                </Link>
+                                <Skeleton paragraph={{ rows: 3 }} active />
                             </div>
                         )}
-                        <div className="mt" style={{ display: 'none' }}>
-                            <div>
-                                <b>Tags</b>
-                            </div>
-                            {tags.map((tag, index) => {
-                                return (
-                                    <Tag key={index} color={colorForString(tag)} closable className="tag-wrapper">
-                                        {tag}
-                                    </Tag>
-                                )
-                            })}
-                            <span className="tag-wrapper" style={{ display: 'inline-flex' }}>
-                                <Tag
-                                    onClick={toggleAddingTagShown}
-                                    data-attr="button-add-tag"
-                                    style={{
-                                        cursor: 'pointer',
-                                        borderStyle: 'dashed',
-                                        backgroundColor: '#ffffff',
-                                        display: addingTagShown ? 'none' : 'initial',
-                                    }}
-                                >
-                                    <PlusOutlined /> New Tag
-                                </Tag>
-                                <Input
-                                    type="text"
-                                    size="small"
-                                    onBlur={toggleAddingTagShown}
-                                    ref={addTagInput}
-                                    style={{ width: 78, display: !addingTagShown ? 'none' : 'flex' }}
-                                    value={addingTag}
-                                    onChange={(e) => setAddingTag(e.target.value)}
-                                    onPressEnter={createTag}
-                                    disabled={tagsLoading}
-                                    prefix={tagsLoading ? <SyncOutlined spin /> : null}
-                                />
-                            </span>
-                        </div>
+                        {!sessionPlayerDataLoading && (
+                            <>
+                                <div className="mb-05" style={{ display: 'none' }}>
+                                    {/* TODO: Add session duration information */}
+                                    <FieldTimeOutlined /> {sessionTimestamp}
+                                </div>
+                                {sessionPlayerData?.person && (
+                                    <div>
+                                        <UserOutlined style={{ marginRight: 4 }} />
+                                        <Link
+                                            to={`/person/${encodeURIComponent(
+                                                sessionPlayerData.person.distinct_ids[0]
+                                            )}`}
+                                            className={rrwebBlockClass + ' ph-no-capture'}
+                                            target="_blank"
+                                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                                        >
+                                            <span style={{ marginRight: 4 }}>{sessionPlayerData.person.name}</span>
+                                            <IconExternalLink />
+                                        </Link>
+                                    </div>
+                                )}
+                                <div className="mt" style={{ display: 'none' }}>
+                                    <div>
+                                        <b>Tags</b>
+                                    </div>
+                                    {tags.map((tag, index) => {
+                                        return (
+                                            <Tag
+                                                key={index}
+                                                color={colorForString(tag)}
+                                                closable
+                                                className="tag-wrapper"
+                                            >
+                                                {tag}
+                                            </Tag>
+                                        )
+                                    })}
+                                    <span className="tag-wrapper" style={{ display: 'inline-flex' }}>
+                                        <Tag
+                                            onClick={toggleAddingTagShown}
+                                            data-attr="button-add-tag"
+                                            style={{
+                                                cursor: 'pointer',
+                                                borderStyle: 'dashed',
+                                                backgroundColor: '#ffffff',
+                                                display: addingTagShown ? 'none' : 'initial',
+                                            }}
+                                        >
+                                            <PlusOutlined /> New Tag
+                                        </Tag>
+                                        <Input
+                                            type="text"
+                                            size="small"
+                                            onBlur={toggleAddingTagShown}
+                                            ref={addTagInput}
+                                            style={{ width: 78, display: !addingTagShown ? 'none' : 'flex' }}
+                                            value={addingTag}
+                                            onChange={(e) => setAddingTag(e.target.value)}
+                                            onPressEnter={createTag}
+                                            disabled={tagsLoading}
+                                            prefix={tagsLoading ? <SyncOutlined spin /> : null}
+                                        />
+                                    </span>
+                                </div>
+                            </>
+                        )}
                     </Card>
                     <div className="mt" />
                     <Card className="card-elevated">
@@ -140,16 +162,23 @@ function _SessionsPlay(): JSX.Element {
                         <p className="text-muted text-small">
                             Click on an item to jump to that point in the recording.
                         </p>
-                        <div className="timeline">
-                            <div className="line" />
-                            <div className="timeline-items">
-                                {pageVisitEvents.map(({ href, playerTime }, index) => (
-                                    <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                        <Tag onClick={() => playerRef.current?.seek(playerTime)}>{href}</Tag>
-                                    </div>
-                                ))}
+                        {sessionPlayerDataLoading && (
+                            <div>
+                                <Skeleton paragraph={{ rows: 6 }} active />
                             </div>
-                        </div>
+                        )}
+                        {!sessionPlayerDataLoading && (
+                            <div className="timeline">
+                                <div className="line" />
+                                <div className="timeline-items">
+                                    {pageVisitEvents.map(({ href, playerTime }, index) => (
+                                        <div className={index === atPageIndex ? 'current' : undefined} key={index}>
+                                            <Tag onClick={() => playerRef.current?.seek(playerTime)}>{href}</Tag>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </Card>
                 </Col>
             </Row>
