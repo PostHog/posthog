@@ -283,15 +283,11 @@ def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
 
-def get_redis_heartbeat() -> Union[str, int]:
-    redis_instance = get_client()
-    if not redis_instance:
-        return "offline"
+def get_celery_heartbeat() -> Union[str, int]:
+    last_heartbeat = get_client().get("POSTHOG_HEARTBEAT")
+    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else -1
 
-    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
-    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
-
-    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
+    if 0 <= worker_heartbeat < 300:
         return worker_heartbeat
     return "offline"
 
@@ -403,7 +399,23 @@ def is_postgres_alive() -> bool:
 
 def is_redis_alive() -> bool:
     try:
-        return get_redis_heartbeat() != "offline"
+        get_redis_info()
+        return True
+    except BaseException:
+        return False
+
+
+def is_celery_alive() -> bool:
+    try:
+        return get_celery_heartbeat() != "offline"
+    except BaseException:
+        return False
+
+
+def is_plugin_server_alive() -> bool:
+    try:
+        ping = get_client().get("@posthog-plugin-server/ping")
+        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
     except BaseException:
         return False
 

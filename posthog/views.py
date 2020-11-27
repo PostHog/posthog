@@ -15,11 +15,13 @@ from posthog.utils import (
     get_redis_queue_depth,
     get_table_approx_count,
     get_table_size,
+    is_celery_alive,
+    is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
 )
 
-from .utils import get_redis_heartbeat
+from .utils import get_celery_heartbeat
 
 
 def health(request):
@@ -34,7 +36,7 @@ def health(request):
 
 def stats(request):
     stats_response: Dict[str, Union[int, str]] = {}
-    stats_response["worker_heartbeat"] = get_redis_heartbeat()
+    stats_response["worker_heartbeat"] = get_celery_heartbeat()
     return JsonResponse(stats_response)
 
 
@@ -110,6 +112,8 @@ def preflight_check(request):
         {
             "django": True,
             "redis": is_redis_alive() or TEST,
+            "plugins": is_plugin_server_alive() or TEST,
+            "celery": is_celery_alive() or TEST,
             "db": is_postgres_alive(),
             "initiated": User.objects.exists(),
             "cloud": settings.MULTI_TENANCY,
