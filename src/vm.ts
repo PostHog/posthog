@@ -18,9 +18,6 @@ export function createPluginConfigVM(
     })
     vm.freeze(createConsole(), 'console')
     vm.freeze(fetch, 'fetch')
-
-    vm.run('const exports = {};')
-    vm.run('const __pluginLocalMeta = { global: {} };')
     vm.freeze(
         {
             cache: createCache(server, pluginConfig.plugin.name, pluginConfig.team_id),
@@ -29,26 +26,34 @@ export function createPluginConfigVM(
         },
         '__pluginHostMeta'
     )
-    vm.run(`const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };`)
-    vm.run(`${libJs} ; ${indexJs}`)
-    // remain backwards compatible with 1) compiled and non-compiled js, 2) setupPlugin and old setupTeam
-    vm.run(`;global.setupPlugin 
-            ? global.setupPlugin(__pluginMeta) 
-            : exports.setupPlugin 
-                ? exports.setupPlugin(__pluginMeta) 
-                : global.setupTeam 
-                    ? global.setupTeam(__pluginMeta) 
-                    : exports.setupTeam 
-                        ? exports.setupTeam(__pluginMeta) 
-                        : false;`)
+    vm.run(
+        `
+        // two ways packages could export themselves (plus "global")
+        const module = { exports: {} };
+        const exports = {};
+        
+        // inject the meta object + shareable global to the end of each exported function
+        const __pluginMeta = { ...__pluginHostMeta, global: {} };
+        const __getFunction = (key) => exports[key] || module.exports[key] || global[key]; 
+        const __getFunctionWithMeta = (key) => {
+            const method = __getFunction(key);
+            if (!method) { return null };
+            return (...args) => method(...args, __pluginMeta)
+        }
 
-    const global = vm.run('global')
-    const exports = vm.run('exports')
-
-    vm.run(`
-    const __methods = {
-        processEvent: exports.processEvent || global.processEvent ? (...args) => (exports.processEvent || global.processEvent)(...args, __pluginMeta) : null
-    }`)
+        // the plugin JS code        
+        ${libJs};
+        ${indexJs};
+        
+        // run the plugin setup script, if present
+        const __setupPlugin = __getFunctionWithMeta('setupPlugin');
+        if (__setupPlugin) __setupPlugin();
+        
+        // export various functions
+        const __methods = {
+            processEvent: __getFunctionWithMeta('processEvent')
+        }        `
+    )
 
     return {
         vm,
