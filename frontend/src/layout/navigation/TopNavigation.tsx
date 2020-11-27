@@ -32,7 +32,7 @@ export function _TopNavigation(): JSX.Element {
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0].toUpperCase()}</div>
+                <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization.name}</span>
@@ -167,7 +167,7 @@ export function _TopNavigation(): JSX.Element {
                 <div>
                     <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
                         <div className="whoami cursor-pointer">
-                            <div className="pp">{user?.name[0].toUpperCase()}</div>
+                            <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                             <div className="details hide-lte-lg">
                                 <span>{user?.name}</span>
                                 <span>{user?.organization.name}</span>
