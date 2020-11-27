@@ -128,6 +128,7 @@ function _App(): JSX.Element | null {
                         {currentTeam && !currentTeam.ingested_event && (
                             <Alert
                                 type="warning"
+                                style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
                                 message={
                                     <>
                                         You haven't sent any events to this project yet. Grab{' '}
