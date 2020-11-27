@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .sessions-player-button {
-    color: #52c41a;
+    color: $success;
     font-size: 16px;
     margin-right: 5px;
 
@@ -27,6 +27,14 @@
         > .ant-col {
             height: calc(100% - #{$default_spacing});
         }
+    }
+
+    .url-info {
+        max-width: 50%;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        display: inline-block;
+        white-space: nowrap;
     }
 
     .sidebar {

@@ -19,6 +19,7 @@ import { IconExternalLink } from 'lib/components/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './Sessions.scss'
 import './SessionsPlayer.scss'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
@@ -50,15 +51,18 @@ function _SessionsPlay(): JSX.Element {
         <div className="session-player">
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
-                    <div className="mb-05">
+                    <div className="mb-05" style={{ display: 'flex' }}>
                         {sessionPlayerDataLoading && <Skeleton paragraph={{ rows: 0 }} active />}
 
                         {!sessionPlayerDataLoading && (
                             <>
                                 {pageEvent ? (
                                     <>
-                                        <b>Current URL: </b>
-                                        {pageEvent.href}
+                                        <b>Current URL:</b>
+                                        <span className="url-info ml-05">{pageEvent.href}</span>
+                                        <CopyToClipboardInline explicitValue={pageEvent.href} isValueSensitive>
+                                            &nbsp;
+                                        </CopyToClipboardInline>
                                     </>
                                 ) : null}
                                 {/* TODO: Not implemented */}
