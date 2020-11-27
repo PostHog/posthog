@@ -34,4 +34,4 @@
   workers:
     worker:
       commands:
-          start: celery -A posthog worker --beat --scheduler redbeat.RedBeatScheduler  --loglevel=info --pidfile="/tmp/celerybeat.pid" --concurrency=2
+          start: celery -A posthog worker --beat --scheduler redbeat.RedBeatScheduler  --loglevel=info --pidfile="/tmp/celerybeat.pid" --concurrency=2 --without-heartbeat --without-gossip --without-mingle

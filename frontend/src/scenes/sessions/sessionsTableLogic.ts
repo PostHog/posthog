@@ -66,7 +66,7 @@ export const sessionsTableLogic = kea<
             loadSessionPlayer: async (sessionRecordingId: SessionRecordingId): Promise<eventWithTime[]> => {
                 const params = toParams({ session_recording_id: sessionRecordingId })
                 const response = await api.get(`api/event/session_recording?${params}`)
-                return response.result
+                return response.result.snapshots
             },
         },
     }),

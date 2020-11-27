@@ -8,6 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.models import User
 from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
@@ -54,9 +55,7 @@ def system_status(request):
 
     metrics = list()
 
-    metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     metrics.append({"key": "db_alive", "metric": "Postgres DB alive", "value": postgres_alive})
-
     if postgres_alive:
         postgres_version = connection.cursor().connection.server_version
         metrics.append(
@@ -79,6 +78,7 @@ def system_status(request):
         )
         metrics.append({"metric": "Postgres Event table", "value": f"ca {event_table_count} rows ({event_table_size})"})
 
+    metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
         import redis
 
@@ -115,5 +115,7 @@ def preflight_check(request):
             "plugins": is_plugin_server_alive() or TEST,
             "celery": is_celery_alive() or TEST,
             "db": is_postgres_alive(),
+            "initiated": User.objects.exists(),
+            "cloud": settings.MULTI_TENANCY,
         }
     )

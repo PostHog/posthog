@@ -12,7 +12,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
@@ -20,6 +20,7 @@ import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/logic'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -31,13 +32,20 @@ function _App(): JSX.Element | null {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     // used for legacy navigation [Sidebar.js]
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
+    useEffect(() => {
+        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+            // If user is on an initiated self-hosted instance, redirect away from signup
+            replace('/login')
+            return
+        }
+    }, [scene, preflight])
 
     useEffect(() => {
         if (user) {
@@ -71,10 +79,12 @@ function _App(): JSX.Element | null {
         }
     }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
 
+    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
+
     if (!user) {
         return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <Scene {...params} /> <Toast />
+                <SceneComponent {...params} /> <Toast />
             </Layout>
         ) : null
     }
@@ -83,7 +93,7 @@ function _App(): JSX.Element | null {
         return (
             <Layout style={{ minHeight: '100vh' }}>
                 {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
-                <Scene user={user} {...params} />
+                <SceneComponent user={user} {...params} />
                 <Toast />
             </Layout>
         )
@@ -120,7 +130,7 @@ function _App(): JSX.Element | null {
                         !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
                             <SendEventsOverlay />
                         ) : (
-                            <Scene user={user} {...params} />
+                            <SceneComponent user={user} {...params} />
                         )}
                         <Toast />
                     </Layout.Content>
