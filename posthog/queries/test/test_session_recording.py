@@ -23,7 +23,11 @@ def session_recording_test_factory(session_recording, add_ids, event_factory):
                 session = session_recording().run(team=self.team, filter=None, session_recording_id="1")
                 self.assertEqual(
                     session["snapshots"],
-                    [{"timestamp": 1_600_000_000}, {"timestamp": 1_600_000_010}, {"timestamp": 1_600_000_030},],
+                    [
+                        {"timestamp": 1_600_000_000, "type": 2},
+                        {"timestamp": 1_600_000_010, "type": 2},
+                        {"timestamp": 1_600_000_030, "type": 2},
+                    ],
                 )
                 self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
 
@@ -45,6 +49,9 @@ def session_recording_test_factory(session_recording, add_ids, event_factory):
                 self.create_snapshot("user", "4", now() + relativedelta(seconds=999))
                 self.create_snapshot("user", "4", now() + relativedelta(seconds=1020))
 
+                self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=10), type=3)
+                self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=20), type=3)
+
                 sessions = [
                     {"distinct_id": "user", "start_time": now(), "end_time": now() + relativedelta(seconds=100)},
                     {
@@ -53,20 +60,21 @@ def session_recording_test_factory(session_recording, add_ids, event_factory):
                         "end_time": now() + relativedelta(hours=100),
                     },
                     {"distinct_id": "user2", "start_time": now(), "end_time": now() + relativedelta(seconds=30)},
+                    {"distinct_id": "broken-user", "start_time": now(), "end_time": now() + relativedelta(seconds=100)},
                 ]
                 results = add_ids(self.team, sessions)
-                self.assertEqual([r["session_recording_ids"] for r in results], [["1", "3"], [], ["2"]])
+                self.assertEqual([r["session_recording_ids"] for r in results], [["1", "3"], [], ["2"], []])
 
         def test_query_run_with_no_sessions(self):
             self.assertEqual(add_ids(self.team, []), [])
 
-        def create_snapshot(self, distinct_id, session_id, timestamp):
+        def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
             event_factory(
                 team_id=self.team.id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
-                snapshot_data={"timestamp": timestamp.timestamp()},
+                snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
             )
 
     return TestSessionRecording
