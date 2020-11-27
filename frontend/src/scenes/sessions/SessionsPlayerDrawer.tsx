@@ -13,6 +13,8 @@ export default function SessionsPlayerDrawer(): JSX.Element {
     )
     const { loadSessionPlayer, closeSessionPlayer } = useActions(sessionsTableLogic)
 
+    const { prev, next } = nav
+
     return (
         <Drawer
             title="Session recording"
@@ -27,8 +29,8 @@ export default function SessionsPlayerDrawer(): JSX.Element {
                 ) : (
                     <Player
                         events={sessionPlayerData}
-                        onPrevious={nav.prev ? () => loadSessionPlayer(nav.prev!) : undefined}
-                        onNext={nav.next ? () => loadSessionPlayer(nav.next!) : undefined}
+                        onPrevious={prev ? () => loadSessionPlayer(prev) : undefined}
+                        onNext={next ? () => loadSessionPlayer(next) : undefined}
                     />
                 )}
             </div>
