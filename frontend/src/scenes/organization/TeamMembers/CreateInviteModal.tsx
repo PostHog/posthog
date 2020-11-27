@@ -1,14 +1,14 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { invitesLogic } from './logic'
+import { invitesLogic } from './invitesLogic'
 import { Input, Alert, Button } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined } from '@ant-design/icons'
 
-export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'button' | 'text' }): JSX.Element {
+export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 'standalone' | 'sidebar' }): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
     const { push } = useActions(router)
     const { location } = useValues(router)
@@ -36,45 +36,45 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/invites' && !user?.email_service_available) {
-                push('/organization/invites')
+            if (location.pathname !== '/organization/members' && !user?.email_service_available) {
+                push('/organization/members')
             }
         }
     }
 
     return (
         <>
-            {type === 'text' ? (
+            {type === 'sidebar' ? (
                 <span
+                    className="sidebar-label"
                     onClick={() => {
                         setIsVisible(true)
                     }}
                 >
-                    Invite Teammate
+                    Invite Team Member
                 </span>
             ) : (
-                <div className="mb text-right">
-                    <Button
-                        type="primary"
-                        data-attr="invite-teammate-button"
-                        onClick={() => {
-                            setIsVisible(true)
-                        }}
-                        icon={<PlusOutlined />}
-                    >
-                        Invite Teammate
-                    </Button>
-                </div>
+                <Button
+                    type="primary"
+                    data-attr="invite-teammate-button"
+                    onClick={() => {
+                        setIsVisible(true)
+                    }}
+                    icon={<PlusOutlined />}
+                >
+                    Invite Team Member
+                </Button>
             )}
 
             <Modal
-                title="Inviting Teammate"
+                title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
                 okText={user?.email_service_available ? 'Send Invite' : 'Create Invite Link'}
                 cancelText="Cancel"
                 onOk={handleSubmit}
                 onCancel={closeModal}
                 visible={isVisible}
             >
+                <p>The invite will only work with the specified email address and will expire after 3 days.</p>
                 <form
                     onSubmit={(e) => {
                         e.preventDefault()
@@ -97,11 +97,16 @@ export function CreateOrgInviteModalWithButton({ type = 'button' }: { type?: 'bu
                 {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
 
                 {!user?.email_service_available && (
-                    <div>
-                        Emails are not enabled in your PostHog instance.
-                        <br />
-                        Remember to <b>share the invite link</b> with the team member you want to invite.
-                    </div>
+                    <Alert
+                        type="warning"
+                        message={
+                            <>
+                                Sending emails is not enabled in your PostHog instance.
+                                <br />
+                                Remember to <b>share the invite link</b> with the team member you want to invite.
+                            </>
+                        }
+                    />
                 )}
             </Modal>
         </>

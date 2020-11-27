@@ -47,7 +47,7 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
-                organization=organization, level=OrganizationMembership.Level.ADMIN,
+                organization=organization, level=OrganizationMembership.Level.OWNER,
             )
             return organization, team, user
 
@@ -129,7 +129,7 @@ class User(AbstractUser):
             self.save()
             return membership
 
-    def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+    def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")

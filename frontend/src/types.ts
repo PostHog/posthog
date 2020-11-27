@@ -257,6 +257,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     updated_at: string
+    is_expired: boolean
 }
 
 export interface PluginType {

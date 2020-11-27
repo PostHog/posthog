@@ -26,7 +26,6 @@
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "typescript:check": "tsc",
         "eslint": "eslint frontend/src",
-        "eslint:github-action": "yarn run eslint",
         "typegen:watch": "kea-typegen watch",
         "format-python": "black . && isort ."
     },
