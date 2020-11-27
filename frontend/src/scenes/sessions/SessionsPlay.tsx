@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { EventIndex, Player, PlayerRef } from 'posthog-react-rrweb-player'
+import { Player, PlayerRef } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Tag } from 'antd'
 import {
     AppleOutlined,
@@ -30,17 +30,15 @@ function _SessionsPlay(): JSX.Element {
         tags,
         tagsLoading,
         sessionTimestamp,
+        eventIndex,
+        pageVisitEvents,
     } = useValues(sessionsPlayLogic)
     const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
-    const eventIndex: EventIndex = useMemo(() => new EventIndex(sessionPlayerData?.snapshots || []), [
-        sessionPlayerData,
-    ])
     const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
-    const pageVisitEvents = useMemo(() => eventIndex.pageChangeEvents(), [eventIndex])
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {

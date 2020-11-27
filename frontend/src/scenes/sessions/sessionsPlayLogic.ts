@@ -5,6 +5,7 @@ import { toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
 import { PersonType } from '~/types'
 import moment from 'moment'
+import { EventIndex } from 'posthog-react-rrweb-player'
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
@@ -88,6 +89,18 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
                 }
                 // TODO: Client-side timestamp, needs review
                 return moment(sessionPlayerData.snapshots[0].timestamp).format('lll')
+            },
+        ],
+        eventIndex: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData): EventIndex => {
+                return new EventIndex(sessionPlayerData?.snapshots || [])
+            },
+        ],
+        pageVisitEvents: [
+            (selectors) => [selectors.eventIndex],
+            (eventIndex) => {
+                return eventIndex.pageChangeEvents()
             },
         ],
     },
