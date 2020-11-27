@@ -28,27 +28,32 @@ export function createPluginConfigVM(
     )
     vm.run(
         `
+        // two ways packages could export themselves (plus "global")
         const module = { exports: {} };
         const exports = {};
-        const __pluginLocalMeta = { global: {} };
-        const __pluginMeta = { ...__pluginHostMeta, ...__pluginLocalMeta };
-        const __getGlobalWithMeta = (key) => {
-            const method = exports[key] || module.exports[key] || global[key];
+        
+        // inject the meta object + shareable global to the end of each exported function
+        const __pluginMeta = { ...__pluginHostMeta, global: {} };
+        const __getFunction = (key) => exports[key] || module.exports[key] || global[key]; 
+        const __getFunctionWithMeta = (key) => {
+            const method = __getFunction(key);
             if (!method) { return null };
             return (...args) => method(...args, __pluginMeta)
-        } 
-        `
+        }
+
+        // the plugin JS code        
+        ${libJs};
+        ${indexJs};
+        
+        // run the plugin setup script, if present
+        const __setupPlugin = __getFunctionWithMeta('setupPlugin');
+        if (__setupPlugin) __setupPlugin();
+        
+        // export various functions
+        const __methods = {
+            processEvent: __getFunctionWithMeta('processEvent')
+        }        `
     )
-    vm.run(`${libJs} ; ${indexJs} ;`)
-    vm.run(`(function () { const setupPlugin = __getGlobalWithMeta('setupPlugin'); setupPlugin && setupPlugin(); })();`)
-
-    const global = vm.run('global')
-    const exports = vm.run('exports')
-
-    vm.run(`
-    const __methods = {
-        processEvent: __getGlobalWithMeta('processEvent')
-    }`)
 
     return {
         vm,
