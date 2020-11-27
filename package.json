@@ -5,7 +5,7 @@
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
     "scripts": {
-        "test": "jest --passWithNoTests",
+        "test": "jest",
         "start": "yarn start:dev",
         "start:dist": "node dist/index.js --config \"{\\\"BASE_DIR\\\": \\\"../posthog\\\"}\"",
         "start:dev": "ts-node-dev --exit-child src/index.ts --config \"{\\\"BASE_DIR\\\": \\\"../posthog\\\"}\"",
