@@ -29,22 +29,36 @@ function isMembershipLevelChangeDisallowed(
     newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
-    if (memberChanged.user_id === currentUser.id) return "You can't change your own access level."
-    if (!currentMembershipLevel) return 'Your membership level is unknown.'
-    if (Array.isArray(newLevelOrAllowedLevels)) {
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) return false
-        if (!newLevelOrAllowedLevels.length) return "You don't have permission to change this member's access level."
-    } else {
-        if (newLevelOrAllowedLevels === memberChanged.level)
-            return "It doesn't make sense to set the same level as before."
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) return false
-        if (newLevelOrAllowedLevels > currentMembershipLevel)
-            return 'You can only change access level of others to lower or equal to your current one.'
+    if (memberChanged.user_id === currentUser.id) {
+        return "You can't change your own access level."
     }
-    if (currentMembershipLevel < OrganizationMembershipLevel.Admin)
+    if (!currentMembershipLevel) {
+        return 'Your membership level is unknown.'
+    }
+    if (Array.isArray(newLevelOrAllowedLevels)) {
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+            return false
+        }
+        if (!newLevelOrAllowedLevels.length) {
+            return "You don't have permission to change this member's access level."
+        }
+    } else {
+        if (newLevelOrAllowedLevels === memberChanged.level) {
+            return "It doesn't make sense to set the same level as before."
+        }
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+            return false
+        }
+        if (newLevelOrAllowedLevels > currentMembershipLevel) {
+            return 'You can only change access level of others to lower or equal to your current one.'
+        }
+    }
+    if (currentMembershipLevel < OrganizationMembershipLevel.Admin) {
         return "You don't have permission to change access levels."
-    if (currentMembershipLevel < memberChanged.level)
+    }
+    if (currentMembershipLevel < memberChanged.level) {
         return 'You can only change access level of members with level lower or equal to you.'
+    }
     return false
 }
 
