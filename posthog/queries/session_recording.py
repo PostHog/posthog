@@ -38,6 +38,7 @@ def query_sessions_in_range(team: Team, start_time: datetime.datetime, end_time:
         .values("distinct_id", "session_id")
         .annotate(start_time=Min("timestamp"), end_time=Max("timestamp"))
         .filter(start_time__lte=F("end_time"), end_time__gte=F("start_time"))
+        .filter(snapshot_data__type=2)
     )
 
 

@@ -29,6 +29,7 @@ SESSIONS_RECORING_LIST_QUERY = """
         team_id = %(team_id)s
         AND timestamp >= %(start_time)s
         AND timestamp <= %(end_time)s
+        AND JSONExtractInt(snapshot_data, 'type') = 2
     GROUP BY distinct_id, session_id
 """
 SESSIONS_RECORING_LIST_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "end_time"]
