@@ -93,6 +93,7 @@ SECURE_SSL_REDIRECT = secure_cookies
 
 if not TEST:
     if os.environ.get("SENTRY_DSN"):
+        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
@@ -385,6 +386,8 @@ CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
+CACHED_RESULTS_TTL = 24 * 60 * 60  # how long to keep cached results for
+
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
@@ -451,6 +454,7 @@ EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
+MULTI_TENANCY = False  # overriden by posthog-production
 
 CACHES = {
     "default": {

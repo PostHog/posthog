@@ -6,8 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
-
-from .base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestAnnotation(BaseTest):

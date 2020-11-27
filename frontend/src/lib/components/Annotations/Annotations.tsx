@@ -49,14 +49,21 @@ export const Annotations = function Annotations({
                     top={topExtent}
                     annotations={annotations}
                     onCreate={(input, applyAll) => {
-                        if (applyAll) createGlobalAnnotation(input, dates[index], dashboardItemId)
-                        else if (dashboardItemId) createAnnotationNow(input, dates[index])
-                        else createAnnotation(input, dates[index])
+                        if (applyAll) {
+                            createGlobalAnnotation(input, dates[index], dashboardItemId)
+                        } else if (dashboardItemId) {
+                            createAnnotationNow(input, dates[index])
+                        } else {
+                            createAnnotation(input, dates[index])
+                        }
                     }}
                     onDelete={(data) => {
                         annotations.length === 1 && onClose?.()
-                        if (data.scope !== AnnotationScope.DashboardItem) deleteGlobalAnnotation(data.id)
-                        else deleteAnnotation(data.id)
+                        if (data.scope !== AnnotationScope.DashboardItem) {
+                            deleteGlobalAnnotation(data.id)
+                        } else {
+                            deleteAnnotation(data.id)
+                        }
                     }}
                     onClick={onClick}
                     onClose={onClose}

@@ -32,7 +32,9 @@ export const compareFilterLogic = kea({
     }),
     urlToAction: ({ actions }) => ({
         '/insights': (_, { compare }) => {
-            if (compare) actions.setCompare(compare)
+            if (compare) {
+                actions.setCompare(compare)
+            }
         },
     }),
 })

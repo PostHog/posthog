@@ -22,7 +22,7 @@ class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
         fields = ["id", "label", "value", "created_at", "last_used_at", "team_id", "user_id"]
         read_only_fields = ["id", "value", "created_at", "last_used_at", "team_id", "user_id"]
 
-    def create(self, validated_data: dict) -> PersonalAPIKey:
+    def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
         personal_api_key = PersonalAPIKey.objects.create(user=user, team=user.team, **validated_data)
         return personal_api_key

@@ -23,8 +23,11 @@ const typeToIcon: Record<string, JSX.Element> = {
 
 function ValueDisplay({ value }: { value: any }): JSX.Element {
     let valueType: Type = typeof value
-    if (value === null) valueType = 'null'
-    else if (valueType === 'string' && moment(value).isValid()) valueType = 'string, parsable as datetime'
+    if (value === null) {
+        valueType = 'null'
+    } else if (valueType === 'string' && moment(value).isValid()) {
+        valueType = 'string, parsable as datetime'
+    }
     return typeToIcon[valueType] ? (
         <>
             <Tooltip title={`Property of type ${valueType}.`}>{typeToIcon[valueType]}</Tooltip>
@@ -57,7 +60,7 @@ const columns = [
 ]
 
 export function PropertiesTable({ properties }: { properties: any }): JSX.Element {
-    if (Array.isArray(properties))
+    if (Array.isArray(properties)) {
         return (
             <div>
                 {properties.map((item, index) => (
@@ -68,7 +71,8 @@ export function PropertiesTable({ properties }: { properties: any }): JSX.Elemen
                 ))}
             </div>
         )
-    if (properties instanceof Object)
+    }
+    if (properties instanceof Object) {
         return (
             <Table
                 columns={columns}
@@ -79,6 +83,7 @@ export function PropertiesTable({ properties }: { properties: any }): JSX.Elemen
                 dataSource={Object.entries(properties)}
             />
         )
+    }
     // if none of above, it's a value
     return <ValueDisplay value={properties} />
 }

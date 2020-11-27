@@ -4,10 +4,10 @@ import pytz
 from django.utils.timezone import now
 
 from ee.tasks.webhooks_ee import post_event_to_webhook_ee
-from posthog.api.test.base import BaseTest
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Event
+from posthog.test.base import BaseTest
 
 
 def _create_action(**kwargs):

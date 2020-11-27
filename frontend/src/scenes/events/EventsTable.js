@@ -40,7 +40,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             render: function renderEvent(item) {
-                if (!item.event)
+                if (!item.event) {
                     return {
                         children: item.date_break
                             ? item.date_break
@@ -54,6 +54,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                             },
                         },
                     }
+                }
                 let { event } = item
                 return eventToName(event)
             },
@@ -96,7 +97,9 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             key: 'person',
             ellipsis: true,
             render: function renderPerson({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 return showLinkToPerson ? (
                     <Link
                         to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
@@ -113,9 +116,11 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             title: 'URL / Screen',
             key: 'url',
             render: function renderURL({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 let param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                if (filtersEnabled)
+                if (filtersEnabled) {
                     return (
                         <FilterPropertyLink
                             className={'ph-no-capture ' + rrwebBlockClass}
@@ -124,6 +129,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                             filters={{ properties }}
                         />
                     )
+                }
                 return <Property value={event.properties[param]} />
             },
             ellipsis: true,
@@ -132,11 +138,14 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             title: 'Source',
             key: 'source',
             render: function renderSource({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
-                if (filtersEnabled)
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
+                if (filtersEnabled) {
                     return (
                         <FilterPropertyLink property="$lib" value={event.properties['$lib']} filters={{ properties }} />
                     )
+                }
                 return <Property value={event.properties['$lib']} />
             },
         },
@@ -144,7 +153,9 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             title: 'When',
             key: 'when',
             render: function renderWhen({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 return (
                     <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
                 )
@@ -188,10 +199,15 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
                     rowClassName={(row) => {
-                        if (row.event)
+                        if (row.event) {
                             return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
-                        if (row.date_break) return 'event-day-separator'
-                        if (row.new_events) return 'event-row-new'
+                        }
+                        if (row.date_break) {
+                            return 'event-day-separator'
+                        }
+                        if (row.new_events) {
+                            return 'event-row-new'
+                        }
                     }}
                     expandable={{
                         expandedRowRender: function renderExpand({ event }) {
@@ -202,7 +218,9 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                     }}
                     onRow={(row) => ({
                         onClick: () => {
-                            if (row.new_events) prependNewEvents(newEvents)
+                            if (row.new_events) {
+                                prependNewEvents(newEvents)
+                            }
                         },
                     })}
                 />

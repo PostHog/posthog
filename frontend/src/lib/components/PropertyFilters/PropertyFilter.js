@@ -6,6 +6,7 @@ import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
 const { TabPane } = Tabs
 
@@ -24,7 +25,7 @@ function PropertyPaneContents({
         <>
             <Row gutter={8} className="full-width">
                 <Col flex={1}>
-                    <Select
+                    <SelectGradientOverflow
                         className={rrwebBlockClass}
                         showSearch
                         autoFocus={!propkey}
@@ -96,7 +97,7 @@ function PropertyPaneContents({
                                 ))}
                             </Select.OptGroup>
                         )}
-                    </Select>
+                    </SelectGradientOverflow>
                 </Col>
                 {displayOperatorAndValue && (
                     <Col flex={1}>
@@ -117,7 +118,9 @@ function PropertyPaneContents({
                                     onComplete()
                                 } else {
                                     // clear value if switching from nonparametric (flag) to parametric
-                                    if (isOperatorFlag(operator)) newValue = undefined
+                                    if (isOperatorFlag(operator)) {
+                                        newValue = undefined
+                                    }
                                 }
                                 setThisFilter(propkey, newValue, newOperator.value, type)
                             }}
@@ -160,7 +163,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
 
     return (
         <>
-            <Select
+            <SelectGradientOverflow
                 className={rrwebBlockClass}
                 style={{ width: '100%' }}
                 showSearch
@@ -191,7 +194,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
                         {item.name}
                     </Select.Option>
                 ))}
-            </Select>
+            </SelectGradientOverflow>
         </>
     )
 }

@@ -4,12 +4,12 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.api.test.base import BaseTest
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
 from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> Event:

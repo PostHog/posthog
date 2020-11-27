@@ -1,10 +1,11 @@
 ## Changes
 
 *Please describe.*  
-*If this affects the front-end, include screenshots.*  
+*If this affects the frontend, include screenshots.*  
 
 ## Checklist
 
-- [ ] All querysets/queries filter by Organization, Team, and User (if this PR affects ANY querysets/queries).
-- [ ] Django backend tests (if this PR affects the backend).
-- [ ] Cypress end-to-end tests (if this PR affects the frontend).
+- [ ] All querysets/queries filter by Organization, by Team, and by User
+- [ ] Django backend tests
+- [ ] Jest frontend tests
+- [ ] Cypress end-to-end tests

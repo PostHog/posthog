@@ -59,7 +59,9 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             onValuesChange={
                 !isNew
                     ? (changedValues) => {
-                          if (changedValues.key) setHasKeyChanged(changedValues.key !== featureFlag.key)
+                          if (changedValues.key) {
+                              setHasKeyChanged(changedValues.key !== featureFlag.key)
+                          }
                       }
                     : noop
             }

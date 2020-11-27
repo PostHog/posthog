@@ -18,9 +18,11 @@ function coordinateContains(e, element): boolean {
         e.clientX <= element.x + element.width &&
         e.clientY >= element.y &&
         e.clientY <= element.y + element.height
-    )
+    ) {
         return true
-    else return false
+    } else {
+        return false
+    }
 }
 
 export function AnnotationMarker({
@@ -88,8 +90,9 @@ export function AnnotationMarker({
         Object.keys(groupedAnnotations)
             .map((key) => moment(key))
             .some((marker) => marker.isSame(moment(currentDateMarker).startOf(diffType)))
-    )
+    ) {
         return null
+    }
 
     return (
         <Popover

@@ -39,13 +39,21 @@ export function guardPremiumFeature(
     }
 ): boolean {
     let featureAvailable: boolean
-    if (!user) featureAvailable = false
-    else if (!guardOn.cloud && user.is_multi_tenancy) featureAvailable = true
-    else if (!guardOn.selfHosted && !user.is_multi_tenancy) featureAvailable = true
-    else featureAvailable = !!user.organization?.available_features.includes(key)
+    if (!user) {
+        featureAvailable = false
+    } else if (!guardOn.cloud && user.is_multi_tenancy) {
+        featureAvailable = true
+    } else if (!guardOn.selfHosted && !user.is_multi_tenancy) {
+        featureAvailable = true
+    } else {
+        featureAvailable = !!user.organization?.available_features.includes(key)
+    }
 
-    if (featureAvailable) featureAvailableCallback?.()
-    else showUpgradeModal(name)
+    if (featureAvailable) {
+        featureAvailableCallback?.()
+    } else {
+        showUpgradeModal(name)
+    }
 
     return !featureAvailable
 }

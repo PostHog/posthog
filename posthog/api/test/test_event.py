@@ -5,8 +5,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
-
-from .base import BaseTest, TransactionBaseTest
+from posthog.test.base import BaseTest, TransactionBaseTest
 
 
 def test_event_api_factory(event_factory, person_factory, action_factory):

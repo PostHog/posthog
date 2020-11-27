@@ -3,10 +3,9 @@ from unittest.mock import patch
 from django.test.utils import tag
 from rest_framework import status
 
+from ee.api.test.base import APILicensedTest
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
-
-from .base import APILicensedTest
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):

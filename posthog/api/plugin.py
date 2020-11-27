@@ -16,7 +16,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
@@ -106,7 +107,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
-    def repository(self, request: request.Request):
+    def repository(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
@@ -114,7 +115,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         return Response(json.loads(plugins.text))
 
     @action(methods=["GET"], detail=False)
-    def status(self, request: request.Request):
+    def status(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
 
@@ -160,7 +161,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins_via_api():
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        validated_data["team"] = request.user.team
+        validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)
@@ -218,27 +219,28 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 )
 
 
-class PluginConfigViewSet(viewsets.ModelViewSet):
+class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if can_configure_plugins_via_api():
-            return queryset.filter(team_id=self.request.user.team.pk)
-        return queryset.none()
+        if not can_configure_plugins_via_api():
+            return self.queryset.none()
+        return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
-    def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
         if not can_configure_plugins_via_api():
             return Response(status=404)
-        plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
+        plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
 
     @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request):
+    def global_plugins(self, request: request.Request, **kwargs):
         if not can_configure_plugins_via_api():
             return Response([])
 

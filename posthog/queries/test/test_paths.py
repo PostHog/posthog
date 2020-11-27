@@ -2,9 +2,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Element, Event, Filter, Person
 from posthog.queries.paths import Paths
+from posthog.test.base import BaseTest
 from posthog.utils import request_to_date_query
 
 

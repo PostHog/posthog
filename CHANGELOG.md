@@ -6,9 +6,11 @@
 
 ![Sentry Screenshot](https://posthog.com/static/85a8c81d33e2e3647657b389c0b12814/2cefc/sentry.png)
 
-An important part of devolping a great user experience is identifying, tracking, and fixing bugs. 
+An important part of developing a great user experience is identifying, tracking, and fixing bugs. 
 
-With our new [Sentry](https://sentry.io/) integration, you can leverage PostHog data to help your debugging, and Sentry exception data to track relevant UX metrics. As a two-way integration, it:
+With our new [Sentry](https://sentry.io/) integration, you can (i) leverage PostHog data to help your debugging (ie to see the user's event history or to watch a session recording), and (ii) use Sentry exception data to quickly spot if errors are affecting your product metrics (ie to see if errors are causing churned users).
+
+As a two-way integration, it:
 - Adds a direct link in Sentry to the profile of the person affected in PostHog
 - Sends an `$exception` event to PostHog with a direct link to Sentry
 

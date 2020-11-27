@@ -1,34 +1,9 @@
-import copy
-import datetime
 import json
-from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
-import pandas as pd
-from celery.result import AsyncResult
-from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
-from django.db import connection
-from django.db.models import (
-    Avg,
-    BooleanField,
-    Count,
-    Exists,
-    FloatField,
-    Max,
-    Min,
-    OuterRef,
-    Prefetch,
-    Q,
-    QuerySet,
-    Sum,
-    Value,
-    functions,
-)
-from django.db.models.expressions import RawSQL, Subquery
-from django.db.models.functions import Cast
-from django.db.models.signals import post_delete, post_save
+from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet, functions
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
@@ -37,26 +12,24 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_hooks.signals import raw_hook_event
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
     ActionStep,
-    Cohort,
     CohortPeople,
     DashboardItem,
     Entity,
     Event,
     Filter,
     Person,
-    Team,
-    User,
 )
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries import base, funnel, retention, stickiness, trends
+from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key
 
@@ -118,7 +91,9 @@ def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
     return queryset.filter(team_id=team_id).order_by("-id")
 
 
-class ActionViewSet(viewsets.ModelViewSet):
+class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
@@ -131,14 +106,14 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        return get_actions(queryset, self.request.GET.dict(), self.request.user.team.pk)
+        return get_actions(queryset, self.request.GET.dict(), self.team_id)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data["name"],
-            team=request.user.team,
+            team_id=self.team_id,
             deleted=False,
             defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user,},
         )
@@ -157,7 +132,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         calculate_action.delay(action_id=action.pk)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        action = Action.objects.get(pk=kwargs["pk"], team=request.user.team)
+        action = Action.objects.get(pk=kwargs["pk"], team_id=self.team_id)
 
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps
@@ -200,8 +175,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @cached_function(cache_type=CacheType.TRENDS)
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = request.user.team
-        assert team is not None
+        team = self.team
         filter = Filter(request=request)
         if filter.shown_as == "Stickiness":
             result = stickiness.Stickiness().run(filter, team)
@@ -216,8 +190,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team
-        assert team is not None
+        team = self.team
         properties = request.GET.get("properties", "{}")
 
         filter = Filter(data={"properties": json.loads(properties)})
@@ -233,8 +206,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = request.user.team
-        assert team is not None
+        team = self.team
         refresh = request.GET.get("refresh", None)
         dashboard_id = request.GET.get("from_dashboard", None)
 
@@ -269,8 +241,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         return Response(result)
 
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
-        team = request.user.team
-        assert team is not None
+        team = self.team
         filter = Filter(request=request)
         offset = int(request.GET.get("offset", 0))
 

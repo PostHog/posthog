@@ -13,10 +13,14 @@ const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style
 const simmer = new Simmer(window, { depth: 8 })
 
 export function getSafeText(el: HTMLElement): string {
-    if (!el.childNodes || !el.childNodes.length) return ''
+    if (!el.childNodes || !el.childNodes.length) {
+        return ''
+    }
     let elText = ''
     el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) return
+        if (child.nodeType !== 3 || !child.textContent) {
+            return
+        }
         elText += child.textContent
             .trim()
             .replace(/[\r\n]/g, ' ')

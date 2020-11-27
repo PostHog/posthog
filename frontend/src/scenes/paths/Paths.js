@@ -134,14 +134,21 @@ export function Paths({ dashboardItemId = null, filters = null }) {
             .attr('fill', (d) => {
                 let c
                 for (const link of d.sourceLinks) {
-                    if (c === undefined) c = link.color
-                    else if (c !== link.color) c = null
-                }
-                if (c === undefined)
-                    for (const link of d.targetLinks) {
-                        if (c === undefined) c = link.color
-                        else if (c !== link.color) c = null
+                    if (c === undefined) {
+                        c = link.color
+                    } else if (c !== link.color) {
+                        c = null
                     }
+                }
+                if (c === undefined) {
+                    for (const link of d.targetLinks) {
+                        if (c === undefined) {
+                            c = link.color
+                        } else if (c !== link.color) {
+                            c = null
+                        }
+                    }
+                }
                 return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
             })
             .attr('opacity', 0.5)
@@ -177,7 +184,9 @@ export function Paths({ dashboardItemId = null, filters = null }) {
         link.append('g')
             .append('path')
             .attr('d', (data) => {
-                if (data.source.layer === 0) return
+                if (data.source.layer === 0) {
+                    return
+                }
                 let height =
                     data.source.y1 -
                     data.source.y0 -

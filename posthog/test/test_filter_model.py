@@ -6,9 +6,9 @@ from django.db.models import Q
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Cohort, Element, Event, Filter, Person
 from posthog.models.team import Team
+from posthog.test.base import BaseTest
 
 
 class TestFilter(BaseTest):

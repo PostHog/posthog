@@ -22,7 +22,16 @@ from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.models.organization import Organization
 
-from .api import api_not_found, capture, dashboard, decide, router, team, user
+from .api import (
+    api_not_found,
+    capture,
+    dashboard,
+    decide,
+    projects_router,
+    router,
+    team,
+    user,
+)
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
@@ -275,7 +284,7 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router)
+    extend_api_router(router, projects_router=projects_router)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> str:

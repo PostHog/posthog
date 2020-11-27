@@ -1,7 +1,7 @@
 from django.test import Client, TestCase
 
-from posthog.api.test.base import BaseTest
-from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Team, User
+from posthog.models import OrganizationInvite, OrganizationMembership, User
+from posthog.test.base import BaseTest
 
 
 class TestUrls(TestCase):

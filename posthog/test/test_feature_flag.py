@@ -1,5 +1,5 @@
-from posthog.api.test.base import BaseTest
 from posthog.models import Cohort, FeatureFlag, Person
+from posthog.test.base import BaseTest
 
 
 class TestFeatureFlag(BaseTest):

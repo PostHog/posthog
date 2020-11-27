@@ -29,11 +29,17 @@ export function CommandPalette(): JSX.Element | null {
         } else if (event.key === 'Escape') {
             event.preventDefault()
             // Return to previous flow
-            if (activeFlow) backFlow()
+            if (activeFlow) {
+                backFlow()
+            }
             // If no flw, erase input
-            else if (input) setInput('')
+            else if (input) {
+                setInput('')
+            }
             // Lastly hide palette
-            else hidePalette()
+            else {
+                hidePalette()
+            }
         } else if (event.key === 'k' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
             togglePalette()

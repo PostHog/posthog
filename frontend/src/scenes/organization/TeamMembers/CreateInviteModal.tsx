@@ -21,7 +21,9 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
         setIsVisible(false)
-        if (emailRef.current) emailRef.current.setValue('')
+        if (emailRef.current) {
+            emailRef.current.setValue('')
+        }
     }, [setIsVisible, setErrorMessage])
 
     const handleSubmit = (): void => {
@@ -34,8 +36,9 @@ export function CreateInviteModalWithButton({ type = 'standalone' }: { type?: 's
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/members' && !user?.email_service_available)
+            if (location.pathname !== '/organization/members' && !user?.email_service_available) {
                 push('/organization/members')
+            }
         }
     }
 

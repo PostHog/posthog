@@ -77,9 +77,11 @@ def store_names_and_properties(team: Team, event: str, properties: Dict) -> None
     if event not in team.event_names:
         save = True
         team.event_names.append(event)
+        team.event_names_with_usage.append({"event": event, "usage_count": None, "volume": None})
     for key, value in properties.items():
         if key not in team.event_properties:
             team.event_properties.append(key)
+            team.event_properties_with_usage.append({"key": key, "usage_count": None, "volume": None})
             save = True
         if isinstance(value, Number) and key not in team.event_properties_numerical:
             team.event_properties_numerical.append(key)
@@ -116,7 +118,13 @@ def _capture(
         ]
 
     team = Team.objects.only(
-        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
+        "slack_incoming_webhook",
+        "event_names",
+        "event_properties",
+        "event_names_with_usage",
+        "event_properties_with_usage",
+        "anonymize_ips",
+        "ingested_event",
     ).get(pk=team_id)
 
     if not team.anonymize_ips and "$ip" not in properties:

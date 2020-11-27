@@ -5,9 +5,9 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Dashboard, DashboardItem, Filter, Funnel
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
+from posthog.test.base import BaseTest
 from posthog.utils import generate_cache_key
 
 

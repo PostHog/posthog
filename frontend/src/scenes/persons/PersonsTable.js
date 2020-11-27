@@ -24,7 +24,7 @@ export function PersonsTable({ people, loading, actions, onChange }) {
             },
         },
     ]
-    if (actions)
+    if (actions) {
         columns.push({
             title: 'Actions',
             render: function RenderActions(person) {
@@ -35,13 +35,14 @@ export function PersonsTable({ people, loading, actions, onChange }) {
                 )
             },
         })
+    }
 
     return (
         <Table
             size="small"
             columns={columns}
             loading={loading}
-            rowKey={(person) => person.id}
+            rowKey="id"
             pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             expandable={{
                 expandedRowRender: function RenderPropertiesTable({ properties }) {

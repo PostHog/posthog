@@ -1,8 +1,8 @@
 import base64
 from unittest import mock
 
-from posthog.api.test.base import BaseTest
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, parse_url
+from posthog.test.base import BaseTest
 
 from .mock import mocked_plugin_requests_get
 from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP, HELLO_WORLD_PLUGIN_NPM_TGZ

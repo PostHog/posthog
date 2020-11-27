@@ -2,11 +2,11 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filter import Filter
 from posthog.queries.funnel import Funnel
 from posthog.tasks.update_cache import update_cache_item
+from posthog.test.base import BaseTest
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):

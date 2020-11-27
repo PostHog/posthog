@@ -15,7 +15,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
                     return response
                 },
                 createKey: async (label: string) => {
-                    const newKey: PersonalAPIKeyType = await api.create('api/personal_api_keys/', { label })
+                    const newKey: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
+                        label,
+                    })
                     return [newKey, ...values.keys]
                 },
                 deleteKey: async (key: PersonalAPIKeyType) => {

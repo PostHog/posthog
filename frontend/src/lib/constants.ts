@@ -36,3 +36,5 @@ export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
+
+export const PERSON_DISTINCT_ID_MAX_SIZE = 3

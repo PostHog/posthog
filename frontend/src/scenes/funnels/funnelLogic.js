@@ -93,7 +93,9 @@ export const funnelLogic = kea({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
-                if (!people) return null
+                if (!people) {
+                    return null
+                }
                 const score = (person) => {
                     return steps.reduce((val, step) => (step.people.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
@@ -125,7 +127,9 @@ export const funnelLogic = kea({
             }
         },
         setFilters: ({ refresh }) => {
-            if (refresh) actions.loadFunnel()
+            if (refresh) {
+                actions.loadFunnel()
+            }
             const cleanedParams = cleanFunnelParams(values.filters)
             actions.setAllFilters(cleanedParams)
         },

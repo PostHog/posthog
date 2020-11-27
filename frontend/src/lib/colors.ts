@@ -1,4 +1,4 @@
-const lightColors = ['blue', 'purple', 'green', 'salmon', 'yellow', 'indigo', 'cyan', 'pink']
+export const lightColors = ['blue', 'purple', 'green', 'salmon', 'yellow', 'indigo', 'cyan', 'pink']
 
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 

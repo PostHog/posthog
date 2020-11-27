@@ -18,7 +18,7 @@ import {
     IconInsights,
     IconPerson,
     IconToolbar,
-} from './icons'
+} from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 

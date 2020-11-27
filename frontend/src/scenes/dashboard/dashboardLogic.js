@@ -308,7 +308,9 @@ export const dashboardLogic = kea({
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move) {
-                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
+                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, {
+                    deleted: true,
+                })
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
@@ -323,7 +325,9 @@ export const dashboardLogic = kea({
                                 toast.dismiss(toastId)
                                 const [restoredItem, deletedItem] = await Promise.all([
                                     api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
-                                    api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
+                                    api.update(`api/dashboard_item/${addedItem.id}`, {
+                                        deleted: true,
+                                    }),
                                 ])
                                 toast(<div>Panel move reverted!</div>)
                                 dashboardsModel.actions.updateDashboardItem(restoredItem)

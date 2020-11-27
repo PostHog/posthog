@@ -8,10 +8,14 @@ import { Card, Checkbox, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 
 let getSafeText = (el) => {
-    if (!el.childNodes || !el.childNodes.length) return
+    if (!el.childNodes || !el.childNodes.length) {
+        return
+    }
     let elText = ''
     el.childNodes.forEach((child) => {
-        if (child.nodeType !== 3 || !child.textContent) return
+        if (child.nodeType !== 3 || !child.textContent) {
+            return
+        }
         elText += child.textContent
             .trim()
             .replace(/[\r\n]/g, ' ')
@@ -55,9 +59,13 @@ export class ActionStep extends Component {
         let tagName = el.tagName.toLowerCase()
 
         let selection = ['selector']
-        if (tagName === 'a') selection = ['href', 'selector']
-        else if (tagName === 'button') selection = ['text', 'selector']
-        else if (el.getAttribute('name')) selection = ['name', 'selector']
+        if (tagName === 'a') {
+            selection = ['href', 'selector']
+        } else if (tagName === 'button') {
+            selection = ['text', 'selector']
+        } else if (el.getAttribute('name')) {
+            selection = ['name', 'selector']
+        }
         let step = {
             ...this.props.step,
             event: '$autocapture',
@@ -78,7 +86,9 @@ export class ActionStep extends Component {
     }
     onKeyDown = (event) => {
         // stop selecting if esc key was pressed
-        if (event.keyCode === 27) this.stop()
+        if (event.keyCode === 27) {
+            this.stop()
+        }
     }
     start() {
         this.setState({ inspecting: true })

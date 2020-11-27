@@ -119,7 +119,7 @@ function _Annotations(): JSX.Element {
                 <Table
                     data-attr="annotations-table"
                     size="small"
-                    rowKey={(item): string => item.id}
+                    rowKey="id"
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     rowClassName="cursor-pointer"
                     dataSource={annotations}

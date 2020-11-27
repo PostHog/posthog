@@ -20,7 +20,9 @@ export function CreateProjectModal({
         if (setIsVisible) {
             setErrorMessage(null)
             setIsVisible(false)
-            if (inputRef.current) inputRef.current.setValue('')
+            if (inputRef.current) {
+                inputRef.current.setValue('')
+            }
         }
     }, [inputRef, setIsVisible])
 
@@ -29,6 +31,7 @@ export function CreateProjectModal({
             title={user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project'}
             okText="Create Project"
             cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
+            closable={!!setIsVisible}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
@@ -38,6 +41,9 @@ export function CreateProjectModal({
                 } else {
                     setErrorMessage('Your project needs a name!')
                 }
+            }}
+            okButtonProps={{
+                'data-attr': 'create-project-ok',
             }}
             onCancel={closeModal}
             visible={isVisible}

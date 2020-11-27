@@ -7,15 +7,20 @@ from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.models import Event, Filter, Person, Team
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import Event, Filter, Person
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import convert_property_value
 
-from .base import CursorPagination as BaseCursorPagination
+
+class PersonCursorPagination(CursorPagination):
+    ordering = "-id"
+    page_size = 100
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -40,11 +45,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         return person.pk
 
 
-class CursorPagination(BaseCursorPagination):
-    ordering = "-id"
-    page_size = 100
-
-
 class PersonFilter(filters.FilterSet):
     email = filters.CharFilter(field_name="properties__email")
     distinct_id = filters.CharFilter(field_name="persondistinctid__distinct_id")
@@ -61,11 +61,13 @@ class PersonFilter(filters.FilterSet):
         fields = ["is_identified"]
 
 
-class PersonViewSet(viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
-    pagination_class = CursorPagination
+    pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -75,7 +77,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         if request.GET.get("id"):
             ids = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=ids)
@@ -98,28 +100,25 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
             queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
+                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=self.team_id)
             )
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
-    def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team
-        person = Person.objects.get(team=team, pk=pk)
-        events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        team_id = self.team_id
+        person = Person.objects.get(team_id=team_id, pk=pk)
+        events = Event.objects.filter(team_id=team_id, distinct_id__in=person.distinct_ids)
         events.delete()
         person.delete()
         return response.Response(status=204)
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        team = self.request.user.team
-        queryset = queryset.filter(team=team)
-        return self._filter_request(self.request, queryset, team)
+        return self._filter_request(self.request, super().get_queryset())
 
     @action(methods=["GET"], detail=False)
-    def by_distinct_id(self, request):
+    def by_distinct_id(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/person/?distinct_id={id}
         """
@@ -134,7 +133,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def by_email(self, request):
+    def by_email(self, request, **kwargs):
         """
         DEPRECATED in favor of /api/person/?email={email}
         """
@@ -149,7 +148,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
+    def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
 
         return response.Response(result)
@@ -168,7 +167,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request) -> response.Response:
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         people = self.get_queryset()
         key = "properties__{}".format(request.GET.get("key"))
         people = (
@@ -188,7 +187,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request) -> response.Response:
+    def references(self, request: request.Request, **kwargs) -> response.Response:
         reference_id = request.GET.get("id", None)
         offset = request.GET.get("offset", None)
 

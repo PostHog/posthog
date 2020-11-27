@@ -15,8 +15,12 @@ const columns = [
         },
         sorter: (a: PropertyUsageType, b: PropertyUsageType) => {
             // If PostHog property, put at end of list
-            if (keyMapping.event[a.key] && !keyMapping.event[b.key]) return 1
-            if (!keyMapping.event[a.key] && keyMapping.event[b.key]) return -1
+            if (keyMapping.event[a.key] && !keyMapping.event[b.key]) {
+                return 1
+            }
+            if (!keyMapping.event[a.key] && keyMapping.event[b.key]) {
+                return -1
+            }
             return ('' + a.key).localeCompare(b.key)
         },
         defaultSortOrder: 'ascend',
@@ -80,6 +84,7 @@ export function PropertiesVolumeTable(): JSX.Element {
                     .filter((item: PropertyUsageType) =>
                         keyMapping.event[item.key] && keyMapping.event[item.key].hide ? false : true
                     )}
+                rowKey="event"
                 columns={columns}
                 style={{ marginBottom: '4rem' }}
                 size="small"

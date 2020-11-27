@@ -24,12 +24,19 @@ function PreflightItem({ name, status, caption, failedState }) {
     */
     let textColor
 
-    if (status) textColor = green.primary
-    else if (status === false) {
-        if (failedState === 'warning') textColor = volcano.primary
-        else if (failedState === 'not-required') textColor = grey.primary
-        else textColor = red.primary
-    } else textColor = grey.primary
+    if (status) {
+        textColor = green.primary
+    } else if (status === false) {
+        if (failedState === 'warning') {
+            textColor = volcano.primary
+        } else if (failedState === 'not-required') {
+            textColor = grey.primary
+        } else {
+            textColor = red.primary
+        }
+    } else {
+        textColor = grey.primary
+    }
 
     return (
         <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
@@ -53,7 +60,7 @@ function PreflightCheck() {
     const [state, setState] = useState({})
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { resetPreflight } = useActions(preflightLogic)
-    const isReady = preflight.django && preflight.db && preflight.redis
+    const isReady = preflight.django && preflight.db && preflight.redis && preflight.celery
 
     const checks = [
         {
@@ -68,8 +75,20 @@ function PreflightCheck() {
         },
         {
             id: 'redis',
-            name: 'Queue processing (Redis)',
+            name: 'Cache & Queue (Redis)',
             status: preflight.redis,
+        },
+        {
+            id: 'redis',
+            name: 'Background Jobs (Celery)',
+            status: preflight.celery,
+        },
+        {
+            id: 'redis',
+            name: 'Posthog Plugin Server',
+            status: preflight.plugins,
+            caption: 'Not required if not using plugins',
+            failedState: 'not-required',
         },
         {
             id: 'frontend',
@@ -104,7 +123,9 @@ function PreflightCheck() {
 
     useEffect(() => {
         const mode = localStorage.getItem('preflightMode')
-        if (mode) handleModeChange(mode)
+        if (mode) {
+            handleModeChange(mode)
+        }
     }, [])
 
     return (

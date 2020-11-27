@@ -1,0 +1,20 @@
+.ant-select-dropdown {
+    .scrollable-above::after {
+        content: '';
+        width: 100%;
+        height: 3rem;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+        position: absolute;
+        top: 0;
+        pointer-events: none;
+    }
+    .scrollable-below::after {
+        content: '';
+        width: 100%;
+        height: 3rem;
+        background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+        position: absolute;
+        bottom: 0;
+        pointer-events: none;
+    }
+}

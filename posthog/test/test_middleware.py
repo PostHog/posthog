@@ -6,8 +6,8 @@ from django.conf import settings
 from django.test import Client, TestCase
 from rest_framework import status
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Team, User
+from posthog.test.base import BaseTest
 
 
 class TestSignup(TestCase):

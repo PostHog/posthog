@@ -8,7 +8,7 @@ export function LocalPlugin(): JSX.Element {
     const { setLocalPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
-        <div style={{ marginTop: 32 }}>
+        <div style={{ marginTop: 16 }}>
             <Card>
                 <h3 className="l3">Install Local Plugin</h3>
                 <p>To install a local plugin from this computer/server, give its full path below.</p>

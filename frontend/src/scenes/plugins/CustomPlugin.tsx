@@ -8,7 +8,7 @@ export function CustomPlugin(): JSX.Element {
     const { setCustomPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
-        <div style={{ marginTop: 32 }}>
+        <div style={{ marginTop: 16 }}>
             <Card>
                 <h3 className="l3">Install Custom Plugin</h3>
                 <p>

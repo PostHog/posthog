@@ -21,7 +21,9 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
 
-    if (actionLoading || !action) return <Loading />
+    if (actionLoading || !action) {
+        return <Loading />
+    }
 
     const addGroup = (
         <Button

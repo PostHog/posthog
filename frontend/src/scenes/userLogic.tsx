@@ -73,12 +73,15 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     { label: 'Custom events', options: [] as EventProperty[] },
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
-                if (user?.team)
+                if (user?.team) {
                     user.team.event_names.forEach((name: string) => {
                         const format = { label: name, value: name } as EventProperty
-                        if (posthogEvents.includes(name)) return data[1].options.push(format)
+                        if (posthogEvents.includes(name)) {
+                            return data[1].options.push(format)
+                        }
                         data[0].options.push(format)
                     })
+                }
                 return data
             },
         ],
