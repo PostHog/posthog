@@ -12,8 +12,9 @@ const { TabPane } = Tabs
 
 export const Persons = hot(_Persons)
 function _Persons(): JSX.Element {
-    const { loadPersons, setListFilters } = useActions(personsLogic)
-    const { persons, listFilters, personsLoading } = useValues(personsLogic)
+    const logic = personsLogic({ updateURL: true })
+    const { loadPersons, setListFilters } = useActions(logic)
+    const { persons, listFilters, personsLoading } = useValues(logic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
 
     const exampleEmail =
