@@ -17,8 +17,7 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
 
     const sessionPlayerUrl = (sessionRecordingId: string): string => {
         if (featureFlags['full-page-player']) {
-            const params = { ...fromParams(), id: sessionRecordingId }
-            return `/sessions/play?${toParams(params)}`
+            return `/sessions/play?${toParams({ id: sessionRecordingId })}`
         }
         return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
     }
@@ -35,6 +34,7 @@ export default function SessionsPlayerButton({ session }: SessionsPlayerButtonPr
                     target={featureFlags['full-page-player'] ? '_blank' : undefined}
                     className="sessions-player-button"
                     key={sessionRecordingId}
+                    onClick={(event) => event.stopPropagation()}
                 >
                     <PlayCircleOutlined />
                 </Link>
