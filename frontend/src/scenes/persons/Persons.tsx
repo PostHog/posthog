@@ -58,14 +58,22 @@ function _Persons(): JSX.Element {
                     />
                     <Button
                         type="default"
-                        href={`persons?cohort=` + listFilters.cohort + `&search=` + searchTerm}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            setListFilters({ search: searchTerm })
+                            loadPersons()
+                        }}
                         style={{ marginBottom: '1rem' }}
                     >
                         Search
                     </Button>
                     <Button
                         type="default"
-                        href={`persons?cohort=` + listFilters.cohort}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            setListFilters({ search: '' })
+                            loadPersons()
+                        }}
                         style={{ marginBottom: '1rem' }}
                     >
                         Reset
