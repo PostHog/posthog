@@ -56,6 +56,20 @@ function _Persons(): JSX.Element {
                         style={{ maxWidth: 400 }}
                         autoFocus
                     />
+                    <Button
+                        type="default"
+                        href={`persons?cohort=` + listFilters.cohort + `&search=` + searchTerm}
+                        style={{ marginBottom: '1rem' }}
+                    >
+                        Search
+                    </Button>
+                    <Button
+                        type="default"
+                        href={`persons?cohort=` + listFilters.cohort}
+                        style={{ marginBottom: '1rem' }}
+                    >
+                        Reset
+                    </Button>
                 </form>
             </div>
             <Tabs
