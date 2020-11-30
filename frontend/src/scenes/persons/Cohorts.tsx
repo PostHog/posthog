@@ -1,8 +1,7 @@
 import React from 'react'
-import { LinkButton } from 'lib/components/LinkButton'
 import moment from 'moment'
 import { DeleteWithUndo } from 'lib/utils'
-import { Tooltip, Table, Spin } from 'antd'
+import { Tooltip, Table, Spin, Button } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
@@ -44,7 +43,7 @@ const cohortsUrlLogic = kea({
 export const Cohorts = hot(_Cohorts)
 function _Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
-    const { loadCohorts, updateCohort } = useActions(cohortsModel)
+    const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
 
@@ -129,14 +128,14 @@ function _Cohorts(): JSX.Element {
             />
             <div>
                 <div className="mb text-right">
-                    <LinkButton
-                        to={'/cohorts/new#backTo=Cohorts&backToURL=/cohorts'}
+                    <Button
                         type="primary"
                         data-attr="create-cohort"
+                        onClick={() => setOpenCohort({ id: 'new', groups: [{}] })}
                         icon={<PlusOutlined />}
                     >
                         New Cohort
-                    </LinkButton>
+                    </Button>
                 </div>
 
                 <Table
@@ -158,14 +157,7 @@ function _Cohorts(): JSX.Element {
                     destroyOnClose={true}
                     visible={openCohort}
                 >
-                    {openCohort && (
-                        <Cohort
-                            onChange={(cohort: CohortType) => {
-                                updateCohort(cohort)
-                            }}
-                            cohort={openCohort}
-                        />
-                    )}
+                    {openCohort && <Cohort cohort={openCohort} />}
                 </Drawer>
             </div>
         </div>

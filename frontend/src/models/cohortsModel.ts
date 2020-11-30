@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { cohortsModelType } from './cohortsModelType'
 import { CohortType } from '~/types'
-import { toast } from 'react-toastify'
 
 const POLL_TIMEOUT = 5000
 
@@ -17,32 +16,6 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
             loadCohorts: async () => {
                 const response = await api.get('api/cohort')
                 return response.results
-            },
-            updateCohort: async (cohort) => {
-                try {
-                    return await api.update('api/cohort/' + cohort.id, cohort)
-                } catch (err) {
-                    if (err[0] === 'key-exists') {
-                        toast.error('A feature flag with that key already exists')
-                        return false
-                    } else {
-                        throw err
-                    }
-                }
-            },
-            createCohort: async (cohort) => {
-                let create
-                try {
-                    create = await api.create('api/feature_flag/', cohort)
-                } catch (err) {
-                    if (err[0] === 'key-exists') {
-                        toast.error('A feature flag with that key already exists')
-                        return null
-                    } else {
-                        throw err
-                    }
-                }
-                return create
             },
         },
     }),

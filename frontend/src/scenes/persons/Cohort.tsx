@@ -80,7 +80,7 @@ export function Cohort(props: { onChange: CallableFunction; cohort: CohortType }
                 </div>
             </form>
             <Divider />
-            <Persons cohort={cohort} key={lastSavedAt} />
+            {cohort.id !== 'new' && <Persons cohort={cohort} key={lastSavedAt} />}
         </div>
     )
 }

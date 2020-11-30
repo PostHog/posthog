@@ -4,9 +4,12 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
+import { cohortsModel } from '~/models'
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',
+    connect: [cohortsModel],
+
     actions: () => ({
         saveCohort: (cohort) => ({ cohort }),
         setCohort: (cohort) => ({ cohort }),
@@ -45,10 +48,12 @@ export const cohortLogic = kea({
 
     listeners: ({ sharedListeners }) => ({
         saveCohort: async ({ cohort }) => {
-            if (cohort.id) {
+            if (cohort.id !== 'new') {
                 cohort = await api.update('api/cohort/' + cohort.id, cohort)
+                cohortsModel.actions.updateCohort(cohort)
             } else {
                 cohort = await api.create('api/cohort', cohort)
+                cohortsModel.actions.createCohortSuccess(cohort)
             }
             sharedListeners.pollIsFinished(cohort)
         },
@@ -58,7 +63,7 @@ export const cohortLogic = kea({
         },
     }),
 
-    sharedListeners: ({ actions, values, props }) => ({
+    sharedListeners: ({ actions, values }) => ({
         pollIsFinished: (cohort) => {
             if (cohort.is_calculating) {
                 if (!values.toastId) {
@@ -81,8 +86,8 @@ export const cohortLogic = kea({
                     },
                     autoClose: 5000,
                 })
-                props.onChange(cohort)
                 actions.setLastSavedAt(new Date().toISOString())
+                actions.setCohort(cohort)
                 actions.setToastId(null)
             }
         },
