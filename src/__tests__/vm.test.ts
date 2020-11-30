@@ -242,3 +242,25 @@ test('meta.cache set/get', async () => {
 
     expect(mockServer.redis.set).toHaveBeenCalledWith('@plugin/mock-plugin/2/counter', '11')
 })
+
+test('lib.js (deprecated)', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.event = libraryFunction(event.event)
+            return event
+        }
+    `
+    const libJs = `
+        function libraryFunction (string) {
+            return string.split("").reverse().join("")
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs, libJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+    await vm.methods.processEvent(event)
+
+    expect(event.event).toEqual('tneve lanigiro')
+})
