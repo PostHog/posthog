@@ -3,6 +3,7 @@ import { PluginConfig, PluginsServer, Plugin } from '../types'
 import { PluginEvent } from 'posthog-plugins'
 import { defaultConfig } from '../server'
 import Redis from 'ioredis'
+import fetch from 'node-fetch'
 import { Pool } from 'pg'
 
 const defaultEvent = {
@@ -294,3 +295,26 @@ test('console.log', async () => {
     expect(console.info).toHaveBeenCalledWith('logged event')
     expect(console.debug).toHaveBeenCalledWith('logged event')
 })
+
+test('fetch', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            const response = await fetch('https://google.com/results.json?query=' + event.event)
+            event.properties = await response.json()
+            return event             
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'fetched',
+    }
+
+    await vm.methods.processEvent(event)
+    expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+
+    expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
+})
+
+// attachments
+// prepareForRun
