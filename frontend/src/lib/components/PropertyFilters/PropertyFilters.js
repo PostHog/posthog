@@ -43,6 +43,7 @@ const FilterRow = React.memo(function FilterRow({
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
+                    // Inline component must be antd for popover to work properly
                     <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {formatPropertyLabel(item, cohorts, keyMapping)}
