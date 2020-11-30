@@ -34,7 +34,7 @@ const mockConfig: PluginConfig = {
     plugin_id: mockPlugin.id,
     enabled: true,
     order: 0,
-    config: {},
+    config: { configKey: 'configValue' },
     error: undefined,
     attachments: {},
     vm: null,
@@ -84,6 +84,27 @@ test('processEvent', async () => {
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
+})
+
+test('processEvent without returning', async () => {
+    const indexJs = `
+        function processEvent (event, meta) {
+            event.event = 'changed event'
+        }  
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    expect(vm.methods.processEvent).not.toEqual(undefined)
+
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+
+    const newEvent = await vm.methods.processEvent(event)
+    // this will be changed
+    expect(event.event).toEqual('changed event')
+    // but nothing was returned --> bail
+    expect(newEvent).toEqual(undefined)
 })
 
 test('async processEvent', async () => {
@@ -178,4 +199,46 @@ test('exports set', async () => {
     await vm.methods.processEvent(event)
 
     expect(event.event).toEqual('changed event')
+})
+
+test('meta.config', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.properties = meta.config
+            return event
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+    await vm.methods.processEvent(event)
+
+    expect(event.properties).toEqual(mockConfig.config)
+})
+
+test('meta.cache set/get', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            const counter = await meta.cache.get('counter', 0)
+            meta.cache.set('counter', counter + 1)
+            event.properties['counter'] = counter + 1
+            return event
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+
+    ;(mockServer.redis.get as any).mockResolvedValueOnce(10)
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(11)
+
+    expect(mockServer.redis.set).toHaveBeenCalledWith('@plugin/mock-plugin/2/counter', '11')
 })
