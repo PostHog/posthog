@@ -56,7 +56,7 @@ class ClickhouseTrendsBreakdown:
         parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
         aggregate_operation, join_condition, math_params = process_math(entity)
 
         action_query = ""
