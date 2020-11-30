@@ -14,9 +14,10 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filter import Filter
+from posthog.queries.lifecycle import LifecycleTrend
 
 
-class ClickhouseLifecycle:
+class ClickhouseLifecycle(LifecycleTrend):
     def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str]:
         if interval == "hour":
             return timedelta(hours=1), "1 HOUR"

@@ -14,6 +14,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
+from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.utils import convert_property_value, relative_date_parse
@@ -211,14 +212,21 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
-        team_id = request.user.team.pk
+
+        team = request.user.team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+
         filter = Filter(request=request)
         target_date = request.GET.get("target_date", None)
         if target_date is None:
             return response.Response(
                 {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
             )
-        target_date = relative_date_parse(target_date)
+        target_date_parsed = relative_date_parse(target_date)
         lifecycle_type = request.GET.get("lifecycle_type", None)
         if lifecycle_type is None:
             return response.Response(
@@ -230,9 +238,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         next_url: Optional[str] = request.get_full_path()
         people = self.lifecycle_class().get_people(
-            target_date=target_date,
+            target_date=target_date_parsed,
             filter=filter,
-            team_id=team_id,
+            team_id=team.pk,
             lifecycle_type=lifecycle_type,
             limit=limit,
             offset=offset,
