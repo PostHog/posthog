@@ -1,7 +1,7 @@
 from rest_framework import status
 
-from posthog.test.base import BaseTest
 from posthog.models import User
+from posthog.test.base import BaseTest
 
 
 class TestPreflight(BaseTest):
