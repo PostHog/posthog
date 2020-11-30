@@ -30,7 +30,7 @@ export function createPluginConfigVM(
         `
         // two ways packages could export themselves (plus "global")
         const module = { exports: {} };
-        const exports = {};
+        let exports = {};
         const __getExported = (key) => exports[key] || module.exports[key] || global[key]; 
         
         // the plugin JS code        
