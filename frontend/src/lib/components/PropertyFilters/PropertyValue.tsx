@@ -1,8 +1,21 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, CSSProperties } from 'react'
 import { Select } from 'antd'
 import api from '../../api'
 import { isOperatorFlag } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+
+export interface PropertyValueProps {
+    propertyKey: string
+    type: string
+    endpoint: string
+    placeholder: string
+    style?: CSSProperties
+    bordered?: boolean
+    onSet: (value: any) => void
+    value: any
+    operator: string
+    outerOptions?: any[]
+}
 
 export function PropertyValue({
     propertyKey,
@@ -15,14 +28,14 @@ export function PropertyValue({
     value,
     operator,
     outerOptions,
-}) {
+}: PropertyValueProps): JSX.Element {
     const [input, setInput] = useState('')
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
-    function loadPropertyValues(value) {
+    function loadPropertyValues(value: any): void {
         if (type === 'cohort') return
-        let key = propertyKey.split('__')[0]
+        const key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
         if (outerOptions) {
@@ -48,8 +61,7 @@ export function PropertyValue({
         loadPropertyValues('')
     }, [propertyKey])
 
-    let displayOptions
-    displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
+    const displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
         (option) => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
     )
 
