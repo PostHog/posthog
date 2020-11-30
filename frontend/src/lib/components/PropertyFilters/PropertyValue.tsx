@@ -4,6 +4,19 @@ import api from '../../api'
 import { isOperatorFlag } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 
+interface Option {
+    id?: any
+    values: any
+    name?: any
+    status: boolean | 'loading'
+}
+
+interface Options {
+    [propertyKey: string]: Option
+}
+
+type OptionsCache = Record<any, true | 'loading'>
+
 export interface PropertyValueProps {
     propertyKey: string
     type: string
@@ -14,7 +27,7 @@ export interface PropertyValueProps {
     onSet: (value: any) => void
     value: any
     operator: string
-    outerOptions?: any[]
+    outerOptions?: Option[]
 }
 
 export function PropertyValue({
@@ -30,8 +43,8 @@ export function PropertyValue({
     outerOptions,
 }: PropertyValueProps): JSX.Element {
     const [input, setInput] = useState('')
-    const [optionsCache, setOptionsCache] = useState({})
-    const [options, setOptions] = useState({})
+    const [optionsCache, setOptionsCache] = useState<OptionsCache>({})
+    const [options, setOptions] = useState<Options>({})
 
     function loadPropertyValues(value: any): void {
         if (type === 'cohort') return
@@ -61,8 +74,8 @@ export function PropertyValue({
         loadPropertyValues('')
     }, [propertyKey])
 
-    const displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
-        (option) => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
+    const displayOptions: Option[] = (options[propertyKey]?.values ?? []).filter(
+        (option) => !input || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
     )
 
     return (
@@ -70,7 +83,7 @@ export function PropertyValue({
             showSearch
             autoFocus={!value}
             style={{ width: '100%', ...style }}
-            onChange={(_, payload) => onSet((payload && payload.value) || null)}
+            onChange={(_, payload) => onSet(payload?.value ?? null)}
             value={value || placeholder}
             loading={optionsCache[input] === 'loading'}
             onSearch={(input) => {
@@ -90,9 +103,7 @@ export function PropertyValue({
             )}
             {displayOptions.map(({ name, id }, index) => (
                 <Select.Option key={id || name} value={id || name} data-attr={'prop-val-' + index}>
-                    {name === true && 'true'}
-                    {name === false && 'false'}
-                    {name}
+                    {name === true ? 'true' : name === false ? 'false' : name}
                 </Select.Option>
             ))}
         </SelectGradientOverflow>

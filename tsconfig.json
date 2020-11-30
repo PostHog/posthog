@@ -26,6 +26,7 @@
         "noUnusedParameters": true, // Report errors on unused parameters
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
+        "downlevelIteration": true, // Support for ES2015+ for...of
         "lib": ["dom", "es2019.array"]
     },
     "include": ["frontend/**/*"],
