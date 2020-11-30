@@ -7,7 +7,6 @@ import { ActionType } from '~/types'
 import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'types/lib/logic/selectBoxLogicType'
-import { Link } from './Link'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
@@ -136,7 +135,6 @@ export function SelectUnit({
                             }
                         >
                             {item.name}
-                            {item.id && <Link to={`/action/${item.id}`}> Edit</Link>}
                         </List.Item>
                     )}
                 />

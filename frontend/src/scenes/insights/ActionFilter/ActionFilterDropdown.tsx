@@ -6,10 +6,11 @@ import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Button, Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 import { SelectBox } from '../../../lib/components/SelectBox'
+import { Link } from 'lib/components/Link'
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
@@ -90,6 +91,11 @@ export function ActionFilterDropdown({
                         return (
                             <>
                                 <AimOutlined /> Actions
+                                <Link to={`/action/${item.id}`}>
+                                    <Button type="primary" style={{ float: 'right' }}>
+                                        Edit
+                                    </Button>
+                                </Link>
                                 <br />
                                 <h3>{item.name} </h3>
                                 {item.action && <ActionSelectInfo entity={item.action} />}
