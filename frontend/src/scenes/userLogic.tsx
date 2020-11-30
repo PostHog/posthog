@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { router } from 'kea-router'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, UserUpdateType } from '~/types'
 import posthog from 'posthog-js'
@@ -74,24 +73,24 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     { label: 'Custom events', options: [] as EventProperty[] },
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
-                if (user?.team)
+                if (user?.team) {
                     user.team.event_names.forEach((name: string) => {
                         const format = { label: name, value: name } as EventProperty
-                        if (posthogEvents.includes(name)) return data[1].options.push(format)
+                        if (posthogEvents.includes(name)) {
+                            return data[1].options.push(format)
+                        }
                         data[0].options.push(format)
                     })
+                }
                 return data
             },
         ],
     }),
 
     listeners: ({ actions }) => ({
-        setUser: ({ user }) => {
-            if (user && !user.team) router.actions.push('/organization/members')
-        },
         loadUser: async ({ resetOnFailure }) => {
             try {
-                const user = await api.get('api/user')
+                const user: UserType = await api.get('api/user')
                 actions.setUser(user)
 
                 if (user && user.id) {
@@ -102,7 +101,11 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
                     })
 
                     if (posthog) {
-                        if (posthog.get_distinct_id() !== user.distinct_id) {
+                        // If user is not anonymous and the distinct id is different from the current one, reset
+                        if (
+                            posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
+                            posthog.get_distinct_id() !== user.distinct_id
+                        ) {
                             posthog.reset()
                         }
 
@@ -111,11 +114,12 @@ export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateTy
 
                         posthog.register({
                             posthog_version: user.posthog_version,
-                            has_slack_webhook: !!user.team.slack_incoming_webhook,
+                            has_slack_webhook: !!user.team?.slack_incoming_webhook,
                         })
                     }
                 }
-            } catch {
+            } catch (e) {
+                console.error(e)
                 if (resetOnFailure) {
                     actions.setUser(null)
                 }

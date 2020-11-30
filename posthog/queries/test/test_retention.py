@@ -3,10 +3,10 @@ from datetime import datetime
 
 import pytz
 
-from posthog.api.test.base import BaseTest
 from posthog.constants import RETENTION_FIRST_TIME, RETENTION_TYPE, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, ActionStep, Event, Filter, Person
 from posthog.queries.retention import Retention
+from posthog.test.base import BaseTest
 
 
 # parameterize tests to reuse in EE

@@ -28,15 +28,7 @@ export function ChangePassword(): JSX.Element {
     }
 
     return (
-        <Form
-            onFinish={submit}
-            labelCol={{
-                span: 4,
-            }}
-            wrapperCol={{
-                span: 16,
-            }}
-        >
+        <Form onFinish={submit} labelAlign="left" layout="vertical">
             <FormItem
                 label="Current Password"
                 rules={[

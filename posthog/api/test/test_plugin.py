@@ -10,8 +10,7 @@ from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -98,7 +97,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -132,7 +130,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -160,7 +157,6 @@ class TestPluginAPI(APIBaseTest):
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                     "error": None,
-                    "from_json": False,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -399,7 +395,9 @@ class TestPluginAPI(APIBaseTest):
             )
 
             response = self.client.patch(
-                "/api/plugin_config/{}".format(plugin_config_id), {"remove_attachment[foodb]": True}, format="multipart"
+                "/api/plugin_config/{}".format(plugin_config_id),
+                {"remove_attachment[foodb]": True},
+                format="multipart",
             )
             self.assertEqual(response.data["config"], {"bar": "moop"})  # type: ignore
             self.assertEqual(PluginAttachment.objects.count(), 0)

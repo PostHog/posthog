@@ -1,7 +1,5 @@
 @import '~/vars';
 
-$top_nav_height: 50px;
-
 @media (max-width: 991px) {
     .navigation-mobile-overlay {
         opacity: 0;
@@ -165,6 +163,10 @@ $top_nav_height: 50px;
     top: 0;
     z-index: 1000;
     color: $text_default;
+
+    &.full-width {
+        width: 100%;
+    }
 
     @media (max-width: 991px) {
         width: 100%;

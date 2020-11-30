@@ -5,7 +5,6 @@ import { Menu, Layout, Modal } from 'antd'
 import {
     SmileOutlined,
     TeamOutlined,
-    SendOutlined,
     UserOutlined,
     RiseOutlined,
     UsergroupAddOutlined,
@@ -34,7 +33,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import whiteLogo from 'public/posthog-logo-white.svg'
 import { hot } from 'react-hot-loader/root'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CreateOrgInviteModalWithButton } from 'scenes/organization/Invites/CreateOrgInviteModal'
+import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -67,6 +66,7 @@ const submenuOverride = {
     billing: 'settings',
     instanceStatus: 'settings',
     instanceLicenses: 'settings',
+    mySettings: 'settings',
 }
 
 export const Sidebar = hot(_Sidebar)
@@ -186,12 +186,12 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             location.pathname !== '/persons' && push('/persons')
                         }}
                     >
-                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-people-persons">
+                        <Menu.Item key="persons" style={itemStyle} data-attr="menu-item-persons">
                             <UserOutlined />
                             <span className="sidebar-label">Persons</span>
                             <Link to={'/persons'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-people-cohorts">
+                        <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">Cohorts</span>
                             <Link to={'/cohorts'} onClick={collapseSidebar} />
@@ -246,15 +246,6 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">Team Members</span>
                             <Link to={'/organization/members'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item
-                            key="organizationInvites"
-                            style={itemStyle}
-                            data-attr="menu-item-organization-invites"
-                        >
-                            <SendOutlined />
-                            <span className="sidebar-label">Invites</span>
-                            <Link to={'/organization/invites'} onClick={collapseSidebar} />
-                        </Menu.Item>
 
                         {featureFlags['billing-management-page'] && (
                             <Menu.Item key="billing" style={itemStyle} data-attr="menu-item-organization-billing">
@@ -285,9 +276,9 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/me/settings'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
-                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-inviteTeam">
+                    <Menu.Item key="inviteTeamMember" style={itemStyle} data-attr="menu-item-invite-teammate">
                         <PlusOutlined />
-                        <CreateOrgInviteModalWithButton type="text" />
+                        <CreateInviteModalWithButton type="sidebar" />
                     </Menu.Item>
                 </Menu>
 

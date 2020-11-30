@@ -33,7 +33,7 @@ export function PluginDrawer(): JSX.Element {
     const { editPlugin, savePluginConfig, uninstallPlugin } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
-    const canDelete = user?.plugin_access.install && !editingPlugin?.from_json
+    const canDelete = user?.plugin_access.install
 
     useEffect(() => {
         if (editingPlugin) {
@@ -75,7 +75,7 @@ export function PluginDrawer(): JSX.Element {
                             <Button onClick={() => editPlugin(null)} style={{ marginRight: 16 }}>
                                 Cancel
                             </Button>
-                            <Button type="primary" loading={loading} onClick={() => form.submit()}>
+                            <Button type="primary" loading={loading} onClick={form.submit}>
                                 Save
                             </Button>
                         </div>

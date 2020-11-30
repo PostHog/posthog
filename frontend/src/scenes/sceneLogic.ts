@@ -1,6 +1,6 @@
 import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
-import { camelCaseToTitle, delay } from 'lib/utils'
+import { identifierToHuman, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
@@ -15,14 +15,16 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
+    SessionsPlay = 'sessionsPlay',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
     FeatureFlags = 'featureFlags',
     OrganizationSettings = 'organizationSettings',
     OrganizationMembers = 'organizationMembers',
-    OrganizationInvites = 'organizationInvites',
+    OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
+    ProjectCreateFirst = 'projectCreateFirst',
     InstanceStatus = 'instanceStatus',
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
@@ -47,18 +49,22 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+    [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './users/Person'),
-    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './users/People'),
+    [Scene.SessionsPlay]: () => import(/* webpackChunkName: 'sessionsPlay' */ './sessions/SessionsPlay'),
+    [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
+    [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    [Scene.OrganizationMembers]: () =>
+        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
+    [Scene.OrganizationCreateFirst]: () =>
+        import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
+    [Scene.ProjectCreateFirst]: () => import(/* webpackChunkName: 'projectCreateFirst' */ './project/Create'),
     [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
     [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
@@ -70,8 +76,38 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
 }
 
-/* List of routes that do not require authentication (N.B. add to posthog/urls.py too) */
-export const unauthenticatedRoutes: Scene[] = [Scene.PreflightCheck, Scene.Signup]
+interface SceneConfig {
+    unauthenticated?: boolean // If route is to be accessed when logged out (N.B. add to posthog/urls.py too)
+    dark?: boolean // Background is $bg_mid
+    plain?: boolean // Only keeps the main content and the top navigation bar
+}
+
+export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    [Scene.PreflightCheck]: {
+        unauthenticated: true,
+    },
+    [Scene.Signup]: {
+        unauthenticated: true,
+    },
+    [Scene.Dashboard]: {
+        dark: true,
+    },
+    [Scene.Insights]: {
+        dark: true,
+    },
+    [Scene.Ingestion]: {
+        plain: true,
+    },
+    [Scene.OrganizationCreateFirst]: {
+        plain: true,
+    },
+    [Scene.ProjectCreateFirst]: {
+        plain: true,
+    },
+    [Scene.SessionsPlay]: {
+        plain: true,
+    },
+}
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
@@ -88,6 +124,7 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
+    '/sessions/play': Scene.SessionsPlay,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
@@ -97,10 +134,11 @@ export const routes: Record<string, Scene> = {
     '/annotations': Scene.Annotations,
     '/project/settings': Scene.ProjectSettings,
     '/project/plugins': Scene.Plugins,
+    '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
-    '/organization/invites': Scene.OrganizationInvites,
     '/organization/billing': Scene.Billing,
+    '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.InstanceStatus,
     '/me/settings': Scene.MySettings,
@@ -161,6 +199,14 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
     }),
+    selectors: {
+        sceneConfig: [
+            (selectors) => [selectors.scene],
+            (scene: Scene): SceneConfig => {
+                return sceneConfigurations[scene] ?? {}
+            },
+        ],
+    },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
 
@@ -188,14 +234,15 @@ export const sceneLogic = kea<sceneLogicType>({
             posthog.capture('upgrade modal cancellation')
         },
         takeToPricing: () => {
-            window.open(
-                `https://posthog.com/pricing?o=${userLogic.values.user?.is_multi_tenancy ? 'cloud' : 'enterprise'}`
-            )
             posthog.capture('upgrade modal pricing interaction')
+            if (userLogic.values.user?.is_multi_tenancy) {
+                return router.actions.push('/organization/billing')
+            }
+            window.open(`https://posthog.com/pricing?o=enterprise`)
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${camelCaseToTitle(values.scene)} • PostHog` : 'PostHog'
+            document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {

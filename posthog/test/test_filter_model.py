@@ -4,10 +4,11 @@ from typing import Any, Callable, Optional
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.utils import timezone
+from freezegun.api import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import Cohort, Element, Event, Filter, Person
 from posthog.models.team import Team
+from posthog.test.base import BaseTest
 
 
 class TestFilter(BaseTest):
@@ -278,6 +279,15 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
 
+        def test_is_not_true_false(self):
+            event = event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2 = event_factory(
+                team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
+            )
+            filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
+            events = filter_events(filter, self.team)
+            self.assertEqual(events[0]["id"], event.pk)
+
         def test_json_object(self):
             person1 = person_factory(
                 team_id=self.team.pk,
@@ -357,17 +367,19 @@ class TestDateFilterQ(BaseTest):
         self.assertEqual(date_filter_query, Q())
 
     def test_default_filter_by_date_from(self):
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "name",
-                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
-                        "type": "person",
-                    }
-                ],
-            }
-        )
-        one_week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        date_filter_query = filter.date_filter_Q
-        self.assertEqual(date_filter_query, Q(timestamp__gte=one_week_ago))
+
+        with freeze_time("2020-01-01T00:00:00Z"):
+            filter = Filter(
+                data={
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                            "type": "person",
+                        }
+                    ],
+                }
+            )
+            one_week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+            date_filter_query = filter.date_filter_Q
+            self.assertEqual(date_filter_query, Q(timestamp__gte=one_week_ago, timestamp__lte=timezone.now()))

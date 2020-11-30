@@ -26,19 +26,19 @@ class Retention(BaseQuery):
     def preprocess_params(self, filter: Filter, total_intervals=11):
         period = filter.period or "Day"
         tdelta, t1 = self.determineTimedelta(total_intervals, period)
-        filter._date_to = ((filter.date_to if filter.date_to else now()) + t1).isoformat()
+        filter._date_to = (filter.date_to + t1).isoformat()
 
         first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
 
         if period == "Hour":
-            date_to = filter.date_to if filter.date_to else now()
+            date_to = filter.date_to
             date_from: datetime.datetime = date_to - tdelta
         elif period == "Week":
-            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_to = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
             date_from = date_to - tdelta
             date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
         else:
-            date_to = (filter.date_to if filter.date_to else now()).replace(hour=0, minute=0, second=0, microsecond=0)
+            date_to = filter.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
             date_from = date_to - tdelta
 
         filter._date_from = date_from.isoformat()

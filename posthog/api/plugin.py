@@ -13,9 +13,12 @@ from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.plugins import (
     can_configure_plugins_via_api,
     can_install_plugins_via_api,
@@ -31,8 +34,8 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "error", "from_json"]
-        read_only_fields = ["id", "name", "description", "config_schema", "tag", "error", "from_json"]
+        fields = ["id", "name", "description", "url", "config_schema", "tag", "error"]
+        read_only_fields = ["id", "name", "description", "config_schema", "tag", "error"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and can_install_plugins_via_api():
@@ -58,7 +61,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return response
 
     def _get_validated_data_for_url(self, url: str) -> Dict:
-        validated_data: Dict[str, Any] = {"from_web": True}
+        validated_data: Dict[str, Any] = {}
         if url.startswith("file:"):
             plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
@@ -100,12 +103,11 @@ class PluginViewSet(viewsets.ModelViewSet):
                 return queryset
         else:
             if can_install_plugins_via_api():
-                # block update/delete for plugins that come from posthog.json
-                return queryset.filter(from_json=False)
+                return queryset
         return queryset.none()
 
     @action(methods=["GET"], detail=False)
-    def repository(self, request: request.Request):
+    def repository(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
         url = "https://raw.githubusercontent.com/PostHog/plugins/main/repository.json"
@@ -113,7 +115,7 @@ class PluginViewSet(viewsets.ModelViewSet):
         return Response(json.loads(plugins.text))
 
     @action(methods=["GET"], detail=False)
-    def status(self, request: request.Request):
+    def status(self, request: request.Request, **kwargs):
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
 
@@ -133,6 +135,7 @@ class PluginViewSet(viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     class Meta:
         model = PluginConfig
@@ -158,7 +161,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins_via_api():
             raise ValidationError("Plugin configuration via the web is disabled!")
         request = self.context["request"]
-        validated_data["team"] = request.user.team
+        validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)
@@ -216,27 +219,28 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 )
 
 
-class PluginConfigViewSet(viewsets.ModelViewSet):
+class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if can_configure_plugins_via_api():
-            return queryset.filter(team_id=self.request.user.team.pk)
-        return queryset.none()
+        if not can_configure_plugins_via_api():
+            return self.queryset.none()
+        return super().get_queryset()
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
-    def destroy(self, request: request.Request, pk=None) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
         if not can_configure_plugins_via_api():
             return Response(status=404)
-        plugin_config = PluginConfig.objects.get(team=request.user.team, pk=pk)
+        plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)
 
     @action(methods=["GET"], detail=False)
-    def global_plugins(self, request: request.Request):
+    def global_plugins(self, request: request.Request, **kwargs):
         if not can_configure_plugins_via_api():
             return Response([])
 

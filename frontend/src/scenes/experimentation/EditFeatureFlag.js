@@ -59,7 +59,9 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             onValuesChange={
                 !isNew
                     ? (changedValues) => {
-                          if (changedValues.key) setHasKeyChanged(changedValues.key !== featureFlag.key)
+                          if (changedValues.key) {
+                              setHasKeyChanged(changedValues.key !== featureFlag.key)
+                          }
                       }
                     : noop
             }
@@ -115,7 +117,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
 
             <Form.Item className={rrwebBlockClass} label="Filter by user properties">
                 <PropertyFilters
-                    pageKey="feature-flag"
+                    pageKey={'feature-flag-' + featureFlag.id}
                     propertyFilters={filters?.properties}
                     onChange={(properties) => setFilters({ properties })}
                     endpoint="person"

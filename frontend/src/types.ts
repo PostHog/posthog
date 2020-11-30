@@ -1,5 +1,5 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { PluginConfigSchema } from 'posthog-plugins'
-
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -9,8 +9,8 @@ export interface UserType {
     name: string
     opt_out_capture: null
     posthog_version: string
-    organization: OrganizationType
-    team: TeamType
+    organization: OrganizationType | null
+    team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
     teams: TeamType[]
@@ -52,6 +52,17 @@ export interface OrganizationType {
     billing_plan: string
     billing: OrganizationBilling
     teams: TeamType[]
+    membership_level: OrganizationMembershipLevel | null
+}
+
+export interface OrganizationMemberType {
+    joined_at: string
+    level: OrganizationMembershipLevel
+    membership_id: string
+    updated_at: string
+    user_email: string
+    user_first_name: string
+    user_id: number
 }
 
 export interface EventUsageType {
@@ -148,6 +159,15 @@ export interface Entity {
     type: string
 }
 
+export interface PersonType {
+    id: number
+    uuid: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+}
+
 export interface CohortType {
     count?: number
     created_by?: Record<string, any>
@@ -237,6 +257,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     updated_at: string
+    is_expired: boolean
 }
 
 export interface PluginType {
@@ -246,8 +267,6 @@ export interface PluginType {
     url: string
     tag: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    from_json: boolean
-    from_web: boolean
     error?: PluginErrorType
 }
 
