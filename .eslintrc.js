@@ -75,7 +75,7 @@ module.exports = {
         {
             files: ['*.js'],
             rules: {
-                'typescript/no-var-requires': 'off',
+                '@typescript-eslint/no-var-requires': 'off',
             },
         },
     ],
