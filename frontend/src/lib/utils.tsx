@@ -38,16 +38,16 @@ export function toParams(obj: Record<string, any>): string {
 }
 
 export function fromParams(): Record<string, any> {
-    return window.location.search === ''
+    return !window.location.search
         ? {}
         : window.location.search
               .slice(1)
               .split('&')
-              .reduce((a, b) => {
-                  b = b.split('=')
-                  a[b[0]] = decodeURIComponent(b[1])
-                  return a
-              }, {})
+              .reduce((paramsObject, paramString) => {
+                  const [key, value] = paramString.split('=')
+                  paramsObject[key] = decodeURIComponent(value)
+                  return paramsObject
+              }, {} as Record<string, any>)
 }
 
 export const colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
@@ -171,7 +171,7 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
 }
 
 export function debounce(func: (...args: any) => void, wait: number, immediate: boolean, ...args: any): () => void {
-    let timeout: NodeJS.Timeout | undefined
+    let timeout: number | undefined
     return function () {
         const context = this // eslint-disable-line
         function later(): void {
@@ -182,7 +182,7 @@ export function debounce(func: (...args: any) => void, wait: number, immediate: 
         }
         const callNow = immediate && !timeout
         clearTimeout(timeout)
-        timeout = setTimeout(later, wait)
+        timeout = window.setTimeout(later, wait)
         if (callNow) {
             func.apply(context, args)
         }
@@ -230,7 +230,13 @@ export function formatProperty(property: Record<string, any>): string {
 }
 
 // Format a label that gets returned from the /insights api
-export function formatLabel(label: string, action: Record<string, any>): string {
+export function formatLabel(
+    label: string,
+    action: {
+        math: string
+        properties?: { operator: string; value: any }[]
+    }
+): string {
     const math = 'Total'
     if (action.math === 'dau') {
         label += ` (${action.math.toUpperCase()}) `
