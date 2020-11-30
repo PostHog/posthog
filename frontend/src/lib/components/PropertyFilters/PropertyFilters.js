@@ -39,7 +39,7 @@ const FilterRow = React.memo(function FilterRow({
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
-                    <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
+                    <PropertyFilterButton item={item} />
                 ) : (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         Add filter

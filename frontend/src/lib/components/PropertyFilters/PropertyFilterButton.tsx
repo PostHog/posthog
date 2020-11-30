@@ -8,14 +8,13 @@ import { keyMapping } from '../PropertyKeyInfo'
 
 export interface Props {
     item: PropertyFilter
-    onClick?: () => void
 }
 
-const PropertyFilterButton: React.FunctionComponent<Props> = ({ item, onClick }: Props) => {
+const PropertyFilterButton: React.FunctionComponent<Props> = ({ item }: Props) => {
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick}>
+        <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
             <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {formatPropertyLabel(item, cohorts, keyMapping)}
             </span>
