@@ -3,7 +3,6 @@ from datetime import datetime
 
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
