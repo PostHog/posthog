@@ -3,12 +3,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db import connection
+from django.db.models.query import Prefetch
 from django.utils import timezone
 
+from posthog.api.person import PersonSerializer
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filter import Filter
+from posthog.models.person import Person
 
 LIFECYCLE_SQL = """
 SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY day_start ASC), status FROM  (
@@ -160,6 +163,126 @@ INNER JOIN posthog_action_events
 ON posthog_event.id = posthog_action_events.event_id
 """
 
+LIFECYCLE_PEOPLE_SQL = """
+SELECT pdi.person_id, e.subsequent_day, e.status
+FROM (
+        SELECT e.distinct_id,
+                subsequent_day,
+                CASE
+                    WHEN base_day = to_timestamp('0000-00-00 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+                        THEN 'dormant'
+                    WHEN subsequent_day = base_day + INTERVAL %(one_interval)s THEN 'returning'
+                    WHEN earliest < base_day THEN 'resurrecting'
+                    ELSE 'new'
+                    END as status
+        FROM (
+                SELECT test.distinct_id, base_day, min(subsequent_day) as subsequent_day
+                FROM (
+                            SELECT events.distinct_id, day as base_day, sub_day as subsequent_day
+                            FROM (
+                                    SELECT DISTINCT distinct_id,
+                                                    DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
+                                    FROM posthog_event
+                                    {action_join}
+                                    WHERE team_id = %(team_id)s
+                                    AND {event_condition}
+                                    GROUP BY distinct_id, day
+                                    HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
+                                            %(prev_date_from)s
+                                        AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
+                                            %(date_to)s
+                                ) base
+                                    JOIN (
+                                SELECT DISTINCT distinct_id,
+                                                DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
+                                FROM posthog_event
+                                {action_join}
+                                WHERE team_id = %(team_id)s
+                                AND {event_condition}
+                                GROUP BY distinct_id, sub_day
+                                HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
+                                    %(prev_date_from)s
+                                AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
+                                    %(date_to)s
+                            ) events ON base.distinct_id = events.distinct_id
+                            WHERE sub_day > day
+                        ) test
+                GROUP BY distinct_id, base_day
+                UNION ALL
+                SELECT distinct_id, min(day) as base_day, min(day) as subsequent_day
+                FROM (
+                            SELECT DISTINCT distinct_id,
+                                            DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
+                            FROM posthog_event
+                            {action_join}
+                            WHERE team_id = %(team_id)s
+                            AND {event_condition}
+                            GROUP BY distinct_id, day
+                            HAVING DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
+                                %(prev_date_from)s
+                            AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') <=
+                                %(date_to)s
+                        ) base
+                GROUP BY distinct_id
+                UNION ALL
+                SELECT distinct_id, base_day, subsequent_day
+                FROM (
+                            SELECT *
+                            FROM (
+                                    SELECT *,
+                                            LAG(distinct_id, 1) OVER ( ORDER BY distinct_id)    lag_id,
+                                            LAG(subsequent_day, 1) OVER ( ORDER BY distinct_id) lag_day
+                                    FROM (
+                                            SELECT distinct_id, total as base_day, day_start as subsequent_day
+                                            FROM (
+                                                    SELECT DISTINCT distinct_id,
+                                                                    array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
+                                                    FROM posthog_event
+                                                    {action_join}
+                                                    WHERE team_id = %(team_id)s
+                                                        AND {event_condition}
+                                                        AND posthog_event.timestamp <= %(after_date_to)s
+                                                        AND DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') >=
+                                                            %(date_from)s
+                                                    GROUP BY distinct_id
+                                                ) as e
+                                                    CROSS JOIN (
+                                                SELECT to_timestamp('0000-00-00 00:00:00', 'YYYY-MM-DD HH24:MI:SS') AS total,
+                                                        DATE_TRUNC(%(interval)s,
+                                                                    %(after_date_to)s -
+                                                                    n * INTERVAL %(one_interval)s) as day_start
+                                                FROM generate_series(1, %(num_intervals)s) as n
+                                            ) as b
+                                            WHERE day_start != ALL (day)
+                                            ORDER BY distinct_id, subsequent_day ASC
+                                        ) dormant_days
+                                        ORDER BY distinct_id, subsequent_day ASC
+                                ) lagged
+                            WHERE ((lag_id IS NULL OR lag_id != lagged.distinct_id) AND subsequent_day != %(date_from)s)
+                            OR (lag_id = lagged.distinct_id AND lag_day < subsequent_day - INTERVAL %(one_interval)s)
+                        ) dormant_days
+            ) e
+                JOIN (
+            SELECT DISTINCT distinct_id,
+                            DATE_TRUNC(%(interval)s,
+                                        min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
+            FROM posthog_event
+            {action_join}
+            WHERE team_id = %(team_id)s
+                AND {event_condition}
+            GROUP BY distinct_id
+        ) earliest ON e.distinct_id = earliest.distinct_id
+    ) e
+        JOIN
+    (SELECT person_id,
+            distinct_id
+    FROM posthog_persondistinctid
+    WHERE team_id = %(team_id)s) pdi on e.distinct_id = pdi.distinct_id
+    AND status = %(status)s
+    AND DATE_TRUNC(%(interval)s, %(target_date)s) = subsequent_day
+    LIMIT %(limit)s OFFSET %(offset)s
+"""
+
 
 def get_interval(period: str) -> Union[timedelta, relativedelta]:
     if period == "hour":
@@ -252,6 +375,55 @@ class LifecycleTrend:
                 parsed_result = parse_response(val, filter, additional_values)
                 res.append(parsed_result)
         return res
+
+    def get_people(
+        self,
+        entity: Entity,
+        filter: Filter,
+        team_id: int,
+        target_date: datetime,
+        lifecycle_type: str,
+        offset: int = 0,
+        limit: int = 100,
+    ):
+
+        period = filter.interval or "day"
+        num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
+            period, filter.date_from, filter.date_to, team_id
+        )
+        interval_trunc = get_trunc_func(period=period)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                LIFECYCLE_PEOPLE_SQL.format(
+                    action_join=ACTION_JOIN if entity.type == TREND_FILTER_TYPE_ACTIONS else "",
+                    event_condition="{} = %(event)s".format(
+                        "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
+                    ),
+                ),
+                {
+                    "team_id": team_id,
+                    "event": entity.id,
+                    "interval": interval_trunc,
+                    "one_interval": "1 " + interval_trunc,
+                    "num_intervals": num_intervals,
+                    "prev_date_from": prev_date_from,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "after_date_to": after_date_to,
+                    "target_date": target_date,
+                    "status": lifecycle_type,
+                    "offset": offset,
+                    "limit": limit,
+                },
+            )
+            pids = cursor.fetchall()
+
+            people = Person.objects.filter(team_id=team_id, id__in=[p[0] for p in pids],)
+            people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+            return PersonSerializer(people, many=True).data
+        pass
 
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:

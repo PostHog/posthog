@@ -15,6 +15,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.lifecycle import LifecycleTrend
 from posthog.utils import convert_property_value
 
 
@@ -71,6 +72,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+
+    lifecycle_class = LifecycleTrend
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -205,3 +208,21 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         else:
             return response.Response({})
+
+    @action(methods=["GET"], detail=False)
+    def lifecycle(self, request: request.Request) -> response.Response:
+        team_id = request.user.team_id
+        filter = Filter(request=request)
+        target_date = request.GET.get("target_date", None)
+        lifecycle_type = request.GET.get("lifecycle_type", None)
+        limit = request.GET.get("limit", 100)
+        offset = request.GET.get("offset", 0)
+        return self.lifecycle_class().get_people(
+            entity=filter.entities[0],
+            target_date=target_date,
+            filter=filter,
+            team_id=team_id,
+            lifecycle_type=lifecycle_type,
+            limit=limit,
+            offset=offset,
+        )
