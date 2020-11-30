@@ -30,6 +30,7 @@ export function LineGraph({
     ['data-attr']: dataAttr,
     dashboardItemId,
     inSharedMode,
+    percentage,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -206,11 +207,14 @@ export function LineGraph({
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                                           return null
                                       }
-                                      var label = entityData.chartLabel || entityData.label || ''
+                                      const label = entityData.chartLabel || entityData.label || ''
+                                      const formattedLabel = entityData.action
+                                          ? formatLabel(label, entityData.action)
+                                          : label
                                       return (
-                                          (entityData.action ? formatLabel(label, entityData.action) : label) +
-                                          ' - ' +
-                                          tooltipItem.yLabel.toLocaleString()
+                                          (formattedLabel ? formattedLabel + ' — ' : '') +
+                                          tooltipItem.yLabel.toLocaleString() +
+                                          (percentage ? '%' : '')
                                       )
                                   },
                               },
@@ -247,13 +251,21 @@ export function LineGraph({
                                   {
                                       display: true,
                                       gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                      },
+                                      ticks: percentage
+                                          ? {
+                                                min: 0,
+                                                max: 100, // Your absolute max value
+                                                callback: function (value) {
+                                                    return value.toFixed(0) + '%' // convert it to percentage
+                                                },
+                                            }
+                                          : {
+                                                autoSkip: true,
+                                                beginAtZero: true,
+                                                min: 0,
+                                                fontColor: axisLabelColor,
+                                                precision: 0,
+                                            },
                                   },
                               ],
                           },

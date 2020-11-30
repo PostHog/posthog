@@ -7,7 +7,7 @@ from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .filter import Filter
+from .filters import Filter
 from .person import Person
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)

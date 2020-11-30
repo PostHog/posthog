@@ -12,7 +12,7 @@ from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
