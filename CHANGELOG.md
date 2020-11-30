@@ -6,6 +6,12 @@ Our primary goals for this release were to iron out bugs and improve the user ex
 
 As a result, we fixed **a whole lot of stuff**. We merged dozens of PRs with session recording fixes and improvements, and a dozen more with updates to our plugins functionality. We also improved things like event ingestion, the UX for feature flags, and our settings for both organizations and projects. You can read through the entire list of fixes [on our website](https://posthog.com/blog/the-posthog-array-1-18-0#bug-fixes-and-performance-improvements), but beware: it's quite long.
 
+- [New Event Selection Box](https://github.com/PostHog/posthog/pull/2394)
+
+![Events Box Screenshot](https://posthog.com/static/f0cb8a60445756b897447700d38f0ed5/2cefc/events-box.png)
+
+We upgraded our event selection box to include actions and events in one, as well as provide smarter recommendations of events and actions you might want to use of based frequently used in queries by you or your team.
+
 - [Improvements to posthog-js](https://github.com/PostHog/posthog-js)
 
 A new version of `posthog-js` is available and we recommend you to update if you've installed it via `npm`. Snippet users have access to the latest version by default.
