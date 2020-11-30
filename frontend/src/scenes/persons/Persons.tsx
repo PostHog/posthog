@@ -51,7 +51,7 @@ function _Persons(): JSX.Element {
                         setListFilters({ search: searchTerm || undefined })
                         loadPersons()
                     }}
-                    style={{ width: 'initial', flexGrow: 1 }}
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
                 />
 
                 <Button
