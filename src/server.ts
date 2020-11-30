@@ -45,14 +45,16 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
         await startWebServer(serverConfig.WEB_PORT, serverConfig.WEB_HOSTNAME)
     }
 
-    const stopWorker = startWorker(server)
+    let stopWorker = startWorker(server)
 
     const pubSub = new Redis(serverConfig.REDIS_URL)
     pubSub.subscribe(serverConfig.PLUGINS_RELOAD_PUBSUB_CHANNEL)
-    pubSub.on('message', (channel, message) => {
+    pubSub.on('message', async (channel, message) => {
         if (channel === serverConfig.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
             console.log('Reloading plugins!')
-            setupPlugins(server)
+            await stopWorker()
+            await setupPlugins(server)
+            stopWorker = startWorker(server)
         }
     })
 
@@ -68,7 +70,7 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
             if (!serverConfig.DISABLE_WEB) {
                 await stopWebServer()
             }
-            stopWorker()
+            await stopWorker()
             pubSub.disconnect()
             schedule.cancelJob(job)
             await redis.quit()

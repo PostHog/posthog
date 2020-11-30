@@ -5,7 +5,7 @@ import { PluginEvent } from 'posthog-plugins'
 import Worker from './celery/worker'
 import Client from './celery/client'
 
-export function startWorker(server: PluginsServer): () => void {
+export function startWorker(server: PluginsServer): () => Promise<void> {
     const worker = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
     const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
 
@@ -39,7 +39,5 @@ export function startWorker(server: PluginsServer): () => void {
 
     worker.start()
 
-    return () => {
-        worker.stop()
-    }
+    return async () => worker.stop()
 }
