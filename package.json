@@ -53,7 +53,7 @@
         "posthog-js": "1.7.3-beta.2",
         "posthog-js-lite": "^0.0.3",
         "posthog-plugins": "0.1.3",
-        "posthog-react-rrweb-player": "^1.0.9",
+        "posthog-react-rrweb-player": "^1.0.11",
         "prop-types": "^15.7.2",
         "react": "^16.13.1",
         "react-dom": "^16.12.0",

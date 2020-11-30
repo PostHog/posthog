@@ -8220,10 +8220,10 @@ posthog-plugins@0.1.3:
   resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.1.3.tgz#3a47f1303733720c308f33f67162ca2823845bbf"
   integrity sha512-6VElUUux/AA+uetGWk9p0+cep8+ByE0P0Zv8cypT9z/3hLUhueTjrvQZDL835656BOPtVRdBOxjBqQ7fYog57g==
 
-posthog-react-rrweb-player@^1.0.9:
-  version "1.0.9"
-  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.9.tgz#8bf92bae8c90b5080ca591226a014d65be200ad7"
-  integrity sha512-1iWJgJRUhC2uUrJelXnqynLhbnJ/gZ0SBT2jTHoKKOVT4NsQ7in6yH4GW5NFDEnTAMjtavZ6+P8G4mkb4tXkeA==
+posthog-react-rrweb-player@^1.0.11:
+  version "1.0.11"
+  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.11.tgz#960c6198af179242e5c94aebdb8301d2439eb51a"
+  integrity sha512-aCBcTQfbKWj/k1OAxIIe8m0FBLmJpvAyCYe9dcgmGLuac8G92CaMaV9RKUvPaZPpLexyxGRaB117w1MX9g7RKg==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
