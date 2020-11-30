@@ -48,7 +48,7 @@ function _SessionsPlay(): JSX.Element {
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
     const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
-    const [sizeEvent] = useMemo(() => eventIndex.getSizeMetadata(playerTime), [eventIndex, playerTime])
+    const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
@@ -81,7 +81,7 @@ function _SessionsPlay(): JSX.Element {
                                 ) : null}
                                 <span style={{ marginLeft: 'auto' }}>
                                     <b>Resolution: </b>
-                                    {sizeEvent && sizeEvent.size}
+                                    {recordingMetadata && recordingMetadata.resolution}
                                 </span>
                             </>
                         )}
