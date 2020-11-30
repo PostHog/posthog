@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Player, PlayerRef } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
-import { UserOutlined, FieldTimeOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons'
+import {
+    UserOutlined,
+    FieldTimeOutlined,
+    PlusOutlined,
+    SyncOutlined,
+    LaptopOutlined,
+    MobileOutlined,
+    TabletOutlined,
+} from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -27,6 +35,15 @@ function formatDuration(milliseconds: number): string {
         }
     }
     return `${Math.round(milliseconds / 1000)} second`
+}
+
+function DeviceIcon({ width }: { width: number }): JSX.Element {
+    if (width <= 475) {
+        return <MobileOutlined />
+    } else if (width > 475 && width < 860) {
+        return <TabletOutlined />
+    }
+    return <LaptopOutlined />
 }
 
 export const SessionsPlay = hot(_SessionsPlay)
@@ -79,10 +96,12 @@ function _SessionsPlay(): JSX.Element {
                                         </CopyToClipboardInline>
                                     </>
                                 ) : null}
-                                <span style={{ marginLeft: 'auto' }}>
-                                    <b>Resolution: </b>
-                                    {recordingMetadata && recordingMetadata.resolution}
-                                </span>
+                                {recordingMetadata && (
+                                    <span style={{ marginLeft: 'auto' }}>
+                                        <b>Resolution: </b>
+                                        <DeviceIcon width={recordingMetadata.width} /> {recordingMetadata.resolution}
+                                    </span>
+                                )}
                             </>
                         )}
                     </div>
