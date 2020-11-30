@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:

@@ -9,7 +9,7 @@ from freezegun import freeze_time
 from posthog.ee import is_ee_enabled
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.test.base import TransactionBaseTest
 from posthog.utils import relative_date_parse

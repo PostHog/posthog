@@ -13,7 +13,7 @@ from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 
 
 class ClickhouseTrendsNormal:
