@@ -83,6 +83,7 @@ export function ActionFilterDropdown({
                         key: EntityTypes.ACTIONS + action.id,
                         name: action.name,
                         volume: action.count,
+                        id: action.id,
                         action,
                     })),
                     renderInfo: function actions({ item }) {
@@ -90,7 +91,7 @@ export function ActionFilterDropdown({
                             <>
                                 <AimOutlined /> Actions
                                 <br />
-                                <h3>{item.name}</h3>
+                                <h3>{item.name} </h3>
                                 {item.action && <ActionSelectInfo entity={item.action} />}
                             </>
                         )
