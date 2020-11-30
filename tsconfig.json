@@ -27,6 +27,7 @@
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
         "downlevelIteration": true, // Support for ES2015+ for...of
+        "importHelpers": true, // Optimize polyfills
         "lib": ["dom", "es2019.array"]
     },
     "include": ["frontend/**/*"],
