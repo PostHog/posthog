@@ -6,12 +6,6 @@ Our primary goals for this release were to iron out bugs and improve the user ex
 
 As a result, we fixed **a whole lot of stuff**. We merged dozens of PRs with session recording fixes and improvements, and a dozen more with updates to our plugins functionality. We also improved things like event ingestion, the UX for feature flags, and our settings for both organizations and projects. You can read through the entire list of fixes [on our website](https://posthog.com/blog/the-posthog-array-1-18-0#bug-fixes-and-performance-improvements), but beware: it's quite long.
 
-Finally, thank you to everyone who helped us out with feedback and contributions during this release cycle, you help us make PostHog better every day.
-
-## Release Notes
-
-> If you're self-hosting and want to upgrade for a better experience with nicer features, remember to [update your PostHog instance](/docs/configuring-posthog/upgrading-posthog).
-
 - [Improvements to posthog-js](https://github.com/PostHog/posthog-js)
 
 A new version of `posthog-js` is available and we recommend you to update if you've installed it via `npm`. Snippet users have access to the latest version by default.
