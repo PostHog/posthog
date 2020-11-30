@@ -1,5 +1,6 @@
 import { createPluginConfigVM } from '../vm'
 import { PluginConfig, PluginsServer, Plugin } from '../types'
+import { PluginEvent } from 'posthog-plugins'
 import { defaultConfig } from '../server'
 
 import Redis from 'ioredis'
@@ -39,8 +40,10 @@ describe('VM tests', () => {
             redis: new Redis('redis://mockmockmock/'),
         }
     })
-    afterEach(() => {
+
+    afterEach(async () => {
         mockServer.redis.disconnect()
+        await mockServer.db.end()
         jest.clearAllMocks()
     })
 
@@ -49,8 +52,34 @@ describe('VM tests', () => {
         const libJs = ''
         const vm = createPluginConfigVM(mockServer, mockConfig, indexJs, libJs)
 
-        expect(Object.keys(vm).sort()).toEqual( ["methods", "vm"])
-        expect(Object.keys(vm.methods).sort()).toEqual( ["processEvent"])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'vm'])
+        expect(Object.keys(vm.methods).sort()).toEqual(['processEvent'])
         expect(vm.methods.processEvent).toEqual(undefined)
+    })
+
+    test('processEvent works', async () => {
+        const indexJs = `
+            function processEvent (event, meta) {
+                event.event = 'changed event'
+                return event
+            }  
+        `
+        const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+        expect(vm.methods.processEvent).not.toEqual(undefined)
+
+        const event: PluginEvent = {
+            distinct_id: 'my_id',
+            ip: '127.0.0.1',
+            site_url: 'http://localhost',
+            team_id: 3,
+            now: new Date().toISOString(),
+            event: 'original event',
+        }
+
+        const newEvent = await vm.methods.processEvent(event)
+
+        expect(event.event).toEqual('changed event')
+        expect(newEvent.event).toEqual('changed event')
+        expect(newEvent).toBe(event)
     })
 })
