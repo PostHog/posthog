@@ -64,6 +64,7 @@ export function PropertyValue({
         } else {
             api.get(
                 endpoint || 'api/projects/@current/' + type + 's/values/?key=' + key + (value ? '&value=' + value : '')
+                // the 's' in 's/values...' is because endpoints are plural
             ).then((propValues) => {
                 setOptions({
                     [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
