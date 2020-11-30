@@ -129,12 +129,6 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
-    def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
-
-        if not self.request.user.is_authenticated or "share_token" in self.request.GET:
-            return {}
-        return {"team_id": self.request.user.team.id}
-
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
     legacy_team_compatibility = True
