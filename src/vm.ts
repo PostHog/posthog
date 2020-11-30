@@ -73,7 +73,7 @@ export function prepareForRun(
     pluginConfig: PluginConfig, // might have team_id=0
     method: 'processEvent',
     event?: PluginEvent
-): null | ((event: PluginEvent) => Promise<PluginEvent>) | (() => void) {
+): null | ((event: PluginEvent) => Promise<PluginEvent>) | (() => Promise<void>) {
     if (!pluginConfig.vm?.methods[method]) {
         return null
     }
@@ -81,7 +81,7 @@ export function prepareForRun(
     const { vm } = pluginConfig.vm
 
     if (event?.properties?.token) {
-        // TODO: this should be nicer...
+        // TODO: this should be nicer... and it's not optimised for batch processing
         const posthog = createInternalPostHogInstance(
             event.properties.token,
             { apiHost: event.site_url, fetch },
