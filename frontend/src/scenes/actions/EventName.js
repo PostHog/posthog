@@ -25,7 +25,7 @@ export function EventName({ value, onChange, isActionStep }) {
                         return (
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
-                                    <Select.Option key={item.value} value={item.value} data-attr={'event-val-' + index}>
+                                    <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
                                         {item.label}
                                     </Select.Option>
                                 ))}
