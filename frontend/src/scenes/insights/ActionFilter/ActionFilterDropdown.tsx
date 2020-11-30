@@ -92,7 +92,7 @@ export function ActionFilterDropdown({
                             <>
                                 <AimOutlined /> Actions
                                 <Link to={`/action/${item.id}`} style={{ float: 'right' }}>
-                                    Edit
+                                    edit
                                 </Link>
                                 <br />
                                 <h3>{item.name} </h3>
