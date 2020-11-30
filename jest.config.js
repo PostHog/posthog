@@ -3,5 +3,5 @@ module.exports = {
     testEnvironment: 'node',
     clearMocks: true,
     coverageProvider: 'v8',
-    setupFilesAfterEnv: ['./jest.setup.pg-mock.js', './jest.setup.redis-mock.js'],
+    setupFilesAfterEnv: ['./jest.setup.pg-mock.js', './jest.setup.redis-mock.js', './jest.setup.fetch-mock.js'],
 }
