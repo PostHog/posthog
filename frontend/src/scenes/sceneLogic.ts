@@ -15,13 +15,13 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
+    SessionsPlay = 'sessionsPlay',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
     FeatureFlags = 'featureFlags',
     OrganizationSettings = 'organizationSettings',
     OrganizationMembers = 'organizationMembers',
-    OrganizationInvites = 'organizationInvites',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
@@ -52,14 +52,15 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
+    [Scene.SessionsPlay]: () => import(/* webpackChunkName: 'sessionsPlay' */ './sessions/SessionsPlay'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () => import(/* webpackChunkName: 'organizationMembers' */ './organization/Members'),
-    [Scene.OrganizationInvites]: () => import(/* webpackChunkName: 'organizationInvites' */ './organization/Invites'),
+    [Scene.OrganizationMembers]: () =>
+        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
@@ -103,6 +104,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectCreateFirst]: {
         plain: true,
     },
+    [Scene.SessionsPlay]: {
+        plain: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
@@ -120,6 +124,7 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
+    '/sessions/play': Scene.SessionsPlay,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
@@ -132,7 +137,6 @@ export const routes: Record<string, Scene> = {
     '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
     '/organization/members': Scene.OrganizationMembers,
-    '/organization/invites': Scene.OrganizationInvites,
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
@@ -195,14 +199,14 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
     }),
-    selectors: () => ({
+    selectors: {
         sceneConfig: [
             (selectors) => [selectors.scene],
             (scene: Scene): SceneConfig => {
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-    }),
+    },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
 

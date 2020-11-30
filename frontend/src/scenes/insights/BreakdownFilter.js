@@ -131,7 +131,9 @@ export function BreakdownFilter({ filters, onChange }) {
                     breakdown_type={breakdown_type}
                     key={open}
                     onChange={(value, type) => {
-                        if (type !== 'cohort') setOpen(false)
+                        if (type !== 'cohort') {
+                            setOpen(false)
+                        }
                         onChange(value, type)
                     }}
                 />

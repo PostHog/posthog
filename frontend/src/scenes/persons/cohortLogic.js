@@ -66,7 +66,7 @@ export const cohortLogic = kea({
     sharedListeners: ({ actions, values, props }) => ({
         pollIsFinished: (cohort) => {
             if (cohort.is_calculating) {
-                if (!values.toastId)
+                if (!values.toastId) {
                     actions.setToastId(
                         toast(
                             <span>
@@ -77,6 +77,7 @@ export const cohortLogic = kea({
                             }
                         )
                     )
+                }
                 actions.setPollTimeout(setTimeout(() => actions.checkIsFinished(cohort), 1000))
             } else {
                 toast.update(values.toastId, {

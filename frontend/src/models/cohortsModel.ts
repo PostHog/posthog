@@ -32,7 +32,9 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
     listeners: ({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
-            if (!is_calculating) return
+            if (!is_calculating) {
+                return
+            }
             actions.setPollTimeout(setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
     }),

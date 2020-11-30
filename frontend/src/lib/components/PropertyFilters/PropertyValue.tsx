@@ -17,9 +17,11 @@ interface Options {
 
 type OptionsCache = Record<any, true | 'loading'>
 
+type PropertyType = 'cohort'
+
 export interface PropertyValueProps {
     propertyKey: string
-    type: string
+    type: PropertyType
     endpoint: string
     placeholder: string
     style?: CSSProperties
@@ -47,7 +49,9 @@ export function PropertyValue({
     const [options, setOptions] = useState<Options>({})
 
     function loadPropertyValues(value: any): void {
-        if (type === 'cohort') return
+        if (type === 'cohort') {
+            return
+        }
         const key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
@@ -88,7 +92,9 @@ export function PropertyValue({
             loading={optionsCache[input] === 'loading'}
             onSearch={(input) => {
                 setInput(input)
-                if (!optionsCache[input] && !isOperatorFlag(operator)) loadPropertyValues(input)
+                if (!optionsCache[input] && !isOperatorFlag(operator)) {
+                    loadPropertyValues(input)
+                }
             }}
             data-attr="prop-val"
             dropdownMatchSelectWidth={350}

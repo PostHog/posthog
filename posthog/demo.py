@@ -44,6 +44,12 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
 
         distinct_id = str(UUIDT())
         distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
+
+        # Add first user more 3 distinct id's
+        if index == 0:
+            for _ in range(0, 3):
+                distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=str(UUIDT())))
+
         date = now() - relativedelta(days=days_ago)
         browser = random.choice(["Chrome", "Safari", "Firefox"])
         events.append(
@@ -51,7 +57,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                 team=team,
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={"$current_url": base_url, "$browser": browser, "$lib": "web",},
+                properties={"$current_url": base_url, "$browser": browser, "$lib": "web"},
                 timestamp=date,
             )
         )

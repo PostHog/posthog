@@ -15,7 +15,8 @@ from posthog.tasks.email import send_invite
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by_id = serializers.IntegerField(source="created_by.id", read_only=True)
     created_by_email = serializers.CharField(source="created_by.email", read_only=True)
-    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True,)
+    created_by_first_name = serializers.CharField(source="created_by.first_name", read_only=True)
+    is_expired = serializers.SerializerMethodField()
     # Listing target_email explicitly here as it's nullable in ORM but actually required
     target_email = serializers.CharField(required=True)
 
@@ -30,6 +31,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "emailing_attempt_made",
+            "is_expired",
         ]
         read_only_fields = [
             "id",
@@ -39,7 +41,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "emailing_attempt_made",
+            "is_expired",
         ]
+
+    def get_is_expired(self, invite: OrganizationInvite) -> bool:
+        return invite.is_expired()
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(

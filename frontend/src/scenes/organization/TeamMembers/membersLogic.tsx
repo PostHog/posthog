@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
-import { membersLogicType } from 'types/scenes/organization/Members/logicType'
+import { membersLogicType } from 'types/scenes/organization/TeamMembers/membersLogicType'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -52,7 +52,9 @@ export const membersLogic = kea<membersLogicType>({
                 </div>
             )
             // reload organization to account for no longer being organization owner
-            if (level === OrganizationMembershipLevel.Owner) organizationLogic.actions.loadCurrentOrganization()
+            if (level === OrganizationMembershipLevel.Owner) {
+                organizationLogic.actions.loadCurrentOrganization()
+            }
             actions.loadMembers()
         },
     }),

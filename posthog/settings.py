@@ -93,6 +93,7 @@ SECURE_SSL_REDIRECT = secure_cookies
 
 if not TEST:
     if os.environ.get("SENTRY_DSN"):
+        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
@@ -453,6 +454,7 @@ EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
+MULTI_TENANCY = False  # overriden by posthog-production
 
 CACHES = {
     "default": {

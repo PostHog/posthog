@@ -10,7 +10,6 @@ import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
-
 const { TabPane } = Tabs
 
 const confirm = Modal.confirm
@@ -91,7 +90,7 @@ function _Person({ _: distinctId, id }) {
             <Button
                 className="float-right"
                 danger
-                onClick={() => deletePersonData(person, () => history.push('/persons'))}
+                onClick={() => deletePersonData(person, () => router.actions.push('/persons'))}
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
