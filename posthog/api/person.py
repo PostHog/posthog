@@ -211,7 +211,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
-        team_id = request.user.team_id
+        team_id = request.user.team.pk
         filter = Filter(request=request)
         target_date = request.GET.get("target_date", None)
         if target_date is None:

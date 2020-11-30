@@ -1,12 +1,16 @@
 from rest_framework import request, response
 
 from ee.clickhouse.models.person import delete_person
+from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.api.person import PersonViewSet
 from posthog.models import Event, Person
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
 class ClickhousePersonViewSet(PersonViewSet):
+
+    lifecycle_class = ClickhouseLifecycle
+
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         team = self.team
         person = Person.objects.get(team=team, pk=pk)

@@ -6,13 +6,13 @@ from freezegun import freeze_time
 from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from posthog.utils import relative_date_parse
 
 
 # parameterize tests to reuse in EE
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
-    class TestTrends(BaseTest):
+    class TestTrends(APIBaseTest):
         def _create_events(self, use_time=False):
 
             person = person_factory(
@@ -933,6 +933,30 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
 
             self.assertEqual(len(dormant_result), 1)
+
+        def test_lifecycle_trend_people_paginated(self):
+            for i in range(150):
+                person_id = "person{}".format(i)
+                person_factory(team_id=self.team.pk, distinct_ids=[person_id])
+                event_factory(
+                    team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z",
+                )
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = self.client.get(
+                "/api/person/lifecycle",
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "lifecycle_type": "new",
+                    "target_date": "2020-01-15T00:00:00Z",
+                },
+            ).json()
+            self.assertEqual(len(result["result"]), 100)
+
+            second_result = self.client.get(result["next"]).json()
+            self.assertEqual(len(second_result["result"]), 50)
 
         def test_lifecycle_trend_action(self):
 
