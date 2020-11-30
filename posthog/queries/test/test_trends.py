@@ -7,6 +7,7 @@ from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
 from posthog.test.base import BaseTest
+from posthog.utils import relative_date_parse
 
 
 # parameterize tests to reuse in EE
@@ -840,6 +841,98 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 1, 0, 1])
                 elif res["status"] == "new":
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
+
+        def test_lifecycle_trend_people(self):
+
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-11T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-13T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z",
+            )
+
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z",
+            )
+
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z",
+            )
+
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
+            )
+
+            result = trends().get_people(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team.pk,
+                relative_date_parse("2020-01-13T00:00:00Z"),
+                "returning",
+            )
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["id"], p1.pk)
+
+            dormant_result = trends().get_people(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team.pk,
+                relative_date_parse("2020-01-13T00:00:00Z"),
+                "dormant",
+            )
+
+            self.assertEqual(len(dormant_result), 2)
+
+            dormant_result = trends().get_people(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team.pk,
+                relative_date_parse("2020-01-14T00:00:00Z"),
+                "dormant",
+            )
+
+            self.assertEqual(len(dormant_result), 1)
 
         def test_lifecycle_trend_action(self):
 

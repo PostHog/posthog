@@ -6,7 +6,6 @@ from django.db import connection
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
-from posthog.api.person import PersonSerializer
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
@@ -378,7 +377,6 @@ class LifecycleTrend:
 
     def get_people(
         self,
-        entity: Entity,
         filter: Filter,
         team_id: int,
         target_date: datetime,
@@ -386,7 +384,7 @@ class LifecycleTrend:
         offset: int = 0,
         limit: int = 100,
     ):
-
+        entity = filter.entities[0]
         period = filter.interval or "day"
         num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
             period, filter.date_from, filter.date_to, team_id
@@ -422,8 +420,9 @@ class LifecycleTrend:
             people = Person.objects.filter(team_id=team_id, id__in=[p[0] for p in pids],)
             people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
+            from posthog.api.person import PersonSerializer
+
             return PersonSerializer(people, many=True).data
-        pass
 
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:

@@ -16,7 +16,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.lifecycle import LifecycleTrend
-from posthog.utils import convert_property_value
+from posthog.utils import convert_property_value, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
@@ -214,15 +214,26 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team_id = request.user.team_id
         filter = Filter(request=request)
         target_date = request.GET.get("target_date", None)
+        if target_date is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
+            )
+        target_date = relative_date_parse(target_date)
         lifecycle_type = request.GET.get("lifecycle_type", None)
-        limit = request.GET.get("limit", 100)
-        offset = request.GET.get("offset", 0)
-        return self.lifecycle_class().get_people(
-            entity=filter.entities[0],
-            target_date=target_date,
-            filter=filter,
-            team_id=team_id,
-            lifecycle_type=lifecycle_type,
-            limit=limit,
-            offset=offset,
+        if lifecycle_type is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include lifecycle type"}, status=400
+            )
+
+        limit = int(request.GET.get("limit", 100))
+        offset = int(request.GET.get("offset", 0))
+        return response.Response(
+            self.lifecycle_class().get_people(
+                target_date=target_date,
+                filter=filter,
+                team_id=team_id,
+                lifecycle_type=lifecycle_type,
+                limit=limit,
+                offset=offset,
+            )
         )
