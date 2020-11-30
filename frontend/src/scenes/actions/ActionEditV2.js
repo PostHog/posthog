@@ -7,7 +7,7 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStepV2'
-import { Button, Col, Input, Row } from 'antd'
+import { Alert, Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
@@ -117,6 +117,15 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 </div>
                 <div>
                     <div style={{ margin: '1rem 0 0.5rem' }}>
+                        {!user.is_multi_tenancy && (
+                            <>
+                                <Alert
+                                    message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
+                                    type="info"
+                                />
+                                <div className="mb" />
+                            </>
+                        )}
                         <input
                             id="webhook-checkbox"
                             type="checkbox"
@@ -125,7 +134,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                 setEdited(true)
                             }}
                             checked={!!action.post_to_slack}
-                            disabled={!slackEnabled}
+                            disabled={!slackEnabled || user.is_multi_tenancy}
                         />
                         <label
                             className={slackEnabled ? '' : 'disabled'}
@@ -147,7 +156,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                                         setAction({ ...action, slack_message_format: e.target.value })
                                         setEdited(true)
                                     }}
-                                    disabled={!slackEnabled || !action.post_to_slack}
+                                    disabled={!slackEnabled || !action.post_to_slack || user.is_multi_tenancy}
                                     data-attr="edit-slack-message-format"
                                 />
                                 <small>
