@@ -7,7 +7,7 @@ import schedule from 'node-schedule'
 import Redis from 'ioredis'
 import { startWebServer, stopWebServer } from './web/server'
 
-const defaultConfig: PluginsServerConfig = {
+export const defaultConfig: PluginsServerConfig = {
     CELERY_DEFAULT_QUEUE: 'celery',
     DATABASE_URL: 'postgres://localhost:5432/posthog',
     PLUGINS_CELERY_QUEUE: 'posthog-plugins',
