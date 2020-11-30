@@ -1,4 +1,4 @@
-import { createPluginConfigVM } from '../vm'
+import { createPluginConfigVM, prepareForRun } from '../vm'
 import { PluginConfig, PluginsServer, Plugin } from '../types'
 import { PluginEvent } from 'posthog-plugins'
 import { defaultConfig } from '../server'
@@ -348,4 +348,89 @@ test('attachments', async () => {
     expect(event.properties).toEqual(attachments)
 })
 
-// prepareForRun
+test('prepareForRun without token', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.properties = {
+                posthog: posthog
+            }
+            return event
+        }
+    `
+    const pluginConfig = { ...mockConfig }
+    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
+    pluginConfig.vm = vm
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'prepareForRun event',
+        properties: {},
+    }
+    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
+
+    expect(processEvent).toBeDefined()
+
+    await processEvent!(event)
+
+    expect(event.properties!.posthog).toEqual(null)
+})
+
+test('prepareForRun with token gets posthog', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.properties = {
+                posthog: posthog
+            }
+            return event
+        }
+    `
+    const pluginConfig = { ...mockConfig }
+    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
+    pluginConfig.vm = vm
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'prepareForRun event',
+        properties: {
+            token: 'posthog-token',
+        },
+    }
+    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
+    expect(processEvent).toBeDefined()
+
+    await processEvent!(event)
+
+    expect(event.properties!.posthog.capture).toBeDefined()
+    expect(event.properties!.posthog.identify).toBeDefined()
+})
+
+test('posthog.capture', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            posthog.capture('random-event', { prop: 'value' })
+            return event
+        }
+    `
+    const pluginConfig = { ...mockConfig }
+    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
+    pluginConfig.vm = vm
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'prepareForRun event',
+        properties: {
+            // needs a token in the event
+            token: 'posthog-token',
+        },
+    }
+    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
+    expect(processEvent).toBeDefined()
+    await processEvent!(event)
+
+    expect((fetch as any).mock.calls[0][0]).toContain('http://localhost/e/?ip=1&_=')
+    expect((fetch as any).mock.calls[0][1].body).toContain('data=')
+    expect((fetch as any).mock.calls[0][1].body).toContain('&compression=lz64')
+    expect((fetch as any).mock.calls[0][1]).toMatchObject({
+        credentials: 'omit',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+        mode: 'no-cors',
+    })
+})
