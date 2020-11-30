@@ -6,28 +6,17 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 
 export const cohortLogic = kea({
-    key: (props) => props.id || 'new',
+    key: (props) => props.cohort.id || 'new',
     actions: () => ({
         saveCohort: (cohort) => ({ cohort }),
         setCohort: (cohort) => ({ cohort }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
+        setLastSavedAt: (lastSavedAt) => ({ lastSavedAt }),
     }),
 
-    loaders: () => ({
-        personProperties: {
-            loadPersonProperties: async () => {
-                const properties = await api.get('api/person/properties')
-                return properties.map((property) => ({
-                    label: property.name,
-                    value: property.name,
-                }))
-            },
-        },
-    }),
-
-    reducers: () => ({
+    reducers: ({ props }) => ({
         pollTimeout: [
             null,
             {
@@ -35,7 +24,7 @@ export const cohortLogic = kea({
             },
         ],
         cohort: [
-            null,
+            props.cohort,
             {
                 setCohort: (_, { cohort }) => cohort,
             },
@@ -44,6 +33,12 @@ export const cohortLogic = kea({
             null,
             {
                 setToastId: (_, { toastId }) => toastId,
+            },
+        ],
+        lastSavedAt: [
+            false,
+            {
+                setLastSavedAt: (_, { lastSavedAt }) => lastSavedAt,
             },
         ],
     }),
@@ -86,7 +81,8 @@ export const cohortLogic = kea({
                     },
                     autoClose: 5000,
                 })
-                props.onChange(cohort.id)
+                props.onChange(cohort)
+                actions.setLastSavedAt(new Date().toISOString())
                 actions.setToastId(null)
             }
         },
@@ -94,11 +90,9 @@ export const cohortLogic = kea({
 
     events: ({ values, actions, props }) => ({
         afterMount: async () => {
-            if (props.id) {
-                const cohort = await api.get('api/cohort/' + props.id)
-                return actions.setCohort(cohort)
+            if (!props.cohort.id) {
+                actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })
             }
-            actions.setCohort({ groups: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] : [] })
         },
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout)

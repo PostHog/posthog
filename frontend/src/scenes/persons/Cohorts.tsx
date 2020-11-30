@@ -14,26 +14,27 @@ import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
+import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
 const cohortsUrlLogic = kea({
     actions: {
-        setOpenCohort: (cohort: CohortType) => ({cohort})
+        setOpenCohort: (cohort: CohortType) => ({ cohort }),
     },
     reducers: {
         openCohort: [
             false,
             {
-                setOpenCohort: (_, {cohort} : {cohort: CohortType}) => ({cohort})
-            }
-        ]
+                setOpenCohort: (_, { cohort }: { cohort: CohortType }) => cohort,
+            },
+        ],
     },
     actionToUrl: ({ values }) => ({
-        setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.id || 'new') : ''),
+        setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.openCohort.id || 'new') : ''),
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }: Record<string, string>) => {
-            if(cohortId && cohortId !== 'new' && cohortId !== values.openCohort.id) {
-                const cohort = await api.get('cohort/' + cohortId);
+            if (cohortId && cohortId !== 'new' && cohortId !== values.openCohort.id) {
+                const cohort = await api.get('cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
             }
         },
@@ -41,39 +42,40 @@ const cohortsUrlLogic = kea({
 })
 
 export const Cohorts = hot(_Cohorts)
-function _Cohorts() {
+function _Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
-    const { loadCohorts } = useActions(cohortsModel)
+    const { loadCohorts, updateCohort } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
 
-    let columns = [
+    const columns = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            sorter: (a: CohortType, b: CohortType) => ("" + a.name).localeCompare(b.name)
+            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name),
         },
         {
             title: 'Users in cohort',
             render: function RenderCount(_, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => a.count - b.count
+            sorter: (a: CohortType, b: CohortType) => a.count - b.count,
         },
         {
             title: 'Created',
-            render: function RenderCreatedAt(_, cohort: CohortType): JSX.Element | undefined | "" {
+            render: function RenderCreatedAt(_, cohort: CohortType): JSX.Element | undefined | '' {
                 return cohort.created_at && <Created timestamp={cohort.created_at} />
             },
-            sorter: (a: CohortType, b: CohortType) => moment(a.created_at).isAfter(b.created_at)
+            sorter: (a: CohortType, b: CohortType) => moment(a.created_at).isAfter(b.created_at),
         },
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, cohort: CohortType) {
                 return cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'
             },
-            sorter: (a: CohortType, b: CohortType) => moment(a.created_by?.first_name).isAfter(b.created_by?.first_name)
+            sorter: (a: CohortType, b: CohortType) =>
+                moment(a.created_by?.first_name).isAfter(b.created_by?.first_name),
         },
         {
             title: (
@@ -127,7 +129,12 @@ function _Cohorts() {
             />
             <div>
                 <div className="mb text-right">
-                    <LinkButton to={'/cohorts/new#backTo=Cohorts&backToURL=/cohorts'} type="primary" data-attr="create-cohort" icon={<PlusOutlined />}>
+                    <LinkButton
+                        to={'/cohorts/new#backTo=Cohorts&backToURL=/cohorts'}
+                        type="primary"
+                        data-attr="create-cohort"
+                        icon={<PlusOutlined />}
+                    >
                         New Cohort
                     </LinkButton>
                 </div>
@@ -135,9 +142,10 @@ function _Cohorts() {
                 <Table
                     size="small"
                     columns={columns}
-                    loading={!cohorts && cohortsLoading}
+                    loading={cohortsLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    rowClassName={'cursor-pointer ' + rrwebBlockClass}
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}
@@ -150,7 +158,14 @@ function _Cohorts() {
                     destroyOnClose={true}
                     visible={openCohort}
                 >
-                    {openCohort && <Cohort onChange={() => {}} cohort={openCohort} />}
+                    {openCohort && (
+                        <Cohort
+                            onChange={(cohort: CohortType) => {
+                                updateCohort(cohort)
+                            }}
+                            cohort={openCohort}
+                        />
+                    )}
                 </Drawer>
             </div>
         </div>
