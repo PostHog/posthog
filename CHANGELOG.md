@@ -1,5 +1,37 @@
 # Changelog
 
+### 1.18.0 - Monday 30 November 2020
+
+Our primary goals for this release were to iron out bugs and improve the user experience of our Beta features.
+
+As a result, we fixed **a whole lot of stuff**. We merged dozens of PRs with session recording fixes and improvements, and a dozen more with updates to our plugins functionality. We also improved things like event ingestion, the UX for feature flags, and our settings for both organizations and projects. You can read through the entire list of fixes [on our website](https://posthog.com/blog/the-posthog-array-1-18-0#bug-fixes-and-performance-improvements), but beware: it's quite long.
+
+- [Improvements to posthog-js](https://github.com/PostHog/posthog-js)
+
+A new version of `posthog-js` is available and we recommend you to update if you've installed it via `npm`. Snippet users have access to the latest version by default.
+
+The new version includes a lot of bugfixes that improve our session recording feature, as well as is significantly lighter, having had [a lot of legacy code removed](https://github.com/PostHog/posthog-js/pull/128). 
+
+R.I.P. to the hundreds of lines of JavaScript that were removed - you will not be missed.
+
+- [Plugins are now available on Kubernetes deployments](https://github.com/PostHog/charts/pull/24)
+
+Following feedback from a user, we have now added support for [PostHog Plugins](/docs/plugins/overview) to our Helm chart. 
+
+If you're using the chart to deploy PostHog, upgrading to the latest version will give you access to the new plugin server (Beta).
+
+- [Session Recording Improvements](https://github.com/PostHog/posthog/pulls?q=is%3Apr+is%3Aclosed+session)
+
+Out of the many improvements to session recording, there are some worth mentioning specifically:
+
+- Keyboard shortcuts for the session recording player (`spacebar` to pause/play, `f` to open player in full screen)
+- Ability to jump back/forward 8 seconds with the keyboard arrows (or player button)
+- Full-screen support for the session recording player without losing the controls bar
+- Pause/Play recording when clicking on the video
+- Skipping inactivity made clearer with an overlay over the player
+- The session recording player is now responsive to the client's screen size
+- Incomplete session recordings (i.e. "blank screens") are now hidden from the list 
+
 ### 1.17.0 - Tuesday 17 November 2020
 
 - [Sentry Integration](https://github.com/PostHog/posthog/pull/1833)
