@@ -5,8 +5,11 @@ import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
-import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
+
+import { cohortsModel } from '~/models'
+import { keyMapping } from '../PropertyKeyInfo'
+import { formatPropertyLabel } from 'lib/utils'
 
 const FilterRow = React.memo(function FilterRow({
     item,
@@ -18,6 +21,7 @@ const FilterRow = React.memo(function FilterRow({
     totalCount,
 }) {
     const { remove } = useActions(logic)
+    const { cohorts } = useValues(cohortsModel)
     let [open, setOpen] = useState(false)
     const { key } = item
 
@@ -39,7 +43,11 @@ const FilterRow = React.memo(function FilterRow({
                 content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
-                    <PropertyFilterButton item={item} />
+                    <Button type="primary" shape="round" style={{ maxWidth: '75%' }}>
+                        <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {formatPropertyLabel(item, cohorts, keyMapping)}
+                        </span>
+                    </Button>
                 ) : (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         Add filter
