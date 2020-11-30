@@ -316,5 +316,36 @@ test('fetch', async () => {
     expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
 })
 
-// attachments
+test('attachments', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.properties = meta.attachments
+            return event             
+        }
+    `
+    const attachments = {
+        attachedFile: {
+            content_type: 'application/json',
+            file_name: 'plugin.json',
+            contents: new Buffer('{"name": "plugin"}'),
+        },
+    }
+    const vm = createPluginConfigVM(
+        mockServer,
+        {
+            ...mockConfig,
+            attachments,
+        },
+        indexJs
+    )
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'attachments',
+    }
+
+    await vm.methods.processEvent(event)
+
+    expect(event.properties).toEqual(attachments)
+})
+
 // prepareForRun
