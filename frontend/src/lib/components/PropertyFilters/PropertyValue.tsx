@@ -17,7 +17,7 @@ interface Options {
 
 type OptionsCache = Record<any, true | 'loading'>
 
-type PropertyType = 'cohort'
+type PropertyType = 'cohort' | 'event' | 'person' | 'element'
 
 export interface PropertyValueProps {
     propertyKey: string
