@@ -257,4 +257,4 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             next_url = None
 
-        return response.Response({"result": people, "next": next_url})
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})

@@ -953,10 +953,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     "target_date": "2020-01-15T00:00:00Z",
                 },
             ).json()
-            self.assertEqual(len(result["result"]), 100)
+            self.assertEqual(len(result["results"][0]["people"]), 100)
 
             second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["result"]), 50)
+            self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
         def test_lifecycle_trend_action(self):
 

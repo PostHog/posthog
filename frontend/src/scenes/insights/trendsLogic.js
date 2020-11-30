@@ -81,7 +81,7 @@ function autocorrectInterval({ date_from, interval }) {
 }
 
 function parsePeopleParams(peopleParams, filters) {
-    const { action, day, breakdown_value } = peopleParams
+    const { action, day, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
         entityId: action.id,
@@ -106,7 +106,7 @@ function parsePeopleParams(peopleParams, filters) {
         params.properties = [...params.properties, ...action.properties]
     }
 
-    return toAPIParams(params)
+    return toAPIParams({ ...params, ...restParams })
 }
 
 // props:
@@ -216,9 +216,19 @@ export const trendsLogic = kea({
             actions.setFilters({ display })
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
-            const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-            actions.setPeople(null, null, action, label, day, breakdown_value, null)
-            const people = await api.get(`api/action/people/?${filterParams}`)
+            let people = []
+            if (values.filters.shown_as === 'Lifecycle') {
+                const filterParams = parsePeopleParams(
+                    { label, action, target_date: day, lifecycle_type: breakdown_value },
+                    values.filters
+                )
+                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                people = await api.get(`api/person/lifecycle/?${filterParams}`)
+            } else {
+                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                people = await api.get(`api/action/people/?${filterParams}`)
+            }
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,
