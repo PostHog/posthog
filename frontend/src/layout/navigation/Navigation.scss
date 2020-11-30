@@ -45,6 +45,10 @@
         }
     }
 
+    .menu-item:hover {
+        background-color: maroon;
+    }
+
     .menu-item {
         display: flex;
         align-items: center;
