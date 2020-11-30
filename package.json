@@ -69,6 +69,7 @@
         "rrweb": "^0.9.9",
         "rrweb-player": "^0.6.2",
         "sass": "^1.26.2",
+        "tslib": "^2.0.3",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
