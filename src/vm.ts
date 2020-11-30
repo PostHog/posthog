@@ -31,28 +31,34 @@ export function createPluginConfigVM(
         // two ways packages could export themselves (plus "global")
         const module = { exports: {} };
         const exports = {};
+        const __getExported = (key) => exports[key] || module.exports[key] || global[key]; 
         
-        // inject the meta object + shareable global to the end of each exported function
-        const __pluginMeta = { ...__pluginHostMeta, global: {} };
-        const __getFunction = (key) => exports[key] || module.exports[key] || global[key]; 
-        const __getFunctionWithMeta = (key) => {
-            const method = __getFunction(key);
-            if (!method) { return null };
-            return (...args) => method(...args, __pluginMeta)
-        }
-
         // the plugin JS code        
         ${libJs};
         ${indexJs};
+
+        // inject the meta object + shareable 'global' to the end of each exported function
+        const __pluginMeta = { 
+            ...__pluginHostMeta, 
+            global: {}
+        };
+        function __bindMeta (keyOrFunc) {
+            const func = typeof keyOrFunc === 'function' ? keyOrFunc : __getExported(keyOrFunc);
+            if (func) return (...args) => func(...args, __pluginMeta); 
+        }
+        function __callWithMeta (keyOrFunc, ...args) {
+            const func = __bindMeta(keyOrFunc);
+            if (func) return func(...args); 
+        }
         
         // run the plugin setup script, if present
-        const __setupPlugin = __getFunctionWithMeta('setupPlugin');
-        if (__setupPlugin) __setupPlugin();
+        __callWithMeta('setupPlugin');
         
         // export various functions
         const __methods = {
-            processEvent: __getFunctionWithMeta('processEvent')
-        }        `
+            processEvent: __bindMeta('processEvent')
+        };
+        `
     )
 
     return {
