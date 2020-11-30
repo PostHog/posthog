@@ -1,7 +1,6 @@
 import yargs from 'yargs'
 import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
-import { startWebServer } from './web/server'
 
 type Argv = {
     config: string
@@ -21,10 +20,12 @@ yargs
         command: ['start', '$0'],
         describe: 'start the server',
         handler: ({ config, disableWeb, webPort, webHostname }: Argv) => {
-            const parsedConfig: PluginsServerConfig = config ? JSON.parse(config) : {}
-            startPluginsServer(parsedConfig)
-            if (!disableWeb) {
-                startWebServer(webPort, webHostname)
+            const parsedConfig: PluginsServerConfig = {
+                ...(config ? JSON.parse(config) : {}),
+                WEB_HOSTNAME: webHostname,
+                WEB_PORT: webPort,
+                DISABLE_WEB: disableWeb,
             }
+            startPluginsServer(parsedConfig)
         },
     }).argv

@@ -5,6 +5,7 @@ import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
 import schedule from 'node-schedule'
 import Redis from 'ioredis'
+import { startWebServer, stopWebServer } from './web/server'
 
 const defaultConfig: PluginsServerConfig = {
     CELERY_DEFAULT_QUEUE: 'celery',
@@ -13,6 +14,9 @@ const defaultConfig: PluginsServerConfig = {
     REDIS_URL: 'redis://localhost/',
     BASE_DIR: '.',
     PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
+    DISABLE_WEB: false,
+    WEB_PORT: 3008,
+    WEB_HOSTNAME: '0.0.0.0',
 }
 
 export async function startPluginsServer(config: PluginsServerConfig): Promise<void> {
@@ -26,6 +30,7 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     const db = new Pool({
         connectionString: serverConfig.DATABASE_URL,
     })
+
     const redis = new Redis(serverConfig.REDIS_URL)
 
     const server: PluginsServer = {
@@ -35,7 +40,12 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     }
 
     await setupPlugins(server)
-    startWorker(server)
+
+    if (!serverConfig.DISABLE_WEB) {
+        await startWebServer(serverConfig.WEB_PORT, serverConfig.WEB_HOSTNAME)
+    }
+
+    const stopWorker = startWorker(server)
 
     const pubSub = new Redis(serverConfig.REDIS_URL)
     pubSub.subscribe(serverConfig.PLUGINS_RELOAD_PUBSUB_CHANNEL)
@@ -47,10 +57,22 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     })
 
     // every 5 sec set a @posthog-plugin-server/ping redis key
-    schedule.scheduleJob('*/5 * * * * *', function () {
+    const job = schedule.scheduleJob('*/5 * * * * *', function () {
         redis.set('@posthog-plugin-server/ping', new Date().toISOString())
         redis.expire('@posthog-plugin-server/ping', 60)
     })
-
     console.info(`✅ Started posthog-plugin-server v${version}!`)
+
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+        process.on(signal, async () => {
+            if (!serverConfig.DISABLE_WEB) {
+                await stopWebServer()
+            }
+            stopWorker()
+            pubSub.disconnect()
+            schedule.cancelJob(job)
+            await redis.quit()
+            await db.end()
+        })
+    }
 }
