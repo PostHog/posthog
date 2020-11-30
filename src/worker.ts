@@ -1,11 +1,13 @@
 import { runPlugins } from './plugins'
-import * as celery from 'celery-node'
 import { PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
 
-export function startWorker(server: PluginsServer): void {
-    const worker = celery.createWorker(server.REDIS_URL, server.REDIS_URL, server.PLUGINS_CELERY_QUEUE)
-    const client = celery.createClient(server.REDIS_URL, server.REDIS_URL, server.CELERY_DEFAULT_QUEUE)
+import Worker from './celery/worker'
+import Client from './celery/client'
+
+export function startWorker(server: PluginsServer): () => void {
+    const worker = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
+    const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
 
     worker.register(
         'posthog.tasks.process_event.process_event_with_plugins',
@@ -36,4 +38,8 @@ export function startWorker(server: PluginsServer): void {
     )
 
     worker.start()
+
+    return () => {
+        worker.stop()
+    }
 }
