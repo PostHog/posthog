@@ -6,7 +6,7 @@ import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
-import { Button, Tooltip } from 'antd'
+import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 import { SelectBox } from '../../../lib/components/SelectBox'
@@ -91,10 +91,8 @@ export function ActionFilterDropdown({
                         return (
                             <>
                                 <AimOutlined /> Actions
-                                <Link to={`/action/${item.id}`}>
-                                    <Button type="primary" style={{ float: 'right' }}>
-                                        Edit
-                                    </Button>
+                                <Link to={`/action/${item.id}`} style={{ float: 'right' }}>
+                                    Edit
                                 </Link>
                                 <br />
                                 <h3>{item.name} </h3>
