@@ -80,28 +80,28 @@ INSERT INTO events SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(
 
 GET_EVENTS_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at
-FROM events_with_array_props_view as ewap
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
+FROM events
 """
 
 GET_EVENTS_BY_TEAM_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at
-FROM events_with_array_props_view as ewap WHERE team_id = %(team_id)s
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
+FROM events WHERE team_id = %(team_id)s
 """
 
 EVENTS_WITH_PROPS_TABLE_SQL = """
@@ -160,59 +160,59 @@ ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM value) FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s AND trim(BOTH '\"' FROM value) LIKE %(value)s LIMIT 50
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s LIMIT 10
 """
 
 SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
 FROM
-    events_with_array_props_view ewap
-where ewap.team_id = %(team_id)s
+    events
+where team_id = %(team_id)s
 {conditions}
-ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
+ORDER BY toDate(timestamp) DESC, timestamp DESC {limit}
 """
 
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at
-FROM events_with_array_props_view AS ewap
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
+FROM events
 WHERE 
 team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY toDate(ewap.timestamp) DESC, ewap.timestamp DESC {limit}
+ORDER BY toDate(timestamp) DESC, timestamp DESC {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
 SELECT
-    ewap.uuid,
-    ewap.event,
-    ewap.properties,
-    ewap.timestamp,
-    ewap.team_id,
-    ewap.distinct_id,
-    ewap.elements_chain,
-    ewap.created_at
-FROM events_with_array_props_view ewap WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
+FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """

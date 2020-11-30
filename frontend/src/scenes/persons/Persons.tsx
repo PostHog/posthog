@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
-import { Button, Tabs, Input } from 'antd'
+import { Button, Tabs, Input, Row } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -32,32 +32,36 @@ function _Persons(): JSX.Element {
                     setListFilters({ cohort })
                 }}
             />
-            <Button
-                type="default"
-                icon={<ExportOutlined />}
-                href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                style={{ marginBottom: '1rem' }}
-            >
-                Export
-            </Button>
-            <div className="mb">
-                <form
-                    onSubmit={(e) => {
-                        e.preventDefault()
-                        setListFilters({ search: searchTerm })
+            <Row style={{ justifyContent: 'space-between', gap: '0.75rem' }} className="mb">
+                <Input.Search
+                    data-attr="persons-search"
+                    placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
+                    autoFocus
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                        if (!e.target.value) {
+                            setListFilters({ search: undefined })
+                            loadPersons()
+                        }
+                    }}
+                    enterButton
+                    allowClear
+                    onSearch={() => {
+                        setListFilters({ search: searchTerm || undefined })
                         loadPersons()
                     }}
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                />
+
+                <Button
+                    type="default"
+                    icon={<ExportOutlined />}
+                    href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
                 >
-                    <Input
-                        data-attr="persons-search"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
-                        style={{ maxWidth: 400 }}
-                        autoFocus
-                    />
-                </form>
-            </div>
+                    Export
+                </Button>
+            </Row>
             <Tabs
                 activeKey={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'default'}
                 onChange={(key) => {
