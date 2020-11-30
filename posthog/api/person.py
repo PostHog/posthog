@@ -1,6 +1,6 @@
 import json
 import warnings
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
@@ -227,13 +227,26 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         limit = int(request.GET.get("limit", 100))
         offset = int(request.GET.get("offset", 0))
-        return response.Response(
-            self.lifecycle_class().get_people(
-                target_date=target_date,
-                filter=filter,
-                team_id=team_id,
-                lifecycle_type=lifecycle_type,
-                limit=limit,
-                offset=offset,
-            )
+
+        next_url: Optional[str] = request.get_full_path()
+        people = self.lifecycle_class().get_people(
+            target_date=target_date,
+            filter=filter,
+            team_id=team_id,
+            lifecycle_type=lifecycle_type,
+            limit=limit,
+            offset=offset,
         )
+
+        if len(people) > 99 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
+
+        return response.Response({"result": people, "next": next_url})
