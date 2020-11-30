@@ -5,7 +5,7 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE, LIFECYCLE } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
@@ -93,6 +93,9 @@ function parsePeopleParams(peopleParams, filters) {
         params.stickiness_days = day
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = day
+    } else if (filters.shown_as === LIFECYCLE) {
+        params.date_from = filters.date_from
+        params.date_to = filters.date_to
     } else {
         params.date_from = day
         params.date_to = day
@@ -217,7 +220,7 @@ export const trendsLogic = kea({
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === 'Lifecycle') {
+            if (values.filters.shown_as === LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: day, lifecycle_type: breakdown_value },
                     values.filters

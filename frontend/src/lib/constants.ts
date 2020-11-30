@@ -8,6 +8,7 @@ export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
 export const STICKINESS = 'Stickiness'
+export const LIFECYCLE = 'Lifecycle'
 
 export const LINEAR_CHART_LABEL = 'Linear'
 export const CUMULATIVE_CHART_LABEL = 'Cumulative'
