@@ -131,7 +131,9 @@ export function LineGraph({
         const axisLineColor = color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
         const axisColor = color === 'white' ? '#999' : 'rgba(255,255,255,0.6)'
 
-        if (typeof myLineChart.current !== 'undefined') myLineChart.current.destroy()
+        if (typeof myLineChart.current !== 'undefined') {
+            myLineChart.current.destroy()
+        }
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         datasets =
             !type || type === 'line'
@@ -202,8 +204,9 @@ export function LineGraph({
                               callbacks: {
                                   label: function (tooltipItem, data) {
                                       let entityData = data.datasets[tooltipItem.datasetIndex]
-                                      if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
+                                      if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                                           return null
+                                      }
                                       var label = entityData.chartLabel || entityData.label || ''
                                       return (
                                           (entityData.action ? formatLabel(label, entityData.action) : label) +
@@ -218,8 +221,11 @@ export function LineGraph({
                               onHover(evt) {
                                   if (onClick) {
                                       const point = this.getElementAtEvent(evt)
-                                      if (point.length) evt.target.style.cursor = 'pointer'
-                                      else evt.target.style.cursor = 'default'
+                                      if (point.length) {
+                                          evt.target.style.cursor = 'pointer'
+                                      } else {
+                                          evt.target.style.cursor = 'default'
+                                      }
                                   }
                               },
                           },
@@ -311,7 +317,9 @@ export function LineGraph({
                     const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
                     const delta = rightExtent - leftExtent
                     const interval = delta / (ticks - 1)
-                    if (offsetX < leftExtent - interval / 2) return
+                    if (offsetX < leftExtent - interval / 2) {
+                        return
+                    }
                     const index = mapRange(offsetX, leftExtent - interval / 2, rightExtent + interval / 2, 0, ticks)
                     if (index >= 0 && index < ticks && offsetY >= topExtent - 30) {
                         setLeft(index * interval + leftExtent)
@@ -356,10 +364,11 @@ export function LineGraph({
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
                     onCreateAnnotation={(textInput, applyAll) => {
-                        if (applyAll)
+                        if (applyAll) {
                             createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
-                        else if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                        else {
+                        } else if (dashboardItemId) {
+                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                        } else {
                             createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }

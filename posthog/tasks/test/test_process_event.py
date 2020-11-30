@@ -8,7 +8,6 @@ from django.test import TransactionTestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest, TransactionBaseTest
 from posthog.models import (
     Action,
     ActionStep,
@@ -21,6 +20,7 @@ from posthog.models import (
     User,
 )
 from posthog.tasks.process_event import process_event as _process_event
+from posthog.test.base import BaseTest, TransactionBaseTest
 
 
 def get_elements(event_id: Union[int, UUID]) -> List[Element]:
@@ -72,6 +72,20 @@ def test_process_event_factory(
             self.assertEqual(elements[1].order, 1)
             self.assertEqual(elements[1].text, "💻")
             self.assertEqual(event.distinct_id, "2")
+            team = Team.objects.get()
+            self.assertEqual(team.event_names, ["$autocapture"])
+            self.assertEqual(
+                team.event_names_with_usage, [{"event": "$autocapture", "volume": None, "usage_count": None,}]
+            )
+            self.assertEqual(team.event_properties, ["distinct_id", "token", "$ip"])
+            self.assertEqual(
+                team.event_properties_with_usage,
+                [
+                    {"key": "distinct_id", "usage_count": None, "volume": None},
+                    {"key": "token", "usage_count": None, "volume": None},
+                    {"key": "$ip", "usage_count": None, "volume": None},
+                ],
+            )
 
         def test_capture_no_element(self) -> None:
             user = self._create_user("tim")

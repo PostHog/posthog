@@ -6,11 +6,14 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Annotation
+from posthog.models import Annotation, Team
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -40,27 +43,29 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
+        project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
-            organization=request.user.organization, team=request.user.team, created_by=request.user, **validated_data,
+            organization=project.organization, team=project, created_by=request.user, **validated_data,
         )
         return annotation
 
 
-class AnnotationsViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        team = self.request.user.team
-
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = self._filter_request(self.request, queryset)
             order = self.request.GET.get("order", None)
             if order:
                 queryset = queryset.order_by(order)
 
-        return queryset.filter(team=team)
+        return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()

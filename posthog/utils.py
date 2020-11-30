@@ -105,9 +105,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
     if filters.get("date_from"):
-        date_from = relative_date_parse(filters["date_from"])
+        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
         if filters["date_from"] == "all":
-            date_from = None  # type: ignore
+            date_from = None
     else:
         date_from = datetime.datetime.today() - relativedelta(days=7)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -216,7 +216,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
     append["labels"] = []
     append["days"] = []
 
-    labels_format = "%a. %-d %B"
+    labels_format = "%a. {day} %B"
     days_format = "%Y-%m-%d"
 
     if interval == "hour" or interval == "minute":
@@ -227,7 +227,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
         date = item[0]
         value = item[1]
         append["days"].append(date.strftime(days_format))
-        append["labels"].append(date.strftime(labels_format))
+        append["labels"].append(date.strftime(labels_format.format(day=date.day)))
         append["data"].append(value)
     if math == "sum":
         append["count"] = sum(append["data"])
@@ -283,15 +283,11 @@ def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
 
-def get_redis_heartbeat() -> Union[str, int]:
-    redis_instance = get_client()
-    if not redis_instance:
-        return "offline"
+def get_celery_heartbeat() -> Union[str, int]:
+    last_heartbeat = get_client().get("POSTHOG_HEARTBEAT")
+    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else -1
 
-    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
-    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
-
-    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
+    if 0 <= worker_heartbeat < 300:
         return worker_heartbeat
     return "offline"
 
@@ -403,7 +399,23 @@ def is_postgres_alive() -> bool:
 
 def is_redis_alive() -> bool:
     try:
-        return get_redis_heartbeat() != "offline"
+        get_redis_info()
+        return True
+    except BaseException:
+        return False
+
+
+def is_celery_alive() -> bool:
+    try:
+        return get_celery_heartbeat() != "offline"
+    except BaseException:
+        return False
+
+
+def is_plugin_server_alive() -> bool:
+    try:
+        ping = get_client().get("@posthog-plugin-server/ping")
+        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
     except BaseException:
         return False
 

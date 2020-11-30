@@ -18,11 +18,13 @@ export const BAR_CHART_LABEL = 'Bar'
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
+    Owner = 15,
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'administrator'],
+    [OrganizationMembershipLevel.Owner, 'owner'],
 ])
 
 export enum AnnotationScope {
@@ -36,3 +38,5 @@ export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
+
+export const PERSON_DISTINCT_ID_MAX_SIZE = 3

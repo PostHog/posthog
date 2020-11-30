@@ -9,23 +9,28 @@ export function CreateOrganizationModal({
     setIsVisible,
 }: {
     isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    setIsVisible?: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) inputRef.current.setValue('')
+        if (setIsVisible) {
+            setErrorMessage(null)
+            setIsVisible(false)
+            if (inputRef.current) {
+                inputRef.current.setValue('')
+            }
+        }
     }, [inputRef, setIsVisible])
 
     return (
         <Modal
             title="Creating an Organization"
             okText="Create Organization"
-            cancelText="Cancel"
+            cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
+            closable={!!setIsVisible}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
@@ -35,6 +40,9 @@ export function CreateOrganizationModal({
                 } else {
                     setErrorMessage('Your organization needs a name!')
                 }
+            }}
+            okButtonProps={{
+                'data-attr': 'create-organization-ok',
             }}
             onCancel={closeModal}
             visible={isVisible}

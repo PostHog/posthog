@@ -2,10 +2,10 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.api.test.base import BaseTest
 from posthog.models import DashboardItem, Event
 from posthog.models.team import Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
+from posthog.test.base import BaseTest
 
 
 def test_calculate_event_property_usage(create_event: Callable) -> Callable:

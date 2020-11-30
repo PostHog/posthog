@@ -7,6 +7,7 @@ from posthog.api.test.base import BaseTest
 from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
+from posthog.test.base import BaseTest
 
 
 # parameterize tests to reuse in EE

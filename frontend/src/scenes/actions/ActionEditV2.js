@@ -23,7 +23,9 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
     const [edited, setEdited] = useState(false)
     const slackEnabled = user?.team?.slack_incoming_webhook
 
-    if (actionLoading || !action) return <Loading />
+    if (actionLoading || !action) {
+        return <Loading />
+    }
 
     const newAction = () => {
         setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })

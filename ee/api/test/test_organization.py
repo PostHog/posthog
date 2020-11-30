@@ -3,10 +3,9 @@ from unittest.mock import patch
 from django.test.utils import tag
 from rest_framework import status
 
+from ee.api.test.base import APILicensedTest
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
-
-from .base import APILicensedTest
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -19,7 +18,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(OrganizationMembership.objects.filter(organization_id=response_data.get("id")).count(), 1)
         self.assertEqual(
             OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level,
-            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
         )
 
     def test_delete_second_managed_organization(self):

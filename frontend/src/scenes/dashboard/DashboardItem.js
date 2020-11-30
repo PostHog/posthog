@@ -158,10 +158,15 @@ export function DashboardItem({
     }
 
     const determineLogic = () => {
-        if (className === 'funnel') return funnelVizLogic(logicProps)
-        else if (className === 'retention') return retentionTableLogic(logicProps)
-        else if (className === 'paths') return pathsLogic(logicProps)
-        else return trendsLogic(logicProps)
+        if (className === 'funnel') {
+            return funnelVizLogic(logicProps)
+        } else if (className === 'retention') {
+            return retentionTableLogic(logicProps)
+        } else if (className === 'paths') {
+            return pathsLogic(logicProps)
+        } else {
+            return trendsLogic(logicProps)
+        }
     }
 
     const { loadResults } = useActions(determineLogic())
@@ -170,8 +175,11 @@ export function DashboardItem({
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
-        if (previousLoading && !resultsLoading && !initialLoaded) setInitialLoaded(true)
-        else if (previousLoading && !resultsLoading && initialLoaded) onRefresh()
+        if (previousLoading && !resultsLoading && !initialLoaded) {
+            setInitialLoaded(true)
+        } else if (previousLoading && !resultsLoading && initialLoaded) {
+            onRefresh()
+        }
     }, [resultsLoading])
 
     return (
@@ -213,7 +221,8 @@ export function DashboardItem({
                             <Tooltip
                                 title={
                                     <i>
-                                        Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}
+                                        Refreshed:{' '}
+                                        {item.last_refresh ? moment(item.last_refresh).fromNow() : 'just now'}
                                     </i>
                                 }
                             >

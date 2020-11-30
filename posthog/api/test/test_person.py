@@ -5,8 +5,7 @@ from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.tasks.process_event import process_event
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 def test_person_factory(event_factory, person_factory, get_events, get_people):

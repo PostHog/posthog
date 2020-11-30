@@ -109,7 +109,7 @@ class Cohort(models.Model):
                     .filter(
                         team_id=self.team_id,
                         **(
-                            {"timestamp__gt": timezone.now() - relativedelta(days=group["days"])}
+                            {"timestamp__gt": timezone.now() - relativedelta(days=int(group["days"]))}
                             if group.get("days")
                             else {}
                         ),

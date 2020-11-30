@@ -1,11 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Card, Divider } from 'antd'
+import { Card, Divider, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptInSessionRecording } from './OptInSessionRecording'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
-import { userLogic } from 'scenes/userLogic'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
@@ -15,11 +14,11 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const Setup = hot(_Setup)
-function _Setup() {
-    const { user } = useValues(userLogic)
+function _Setup({ user }) {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
@@ -73,7 +72,7 @@ function _Setup() {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 id="urls" className="subtitle">
+                <h2 className="subtitle" id="urls">
                     Permitted Domains/URLs
                 </h2>
                 <p>
@@ -82,12 +81,12 @@ function _Setup() {
                 </p>
                 <EditAppUrls />
                 <Divider />
-                <h2 id="webhook" className="subtitle">
-                    Slack / Microsoft Teams Integration
+                <h2 className="subtitle" id="webhook">
+                    Webhook Integration
                 </h2>
-                <WebhookIntegration />
+                <WebhookIntegration user={user} />
                 <Divider />
-                <h2 id="datacapture" className="subtitle">
+                <h2 className="subtitle" id="datacapture">
                     Data Capture Configuration
                 </h2>
                 <IPCapture />
@@ -95,12 +94,14 @@ function _Setup() {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <h2 id="sessionrecording" className="subtitle">
-                    Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
+                <h2 id="session-recording" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
+                    Session Recording
+                    <Tag color="orange" style={{ marginLeft: 8 }}>
+                        BETA
+                    </Tag>
                 </h2>
                 <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
                 <OptInSessionRecording />
-                <br />
                 <p>
                     This is a new feature of PostHog. Please{' '}
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
@@ -108,6 +109,11 @@ function _Setup() {
                     </a>{' '}
                     with us!
                 </p>
+                <Divider />
+                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
+                    Danger Zone
+                </h2>
+                <DangerZone />
             </Card>
         </div>
     )

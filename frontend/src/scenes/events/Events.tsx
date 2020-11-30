@@ -28,7 +28,9 @@ const eventsLogic = kea<eventsLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/events(/:tab)': ({ tab }: Record<string, string>) => {
             const currentTab = tab || 'live'
-            if (currentTab !== values.tab) actions.setTab(currentTab)
+            if (currentTab !== values.tab) {
+                actions.setTab(currentTab)
+            }
         },
     }),
 })
