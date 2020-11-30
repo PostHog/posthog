@@ -9,7 +9,7 @@ from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
 from .feature_flag import FeatureFlag
-from .filters import Filter, RetentionFilter
+from .filter import Filter
 from .funnel import Funnel
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership

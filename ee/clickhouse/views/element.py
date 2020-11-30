@@ -7,7 +7,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.element import ElementSerializer, ElementViewSet
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 
 
 class ClickhouseElementViewSet(ElementViewSet):

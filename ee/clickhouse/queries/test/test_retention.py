@@ -8,7 +8,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters import Filter
+from posthog.models.filter import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_retention import retention_test_factory
 
@@ -26,10 +26,5 @@ def _create_action(**kwargs):
     return action
 
 
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
-
-
-class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, _create_person, _create_action)):  # type: ignore
+class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, Person.objects.create, _create_action)):  # type: ignore
     pass

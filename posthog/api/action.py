@@ -27,7 +27,6 @@ from posthog.models import (
     Event,
     Filter,
     Person,
-    RetentionFilter,
 )
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
@@ -194,7 +193,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         properties = request.GET.get("properties", "{}")
 
-        filter = RetentionFilter(data={"properties": json.loads(properties)})
+        filter = Filter(data={"properties": json.loads(properties)})
 
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
