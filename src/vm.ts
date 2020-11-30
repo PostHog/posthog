@@ -11,7 +11,7 @@ export function createPluginConfigVM(
     server: PluginsServer,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string,
-    libJs: string | null
+    libJs = ''
 ): PluginConfigVMReponse {
     const vm = new VM({
         sandbox: {},
@@ -73,7 +73,7 @@ export function prepareForRun(
     pluginConfig: PluginConfig, // might have team_id=0
     method: 'processEvent',
     event?: PluginEvent
-): null | ((event: PluginEvent) => PluginEvent) | (() => void) {
+): null | ((event: PluginEvent) => Promise<PluginEvent>) | (() => void) {
     if (!pluginConfig.vm?.methods[method]) {
         return null
     }
@@ -93,5 +93,6 @@ export function prepareForRun(
     } else {
         vm.freeze(null, 'posthog')
     }
+
     return pluginConfig.vm.methods[method]
 }

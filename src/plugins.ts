@@ -168,7 +168,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
 
         if (indexJs) {
             try {
-                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs)
+                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs || '')
                 console.log(`Loaded plugin "${plugin.name}"!`)
                 await clearError(server, pluginConfig)
             } catch (error) {
