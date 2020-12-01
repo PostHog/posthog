@@ -21,10 +21,11 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
 
+
+kafka_producer = None
+
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
-
-kafka_producer = KafkaProducer()
 
 
 def _capture_ee(
@@ -110,6 +111,7 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
 
 
 if is_ee_enabled():
+    kafka_producer = KafkaProducer()
 
     def process_event_ee(
         distinct_id: str,
@@ -180,13 +182,19 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
 ) -> None:
-    data = {
-        "distinct_id": distinct_id,
-        "ip": ip,
-        "site_url": site_url,
-        "data": json.dumps(data),
-        "team_id": team_id,
-        "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
-    }
-    kafka_producer.produce(topic=KAFKA_EVENTS_WAL, data=data)
+    try:
+        kafka_producer.produce(
+            topic=KAFKA_EVENTS_WAL,
+            data={
+                "distinct_id": distinct_id,
+                "ip": ip,
+                "site_url": site_url,
+                "data": json.dumps(data),
+                "team_id": team_id,
+                "now": now.isoformat(),
+                "sent_at": sent_at.isoformat() if sent_at else "",
+            },
+        )
+    except AttributeError:
+        # kafka_producer is None
+        raise Exception("Kafka is unavailable, because EE even processing is not in use!")
