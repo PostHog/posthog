@@ -5,6 +5,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.sql.retention.retention import (
+    INITIAL_INTERVAL_SQL,
     REFERENCE_EVENT_SQL,
     REFERENCE_EVENT_UNIQUE_SQL,
     RETENTION_PEOPLE_SQL,
@@ -37,14 +38,6 @@ class ClickhouseRetention(Retention):
         target_params: Dict = {}
         trunc_func = self._get_trunc_func_ch(period)
 
-        if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=target_entity.id)
-            action_query, target_params = format_action_filter(action, use_loop=True)
-            target_query = "AND e.uuid IN ({})".format(action_query)
-        elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            target_query = "AND e.event = %(target_event)s"
-            target_params = {"target_event": target_entity.id}
-
         target_query, target_params = self._get_condition(target_entity, table="e")
         returning_query, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
 
@@ -60,7 +53,6 @@ class ClickhouseRetention(Retention):
             target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
             target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
         returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
-
         result = sync_execute(
             RETENTION_SQL.format(
                 target_query=target_query_formatted,
@@ -93,7 +85,32 @@ class ClickhouseRetention(Retention):
             },
         )
 
+        initial_interval_result = sync_execute(
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
+            {
+                "team_id": team.pk,
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_end_date": (
+                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
+                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
+                **prop_filter_params,
+                **target_params,
+                **returning_params,
+                "period": period,
+            },
+        )
+
         result_dict = {}
+        for initial_res in initial_interval_result:
+            result_dict.update({(initial_res[0], 0): {"count": initial_res[1], "people": []}})
 
         for res in result:
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
@@ -103,8 +120,8 @@ class ClickhouseRetention(Retention):
     def _get_condition(self, target_entity: Entity, table: str, prepend: str = "") -> Tuple[str, Dict]:
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=target_entity.id)
-            action_query, params = format_action_filter(action, prepend=prepend, use_loop=True)
-            condition = "{}.uuid IN ({})".format(table, action_query)
+            action_query, params = format_action_filter(action, prepend=prepend, use_loop=False)
+            condition = action_query
         elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
             condition = "{}.event = %({}_event)s".format(table, prepend)
             params = {"{}_event".format(prepend): target_entity.id}
