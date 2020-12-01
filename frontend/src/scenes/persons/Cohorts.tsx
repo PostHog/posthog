@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import moment from 'moment'
 import { DeleteWithUndo } from 'lib/utils'
-import { Tooltip, Table, Spin, Button } from 'antd'
+import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
@@ -15,6 +15,7 @@ import { CohortType } from '~/types'
 import api from 'lib/api'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './cohorts.scss'
+import Fuse from 'fuse.js'
 
 const cohortsUrlLogic = kea({
     actions: {
@@ -43,12 +44,22 @@ const cohortsUrlLogic = kea({
     }),
 })
 
+export const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
+    return new Fuse(sources, {
+        keys: ['name'],
+        threshold: 0.3,
+    })
+        .search(search)
+        .map((result) => result.item)
+}
+
 export const Cohorts = hot(_Cohorts)
 function _Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
+    const [searchTerm, setSearchTerm] = useState(false)
 
     const columns = [
         {
@@ -130,7 +141,15 @@ function _Cohorts(): JSX.Element {
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
             <div>
-                <div className="mb text-right">
+                <Input.Search
+                    allowClear
+                    enterButton
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                    }}
+                />
+                <div className="mb float-right">
                     <Button
                         type="primary"
                         data-attr="create-cohort"
@@ -151,7 +170,7 @@ function _Cohorts(): JSX.Element {
                     onRow={(cohort) => ({
                         onClick: () => setOpenCohort(cohort),
                     })}
-                    dataSource={cohorts}
+                    dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 />
                 <Drawer
                     title={openCohort.id === 'new' ? 'New cohort' : openCohort.name}
