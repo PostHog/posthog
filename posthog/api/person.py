@@ -73,7 +73,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
-    retention_class = Retention
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     lifecycle_class = LifecycleTrend
@@ -261,6 +260,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
+    @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
         team = request.user.team
         assert team is not None
