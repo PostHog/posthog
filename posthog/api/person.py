@@ -77,6 +77,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     lifecycle_class = LifecycleTrend
+    retention_class = Retention
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
