@@ -1,5 +1,6 @@
 describe('Preflight', () => {
     beforeEach(() => {
+        cy.visit('/logout')
         cy.visit('/preflight')
     })
 
