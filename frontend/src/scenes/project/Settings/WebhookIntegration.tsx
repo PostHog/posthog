@@ -141,7 +141,7 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={'integration disabled' + (user?.is_multi_tenancy ? '' : ' – type a URL to enable')} 
+                placeholder={'integration disabled' + (user?.is_multi_tenancy ? '' : ' – type a URL to enable')}
                 disabled={user.is_multi_tenancy}
             />
             <Button
