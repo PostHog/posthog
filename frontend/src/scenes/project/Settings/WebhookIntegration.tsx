@@ -130,7 +130,7 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
             </p>
             {user?.is_multi_tenancy && (
                 <Alert
-                    className="mb"
+                    style={{ maxWidth: '40rem', marginBottom: '1rem' }}
                     message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
                     type="warning"
                 />
