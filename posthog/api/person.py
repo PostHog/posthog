@@ -1,6 +1,6 @@
 import json
 import warnings
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.core.cache import cache
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
@@ -14,7 +14,9 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event, Filter, Person
+from posthog.models.filters import RetentionFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries.retention import Retention
 from posthog.utils import convert_property_value
 
 
@@ -70,6 +72,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
+    retention_class = Retention
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def paginate_queryset(self, queryset):
@@ -205,3 +208,25 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         else:
             return response.Response({})
+
+    @action(methods=["GET"], detail=False)
+    def retention(self, request: request.Request) -> response.Response:
+        team = request.user.team
+        assert team is not None
+        filter = RetentionFilter(request=request)
+        offset = int(request.GET.get("offset", 0))
+        people = self.retention_class().people(filter, team, offset)
+
+        next_url: Optional[str] = request.get_full_path()
+        if len(people) > 99 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
+
+        return response.Response({"result": people, "next": next_url})
