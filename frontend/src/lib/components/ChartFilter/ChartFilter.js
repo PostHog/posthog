@@ -15,7 +15,7 @@ import { chartFilterLogic } from './chartFilterLogic'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
 
-    const { chartFilter } = useValues(chartFilterLogic)
+    const { chartFilter, disabled } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
     const cumulativeDisabled = filters.session || filters.shown_as === STICKINESS || filters.retentionType
@@ -44,7 +44,7 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
-            disabled={filters.shown_as === 'Lifecycle'}
+            disabled={disabled}
         >
             <Select.OptGroup label={'Line Chart'}>
                 <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR} disabled={linearDisabled}>
