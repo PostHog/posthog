@@ -22,9 +22,9 @@ const saveToDashboardModalLogic = kea({
         _dashboardId: [null, { setDashboardId: (_, { id }) => id }],
     },
 
-    selectors: ({ props, selectors }) => ({
+    selectors: ({ props }) => ({
         dashboardId: [
-            () => [selectors._dashboardId, selectors.lastDashboardId, selectors.dashboards],
+            (s) => [s._dashboardId, s.lastDashboardId, s.dashboards],
             (_dashboardId, lastDashboardId, dashboards) =>
                 _dashboardId ||
                 props.fromDashboard ||
@@ -68,9 +68,8 @@ export function SaveToDashboardModal({
     fromItemName,
     annotations,
 }) {
-    const { dashboards } = useValues(dashboardsModel)
     const logic = saveToDashboardModalLogic({ fromDashboard })
-    const { dashboardId } = useValues(logic)
+    const { dashboards, dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
