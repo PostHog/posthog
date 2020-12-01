@@ -83,7 +83,7 @@ jobs:
                   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   AWS_DEFAULT_REGION: 'us-east-1'
-                  TASK_DEFINITION: ${{ steps.task-def-migration.outputs.task-definition }}
+                  TASK_DEFINITION: ${{ steps.task-def-migrate.outputs.task-definition }}
 
             - name: Deploy Amazon ECS web task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
