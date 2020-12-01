@@ -13,12 +13,22 @@ import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Drawer } from 'lib/components/Drawer'
+import { SessionsPlay } from './SessionsPlay'
 
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
+}
+
+function SessionPlayerDrawer(): JSX.Element {
+    const { closeSessionPlayer } = useActions(sessionsTableLogic)
+    return (
+        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
+            <SessionsPlay />
+        </Drawer>
+    )
 }
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
@@ -144,7 +154,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {!!sessionRecordingId && <SessionsPlayerDrawer />}
+            {!!sessionRecordingId && <SessionPlayerDrawer />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{
