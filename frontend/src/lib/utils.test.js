@@ -1,4 +1,4 @@
-import { identifierToHuman } from './utils'
+import { formatLabel, identifierToHuman } from './utils'
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {
@@ -12,5 +12,27 @@ describe('identifierToHuman()', () => {
         expect(identifierToHuman('500')).toEqual('500')
         expect(identifierToHuman(404)).toEqual('404')
         expect(identifierToHuman('CreateProject')).toEqual('Create Project')
+    })
+})
+
+describe('formatLabel()', () => {
+    given('subject', () => formatLabel('some_event', given.action))
+
+    given('action', () => ({}))
+
+    it('formats the label', () => {
+        expect(given.subject).toEqual('some_event (Total) ')
+    })
+
+    it('handles DAU queries', () => {
+        given('action', () => ({ math: 'dau' }))
+
+        expect(given.subject).toEqual('some_event (DAU) ')
+    })
+
+    it('handles action with properties', () => {
+        given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
+
+        expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
     })
 })
