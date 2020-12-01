@@ -128,14 +128,12 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {user.is_multi_tenancy && (
-                <>
-                    <Alert
-                        message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
-                        type="warning"
-                    />
-                    <div className="mb" />
-                </>
+            {user?.is_multi_tenancy && (
+                <Alert
+                    className="mb"
+                    message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
+                    type="warning"
+                />
             )}
             <Input
                 value={editedWebhook}
@@ -143,7 +141,7 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder="integration disabled – type a URL to enable"
+                placeholder={'integration disabled' + (user?.is_multi_tenancy ? '' : ' – type a URL to enable')} 
                 disabled={user.is_multi_tenancy}
             />
             <Button
