@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import moment from 'moment'
 import { EventType } from '~/types'
-import { lightColors } from './colors'
+import { lightColors } from 'lib/colors'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
