@@ -30,6 +30,12 @@ describe('formatLabel()', () => {
         expect(given.subject).toEqual('some_event (DAU) ')
     })
 
+    it('handles summing by property', () => {
+        given('action', () => ({ math: 'sum', math_property: 'event_property' }))
+
+        expect(given.subject).toEqual('some_event (sum of event_property) ')
+    })
+
     it('handles action with properties', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
