@@ -45,6 +45,10 @@
         }
     }
 
+    .menu-item:hover {
+        background-color: lighten($bg_menu, 20%);
+    }
+
     .menu-item {
         display: flex;
         align-items: center;
@@ -54,7 +58,6 @@
         margin-top: 8px;
         margin-left: 6px;
         margin-right: 6px;
-        transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
 
         .anticon {
             line-height: 0;
@@ -74,6 +77,7 @@
 
         &.menu-item-active {
             background-color: $primary;
+            transition: background-color 300ms cubic-bezier(0.645, 0.045, 0.355, 1);
         }
     }
 

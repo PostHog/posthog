@@ -67,15 +67,10 @@ let actionLogic = kea({
     }),
 })
 
-const EditComponent = (props) => {
+function EditComponent(props) {
     const { featureFlags } = useValues(featureFlagLogic)
-
-    return (
-        <>
-            {!featureFlags['actions-ux-201012'] && <ActionEdit {...props} />}
-            {featureFlags['actions-ux-201012'] && <ActionEditV2 {...props} />}
-        </>
-    )
+    const Component = featureFlags['actions-ux-201012'] ? ActionEditV2 : ActionEdit
+    return <Component {...props} />
 }
 
 export const Action = hot(_Action)

@@ -9,7 +9,7 @@ from django.utils import timezone
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 
 LIFECYCLE_SQL = """

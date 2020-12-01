@@ -3,7 +3,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.queries.funnel import Funnel
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import BaseTest

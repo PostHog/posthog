@@ -25,7 +25,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 class ClickhouseTrendsBreakdown:
@@ -57,7 +57,7 @@ class ClickhouseTrendsBreakdown:
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
         aggregate_operation, join_condition, math_params = process_math(entity)
 
         action_query = ""

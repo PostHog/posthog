@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import api from 'lib/api'
-import { Input, Button } from 'antd'
+import { Input, Button, Alert } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
 import { UserType } from '~/types'
@@ -128,17 +128,20 @@ export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
+            {user?.is_multi_tenancy && (
+                <Alert
+                    style={{ maxWidth: '40rem', marginBottom: '1rem' }}
+                    message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
+                    type="warning"
+                />
+            )}
             <Input
                 value={editedWebhook}
                 addonBefore="Webhook URL"
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={
-                    user.is_multi_tenancy
-                        ? 'temporarily unavailable on PostHog Cloud'
-                        : 'integration disabled – enter URL to enable'
-                }
+                placeholder={'integration disabled' + (user?.is_multi_tenancy ? '' : ' – type a URL to enable')}
                 disabled={user.is_multi_tenancy}
             />
             <Button

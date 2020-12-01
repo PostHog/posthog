@@ -10,6 +10,7 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { entityFilterLogicType } from 'types/scenes/insights/ActionFilter/entityFilterLogicType'
 import { SelectBox } from '../../../lib/components/SelectBox'
+import { Link } from 'lib/components/Link'
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
@@ -83,14 +84,18 @@ export function ActionFilterDropdown({
                         key: EntityTypes.ACTIONS + action.id,
                         name: action.name,
                         volume: action.count,
+                        id: action.id,
                         action,
                     })),
                     renderInfo: function actions({ item }) {
                         return (
                             <>
                                 <AimOutlined /> Actions
+                                <Link to={`/action/${item.id}`} style={{ float: 'right' }}>
+                                    edit
+                                </Link>
                                 <br />
-                                <h3>{item.name}</h3>
+                                <h3>{item.name} </h3>
                                 {item.action && <ActionSelectInfo entity={item.action} />}
                             </>
                         )

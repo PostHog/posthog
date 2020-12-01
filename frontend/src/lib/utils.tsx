@@ -231,11 +231,12 @@ export function formatProperty(property: Record<string, any>): string {
 
 // Format a label that gets returned from the /insights api
 export function formatLabel(label: string, action: Record<string, any>): string {
-    const math = 'Total'
     if (action.math === 'dau') {
         label += ` (${action.math.toUpperCase()}) `
+    } else if (['sum', 'avg', 'min', 'max'].includes(action.math)) {
+        label += ` (${action.math} of ${action.math_property}) `
     } else {
-        label += ` (${math}) `
+        label += ' (Total) '
     }
     if (action?.properties?.length) {
         label += ` (${action.properties
