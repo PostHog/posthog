@@ -22,7 +22,10 @@ function _Persons({ cohort }: { cohort: CohortType }): JSX.Element {
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
-        setListFilters({ cohort: cohort.id })
+        if (cohort) {
+            setListFilters({ cohort: cohort.id })
+        }
+
         loadPersons()
     }, [])
 

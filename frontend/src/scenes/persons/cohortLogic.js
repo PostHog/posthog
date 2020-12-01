@@ -53,7 +53,7 @@ export const cohortLogic = kea({
                 cohortsModel.actions.updateCohort(cohort)
             } else {
                 cohort = await api.create('api/cohort', cohort)
-                cohortsModel.actions.createCohortSuccess(cohort)
+                cohortsModel.actions.createCohort(cohort)
             }
             sharedListeners.pollIsFinished(cohort)
         },
@@ -88,6 +88,7 @@ export const cohortLogic = kea({
                 })
                 actions.setLastSavedAt(new Date().toISOString())
                 actions.setCohort(cohort)
+                cohortsModel.actions.updateCohort(cohort)
                 actions.setToastId(null)
             }
         },

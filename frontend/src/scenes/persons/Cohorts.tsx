@@ -14,6 +14,7 @@ import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import './cohorts.scss'
 
 const cohortsUrlLogic = kea({
     actions: {
@@ -32,8 +33,10 @@ const cohortsUrlLogic = kea({
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }: Record<string, string>) => {
+            console.log(cohortId, values.openCohort)
             if (cohortId && cohortId !== 'new' && cohortId !== values.openCohort.id) {
-                const cohort = await api.get('cohort/' + cohortId)
+                console.log('hi')
+                const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
             }
         },
@@ -152,7 +155,7 @@ function _Cohorts(): JSX.Element {
                 />
                 <Drawer
                     title={openCohort.id === 'new' ? 'New cohort' : openCohort.name}
-                    width={'80%'}
+                    className="cohorts-drawer"
                     onClose={() => setOpenCohort(false)}
                     destroyOnClose={true}
                     visible={openCohort}

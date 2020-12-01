@@ -8,6 +8,8 @@ const POLL_TIMEOUT = 5000
 export const cohortsModel = kea<cohortsModelType<CohortType>>({
     actions: () => ({
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
+        updateCohort: (cohort: CohortType) => ({ cohort }),
+        createCohort: (cohort: CohortType) => ({ cohort }),
     }),
 
     loaders: () => ({
@@ -28,18 +30,17 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
             },
         ],
         cohorts: {
-            updateCohort: (state, cohort) => {
+            updateCohort: (state, { cohort }) => {
                 if (!cohort) {
-                    return null
+                    return state
                 }
                 return [...state].map((flag) => (flag.id === cohort.id ? cohort : flag))
             },
-            updateCohortSuccess: (state) => state,
-            createCohortSuccess: (state, { cohorts }) => {
-                if (!cohorts) {
+            createCohort: (state, { cohort }) => {
+                if (!cohort) {
                     return state
                 }
-                return [cohorts, ...state]
+                return [cohort, ...state]
             },
             deleteCohort: (state, cohort) => {
                 if (!cohort) {
