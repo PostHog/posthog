@@ -132,11 +132,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <PageHeader title="Sessions By Day" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker
-                    value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, sessionRecordingId)}
-                    allowClear={false}
-                />
+                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
