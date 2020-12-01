@@ -98,6 +98,7 @@
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
         "file-loader": "^6.1.0",
+        "given2": "^2.1.7",
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.4.1",
         "husky": "^4.3.0",
