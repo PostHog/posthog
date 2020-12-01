@@ -222,7 +222,7 @@ function _Insights() {
                                         />
                                     )}
 
-                                    {showComparePrevious[activeView] && <CompareFilter />}
+                                    {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
                                     <SaveToDashboard
                                         item={{
                                             type: determineInsightType(activeView, allFilters.display),
