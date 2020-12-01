@@ -14,8 +14,12 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
     const { loadResults: loadFunnel } = useActions(logic)
 
     function buildChart() {
-        if (!steps || steps.length === 0) return
-        if (container.current) container.current.innerHTML = ''
+        if (!steps || steps.length === 0) {
+            return
+        }
+        if (container.current) {
+            container.current.innerHTML = ''
+        }
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
@@ -40,8 +44,11 @@ export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId, cached
     }
 
     useEffect(() => {
-        if (stepsParam) buildChart()
-        else loadFunnel()
+        if (stepsParam) {
+            buildChart()
+        } else {
+            loadFunnel()
+        }
 
         window.addEventListener('resize', buildChart)
         return window.removeEventListener('resize', buildChart)

@@ -3,6 +3,7 @@ export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 export const ACTIONS_TABLE = 'ActionsTable'
 export const ACTIONS_PIE_CHART = 'ActionsPie'
 export const RETENTION_TABLE = 'RetentionTable'
+export const RETENTION_GRAPH = 'RetentionGraph'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
@@ -16,11 +17,13 @@ export const PIE_CHART_LABEL = 'Pie'
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
+    Owner = 15,
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'administrator'],
+    [OrganizationMembershipLevel.Owner, 'owner'],
 ])
 
 export enum AnnotationScope {
@@ -34,3 +37,5 @@ export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
+
+export const PERSON_DISTINCT_ID_MAX_SIZE = 3

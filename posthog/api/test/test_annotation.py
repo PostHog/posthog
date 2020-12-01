@@ -6,8 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
-
-from .base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestAnnotation(BaseTest):
@@ -118,7 +117,7 @@ class TestAPIAnnotation(APIBaseTest):
         )
 
     def test_deleting_annotation(self):
-        new_user = User.objects.create_and_join(self.organization, self.team, "new_annotations@posthog.com", None)
+        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = Annotation.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)

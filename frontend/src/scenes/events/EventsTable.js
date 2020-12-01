@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -11,12 +10,15 @@ import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
-import { PageHeader } from 'lib/components/PageHeader'
 import { eventToName, toParams } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import './EventsTable.scss'
+import { eventsTableLogic } from './eventsTableLogic'
+import { hot } from 'react-hot-loader/root'
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPersonPage = false }) {
+export const EventsTable = hot(_EventsTable)
+function _EventsTable({ fixedFilters, filtersEnabled = true }) {
+    const logic = eventsTableLogic({ fixedFilters })
     const {
         properties,
         eventsFormatted,
@@ -31,7 +33,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
     const {
         location: { search },
     } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -39,7 +40,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             render: function renderEvent(item) {
-                if (!item.event)
+                if (!item.event) {
                     return {
                         children: item.date_break
                             ? item.date_break
@@ -53,11 +54,17 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
                             },
                         },
                     }
+                }
                 let { event } = item
                 return eventToName(event)
             },
             filterIcon: function RenderFilterIcon() {
-                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} data-attr="event-filter-trigger" />
+                return (
+                    <SearchOutlined
+                        style={{ color: eventFilter && 'var(--primary)' }}
+                        data-attr="event-filter-trigger"
+                    />
+                )
             },
             filterDropdown: function RenderFilter({ confirm }) {
                 return (
@@ -90,7 +97,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             key: 'person',
             ellipsis: true,
             render: function renderPerson({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 return showLinkToPerson ? (
                     <Link
                         to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
@@ -107,9 +116,11 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             title: 'URL / Screen',
             key: 'url',
             render: function renderURL({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 let param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                if (filtersEnabled)
+                if (filtersEnabled) {
                     return (
                         <FilterPropertyLink
                             className={'ph-no-capture ' + rrwebBlockClass}
@@ -118,6 +129,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
                             filters={{ properties }}
                         />
                     )
+                }
                 return <Property value={event.properties[param]} />
             },
             ellipsis: true,
@@ -126,11 +138,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             title: 'Source',
             key: 'source',
             render: function renderSource({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
-                if (filtersEnabled)
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
+                if (filtersEnabled) {
                     return (
                         <FilterPropertyLink property="$lib" value={event.properties['$lib']} filters={{ properties }} />
                     )
+                }
                 return <Property value={event.properties['$lib']} />
             },
         },
@@ -138,7 +153,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
             title: 'When',
             key: 'when',
             render: function renderWhen({ event }) {
-                if (!event) return { props: { colSpan: 0 } }
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 return (
                     <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
                 )
@@ -148,9 +165,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
 
     return (
         <div className="events" data-attr="events-table">
-            <PageHeader
-                title={isPersonPage ? '' : !featureFlags['actions-ux-201012'] ? 'Events' : 'Raw Events Stream'}
-            />
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
             <Tooltip title="Up to 100,000 latest events.">
                 <Button
@@ -185,10 +199,15 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
                     rowClassName={(row) => {
-                        if (row.event)
+                        if (row.event) {
                             return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
-                        if (row.date_break) return 'event-day-separator'
-                        if (row.new_events) return 'event-row-new'
+                        }
+                        if (row.date_break) {
+                            return 'event-day-separator'
+                        }
+                        if (row.new_events) {
+                            return 'event-row-new'
+                        }
                     }}
                     expandable={{
                         expandedRowRender: function renderExpand({ event }) {
@@ -199,7 +218,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isPers
                     }}
                     onRow={(row) => ({
                         onClick: () => {
-                            if (row.new_events) prependNewEvents(newEvents)
+                            if (row.new_events) {
+                                prependNewEvents(newEvents)
+                            }
                         },
                     })}
                 />

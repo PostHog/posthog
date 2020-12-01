@@ -1,3 +1,5 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { PluginConfigSchema } from 'posthog-plugins'
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -7,8 +9,8 @@ export interface UserType {
     name: string
     opt_out_capture: null
     posthog_version: string
-    organization: OrganizationType
-    team: TeamType
+    organization: OrganizationType | null
+    team: TeamType | null
     toolbar_mode: 'disabled' | 'toolbar'
     organizations: OrganizationType[]
     teams: TeamType[]
@@ -50,6 +52,29 @@ export interface OrganizationType {
     billing_plan: string
     billing: OrganizationBilling
     teams: TeamType[]
+    membership_level: OrganizationMembershipLevel | null
+}
+
+export interface OrganizationMemberType {
+    joined_at: string
+    level: OrganizationMembershipLevel
+    membership_id: string
+    updated_at: string
+    user_email: string
+    user_first_name: string
+    user_id: number
+}
+
+export interface EventUsageType {
+    event: string
+    usage_count: number
+    volume: number
+}
+
+export interface PropertyUsageType {
+    key: string
+    usage_count: number
+    volume: number
 }
 
 export interface TeamType {
@@ -62,6 +87,8 @@ export interface TeamType {
     event_names: string[]
     event_properties: string[]
     event_properties_numerical: string[]
+    event_names_with_usage: EventUsageType[]
+    event_properties_with_usage: PropertyUsageType[]
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
@@ -130,6 +157,15 @@ export interface Entity {
     name: string
     order: number
     type: string
+}
+
+export interface PersonType {
+    id: number
+    uuid: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
 }
 
 export interface CohortType {
@@ -221,13 +257,7 @@ export interface OrganizationInviteType {
     id: string
     target_email: string
     updated_at: string
-}
-
-export interface PluginConfigSchema {
-    name: string
-    type: string
-    default: any
-    required: boolean
+    is_expired: boolean
 }
 
 export interface PluginType {
@@ -236,9 +266,7 @@ export interface PluginType {
     description: string
     url: string
     tag: string
-    config_schema: Record<string, PluginConfigSchema>
-    from_json: boolean
-    from_web: boolean
+    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     error?: PluginErrorType
 }
 

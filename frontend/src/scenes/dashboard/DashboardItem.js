@@ -34,6 +34,7 @@ import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { RetentionLineGraph } from 'scenes/retention/RetentionLineGraph'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -86,6 +87,19 @@ const typeMap = {
         element: RetentionTable,
         icon: TableOutlined,
         viewText: 'View table',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.Retention, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    RetentionGraph: {
+        className: 'retention-graph',
+        element: RetentionLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
@@ -149,10 +163,15 @@ export function DashboardItem({
     }
 
     const determineLogic = () => {
-        if (className === 'funnel') return funnelVizLogic(logicProps)
-        else if (className === 'retention') return retentionTableLogic(logicProps)
-        else if (className === 'paths') return pathsLogic(logicProps)
-        else return trendsLogic(logicProps)
+        if (className === 'funnel') {
+            return funnelVizLogic(logicProps)
+        } else if (className === 'retention') {
+            return retentionTableLogic(logicProps)
+        } else if (className === 'paths') {
+            return pathsLogic(logicProps)
+        } else {
+            return trendsLogic(logicProps)
+        }
     }
 
     const { loadResults } = useActions(determineLogic())
@@ -161,8 +180,11 @@ export function DashboardItem({
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
-        if (previousLoading && !resultsLoading && !initialLoaded) setInitialLoaded(true)
-        else if (previousLoading && !resultsLoading && initialLoaded) onRefresh()
+        if (previousLoading && !resultsLoading && !initialLoaded) {
+            setInitialLoaded(true)
+        } else if (previousLoading && !resultsLoading && initialLoaded) {
+            onRefresh()
+        }
     }, [resultsLoading])
 
     return (
@@ -179,7 +201,7 @@ export function DashboardItem({
             )}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'auto' : 'move' }}>
-                    <div className="dashboard-item-title">
+                    <div className="dashboard-item-title" data-attr="dashboard-item-title">
                         {inSharedMode ? (
                             item.name
                         ) : (
@@ -204,7 +226,8 @@ export function DashboardItem({
                             <Tooltip
                                 title={
                                     <i>
-                                        Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}
+                                        Refreshed:{' '}
+                                        {item.last_refresh ? moment(item.last_refresh).fromNow() : 'just now'}
                                     </i>
                                 }
                             >

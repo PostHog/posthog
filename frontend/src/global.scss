@@ -4,7 +4,6 @@ style files without adding already imported styles. */
 
 // Global components
 @import 'node_modules/react-toastify/dist/ReactToastify';
-@import 'node_modules/react-datepicker/dist/react-datepicker';
 @import './vars';
 
 :root {
@@ -14,6 +13,7 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{purple_500};
@@ -44,10 +44,14 @@ style files without adding already imported styles. */
     font-size: 10px;
 }
 
+.page-title-row {
+    margin-top: 16px;
+}
+
 .page-title {
     font-size: 28px;
     line-height: 34px;
-    margin-top: 32px;
+    margin-top: 0.5em;
     font-weight: 700;
     color: $text_default;
 }
@@ -58,8 +62,14 @@ style files without adding already imported styles. */
     margin-bottom: 32px;
 }
 
+.subtitle-row {
+    margin-top: 8px;
+}
+
 .subtitle {
-    margin-top: 24px;
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
@@ -113,6 +123,14 @@ style files without adding already imported styles. */
     margin-left: $default_spacing;
 }
 
+.mr-05 {
+    margin-right: $default_spacing * 0.5;
+}
+
+.ml-05 {
+    margin-left: $default_spacing * 0.5;
+}
+
 .pa {
     // Padding all
     padding: $default_spacing;
@@ -147,7 +165,8 @@ style files without adding already imported styles. */
 }
 
 .main-app-content {
-    padding: $default_spacing $default_spacing * 3;
+    /* top | horizontal | bottom */
+    padding: 0px $default_spacing * 3 $default_spacing * 3;
 
     @media (min-width: 480px) and (max-width: 639px) {
         padding: $default_spacing $default_spacing * 2 !important;
@@ -225,6 +244,10 @@ style files without adding already imported styles. */
 }
 
 // Card styles
+.ant-card-body > :first-child {
+    margin-top: 0;
+}
+
 .card-elevated {
     @extend .mixin-elevated;
 }
@@ -277,9 +300,22 @@ style files without adding already imported styles. */
     margin-left: 5px;
 }
 
+// Badges styles
+.badge {
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    background-color: $border_dark;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+}
+
 // Overlays styles
 #bottom-notice {
-    z-index: 1000000000;
+    z-index: 10500;
     display: flex;
     flex-direction: row;
     position: fixed;
@@ -343,5 +379,29 @@ style files without adding already imported styles. */
             height: 2rem;
             font-size: 1.25rem;
         }
+    }
+}
+
+// Overlays
+
+.overlay__parent {
+    position: relative;
+}
+
+.overlay__child {
+    transition: opacity 0.25s ease;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    .overlay--danger & {
+        background: repeating-linear-gradient(
+            -45deg,
+            rgba(255, 255, 255, 0.5),
+            rgba(255, 255, 255, 0.5) 0.75rem,
+            var(--danger) 0.5rem,
+            var(--danger) 20px
+        );
     }
 }

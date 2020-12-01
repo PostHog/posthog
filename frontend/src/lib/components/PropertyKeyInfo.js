@@ -243,10 +243,15 @@ export const keyMapping = {
 
 export function PropertyKeyInfo({ value, type = 'event' }) {
     let data
-    if (type === 'cohort') return value.name
-    else data = keyMapping[type][value]
+    if (type === 'cohort') {
+        return value.name
+    } else {
+        data = keyMapping[type][value]
+    }
 
-    if (!data) return value
+    if (!data) {
+        return value
+    }
 
     return (
         <Popover
@@ -263,6 +268,8 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                     {data.examples ? (
                         <>
                             <span>{data.description}</span>
+                            <br />
+                            <br />
                             <span>
                                 <i>Example: </i>
                                 {data.examples.join(', ')}

@@ -11,6 +11,7 @@ import { Tabs, Tag } from 'antd'
 import { OptInPlugins } from 'scenes/plugins/OptInPlugins'
 import { OptOutPlugins } from 'scenes/plugins/OptOutPlugins'
 import { LocalPlugin } from 'scenes/plugins/LocalPlugin'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const Plugins = hot(_Plugins)
 function _Plugins(): JSX.Element {
@@ -32,15 +33,22 @@ function _Plugins(): JSX.Element {
 
     return (
         <div>
-            {user.team.plugins_opt_in ? <OptOutPlugins /> : null}
-            <h1 className="page-header">
-                Plugins{' '}
-                <Tag color="orange" style={{ verticalAlign: 'top' }}>
-                    BETA
-                </Tag>
-            </h1>
+            <PageHeader
+                title={
+                    <>
+                        Plugins
+                        <sup>
+                            <Tag color="orange" style={{ marginLeft: 8 }}>
+                                BETA
+                            </Tag>
+                        </sup>
+                    </>
+                }
+                caption="Plugins enable you to extend PostHog's core functionality."
+                buttons={user.team?.plugins_opt_in && <OptOutPlugins />}
+            />
 
-            {user.team.plugins_opt_in ? (
+            {user.team?.plugins_opt_in ? (
                 <>
                     <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey)}>
                         <TabPane tab="Installed" key="installed">

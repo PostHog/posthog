@@ -2,11 +2,10 @@ from unittest.mock import patch
 
 from django.test.utils import tag
 
+from ee.api.test.base import APILicensedTest
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-
-from .base import APILicensedTest
 
 
 class TestTeamEnterpriseAPI(APILicensedTest):
@@ -22,12 +21,6 @@ class TestTeamEnterpriseAPI(APILicensedTest):
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-
-    def test_no_delete_last_team(self):
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-        response = self.client.delete(f"/api/projects/{self.team.id}")
-        self.assertEqual(response.status_code, 400)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_no_delete_team_not_administrating_organization(self):

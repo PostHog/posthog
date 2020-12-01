@@ -10,6 +10,7 @@ import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/PropertyFiltersDisplay'
 
 export const FeatureFlags = hot(_FeatureFlags)
 function _FeatureFlags() {
@@ -22,10 +23,12 @@ function _FeatureFlags() {
         {
             title: 'Name',
             dataIndex: 'name',
+            sorter: (a, b) => ('' + a.name).localeCompare(b.name),
         },
         {
             title: 'Key',
             dataIndex: 'key',
+            sorter: (a, b) => ('' + a.key).localeCompare(b.key),
         },
 
         {
@@ -37,11 +40,33 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
+            sorter: (a, b) => a.created_at > b.created_at,
         },
         {
             title: 'Created by',
             render: function RenderCreatedBy(_, featureFlag) {
                 return featureFlag.created_by.first_name || featureFlag.created_by.email
+            },
+            sorter: (a, b) =>
+                (a.created_by.first_name || a.created_by.email).localeCompare(
+                    b.created_by.first_name || b.created_by.email
+                ),
+        },
+        {
+            title: 'Rollout Percentage',
+            render: function RenderRolloutPercentage(_, featureFlag) {
+                return (
+                    <div data-attr="rollout-percentage">
+                        {featureFlag.rollout_percentage ? `${featureFlag.rollout_percentage}%` : 'N/A'}
+                    </div>
+                )
+            },
+            sorter: (a, b) => a.rollout_percentage - b.rollout_percentage,
+        },
+        {
+            title: 'Filters',
+            render: function RenderFilters(featureFlag) {
+                return <PropertyFiltersDisplay filters={featureFlag.filters?.properties} />
             },
         },
         {

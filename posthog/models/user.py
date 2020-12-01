@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
@@ -46,14 +47,13 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
             team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
             user.join(
-                organization=organization, team=team, level=OrganizationMembership.Level.ADMIN,
+                organization=organization, level=OrganizationMembership.Level.OWNER,
             )
             return organization, team, user
 
     def create_and_join(
         self,
         organization: Organization,
-        team: Optional[Team],
         email: str,
         password: Optional[str],
         first_name: str = "",
@@ -62,7 +62,7 @@ class UserManager(BaseUserManager):
     ) -> "User":
         with transaction.atomic():
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
-            membership = user.join(organization=organization, team=team or organization.teams.first(), level=level)
+            membership = user.join(organization=organization, level=level)
             return user
 
 
@@ -106,49 +106,40 @@ class User(AbstractUser):
         return Team.objects.filter(organization__in=self.organizations.all())
 
     @property
-    def organization(self) -> Organization:
+    def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
             self.current_organization = self.organizations.first()
-            assert self.current_organization is not None, "Null current organization is not supported yet!"
             self.save()
         return self.current_organization
 
     @property
-    def team(self) -> Team:
-        if self.current_team is None:
+    def team(self) -> Optional[Team]:
+        if self.current_team is None and self.organization is not None:
             self.current_team = self.organization.teams.first()
-            assert self.current_team is not None, "Null current team is not supported yet!"
             self.save()
         return self.current_team
 
     def join(
-        self,
-        *,
-        organization: Organization,
-        team: Optional[Team] = None,
-        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
-            if team is not None:
-                team.users.add(self)
             self.current_organization = organization
-            self.current_team = team or organization.teams.first()
+            self.current_team = organization.teams.first()
             self.save()
             return membership
 
-    def leave(self, *, organization: Organization, team: Optional[Team] = None) -> None:
+    def leave(self, *, organization: Organization) -> None:
+        membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
+        if membership.level == OrganizationMembership.Level.OWNER:
+            raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
-            OrganizationMembership.objects.get(user=self, organization=organization).delete()
-            if team is not None:
-                team.users.remove(self)
-            if self.organizations.exists():
-                self.delete()
-            else:
-                if self.current_organization == organization:
-                    self.current_organization = self.organizations.first()
-                if self.current_organization is not None:
-                    self.current_team = self.current_organization.teams.first()
+            membership.delete()
+            if self.current_organization == organization:
+                self.current_organization = self.organizations.first()
+                self.current_team = (
+                    None if self.current_organization is None else self.current_organization.teams.first()
+                )
                 self.save()
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

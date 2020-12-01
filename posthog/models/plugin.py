@@ -11,12 +11,13 @@ class Plugin(models.Model):
     config_schema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    from_json: models.BooleanField = models.BooleanField(default=False)
-    from_web: models.BooleanField = models.BooleanField(default=False)
     # Error installing or configuring this plugin (frontend: PluginErrorType)
     # - e.g: "could not find plugin.json" / "syntax error in index.js")
     # - error = { message: "Could not find plugin.json", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
+    # DEPRECATED: these were used when syncing posthog.json with the db on app start
+    from_json: models.BooleanField = models.BooleanField(default=False)
+    from_web: models.BooleanField = models.BooleanField(default=False)
 
 
 class PluginConfig(models.Model):
@@ -29,3 +30,13 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: JSONField = JSONField(default=None, null=True)
+
+
+class PluginAttachment(models.Model):
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key: models.CharField = models.CharField(max_length=200)
+    content_type: models.CharField = models.CharField(max_length=200)
+    file_name: models.CharField = models.CharField(max_length=200)
+    file_size: models.IntegerField = models.IntegerField()
+    contents: models.BinaryField = models.BinaryField()

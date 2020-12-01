@@ -2,30 +2,41 @@ from typing import Dict, Union
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, connection, connections
+from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.models import User
+from posthog.settings import TEST
 from posthog.utils import (
     get_redis_info,
     get_redis_queue_depth,
     get_table_approx_count,
     get_table_size,
+    is_celery_alive,
+    is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
 )
 
-from .utils import get_redis_heartbeat
+from .utils import get_celery_heartbeat
 
 
 def health(request):
-    return HttpResponse("ok", content_type="text/plain")
+    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    status = 503 if plan else 200
+    if status == 503:
+        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
+    if status == 200:
+        return HttpResponse("ok", status=status, content_type="text/plain")
 
 
 def stats(request):
     stats_response: Dict[str, Union[int, str]] = {}
-    stats_response["worker_heartbeat"] = get_redis_heartbeat()
+    stats_response["worker_heartbeat"] = get_celery_heartbeat()
     return JsonResponse(stats_response)
 
 
@@ -44,13 +55,12 @@ def system_status(request):
 
     metrics = list()
 
-    metrics.append({"metric": "Redis alive", "value": redis_alive})
-    metrics.append({"metric": "Postgres DB alive", "value": postgres_alive})
-
+    metrics.append({"key": "db_alive", "metric": "Postgres DB alive", "value": postgres_alive})
     if postgres_alive:
         postgres_version = connection.cursor().connection.server_version
         metrics.append(
             {
+                "key": "pg_version",
                 "metric": "Postgres server version",
                 "value": "{}.{}.{}".format(
                     int(postgres_version / 100 / 100), int(postgres_version / 100) % 100, postgres_version % 100
@@ -68,6 +78,7 @@ def system_status(request):
         )
         metrics.append({"metric": "Postgres Event table", "value": f"ca {event_table_count} rows ({event_table_size})"})
 
+    metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
         import redis
 
@@ -97,4 +108,14 @@ def system_status(request):
 
 @never_cache
 def preflight_check(request):
-    return JsonResponse({"django": True, "redis": is_redis_alive(), "db": is_postgres_alive()})
+    return JsonResponse(
+        {
+            "django": True,
+            "redis": is_redis_alive() or TEST,
+            "plugins": is_plugin_server_alive() or TEST,
+            "celery": is_celery_alive() or TEST,
+            "db": is_postgres_alive(),
+            "initiated": User.objects.exists(),
+            "cloud": settings.MULTI_TENANCY,
+        }
+    )

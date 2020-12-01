@@ -79,7 +79,9 @@ const MATHS = {
 const MATH_ENTRIES = Object.entries(MATHS)
 
 const determineFilterLabel = (visible, filter) => {
-    if (visible) return 'Hide filters'
+    if (visible) {
+        return 'Hide filters'
+    }
     if (filter.properties && Object.keys(filter.properties).length > 0) {
         return `${Object.keys(filter.properties).length} filter${
             Object.keys(filter.properties).length === 1 ? '' : 's'
@@ -126,8 +128,11 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
     const onClick = () => {
-        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
-        else selectFilter({ filter, type: filter.type, index })
+        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) {
+            selectFilter(null)
+        } else {
+            selectFilter({ filter, type: filter.type, index })
+        }
     }
 
     if (filter.type === EntityTypes.NEW_ENTITY) {
@@ -151,6 +156,17 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         {name || 'Select action'}
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
+                    {dropDownCondition() && (
+                        <ActionFilterDropdown
+                            logic={logic}
+                            onClickOutside={(e) => {
+                                if (node.current.contains(e.target)) {
+                                    return
+                                }
+                                selectFilter(null)
+                            }}
+                        />
+                    )}
                 </Col>
                 <Col>
                     {!hideMathSelector && (
@@ -205,17 +221,6 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         style={{ marginBottom: 0 }}
                     />
                 </div>
-            )}
-            {dropDownCondition() && (
-                <ActionFilterDropdown
-                    logic={logic}
-                    onClickOutside={(e) => {
-                        if (node.current.contains(e.target)) {
-                            return
-                        }
-                        selectFilter(null)
-                    }}
-                />
             )}
         </div>
     )

@@ -5,7 +5,7 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
@@ -45,7 +45,10 @@ function cleanFilters(filters) {
     return {
         ...filters,
         interval: autocorrectInterval(filters),
-        display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
+        display:
+            filters.session && filters.session === 'dist'
+                ? ACTIONS_TABLE
+                : filters.display || ACTIONS_LINE_GRAPH_LINEAR,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
@@ -64,7 +67,9 @@ function filterClientSideParams(filters) {
 }
 
 function autocorrectInterval({ date_from, interval }) {
-    if (!interval) return 'day' // undefined/uninitialized
+    if (!interval) {
+        return 'day'
+    } // undefined/uninitialized
 
     const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
     const hour_disabled = disableHourFor[date_from] && interval === 'hour'
@@ -124,7 +129,9 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (values.results.length === 0 && props.cachedResults) return props.cachedResults
+                if (values.results.length === 0 && props.cachedResults) {
+                    return props.cachedResults
+                }
                 let response
                 if (
                     props.view === ViewType.SESSIONS ||

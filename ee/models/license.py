@@ -42,4 +42,6 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = ["zapier", "organizations_projects"]
-    PLANS = {ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
+    PLANS = {
+        ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
+    }

@@ -27,8 +27,14 @@ export const dashboardsModel = kea({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             addDashboard: async ({ name, show = false, useTemplate = '' }) => {
-                const result = await api.create('api/dashboard', { name, pinned: true, use_template: useTemplate })
-                if (show) router.actions.push(`/dashboard/${result.id}`)
+                const result = await api.create('api/dashboard', {
+                    name,
+                    pinned: true,
+                    use_template: useTemplate,
+                })
+                if (show) {
+                    router.actions.push(`/dashboard/${result.id}`)
+                }
                 return result
             },
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),

@@ -1,11 +1,12 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-people]').click()
-        cy.get('[data-attr=menu-item-people-cohorts]').click()
+        cy.get('[data-attr=menu-item-people]').click() // TODO: Remove when releasing navigation-1775
+        cy.get('[data-attr=menu-item-cohorts]').click()
     })
     it('Cohorts new and list', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Cohorts')
+        cy.title().should('equal', 'Cohorts • PostHog')
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
@@ -28,7 +29,7 @@ describe('Cohorts', () => {
 
         // back to cohorts
         cy.get('h1').should('contain', 'Persons')
-        cy.get('[data-attr=menu-item-people-cohorts]').click()
+        cy.get('[data-attr=menu-item-cohorts]').click()
 
         cy.get('h1').should('contain', 'Cohorts')
         cy.get('.ant-empty').should('not.exist')

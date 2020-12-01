@@ -2,97 +2,142 @@ import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Layout } from 'antd'
+import { Alert, Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
+import { MainNavigation, TopNavigation } from '~/layout/navigation'
 import { TopContent } from '~/layout/TopContent'
-import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { BillingToolbar } from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
+import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/logic'
+import { Link } from 'lib/components/Link'
 
-const darkerScenes: Record<string, boolean> = {
-    dashboard: true,
-    insights: true,
-    funnel: true,
-    editFunnel: true,
-    paths: true,
-}
-
-const Toast = (): JSX.Element => {
+function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
 }
 
 export const App = hot(_App)
-function _App(): JSX.Element {
+function _App(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { scene, params, loadedScenes } = useValues(sceneLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
+    // used for legacy navigation [Sidebar.js]
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
-
-    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
-        // If user is already logged in, redirect away from unauthenticated routes like signup
-        if (user && unauthenticatedRoutes.includes(scene)) {
-            replace('/')
+        if (scene === Scene.Signup && !preflight.cloud && preflight.initiated) {
+            // If user is on an initiated self-hosted instance, redirect away from signup
+            replace('/login')
             return
         }
+    }, [scene, preflight])
 
-        // redirect to ingestion if not completed
-        if (currentTeam && !currentTeam.completed_snippet_onboarding && !location.pathname.startsWith('/ingestion')) {
+    useEffect(() => {
+        if (user) {
+            // If user is already logged in, redirect away from unauthenticated routes like signup
+            if (sceneConfig.unauthenticated) {
+                replace('/')
+                return
+            }
+            // Redirect to org/project creation if necessary
+            if (!currentOrganizationLoading && !currentOrganization?.id) {
+                if (location.pathname !== '/organization/create') {
+                    replace('/organization/create')
+                }
+                return
+            } else if (!currentTeamLoading && !currentTeam?.id) {
+                if (location.pathname !== '/project/create') {
+                    replace('/project/create')
+                }
+                return
+            }
+        }
+
+        // If ingestion tutorial not completed, redirect to it
+        if (
+            currentTeam?.id &&
+            !currentTeam.completed_snippet_onboarding &&
+            !location.pathname.startsWith('/ingestion')
+        ) {
             replace('/ingestion')
             return
         }
-    }, [scene, user])
+    }, [scene, user, currentOrganization, currentOrganizationLoading, currentTeam, currentTeamLoading])
+
+    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     if (!user) {
-        return unauthenticatedRoutes.includes(scene) ? (
+        return sceneConfig.unauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <Scene {...params} /> <Toast />
+                <SceneComponent {...params} /> <Toast />
             </Layout>
-        ) : (
-            <div />
-        )
+        ) : null
     }
 
-    if (scene === 'ingestion' || !scene) {
+    if (!scene || sceneConfig.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
-                <Scene user={user} {...params} />
+                {featureFlags['navigation-1775'] ? <TopNavigation /> : null}
+                <SceneComponent user={user} {...params} />
                 <Toast />
             </Layout>
         )
+    }
+
+    if (!currentOrganization?.id || !currentTeam?.id) {
+        return null
     }
 
     return (
         <>
             <UpgradeModal />
             <Layout>
-                <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+                {featureFlags['navigation-1775'] ? (
+                    <MainNavigation />
+                ) : (
+                    <Sidebar
+                        user={user}
+                        sidebarCollapsed={sidebarCollapsed}
+                        setSidebarCollapsed={setSidebarCollapsed}
+                    />
+                )}
                 <Layout
-                    className={`${darkerScenes[scene] && 'bg-mid'}${!sidebarCollapsed ? ' with-open-sidebar' : ''}`}
+                    className={`${sceneConfig.dark ? 'bg-mid' : ''}${
+                        !featureFlags['navigation-1775'] && !sidebarCollapsed ? ' with-open-sidebar' : ''
+                    }`}
                     style={{ minHeight: '100vh' }}
                 >
-                    <TopContent />
+                    {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
-                        <BillingToolbar />
-                        {currentTeam &&
-                        !currentTeam.ingested_event &&
-                        !['project', 'organization', 'instance', 'my'].some((prefix) => scene.startsWith(prefix)) ? (
-                            <SendEventsOverlay />
-                        ) : (
-                            <Scene user={user} {...params} />
+                        {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
+                        {currentTeam && !currentTeam.ingested_event && (
+                            <Alert
+                                type="warning"
+                                style={{ marginTop: featureFlags['navigation-1775'] ? '1rem' : 0 }}
+                                message={
+                                    <>
+                                        You haven't sent any events to this project yet. Grab{' '}
+                                        <Link to="/project/settings">a snippet or library</Link> to get started!
+                                    </>
+                                }
+                            />
                         )}
+                        <SceneComponent user={user} {...params} />
                         <Toast />
                     </Layout.Content>
                 </Layout>

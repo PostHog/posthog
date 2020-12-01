@@ -9,6 +9,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.utils import IntegrityError
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
@@ -21,7 +22,8 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
 
-statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 def _capture_ee(
@@ -53,9 +55,14 @@ def _capture_ee(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
-        pk=team_id
-    )
+    team = Team.objects.only(
+        "slack_incoming_webhook",
+        "event_names",
+        "event_properties",
+        "event_names_with_usage",
+        "event_properties_with_usage",
+        "anonymize_ips",
+    ).get(pk=team_id)
 
     if not team.anonymize_ips and "$ip" not in properties:
         properties["$ip"] = ip
@@ -93,7 +100,7 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
                 # otherwise we can't get a diff to add to now
                 return now + (parser.isoparse(data["timestamp"]) - sent_at)
             except TypeError as e:
-                pass
+                capture_exception(e)
         return parser.isoparse(data["timestamp"])
     now_datetime = now
     if data.get("offset"):
@@ -178,8 +185,8 @@ def log_event(
         "site_url": site_url,
         "data": json.dumps(data),
         "team_id": team_id,
-        "now": now.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M:%S.%f") if sent_at else "",
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
     }
     p = KafkaProducer()
     p.produce(topic=KAFKA_EVENTS_WAL, data=data)

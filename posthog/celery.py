@@ -32,7 +32,8 @@ app.conf.broker_pool_limit = 0
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
 
-statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 @app.on_after_configure.connect
@@ -63,12 +64,12 @@ def setup_periodic_tasks(sender, **kwargs):
 
     if not is_ee_enabled():
         sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
-        sender.add_periodic_task(15 * 60, calculate_cohort.s(15), name="recalculate cohorts")
     else:
         # ee enabled scheduled tasks
-        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse event table lag")
-        sender.add_periodic_task(120, clickhouse_events_count.s(), name="clickhouse events table row count")
-        sender.add_periodic_task(60 * 60, calculate_cohort.s(), name="recalculate cohorts")
+        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
+        sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+
+    sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
@@ -84,28 +85,35 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "session_recording_events"]
+
+
 @app.task(ignore_result=True)
 def clickhouse_lag():
     if is_ee_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
-        QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from events;"""
-        lag = sync_execute(QUERY)[0][2]
-        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        g.send("clickhouse_events_table_lag_seconds", lag)
+        for table in CLICKHOUSE_TABLES:
+            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+            query = QUERY.format(table=table)
+            lag = sync_execute(query)[0][2]
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
     else:
         pass
 
 
 @app.task(ignore_result=True)
-def clickhouse_events_count():
+def clickhouse_row_count():
     if is_ee_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
-        QUERY = """select count(1) freq from events;"""
-        rows = sync_execute(QUERY)[0][0]
-        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-        g.send("clickhouse_events_table_row_count", rows)
+        for table in CLICKHOUSE_TABLES:
+            QUERY = """select count(1) freq from {table};"""
+            query = QUERY.format(table=table)
+            rows = sync_execute(query)[0][0]
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
     else:
         pass
 
@@ -160,10 +168,10 @@ def calculate_event_action_mappings():
 
 
 @app.task(ignore_result=True)
-def calculate_cohort(max_age_minutes):
+def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts(max_age_minutes)
+    calculate_cohorts()
 
 
 @app.task(ignore_result=True)
@@ -191,3 +199,10 @@ def send_weekly_email_report():
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print("Request: {0!r}".format(self.request))
+
+
+@app.task(ignore_result=True)
+def calculate_event_property_usage():
+    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
+
+    calculate_event_property_usage()

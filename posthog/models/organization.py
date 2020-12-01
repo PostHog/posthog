@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
+from rest_framework import exceptions
 
 from .utils import UUIDModel, sane_repr
 
@@ -11,11 +12,6 @@ try:
     from ee.models.license import License
 except ImportError:
     License = None  # type: ignore
-
-try:
-    from multi_tenancy.models import OrganizationBilling
-except ImportError:
-    OrganizationBilling = None
 
 
 class OrganizationManager(models.Manager):
@@ -28,7 +24,7 @@ class OrganizationManager(models.Manager):
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
             organization_membership = OrganizationMembership.objects.create(
-                organization=organization, user=user, level=OrganizationMembership.Level.ADMIN
+                organization=organization, user=user, level=OrganizationMembership.Level.OWNER
             )
             team = Team.objects.create(organization=organization, **(team_fields or {}))
             user.current_organization = organization
@@ -51,31 +47,41 @@ class Organization(UUIDModel):
     objects = OrganizationManager()
 
     @property
-    def billing_plan(self) -> Optional[str]:
-        # If the EE folder is missing no features are available
-        if not settings.EE_AVAILABLE:
-            return None
-        # If we're on Cloud, grab the organization's price
-        if OrganizationBilling is not None:
-            try:
-                return OrganizationBilling.objects.get(organization_id=self.id).get_plan_key()
-            except OrganizationBilling.DoesNotExist:
-                return None
+    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Obtains details on the billing plan for the organization.
+        Returns a tuple with (billing_plan_key, billing_realm)
+        """
+
+        # If on Cloud, grab the organization's price
+        if hasattr(self, "billing"):
+            if self.billing is None:  # type: ignore
+                return (None, None)
+            return (self.billing.get_plan_key(), "cloud")  # type: ignore
+
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.filter(valid_until__gte=timezone.now()).first()
             if license:
-                return license.plan
-        return None
+                return (license.plan, "ee")
+        return (None, None)
+
+    @property
+    def billing_plan(self) -> Optional[str]:
+        return self._billing_plan_details[0]
 
     @property
     def available_features(self) -> List[str]:
-        plan = self.billing_plan
+        plan, realm = self._billing_plan_details
         if not plan:
             return []
-        if plan not in License.PLANS:
-            return []
-        return License.PLANS[plan]
+
+        if realm == "ee":
+            if plan not in License.PLANS:
+                return []
+            return License.PLANS[plan]
+
+        return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
@@ -90,6 +96,7 @@ class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
+        OWNER = 15, "owner"
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="memberships", related_query_name="membership"
@@ -108,11 +115,39 @@ class OrganizationMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization_id", "user_id"], name="unique_organization_membership")
+            models.UniqueConstraint(fields=["organization_id", "user_id"], name="unique_organization_membership"),
+            models.UniqueConstraint(
+                fields=["organization_id"], condition=models.Q(level=15), name="only_one_owner_per_organization"
+            ),
         ]
 
     def __str__(self):
         return str(self.Level(self.level))
+
+    def validate_update(
+        self, membership_being_updated: "OrganizationMembership", new_level: Optional[Level] = None
+    ) -> None:
+        if new_level is not None:
+            if membership_being_updated.id == self.id:
+                raise exceptions.PermissionDenied("You can't change your own access level.")
+            if new_level == OrganizationMembership.Level.OWNER:
+                if self.level != OrganizationMembership.Level.OWNER:
+                    raise exceptions.PermissionDenied(
+                        "You can only pass on organization ownership if you're its owner."
+                    )
+                self.level = OrganizationMembership.Level.ADMIN
+                self.save()
+            elif new_level > self.level:
+                raise exceptions.PermissionDenied(
+                    "You can only change access level of others to lower or equal to your current one."
+                )
+        if membership_being_updated.id != self.id:
+            if membership_being_updated.organization_id != self.organization_id:
+                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+            if self.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
+            if membership_being_updated.level > self.level:
+                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     __repr__ = sane_repr("organization", "user", "level")
 
@@ -151,12 +186,8 @@ class OrganizationInvite(UUIDModel):
     def use(self, user: Any, *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        self.organization.members.add(user)
-        if user.current_organization is None:
-            user.current_organization = self.organization
-            user.current_team = user.current_organization.teams.first()
-            user.save()
-        self.delete()
+        user.join(organization=self.organization)
+        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than 3 days."""

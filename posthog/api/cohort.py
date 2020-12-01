@@ -2,9 +2,12 @@ from typing import Any, Dict, Optional
 
 from django.db.models import Count, QuerySet
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.models import Cohort
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.tasks.calculate_cohort import calculate_cohort
 
 
@@ -30,7 +33,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["is_calculating"] = True
-        cohort = Cohort.objects.create(team=request.user.team, **validated_data)
+        cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
         calculate_cohort.delay(cohort_id=cohort.pk)
         return cohort
 
@@ -49,14 +52,17 @@ class CohortSerializer(serializers.ModelSerializer):
         return None
 
 
-class CohortViewSet(viewsets.ModelViewSet):
+class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))
-        return queryset.filter(team=self.request.user.team).select_related("created_by").order_by("id")
+        return queryset.select_related("created_by").order_by("id")

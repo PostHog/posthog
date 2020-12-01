@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
@@ -36,10 +36,7 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
                 table=table,
             )
 
-    if filter.date_to:
-        _date_to = filter.date_to
-    else:
-        _date_to = timezone.now()
+    _date_to = filter.date_to
 
     date_to = "and {table}timestamp <= '{}'".format(
         _date_to.strftime(

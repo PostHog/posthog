@@ -20,8 +20,8 @@ def send_weekly_email_reports() -> None:
         logger.info("Skipping send_weekly_email_report because email is not properly configured")
         return
 
-    for team in Team.objects.all():
-        _send_weekly_email_report_for_team.delay(team_id=team.pk,)
+    for team in Team.objects.order_by("pk"):
+        _send_weekly_email_report_for_team.delay(team_id=team.pk)
 
 
 @app.task(ignore_result=True, max_retries=1)

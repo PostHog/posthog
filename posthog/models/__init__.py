@@ -9,13 +9,13 @@ from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
 from .feature_flag import FeatureFlag
-from .filter import Filter
+from .filters import Filter, RetentionFilter
 from .funnel import Funnel
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
-from .plugin import Plugin, PluginConfig
+from .plugin import Plugin, PluginAttachment, PluginConfig
 from .property import Property
 from .session_recording_event import SessionRecordingEvent
 from .team import Team

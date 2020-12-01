@@ -22,7 +22,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -35,16 +35,17 @@ class ClickhouseActionSerializer(ActionSerializer):
             query, params = format_action_filter(action)
             if query == "":
                 return None
-            return sync_execute("SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query), params)[
-                0
-            ][0]
+            return sync_execute(
+                "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+                {"team_id": action.team_id, **params},
+            )[0][0]
         return None
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
 
-class ClickhouseActions(ActionViewSet):
+class ClickhouseActionsViewSet(ActionViewSet):
     serializer_class = ClickhouseActionSerializer
 
     # Don't calculate actions in Clickhouse as it's on the fly
@@ -58,8 +59,7 @@ class ClickhouseActions(ActionViewSet):
 
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         shown_as = request.GET.get("shown_as")
 
@@ -177,8 +177,8 @@ class ClickhouseActions(ActionViewSet):
 
         content_sql = PERSON_TREND_SQL.format(
             entity_filter=entity_sql,
-            parsed_date_from=(parsed_date_from or ""),
-            parsed_date_to=(parsed_date_to or ""),
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
             filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,

@@ -7,16 +7,19 @@ from django.db.models import QuerySet
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
-from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
-from posthog.models import DashboardItem, Filter, Person
+from posthog.decorators import CacheType, cached_function
+from posthog.models import DashboardItem, Filter, Person, Team
 from posthog.models.action import Action
+from posthog.models.filters import RetentionFilter
+from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
-from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-from posthog.utils import generate_cache_key, request_to_date_query
+from posthog.utils import generate_cache_key
 
 
 class InsightSerializer(serializers.ModelSerializer):
@@ -43,9 +46,8 @@ class InsightSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
-
         request = self.context["request"]
-        team = request.user.team
+        team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None):
@@ -71,13 +73,16 @@ class InsightSerializer(serializers.ModelSerializer):
         return result["result"]
 
 
-class InsightViewSet(viewsets.ModelViewSet):
+class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)
 
@@ -87,7 +92,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         else:
             queryset = queryset.order_by("order")
 
-        return queryset.filter(team=self.request.user.team)
+        return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -126,9 +131,9 @@ class InsightViewSet(viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=TRENDS_ENDPOINT)
+    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
@@ -149,7 +154,9 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.request.user.team
+        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
+
+        team = self.team
 
         filter = Filter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
@@ -169,7 +176,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = self.request.user.team
+        team = self.team
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
@@ -211,7 +218,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
-        team = request.user.team
+        team = self.team
         refresh = request.GET.get("refresh", None)
 
         filter = Filter(request=request)
@@ -231,7 +238,7 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
 
-        task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+        task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
@@ -250,8 +257,8 @@ class InsightViewSet(viewsets.ModelViewSet):
         return Response({"data": result})
 
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = request.user.team
-        filter = Filter(request=request)
+        team = self.team
+        filter = RetentionFilter(request=request)
         if not filter.date_from:
             filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
@@ -270,7 +277,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         return Response(result)
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = request.user.team
+        team = self.team
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
