@@ -1,7 +1,3 @@
-# Would love a clickhouse CTE right about here
-
-from posthog.models import event
-
 RETENTION_SQL = """
 SELECT
     datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), reference_event.event_date) as period_to_event_days,
