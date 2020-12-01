@@ -3,8 +3,8 @@ import { PluginsServer, PluginsServerConfig } from './types'
 import { version } from '../package.json'
 import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
-import schedule from 'node-schedule'
-import Redis from 'ioredis'
+import * as schedule from 'node-schedule'
+import * as Redis from 'ioredis'
 import { startWebServer, stopWebServer } from './web/server'
 
 export const defaultConfig: PluginsServerConfig = {
