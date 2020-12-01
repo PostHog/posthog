@@ -11,7 +11,7 @@ module.exports = {
     },
     overrides: [
         {
-            files: '**/__tests__/**/*.ts',
+            files: ['**/__tests__/**/*.ts', 'src/celery/**/*.ts'],
             rules: {
                 '@typescript-eslint/no-explicit-any': 'off',
             },

@@ -2,7 +2,7 @@ import { fastify, FastifyRequest, FastifyReply } from 'fastify'
 
 export const webServer = fastify()
 
-async function getEvent(request: FastifyRequest, reply: FastifyReply): Promise<Record<string, any>> {
+async function getEvent(request: FastifyRequest, reply: FastifyReply): Promise<Record<string, unknown>> {
     return {}
 }
 
