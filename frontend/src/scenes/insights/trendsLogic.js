@@ -5,7 +5,13 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
+import {
+    STICKINESS,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_TABLE,
+    LIFECYCLE,
+} from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
