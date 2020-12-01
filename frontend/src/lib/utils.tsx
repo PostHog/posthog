@@ -170,28 +170,6 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
     }),
 }
 
-export function debounce(
-    func: (...args: any) => void,
-    wait: number,
-    immediate: boolean = false,
-    ...args: any
-): () => void {
-    let timeout: number | undefined
-    return function (this: any) {
-        const callNow = immediate && !timeout
-        clearTimeout(timeout)
-        timeout = window.setTimeout(() => {
-            timeout = undefined
-            if (!immediate) {
-                func.apply(this, args)
-            }
-        }, wait)
-        if (callNow) {
-            func.apply(this, args)
-        }
-    }
-}
-
 export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
