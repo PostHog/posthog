@@ -28,7 +28,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr=success-toast]').should('exist')
 
         // back to cohorts
-        cy.get('.ant-drawer-mask').click()
+        cy.get('.ant-drawer-close').click({ force: true })
         cy.get('.ant-table-tbody > tr').contains('Test cohort')
     })
 })
