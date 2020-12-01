@@ -65,16 +65,18 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     })
     console.info(`✅ Started posthog-plugin-server v${version}!`)
 
+    const closeJobs = async () => {
+        if (!serverConfig.DISABLE_WEB) {
+            await stopWebServer()
+        }
+        await stopWorker()
+        pubSub.disconnect()
+        schedule.cancelJob(job)
+        await redis.quit()
+        await db.end()
+    }
+
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, async () => {
-            if (!serverConfig.DISABLE_WEB) {
-                await stopWebServer()
-            }
-            await stopWorker()
-            pubSub.disconnect()
-            schedule.cancelJob(job)
-            await redis.quit()
-            await db.end()
-        })
+        process.on(signal, closeJobs)
     }
 }
