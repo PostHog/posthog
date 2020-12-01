@@ -9,11 +9,35 @@ import { prompt } from 'lib/logic/prompt'
 import moment from 'moment'
 
 const saveToDashboardModalLogic = kea({
+    connect: {
+        values: [dashboardsModel, ['dashboards', 'lastDashboardId']],
+    },
+
     actions: () => ({
         addNewDashboard: true,
+        setDashboardId: (id) => ({ id }),
     }),
 
-    listeners: ({ props }) => ({
+    reducers: {
+        _dashboardId: [null, { setDashboardId: (_, { id }) => id }],
+    },
+
+    selectors: ({ props, selectors }) => ({
+        dashboardId: [
+            () => [selectors._dashboardId, selectors.lastDashboardId, selectors.dashboards],
+            (_dashboardId, lastDashboardId, dashboards) =>
+                _dashboardId ||
+                props.fromDashboard ||
+                lastDashboardId ||
+                (dashboards.length > 0 ? dashboards[0].id : null),
+        ],
+    }),
+
+    listeners: ({ actions }) => ({
+        setDashboardId: ({ id }) => {
+            dashboardsModel.actions.setLastDashboardId(id)
+        },
+
         addNewDashboard: async () => {
             prompt({ key: `saveToDashboardModalLogic-new-dashboard` }).actions.prompt({
                 title: 'New dashboard',
@@ -25,7 +49,7 @@ const saveToDashboardModalLogic = kea({
         },
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            props.setDashboardId && props.setDashboardId(dashboard.id)
+            actions.setDashboardId(dashboard.id)
         },
     }),
 })
@@ -44,11 +68,10 @@ export function SaveToDashboardModal({
     fromItemName,
     annotations,
 }) {
-    const { dashboards, lastVisitedDashboardId } = useValues(dashboardsModel)
-    const [dashboardId, setDashboardId] = useState(
-        fromDashboard || lastVisitedDashboardId || (dashboards.length > 0 ? dashboards[0].id : null)
-    )
-    const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
+    const { dashboards } = useValues(dashboardsModel)
+    const logic = saveToDashboardModalLogic({ fromDashboard })
+    const { dashboardId } = useValues(logic)
+    const { addNewDashboard, setDashboardId } = useActions(logic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
