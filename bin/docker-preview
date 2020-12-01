@@ -12,5 +12,5 @@ export SECRET_KEY="This is pre-prod preview"
 /etc/init.d/postgresql start > /dev/null
 /etc/init.d/redis-server start > /dev/null
 
-DEBUG=1 ./bin/docker-worker &
+./bin/docker-worker &
 gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:8000 --log-file -
