@@ -117,14 +117,12 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                 </div>
                 <div>
                     <div style={{ margin: '1rem 0 0.5rem' }}>
-                        {!user.is_multi_tenancy && (
-                            <>
-                                <Alert
-                                    message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
-                                    type="info"
-                                />
-                                <div className="mb" />
-                            </>
+                        {user?.is_multi_tenancy && (
+                            <Alert
+                                className="mb"
+                                message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
+                                type="info"
+                            />
                         )}
                         <input
                             id="webhook-checkbox"
@@ -141,7 +139,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                             style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
                             htmlFor="webhook-checkbox"
                         >
-                            Post to Slack/Teams when this action is triggered.
+                            Post to webhook when this action is triggered.
                         </label>{' '}
                         <Link to="/project/settings#webhook">
                             {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
@@ -150,7 +148,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryTo
                             <>
                                 <Input
                                     addonBefore="Message format (optional)"
-                                    placeholder="try: [action.name] triggered by [user.name]"
+                                    placeholder="Default: [action.name] triggered by [user.name]"
                                     value={action.slack_message_format}
                                     onChange={(e) => {
                                         setAction({ ...action, slack_message_format: e.target.value })
