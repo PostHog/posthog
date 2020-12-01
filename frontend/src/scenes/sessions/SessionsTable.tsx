@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
+import { InfoCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -14,7 +14,6 @@ import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from './SessionsPlay'
 
 interface SessionsTableProps {
@@ -26,7 +25,12 @@ function SessionPlayerDrawer(): JSX.Element {
     const { closeSessionPlayer } = useActions(sessionsTableLogic)
     return (
         <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
-            <SessionsPlay />
+            <>
+                <a onClick={closeSessionPlayer}>
+                    <ArrowLeftOutlined /> Back to sessions
+                </a>
+                <SessionsPlay />
+            </>
         </Drawer>
     )
 }
