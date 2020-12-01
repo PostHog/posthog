@@ -9,4 +9,12 @@ module.exports = {
         '@typescript-eslint/no-non-null-assertion': 'off',
         curly: 'error',
     },
+    overrides: [
+        {
+            files: '**/__tests__/**/*.ts',
+            rules: {
+                '@typescript-eslint/no-explicit-any': 'off',
+            },
+        },
+    ],
 }
