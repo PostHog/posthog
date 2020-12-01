@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from django.utils import timezone
@@ -26,15 +26,17 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str, dict]:
 
     _date_to = filter.date_to
 
-    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter), table=table,)
-    params.update({"date_to": format_ch_timestamp(_date_to, filter)})
+    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(timestamp: datetime, filter: Filter):
+def format_ch_timestamp(timestamp: datetime, filter: Filter, default_hour_min: str = " 00:00:00"):
     return timestamp.strftime(
-        "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00")
+        "%Y-%m-%d{}".format(
+            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else default_hour_min
+        )
     )
 
 
