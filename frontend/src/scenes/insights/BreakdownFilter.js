@@ -138,7 +138,7 @@ export function BreakdownFilter({ filters, onChange }) {
                     }}
                 />
             }
-            trigger="click"
+            trigger={shown_as == 'Stickiness' || shown_as == 'Lifecycle' ? 'none' : 'click'}
             placement="bottomLeft"
         >
             <Tooltip

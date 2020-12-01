@@ -6,19 +6,12 @@ export const compareFilterLogic = kea({
     actions: () => ({
         setCompare: (compare) => ({ compare }),
         toggleCompare: true,
-        setDisabled: (disabled) => ({ disabled }),
     }),
     reducers: ({ actions }) => ({
         compare: [
             false,
             {
                 [actions.setCompare]: (_, { compare }) => compare,
-            },
-        ],
-        disabled: [
-            false,
-            {
-                [actions.setDisabled]: (_, { disabled }) => disabled,
             },
         ],
     }),
@@ -38,16 +31,9 @@ export const compareFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { compare, shown_as }) => {
+        '/insights': (_, { compare }) => {
             if (compare) {
                 actions.setCompare(compare)
-            }
-
-            if (shown_as === 'Lifecycle') {
-                actions.setCompare(false)
-                actions.setDisabled(true)
-            } else {
-                actions.setDisabled(false)
             }
         },
     }),

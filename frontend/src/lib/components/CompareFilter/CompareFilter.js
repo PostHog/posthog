@@ -4,7 +4,7 @@ import { Checkbox } from 'antd'
 import { compareFilterLogic } from './compareFilterLogic'
 
 export function CompareFilter() {
-    const { compare, disabled } = useValues(compareFilterLogic)
+    const { compare } = useValues(compareFilterLogic)
     const { setCompare } = useActions(compareFilterLogic)
     return (
         <Checkbox
@@ -13,7 +13,6 @@ export function CompareFilter() {
             }}
             checked={compare}
             style={{ marginLeft: 8, marginRight: 6 }}
-            disabled={disabled}
         >
             Compare Previous
         </Checkbox>
