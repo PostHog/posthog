@@ -22,7 +22,11 @@ export async function getFileFromArchive(archive: Buffer, file: string): Promise
     try {
         return getFileFromZip(archive, file)
     } catch (e) {
-        return await getFileFromTGZ(archive, file)
+        try {
+            return await getFileFromTGZ(archive, file)
+        } catch (e) {
+            throw new Error(`Could not read archive as .zip or .tgz`)
+        }
     }
 }
 
@@ -55,6 +59,9 @@ export async function getFileFromTGZ(archive: Buffer, file: string): Promise<str
         extract.on('finish', function () {
             resolve(fileData)
         })
+
+        extract.on('error', reject)
+
         stream.pipe(gunzip()).pipe(extract)
     })
 
