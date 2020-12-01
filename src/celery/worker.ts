@@ -185,6 +185,6 @@ export default class Worker extends Base {
             console.log(`No tasks in progress, shutting down celery worker`)
         }
 
-        this.disconnect()
+        await this.disconnect()
     }
 }
