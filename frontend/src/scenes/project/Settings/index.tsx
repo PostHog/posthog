@@ -17,18 +17,50 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { CommentOutlined, SendOutlined, CheckOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
+import posthog from 'posthog-js'
 
 export const Setup = hot(_Setup)
-function _Setup({ user }) {
+function _Setup(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
+
+    const { activateFlow, showPalette } = useActions(commandPaletteLogic)
+
+    const shareFeedback = (instruction: string = "What's on your mind?"): void => {
+        showPalette()
+        activateFlow({
+            scope: 'Sharing Feedback',
+            instruction,
+            icon: CommentOutlined,
+            resolver: (argument) => ({
+                icon: SendOutlined,
+                display: 'Send',
+                executor: !argument?.length
+                    ? undefined
+                    : () => {
+                          posthog.capture('palette feedback', { message: argument })
+                          return {
+                              resolver: {
+                                  icon: CheckOutlined,
+                                  display: 'Message Sent!',
+                                  executor: true,
+                              },
+                          }
+                      },
+            }),
+        })
+    }
 
     useAnchor(location.hash)
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title={`Project Settings – ${user.team.name}`} />
+            <PageHeader title={`Project Settings${user ? `– ${user.team?.name}` : ''}`} />
             <Card>
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -117,10 +149,8 @@ function _Setup({ user }) {
                 <OptInSessionRecording />
                 <p>
                     This is a new feature of PostHog. Please{' '}
-                    <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                        share feedback
-                    </a>{' '}
-                    with us!
+                    <a onClick={() => shareFeedback('How can we improve session recording?')}>share feedback</a> with
+                    us!
                 </p>
                 <Divider />
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">
