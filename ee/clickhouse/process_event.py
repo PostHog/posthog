@@ -21,7 +21,6 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
 
-
 kafka_producer = None
 
 if settings.STATSD_HOST is not None:
