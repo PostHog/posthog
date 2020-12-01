@@ -4,7 +4,6 @@ from typing import Dict, Optional
 from uuid import UUID
 
 import statsd
-from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -24,6 +23,8 @@ from posthog.tasks.process_event import handle_identify_or_alias, store_names_an
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+
+kafka_producer = KafkaProducer()
 
 
 def _capture_ee(
@@ -188,5 +189,4 @@ def log_event(
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
     }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_EVENTS_WAL, data=data)
+    kafka_producer.produce(topic=KAFKA_EVENTS_WAL, data=data)

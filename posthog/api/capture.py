@@ -16,7 +16,7 @@ from posthog.models import Team
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import log_event, process_event_ee
+    from ee.clickhouse.process_event import log_event
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -166,7 +166,8 @@ def get_event(request):
             )
 
         if is_ee_enabled():
-            process_event_ee(
+            # log the event to Kafka write-ahead log to be picked up by posthog-plugin-server
+            log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
                 site_url=request.build_absolute_uri("/")[:-1],
@@ -177,11 +178,11 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            celery_queue = settings.CELERY_DEFAULT_QUEUE
             if team.plugins_opt_in:
-                task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
-
+                task_name += "_with_plugins"
+            else:
+                celery_queue = settings.CELERY_DEFAULT_QUEUE
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
@@ -196,16 +197,5 @@ def get_event(request):
                 ],
             )
 
-        if is_ee_enabled() and settings.LOG_TO_WAL:
-            # log the event to kafka write ahead log for processing
-            log_event(
-                distinct_id=distinct_id,
-                ip=get_ip_address(request),
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.id,
-                now=now,
-                sent_at=sent_at,
-            )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))
