@@ -6,7 +6,7 @@ from django.db.models.query import Prefetch
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import get_persons_by_distinct_ids
+from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
@@ -140,7 +140,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "limit": limit,
             },
         )
-        people = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=[p[0] for p in result])
+        people = get_persons_by_uuids(team_id=team_id, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
