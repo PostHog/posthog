@@ -44,7 +44,7 @@ const cohortsUrlLogic = kea({
     }),
 })
 
-export const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
+const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
         keys: ['name'],
         threshold: 0.3,

@@ -292,6 +292,9 @@ export const sceneLogic = kea<sceneLogicType>({
                                 : values.loadedScenes['404'].component,
                         logic: logic,
                     }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
+                    }
                 }
                 actions.setLoadedScene(scene, loadedScene)
             }

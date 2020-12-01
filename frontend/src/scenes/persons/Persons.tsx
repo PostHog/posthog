@@ -91,6 +91,7 @@ function _Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                     people={persons.results}
                     loading={personsLoading}
                     actions={true}
+                    cohort={cohort}
                     onChange={() => loadPersons()}
                 />
 
