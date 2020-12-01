@@ -103,12 +103,14 @@ export function SaveToDashboardModal({
                         value={`${newItem}`}
                         style={{ display: 'block', marginBottom: newItem ? 30 : 0 }}
                     >
-                        <Radio style={radioStyle} value={'false'}>
-                            Update the existing panel "{fromItemName}" on "{fromDashboardName}"
-                        </Radio>
-                        <Radio style={radioStyle} value={'true'}>
-                            Add as a new panel
-                        </Radio>
+                        <pre>
+                            <Radio style={radioStyle} value={'false'}>
+                                Update the existing panel "{fromItemName}" on "{fromDashboardName}"
+                            </Radio>
+                            <Radio style={radioStyle} value={'true'}>
+                                Add as a new panel
+                            </Radio>
+                        </pre>
                     </Radio.Group>
                 ) : null}
                 {newItem ? (
