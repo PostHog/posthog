@@ -29,6 +29,6 @@ describe('Cohorts', () => {
 
         // back to cohorts
         cy.get('.ant-drawer-close').click({ force: true })
-        cy.get('.ant-table-tbody > tr').contains('Test cohort')
+        cy.get('.ant-table-tbody').contains('Test Cohort')
     })
 })
