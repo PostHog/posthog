@@ -10,6 +10,8 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.ee import is_ee_enabled
+from posthog.management.commands.generate_app_data import generate_app_data
+from posthog.management.commands.generate_revenue_data import generate_revenue_data
 from posthog.models import (
     Action,
     ActionStep,
@@ -23,13 +25,13 @@ from posthog.models import (
     Team,
 )
 from posthog.models.utils import UUIDT
-from posthog.utils import render_template
+from posthog.utils import recalculate_actions, render_template
 
 ORGANIZATION_NAME = "HogFlix"
 TEAM_NAME = "HogFlix Demo App"
 
 
-def _create_anonymous_users(team: Team, base_url: str) -> None:
+def _create_users(team: Team, base_url: str, organization: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
         demo_data = json.load(demo_data_file)
 
@@ -162,6 +164,15 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
+    for index, person in enumerate(Person.objects.filter(team=team)):
+        if index > 0 and index % 14 == 0:
+            days_ago -= 1
+
+        distinct_id = str(UUIDT())
+        distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
+
+    generate_app_data(org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids)
+    generate_revenue_data(org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids)
     team.event_properties_numerical.append("purchase")
     team.save()
     PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -199,12 +210,6 @@ def _create_funnel(team: Team, base_url: str) -> None:
     )
 
 
-def _recalculate(team: Team) -> None:
-    actions = Action.objects.filter(team=team)
-    for action in actions:
-        action.calculate_events()
-
-
 def demo(request):
     user = request.user
     organization = user.organization
@@ -214,9 +219,9 @@ def demo(request):
         team = Team.objects.create_with_data(
             organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
         )
-        _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
+        _create_users(team=team, base_url=request.build_absolute_uri("/demo"), organization=organization)
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
-        _recalculate(team=team)
+        recalculate_actions(team=team)
     user.current_team = team
     user.save()
     if "$pageview" not in team.event_names:

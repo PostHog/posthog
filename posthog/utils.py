@@ -426,3 +426,11 @@ def get_redis_info() -> Mapping[str, Any]:
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
+
+
+def recalculate_actions(team) -> None:
+    from posthog.models import Action
+
+    actions = Action.objects.filter(team=team)
+    for action in actions:
+        action.calculate_events()

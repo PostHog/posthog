@@ -24,26 +24,28 @@ from posthog.models import (
 from posthog.models.utils import UUIDT
 from posthog.utils import recalculate_actions
 
-# Add basic twice for weighting when using random.choice
-PRICING_TIERS = (("basic", 8), ("basic", 8), ("standard", 13), ("premium", 30))
+SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
 
-def generate_revenue_data(org, team_name="", team_id=0, event_number=1000, days=100, use_ch=False, distinct_ids=[]):
+def generate_app_data(org, team_name="", team_id=0, event_number=1000, days=100, use_ch=False, distinct_ids=[]):
     team = _get_team(org, team_name, team_id,)
 
     generate_data = _generate_ch_data if use_ch else _generate_psql_data
     generate_data(team, event_number, days, distinct_ids)
 
-    if "purchase" not in team.event_names:
-        team.event_names.append("purchase")
-    if "entered_free_trial" not in team.event_names:
-        team.event_names.append("entered_free_trial")
-    if "plan" not in team.event_properties:
-        team.event_properties.append("plan")
-    if "first_visit" not in team.event_properties:
-        team.event_properties.append("first_visit")
-    if "purchase_value" not in team.event_properties_numerical:
-        team.event_properties_numerical.append("purchase_value")
+    if "watched_movie" not in team.event_names:
+        team.event_names.append("watched_movie")
+    if "installed_app" not in team.event_names:
+        team.event_names.append("installed_app")
+    if "rated_app" not in team.event_names:
+        team.event_names.append("rated_app")
+    if "$current_url" not in team.event_properties:
+        team.event_properties.append("$current_url")
+    if "is_first_movie" not in team.event_properties:
+        team.event_properties.append("is_first_movie")
+    if "app_rating" not in team.event_properties_numerical:
+        team.event_properties_numerical.append("app_rating")
+
     team.save()
 
     if not use_ch:
@@ -55,107 +57,112 @@ def _generate_psql_data(team, n_events, n_days, distinct_ids):
         distinct_ids = [ph_id.distinct_id for ph_id in distinct_ids]
     for i in range(0, n_events - len(distinct_ids)):
         distinct_id = str(UUIDT())
-        distinct_ids.append(distinct_id)
-        Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
+        app_rating = random.randint(1, 5)
+        distinct_ids.append([distinct_id, app_rating])
+        Person.objects.create(
+            team=team, distinct_ids=[distinct_id], properties={"is_demo": True, "app_rating": app_rating}
+        )
 
     events = []
     for i in range(0, n_events):
-        if random.randint(0, 10) <= 4:
-            events.append(
-                Event(
-                    event="entered_free_trial",
-                    team=team,
-                    distinct_id=distinct_ids[i],
-                    timestamp=now() - relativedelta(days=345),
-                )
-            )
+        n_days_back = random.randint(1, n_days)
         events.append(
             Event(
                 event="$pageview",
                 team=team,
-                distinct_id=distinct_ids[i],
-                timestamp=now() - relativedelta(days=350),
-                properties={"first_visit": True},
+                distinct_id=distinct_ids[i][0],
+                timestamp=now() - relativedelta(days=n_days_back),
+                properties={"$current_url": "https://hogflix/"},
             )
         )
-
-    days_ago_options = ()
-    for n in range(0, int(n_events * 0.72)):
-        base_days = random.randint(0, 29)
-        for j in range(0, 11):
-            plan = random.choice(PRICING_TIERS)
+        events.append(
+            Event(
+                event="installed_app",
+                team=team,
+                distinct_id=distinct_ids[i][0],
+                timestamp=now() - relativedelta(days=n_days_back),
+            )
+        )
+        if random.randint(0, 10) <= 9:
+            events.append(
+                Event(
+                    event="watched_movie",
+                    team=team,
+                    distinct_id=distinct_ids[i][0],
+                    timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=100),
+                    properties={"is_first_movie": random.choice([True, False])},
+                )
+            )
             events.append(
                 Event(
                     event="$pageview",
                     team=team,
-                    distinct_id=distinct_ids[n],
-                    timestamp=now() - relativedelta(days=(j * 29 + base_days) if j == 0 else (j * 29 + base_days) - 1),
+                    distinct_id=distinct_ids[i][0],
+                    timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=15),
+                    properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
                 )
             )
             if random.randint(0, 10) <= 8:
                 events.append(
                     Event(
-                        event="purchase",
+                        event="$pageview",
                         team=team,
-                        distinct_id=distinct_ids[n],
-                        properties={"plan": plan[0], "purchase_value": plan[1],},
-                        timestamp=now() - relativedelta(days=j * 29 + base_days),
+                        distinct_id=distinct_ids[i][0],
+                        timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=30),
+                        properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
+                    )
+                )
+                events.append(
+                    Event(
+                        event="rated_app",
+                        team=team,
+                        distinct_id=distinct_ids[i][0],
+                        timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=45),
+                        properties={"app_rating": distinct_ids[i][1]},
                     )
                 )
     Event.objects.bulk_create(events)
 
 
 def _create_psql_actions_and_funnel(team):
-    purchase_action = Action.objects.create(team=team, name="Purchase")
-    ActionStep.objects.create(action=purchase_action, event="purchase")
+    installed_app_action = Action.objects.create(team=team, name="Installed App")
+    ActionStep.objects.create(action=installed_app_action, event="installed_app")
 
-    free_trial_action = Action.objects.create(team=team, name="Entered Free Trial")
-    ActionStep.objects.create(action=free_trial_action, event="entered_free_trial")
+    rated_app_action = Action.objects.create(team=team, name="Rated App")
+    ActionStep.objects.create(action=rated_app_action, event="rated_app")
+
+    watched_movie_action = Action.objects.create(team=team, name="Watched Movie")
+    ActionStep.objects.create(action=watched_movie_action, event="watched_movie")
 
     dashboard = Dashboard.objects.create(
-        name="Sales & Revenue", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
+        name="App Analytics", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
     )
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
-        name="Entered Free Trial -> Purchase (Premium)",
+        name="Installed App -> Rated App -> Rated App 5 Stars",
         type="FunnelViz",
         filters={
             "actions": [
-                {"id": free_trial_action.id, "name": "Installed App", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                {"id": installed_app_action.id, "name": "Installed App", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                {"id": rated_app_action.id, "name": "Rated App", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
                 {
-                    "id": purchase_action.id,
+                    "id": rated_app_action.id,
                     "name": "Rated App",
-                    "order": 1,
+                    "order": 2,
                     "type": TREND_FILTER_TYPE_ACTIONS,
-                    "properties": {"plan": "premium"},
+                    "properties": {"app_rating": 5},
                 },
             ],
             "insight": "FUNNELS",
-            "date_from": "all",
+            "date_from": "yStart",
         },
     )
     recalculate_actions(team)
 
 
-def _generate_ch_data(team, n_events, n_days, distinct_idss):
-    distinct_ids = []
-    for i in range(0, n_events):
-        distinct_id = generate_clickhouse_uuid()
-        distinct_ids.append(distinct_id)
-        Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
-
-    for i in range(0, n_events):
-        event_uuid = uuid4()
-        plan = random.choice(PRICING_TIERS)
-        create_event(
-            event="purchase",
-            team=team,
-            distinct_id=distinct_ids[i],
-            properties={"plan": plan[0], "purchase_value": plan[1],},
-            timestamp=now() - relativedelta(days=random.randint(0, n_days)),
-            event_uuid=event_uuid,
-        )
+def _generate_ch_data(team, n_events, n_days):
+    pass
 
 
 def _get_team(org, team_name, team_id):
@@ -203,7 +210,7 @@ class Command(BaseCommand):
             print("You need to specify an organization to run this command")
             exit(1)
 
-        generate_revenue_data(
+        generate_app_data(
             org=options["org"][0],
             team_name=options["team_name"][0] if options["team_name"] else "",
             team_id=options["team_id"][0] if options["team_id"] else 0,
