@@ -4,8 +4,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, _create_anonymous_users, _create_funnel, _recalculate
+from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, _create_anonymous_users, _create_funnel
 from posthog.models import User
+from posthog.utils import recalculate_actions
 
 
 class Command(BaseCommand):
@@ -33,4 +34,4 @@ class Command(BaseCommand):
             )
             _create_anonymous_users(team=team, base_url=base_url)
             _create_funnel(team=team, base_url=base_url)
-            _recalculate(team=team)
+            recalculate_actions(team)

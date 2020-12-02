@@ -31,7 +31,7 @@ ORGANIZATION_NAME = "HogFlix"
 TEAM_NAME = "HogFlix Demo App"
 
 
-def _create_users(team: Team, base_url: str, organization: str) -> None:
+def _create_anonymous_users(team: Team, base_url: str, organization: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
         demo_data = json.load(demo_data_file)
 
@@ -213,7 +213,7 @@ def demo(request):
         team = Team.objects.create_with_data(
             organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True
         )
-        _create_users(team=team, base_url=request.build_absolute_uri("/demo"), organization=organization)
+        _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"), organization=organization)
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
         recalculate_actions(team=team)
     user.current_team = team
