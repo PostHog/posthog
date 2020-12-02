@@ -35,11 +35,11 @@ describe('Funnels', () => {
     it('Add 2 actions to funnel', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.contains('Pageviews').click().click()
+        cy.contains('HogFlix homepage view').click().click()
 
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.contains('HogFlix homepage view').click().click()
+        cy.contains('HogFlix paid').click().click()
 
         cy.get('[data-attr=save-funnel-button]').click()
 

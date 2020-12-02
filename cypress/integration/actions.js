@@ -1,7 +1,6 @@
 describe('Actions', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-events]').click()
-        cy.get('[data-attr=events-actions-tab]').click()
     })
 
     it('Actions loaded', () => {
