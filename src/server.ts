@@ -7,7 +7,7 @@ import { version } from '../package.json'
 import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
-import Worker from 'celery/worker'
+import { Worker } from 'celery/worker'
 
 export const defaultConfig: PluginsServerConfig = {
     CELERY_DEFAULT_QUEUE: 'celery',
