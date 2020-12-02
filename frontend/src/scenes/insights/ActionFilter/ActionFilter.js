@@ -37,7 +37,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
                     data-attr="add-action-event-button"
                     icon={<PlusCircleOutlined />}
                 >
-                    {copy || 'Action or raw event'}
+                    {copy || 'Action or event'}
                 </Button>
             </div>
         </div>

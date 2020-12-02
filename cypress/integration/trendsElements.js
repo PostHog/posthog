@@ -11,7 +11,7 @@ describe('Trends actions & events', () => {
 
     it('Add a pageview action filter', () => {
         // when
-        cy.contains('Action or raw event').click()
+        cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
         cy.contains('Pageviews').click()
 
