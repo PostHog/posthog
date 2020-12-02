@@ -1,12 +1,12 @@
 import { Pool } from 'pg'
+import * as schedule from 'node-schedule'
+import * as Redis from 'ioredis'
+import { FastifyInstance } from 'fastify'
 import { PluginsServer, PluginsServerConfig } from './types'
 import { version } from '../package.json'
 import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
-import schedule, { Job } from 'node-schedule'
-import Redis from 'ioredis'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
-import { FastifyInstance } from 'fastify'
 import Worker from 'celery/worker'
 
 export const defaultConfig: PluginsServerConfig = {
@@ -31,9 +31,9 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     let server: PluginsServer | undefined
     let fastifyInstance: FastifyInstance | undefined
     let worker: Worker | undefined
-    let job: Job | undefined
+    let job: schedule.Job | undefined
 
-    async function cleanUp() {
+    async function closeJobs() {
         console.info()
         if (fastifyInstance && !serverConfig?.DISABLE_WEB) {
             await stopFastifyInstance(fastifyInstance!)
@@ -48,7 +48,7 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, cleanUp)
+        process.on(signal, closeJobs)
     }
 
     try {
@@ -96,7 +96,7 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
         console.info(`🚀 All systems go.`)
     } catch (error) {
         console.error(`💥 Launchpad failure!\n${error.stack}`)
-        await cleanUp()
+        await closeJobs()
         process.exit(1)
     }
 }

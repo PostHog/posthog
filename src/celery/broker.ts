@@ -141,7 +141,7 @@ export default class RedisBroker {
      */
     private async receiveOne(queue: string): Promise<Message | null> {
         return this.redis.brpop(queue, '5').then((result) => {
-            if (!result) {
+            if (!result || !result[1]) {
                 return null
             }
 
