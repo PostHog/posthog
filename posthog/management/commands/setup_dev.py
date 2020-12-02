@@ -32,6 +32,6 @@ class Command(BaseCommand):
             base_url = (
                 f"https://{heroku_app_name}.herokuapp.com/demo/" if heroku_app_name else f"{settings.SITE_URL}/demo/"
             )
-            _create_anonymous_users(team=team, base_url=base_url)
+            _create_anonymous_users(team=team, base_url=base_url, organization=organization.name)
             _create_funnel(team=team, base_url=base_url)
             recalculate_actions(team)
