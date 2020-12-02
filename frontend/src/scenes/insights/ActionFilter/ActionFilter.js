@@ -6,7 +6,7 @@ import { Button } from 'antd'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlusCircleOutlined } from '@ant-design/icons'
 
-export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '' }) {
+export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '', disabled = false }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -38,6 +38,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
                     style={{ marginTop: '0.5rem' }}
                     data-attr="add-action-event-button"
                     icon={featureFlags['actions-ux-201012'] && <PlusCircleOutlined />}
+                    disabled={disabled}
                 >
                     {!featureFlags['actions-ux-201012'] ? 'Add action/event' : copy || 'Action or raw event'}
                 </Button>

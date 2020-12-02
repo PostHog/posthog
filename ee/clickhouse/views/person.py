@@ -1,17 +1,16 @@
 from rest_framework import request, response
-from rest_framework.decorators import action
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.person import ClickhousePersonSerializer, delete_person
+from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.sql.retention.retention import RETENTION_PEOPLE_SQL
+from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.api.person import PersonViewSet
 from posthog.models import Event, Person
-from posthog.models.filters import Filter
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
 class ClickhousePersonViewSet(PersonViewSet):
+
+    lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore

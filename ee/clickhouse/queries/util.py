@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from django.utils import timezone
@@ -8,45 +8,36 @@ from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filters import Filter
 
 
-def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str]:
+def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
-
+    params = {}
     if filter.date_from:
-        date_from = "and {table}timestamp >= '{}'".format(
-            filter.date_from.strftime(
-                "%Y-%m-%d{}".format(
-                    " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                )
-            ),
-            table=table,
-        )
+        date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
+        params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
             earliest_date = sync_execute(GET_EARLIEST_TIMESTAMP_SQL)[0][0]
         except IndexError:
             date_from = ""
         else:
-            date_from = "and {table}timestamp >= '{}'".format(
-                earliest_date.strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
-                ),
-                table=table,
-            )
+            date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
+            params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = "and {table}timestamp <= '{}'".format(
-        _date_to.strftime(
-            "%Y-%m-%d{}".format(
-                " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 23:59:59"
-            ),
-        ),
-        table=table,
+    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
+
+    return date_from or "", date_to or "", params
+
+
+def format_ch_timestamp(timestamp: datetime, filter: Filter, default_hour_min: str = " 00:00:00"):
+    return timestamp.strftime(
+        "%Y-%m-%d{}".format(
+            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else default_hour_min
+        )
     )
-    return date_from or "", date_to or ""
 
 
 def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:

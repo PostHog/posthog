@@ -19,7 +19,7 @@ class ClickhouseStickiness(Stickiness):
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team_id)
 
         params: Dict = {"team_id": team_id}
