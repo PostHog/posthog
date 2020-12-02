@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
+import { Button, Tooltip, Dropdown, Menu, Col, Row, Select } from 'antd'
 import { EntityTypes } from '../trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Button, Tooltip, Dropdown, Menu, Col, Row, Select } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
@@ -73,6 +73,50 @@ const MATHS = {
                 Event property maximum.
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
+            </>
+        ),
+        onProperty: true,
+    },
+    median: {
+        name: 'Median',
+        description: (
+            <>
+                Event property median (50th percentile).
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
+            </>
+        ),
+        onProperty: true,
+    },
+    p90: {
+        name: '90th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
+            </>
+        ),
+        onProperty: true,
+    },
+    p95: {
+        name: '95th percentile',
+        description: (
+            <>
+                Event property 95th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
+            </>
+        ),
+        onProperty: true,
+    },
+    p99: {
+        name: '99th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
             </>
         ),
         onProperty: true,
