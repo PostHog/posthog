@@ -183,6 +183,10 @@ STATSD_HOST = os.environ.get("STATSD_HOST")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
+# django-axes settings
+AXES_ENABLED = get_bool_from_env("AXES_ENABLED", True)
+AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 3))
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -198,6 +202,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "social_django",
     "django_filters",
+    "axes",
 ]
 
 
@@ -213,6 +218,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 
 if STATSD_HOST is not None:
@@ -272,6 +278,7 @@ SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 
 AUTHENTICATION_BACKENDS = (
+    "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "social_core.backends.google.GoogleOAuth2",
