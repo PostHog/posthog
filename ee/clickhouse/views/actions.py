@@ -14,7 +14,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, PEOPLE_SQL, PEOPLE_THROUGH_DISTINCT_SQL, PERSON_TREND_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
@@ -23,6 +23,7 @@ from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -83,6 +84,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         if shown_as is not None and shown_as == "Stickiness":
             stickiness_day = int(request.GET["stickiness_days"])
+            filter = StickinessFilter(request=request, team=team)
             serialized_people = self._calculate_stickiness_entity_people(team, entity, filter, stickiness_day)
 
         else:
@@ -124,10 +126,13 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return entity_filter, params
 
-    def _calculate_stickiness_entity_people(self, team: Team, entity: Entity, filter: Filter, stickiness_day: int):
+    def _calculate_stickiness_entity_people(
+        self, team: Team, entity: Entity, filter: StickinessFilter, stickiness_day: int
+    ):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
+        trunc_func = get_trunc_func_ch(filter.period)
 
         params: Dict = {
             "team_id": team.pk,
@@ -139,9 +144,10 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         content_sql = STICKINESS_PEOPLE_SQL.format(
             entity_filter=entity_sql,
-            parsed_date_from=(parsed_date_from or ""),
-            parsed_date_to=(parsed_date_to or ""),
-            filters="{filters}".format(filters=prop_filters) if filter.properties else "",
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            filters=prop_filters,
+            trunc_func=trunc_func,
         )
 
         people = sync_execute(

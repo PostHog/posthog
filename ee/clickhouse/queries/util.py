@@ -69,3 +69,25 @@ def get_interval_annotation_ch(interval: Optional[str]) -> str:
         "month": "toStartOfMonth",
     }
     return map[interval]
+
+
+PERIOD_TRUNC_MINUTE = "toStartOfMinute"
+PERIOD_TRUNC_HOUR = "toStartOfHour"
+PERIOD_TRUNC_DAY = "toStartOfDay"
+PERIOD_TRUNC_WEEK = "toStartOfWeek"
+PERIOD_TRUNC_MONTH = "toStartOfMonth"
+
+
+def get_trunc_func_ch(period: str) -> str:
+    if period == "Minute":
+        return PERIOD_TRUNC_MINUTE
+    elif period == "Hour":
+        return PERIOD_TRUNC_HOUR
+    elif period == "Week":
+        return PERIOD_TRUNC_WEEK
+    elif period == "Day":
+        return PERIOD_TRUNC_DAY
+    elif period == "Month":
+        return PERIOD_TRUNC_MONTH
+    else:
+        raise ValueError(f"Period {period} is unsupported.")

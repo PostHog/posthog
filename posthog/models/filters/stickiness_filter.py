@@ -5,6 +5,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute
 from django.http import HttpRequest
 from django.utils import timezone
 
+from posthog.constants import PERIOD
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -15,6 +16,7 @@ class StickinessFilter(Filter):
     num_intervals: int
     date_from: datetime
     date_to: datetime
+    period: str = "Day"
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request)
@@ -46,6 +48,7 @@ class StickinessFilter(Filter):
         if self.interval is None:
             self.interval = "day"
 
+        self.period = data.get(PERIOD, self.period)
         total_seconds = (self.date_to - self.date_from).total_seconds()
         if self.interval == "minute":
             self.num_intervals = int(divmod(total_seconds, 60)[0])
