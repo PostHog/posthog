@@ -162,26 +162,19 @@ export const sessionsTableLogic = kea<
         closeSessionPlayer: () => buildURL(values.selectedDateURLparam, null),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, params: Params) => {
+        '*': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
-            if (JSON.stringify(params.properties || []) !== JSON.stringify(values.properties)) {
+            if (
+                JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
+                (values.selectedDate && values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD'))
+            ) {
                 actions.setFilters(params.properties || [], newDate)
             } else if (values.sessions.length === 0) {
                 actions.loadSessions(true)
             }
 
             if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
-                actions.setSessionRecordingId(params.sessionRecordingId)
-            }
-        },
-        '/person/*': (_: any, params: Params) => {
-            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
-            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
-                actions.setFilters(params.properties || [], newDate)
-            }
-
-            if (params.sessionRecordingId && params.sessionRecordingId != values.sessionRecordingId) {
                 actions.setSessionRecordingId(params.sessionRecordingId)
             }
         },
