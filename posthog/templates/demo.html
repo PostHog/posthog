@@ -20,9 +20,9 @@
             --color-accent: #118bee15 !important;
             --color-bg: rgb(37, 37, 37) !important;
             --color-bg-secondary: #e9e9e9 !important;
-            --color-secondary: #b60303 !important;
+            --color-secondary: #fa0303 !important;
             --color-secondary-accent: #eb1c1c0b !important;
-            --color-shadow: #c2c2c2 !important;
+            --color-shadow: #a8a8a8 !important;
             --color-text: rgb(231, 231, 231) !important;
             --color-text-secondary: rgb(212, 212, 212) !important;
         }
@@ -32,12 +32,18 @@
             margin: auto;
             display: block;
         }
+
+        input {
+            background-color: rgb(59, 59, 59);
+            border-color: rgb(54, 54, 54);
+            color: #fff;
+        }
     </style>
 </head>
 
 <body>
 
-    <div class='container'>
+    <main>
         <header>
             <article>
                 <aside>
@@ -51,7 +57,7 @@
                 </aside>
             </article>
             <nav>
-                <a href="/demo" style='color: gray'>
+                <a href="/demo" style='color: rgb(197, 197, 197)'>
                     <h3>HogFlix</h3>
                 </a>
                 <ul>
@@ -234,7 +240,7 @@
                 </div>
             </figure>
             <br>
-    </div>
+    </main>
     <section>
 
         <aside>
@@ -252,17 +258,17 @@
             </div>
         </aside>
         <aside>
-                <h2>Leave a review</h2>
-
-           <textarea class='form-control' type='text' name='review' id="review-text"
-               placeholder='What did you think?'></textarea><br />
-           <a id='submit-review'>Submit Review</a>
+            <h2>Leave a review</h2>
+            <textarea class='form-control' type='text' name='review' id="review-text"
+                placeholder='What did you think?'></textarea><br />
+            <a id='submit-review' style="cursor: pointer;">Submit Review</a>
         </aside>
+
     </section>
     <section>
         <div class="row">&nbsp;</div>
-            <br>
-            <br>
+        <br>
+        <br>
 
     </section>
 
@@ -281,7 +287,6 @@
     <script>
         document.getElementById('submit-review').addEventListener('click', () => {
             document.getElementById('new-review').innerText = document.getElementById('review-text').value
-            document.getElementsByClassName('review-area')[0].style['display'] = 'none'
         })
 
         document.getElementById('my-video').addEventListener('play', () => {
