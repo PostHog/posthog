@@ -52,9 +52,9 @@ class Stickiness(BaseQuery):
             events_sql
         )
         counts = execute_custom_sql(aggregated_query, events_sql_params)
-        return self.process_result(counts, filter.num_intervals)
+        return self.process_result(counts, filter)
 
-    def process_result(self, counts: List, range_days: int) -> Dict[str, Any]:
+    def process_result(self, counts: List, filter: StickinessFilter) -> Dict[str, Any]:
 
         response: Dict[int, int] = {}
         for result in counts:
@@ -62,14 +62,14 @@ class Stickiness(BaseQuery):
 
         labels = []
         data = []
-        for day in range(1, range_days):
-            label = "{} day{}".format(day, "s" if day > 1 else "")
+        for day in range(1, filter.num_intervals):
+            label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
 
         return {
             "labels": labels,
-            "days": [day for day in range(1, range_days)],
+            "days": [day for day in range(1, filter.num_intervals)],
             "data": data,
             "count": sum(data),
         }

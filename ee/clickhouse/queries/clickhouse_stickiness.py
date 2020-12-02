@@ -9,14 +9,12 @@ from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_S
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.stickiness import Stickiness
 
 
 class ClickhouseStickiness(Stickiness):
-    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
-        if not filter.date_to or not filter.date_from:
-            raise ValueError("_stickiness needs date_to and date_from set")
+    def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
         range_days = (filter.date_to - filter.date_from).days + 2
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
@@ -48,4 +46,4 @@ class ClickhouseStickiness(Stickiness):
             )
 
         counts = sync_execute(content_sql, params)
-        return self.process_result(counts, range_days)
+        return self.process_result(counts, filter)

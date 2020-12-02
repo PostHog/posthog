@@ -16,6 +16,7 @@ from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
@@ -26,6 +27,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = Filter(request=request)
 
         if filter.shown_as == TRENDS_STICKINESS:
+            filter = StickinessFilter(request=request, team=team)
             result = ClickhouseStickiness().run(filter, team)
         else:
             result = ClickhouseTrends().run(filter, team)
