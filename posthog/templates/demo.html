@@ -6,55 +6,107 @@
     <script>
         posthog.init('{{api_token}}', {
             api_host: window.location.origin,
-            loaded: function(posthog){posthog.isFeatureEnabled('beta-feature')},
+            loaded: function (posthog) { posthog.isFeatureEnabled('beta-feature') },
             _capture_metrics: true
         });
     </script>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
-        crossorigin="anonymous" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/mvp.css">
+
+    <style>
+        :root {
+            --color: #e9130c !important;
+            --color-accent: #118bee15 !important;
+            --color-bg: rgb(37, 37, 37) !important;
+            --color-bg-secondary: #e9e9e9 !important;
+            --color-secondary: #fa0303 !important;
+            --color-secondary-accent: #eb1c1c0b !important;
+            --color-shadow: #a8a8a8 !important;
+            --color-text: rgb(231, 231, 231) !important;
+            --color-text-secondary: rgb(212, 212, 212) !important;
+        }
+
+        video {
+            max-width: 600px !important;
+            margin: auto;
+            display: block;
+        }
+
+        input {
+            background-color: rgb(59, 59, 59);
+            border-color: rgb(54, 54, 54);
+            color: #fff;
+        }
+    </style>
 </head>
 
 <body>
 
-    <div class='container'>
-        <div class='alert alert-warning'>
-            <strong>Welcome to the PostHog demo environment!</strong><br />
-            By going through this demo you can simulate a user going through a signup funnel. <a href='/'>You can
-                explore the data in PostHog within project "Hogflix Demo App".</a>
-        </div>
+    <main>
+        <header>
+            <article>
+                <aside>
+                    <p>Welcome to the PostHog demo environment!</p>
+                    <small>
+                        By going through this demo you can simulate a user going through a signup funnel. <a
+                            href='/'>You can
+                            explore the data in PostHog within project "Hogflix Demo App".</a>
+                    </small>
+                    <p> </p>
+                </aside>
+            </article>
+            <nav>
+                <a href="/demo" style='color: rgb(197, 197, 197)'>
+                    <h3>HogFlix</h3>
+                </a>
+                <ul>
+                    <li><a href="/demo/1">Sign Up</a></li>
+                    <li><a href="/demo/2">Payment</a></li>
+                    <li><a href="/demo/3">Movies</a></li>
+                </ul>
+            </nav>
+        </header>
 
         {% if request.path == '/demo' %}
+        <header>
+            <h1>Welcome to HogFlix</h1>
+            <p>The one-stop shop for all your hedgehog movies.</p>
+            <br>
 
-        <h1>Welcome to HogFlix</h1>
-        For all your hedgehog movies.<br /><br />
-
-        <a class='btn btn-lg btn-success' href='/demo/1' id='sign-up'>Sign up</a>
+            <a href='/demo/1' id='sign-up'><button>Sign up</button></a>
+        </header>
         {% endif %}
 
         {% if request.path == '/demo/1' %}
-        <h1>HogFlix</h1>
-        <form action='/demo/2'>
-            <label>Username</label>
-            <input class='form-control' type='text' name='username' />
-            <label>Password</label>
-            <input class='form-control' type='password' name='password' />
-            <button type='submit' class='btn btn-success'>Sign up!</button>
-        </form>
+        <section>
+            <form action='/demo/2'>
+                <h1>Sign Up</h1>
+
+                <label>Username</label>
+                <input class='form-control' type='text' name='username' />
+                <label>Password</label>
+                <input class='form-control' type='password' name='password' />
+                <button type='submit'>Sign up!</button>
+            </form>
+        </section>
         {% endif %}
         {% if request.path == '/demo/2' %}
-        <h1>Pay for HogFlix</h1>
-        <form action='/demo/3'>
-            <label>Credit card number</label>
-            <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
-            <button type='submit' class='btn btn-success'>Pay $10!</button>
-        </form>
+        <section>
+            <form action='/demo/3'>
+                <h1>Pay for HogFlix</h1>
+                <label>Credit card number</label>
+                <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
+                <button type='submit'>Pay $10!</button>
+        </section>
+        </header>
         {% endif %}
         {% if request.path == '/demo/3' %}
-        <h1>Watch some Flix!</h1>
-        <div class='card-deck'>
-            <div class='card' style="width: 18rem">
+        <section style="margin-top: -100px">
+            <header>
+                <h1>Watch some Flix!</h1>
+            </header>
+            <aside>
                 <img src='https://m.media-amazon.com/images/M/MV5BNDc1ZTlmOWUtNDY2YS00OGU5LTg2MTYtYTk2MmQzMGE2NzUwXkEyXkFqcGdeQXVyODkzNTgxMDg@._V1_SY1000_CR0,0,675,1000_AL_.jpg'
                     class='card-img-top' />
                 <div class='card-body'>
@@ -62,139 +114,57 @@
                     <p class='card-text'>Based on the global blockbuster videogame franchise from Sega, SONIC THE
                         HEDGEHOG tells the story of the world's speediest hedgehog as he embraces his new home on Earth.
                     </p>
-                    <a href='https://netflix.com' target="_blank" class='btn btn-danger'>Watch now!</a>
+                    <a href='https://netflix.com' target="_blank"><button>Watch now!</button></a>
                 </div>
-            </div>
-            <div class='card' style="width: 18rem">
+            </aside>
+            <aside>
                 <img src='https://m.media-amazon.com/images/M/MV5BMTc0Mzg3OTQyN15BMl5BanBnXkFtZTcwODA2OTc4NQ@@._V1_SY1000_CR0,0,677,1000_AL_.jpg'
                     class='card-img-top' />
                 <div class='card-body'>
                     <h5 class='card-title'>The Hedgehog (2009)</h5>
                     <p class='card-text'>While planning her suicide, a precocious 11-year-old (Garance Le Guillermic)
                         befriends a new neighbor (Togo Igawa) and a prickly recluse (Josiane Balasko).</p>
-                    <a href='https://netflix.com' target="_blank" class='btn btn-danger'>Watch now!</a>
+                    <a href='https://netflix.com' target="_blank"><button>Watch now!</button></a>
                 </div>
-            </div>
-            <div class='card' style="width: 18rem">
+            </aside>
+            <aside>
                 <img src='https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/Big_buck_bunny_poster_big.jpg'
                     class='card-img-top' />
                 <div class='card-body'><br />
                     <h5 class='card-title'>Big Buck Bunny (2008)</h5>
                     <p class='card-text'>A large and lovable rabbit deals with three tiny bullies, led by a flying
                         squirrel, who are determined to squelch his happiness.</p>
-                    <a href='/demo/4' class='btn btn-danger'>Watch now!</a>
+                    <a href='/demo/4'><button>Watch now!</button></a>
                 </div>
-            </div>
-        </div>
+            </aside>
+        </section>
 
 
         {% endif %}
         {% if request.path == '/demo/4' %}
-        <style>
-            .video-js .vjs-current-time {
-                display: none;
-            }
+        <section style="margin-top: -100px">
+            <header>
+                <h1>Now Playing: Big Buck Bunny</h1>
+            </header>
 
-            .video-js .vjs-time-divider {
-                display: none;
-            }
+            <figure>
+                <div>
+                    <video id="my-video" class="video-js" controls preload="auto" data-setup="{}">
+                        <source
+                            src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4"
+                            type="video/mp4" />
+                        <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a
+                            web
+                            browser that supports HTML5 video</p>
+                    </video>
+                </div>
+            </figure>
+            <br>
+    </main>
+    <section>
 
-            .video-js .vjs-duration {
-                display: none;
-            }
-
-            .video-js .vjs-progress-control {
-                display: none;
-            }
-
-            .video-js .vjs-live-control {
-                display: none;
-            }
-
-            .video-js .vjs-seek-to-live-control {
-                display: none;
-            }
-
-            .video-js .vjs-playback-rate {
-                display: none;
-            }
-
-            .video-js .vjs-chapters-button {
-                display: none;
-            }
-
-            .video-js .vjs-descriptions-button {
-                display: none;
-            }
-
-            .video-js .vjs-subs-caps-button {
-                display: none;
-            }
-
-            .video-js .vjs-audio-button {
-                display: none;
-            }
-
-            .video-js .vjs-picture-in-picture-control {
-                display: none;
-            }
-
-            .video-js .vjs-fullscreen-control {
-                display: none;
-            }
-
-            .video-js .vjs-modal-dialog {
-                display: none;
-            }
-
-            .video-js .vjs-big-play-button {
-                display: none;
-            }
-
-            .video-js .vjs-mute-control {
-                display: none;
-            }
-
-            .video-js .vjs-remaining-time {
-                display: none;
-            }
-
-            .video-js .vjs-loading-spinner {
-                display: none;
-            }
-
-            .video-js .vjs-play-control {
-                color: #fff;
-                background-color: #17a2b8;
-                border-color: #17a2b8;
-                margin-top: 20px;
-            }
-        </style>
-        <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
-        <script>
-            $(document).ready(function () {
-                $("#submit-review").click(function () {
-                    review = $("#review-text").val();
-                    $("#new-review").text(review);
-                    $(".review-area").hide();
-                });
-            });
-        </script>
-        <h1>Now Playing: Big Buck Bunny</h1>
-        <div class='card-deck'>
-            <div class='card' style="width: 18rem">
-                <video id="my-video" class="video-js" controls preload="auto" data-setup="{}">
-                    <source
-                        src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4"
-                        type="video/mp4" />
-                    <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a web
-                        browser that supports HTML5 video</p>
-                </video>
-                <script src="https://vjs.zencdn.net/7.6.6/video.js"></script>
-            </div>
-        </div>
-        <div class="container">
-            <div class="row" style="margin-top:100px; width:100%;">
+        <aside>
+            <div>
                 <h2>Reviews</h2>
             </div>
             <div class="row" style="width:100%;">
@@ -206,25 +176,40 @@
             <div class="row" style="width:100%;">
                 <p id="new-review"><em></em></p>
             </div>
-        </div>
-
-        <div class="row">&nbsp;</div>
-        <div class="review-area">
-            <label>Leave a review</label>
+        </aside>
+        <aside>
+            <h2>Leave a review</h2>
             <textarea class='form-control' type='text' name='review' id="review-text"
                 placeholder='What did you think?'></textarea><br />
-            <button class='btn btn-success' id='submit-review'>Submit Review</button>
-        </div>
+            <a id='submit-review' style="cursor: pointer;">Submit Review</a>
+        </aside>
 
+    </section>
+    <section>
         <div class="row">&nbsp;</div>
-        <div class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
-            Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
-        </div>
+        <br>
+        <br>
+
+    </section>
+
+    <section class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
+        Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
+    </section>
 
 
-        {% endif %}
+    {% endif %}
 
     </div>
+
+    <script>
+        document.getElementById('submit-review').addEventListener('click', () => {
+            document.getElementById('new-review').innerText = document.getElementById('review-text').value
+        })
+
+        document.getElementById('my-video').addEventListener('play', () => {
+            posthog.capture('played_movie', { title: "Big Buck Bunny" })
+        })
+    </script>
 
 </body>
 
