@@ -2,11 +2,13 @@ import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
-import { Button, Tooltip, Dropdown, Menu, Col, Row } from 'antd'
+import { Button, Tooltip, Dropdown, Menu, Col, Row, Select } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
+import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+import './ActionFilterRow.scss'
 
 const MATHS = {
     total: {
@@ -276,44 +278,48 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 }
 
 function MathPropertySelector(props) {
-    const applicableProperties = props.properties.filter(
-        ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
-    )
-
-    const overlay = () => {
-        return (
-            <Menu onClick={({ item }) => props.onMathPropertySelect(props.index, item.props['data-value'])}>
-                {applicableProperties.map(({ value, label }) => {
-                    return (
-                        <Menu.Item
-                            key={`math-property-${value}-${props.index}`}
-                            data-attr={`math-property-${value}-${props.index}`}
-                            data-value={value}
-                        >
-                            <Tooltip
-                                title={
-                                    <>
-                                        Calculate {MATHS[props.math].name.toLowerCase()} from property{' '}
-                                        <code>{label}</code>. Note that only {props.name} occurences where{' '}
-                                        <code>{label}</code> is set and a number will be taken into account.
-                                    </>
-                                }
-                                placement="right"
-                            >
-                                {label}
-                            </Tooltip>
-                        </Menu.Item>
-                    )
-                })}
-            </Menu>
-        )
-    }
+    const applicableProperties = props.properties
+        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (
-        <Dropdown overlay={overlay}>
-            <Button data-attr={`math-property-selector-${props.index}`} style={{ marginTop: 8 }}>
-                {props.mathProperty || 'Select property'} <DownOutlined />
-            </Button>
-        </Dropdown>
+        <SelectGradientOverflow
+            showSearch
+            style={{ width: 150 }}
+            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload && payload.value)}
+            className="property-select"
+            value={props.mathProperty}
+            onSearch={(input) => {
+                setInput(input)
+                if (!optionsCache[input] && !isOperatorFlag(operator)) {
+                    loadPropertyValues(input)
+                }
+            }}
+            data-attr="math-property-select"
+            dropdownMatchSelectWidth={350}
+            placeholder={'Select property'}
+        >
+            {applicableProperties.map(({ value, label }) => (
+                <Select.Option
+                    key={`math-property-${value}-${props.index}`}
+                    value={value}
+                    data-attr={`math-property-${value}-${props.index}`}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
+                                will be taken into account.
+                            </>
+                        }
+                        placement="right"
+                        overlayStyle={{ zIndex: 9999999999 }}
+                    >
+                        {label}
+                    </Tooltip>
+                </Select.Option>
+            ))}
+        </SelectGradientOverflow>
     )
 }
