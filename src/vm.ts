@@ -1,5 +1,5 @@
 import { VM } from 'vm2'
-import fetch from 'node-fetch'
+import * as fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
 import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
 import { PluginEvent } from 'posthog-plugins'

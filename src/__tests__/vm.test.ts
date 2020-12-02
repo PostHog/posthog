@@ -2,8 +2,8 @@ import { createPluginConfigVM, prepareForRun } from '../vm'
 import { PluginConfig, PluginsServer, Plugin } from '../types'
 import { PluginEvent } from 'posthog-plugins'
 import { defaultConfig } from '../server'
-import Redis from 'ioredis'
-import fetch from 'node-fetch'
+import * as Redis from 'ioredis'
+import * as fetch from 'node-fetch'
 import { Pool } from 'pg'
 
 const defaultEvent = {
@@ -236,12 +236,14 @@ test('meta.cache set/get', async () => {
         properties: {},
     }
 
-    ;(mockServer.redis.get as any).mockResolvedValueOnce(10)
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
 
     await vm.methods.processEvent(event)
-    expect(event.properties!['counter']).toEqual(11)
+    expect(event.properties!['counter']).toEqual(2)
 
-    expect(mockServer.redis.set).toHaveBeenCalledWith('@plugin/mock-plugin/2/counter', '11')
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(3)
 })
 
 test('lib.js (deprecated)', async () => {
