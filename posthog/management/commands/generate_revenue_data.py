@@ -7,8 +7,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
-from ee.clickhouse.models.event import create_event
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
     Action,
@@ -138,7 +136,10 @@ def _create_psql_actions_and_funnel(team):
     recalculate_actions(team)
 
 
-def _generate_ch_data(team, n_events, n_days, distinct_idss):
+def _generate_ch_data(team, n_events, n_days, distinct_ids):
+    from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+    from ee.clickhouse.models.event import create_event
+
     distinct_ids = []
     for i in range(0, n_events):
         distinct_id = generate_clickhouse_uuid()
