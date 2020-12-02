@@ -1,6 +1,7 @@
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Event, Person, Team
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import BaseTest
 
@@ -78,13 +79,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = Filter(
+                filter = StickinessFilter(
                     data={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie"}],
-                    }
+                    },
+                    team=self.team,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -102,14 +104,15 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = Filter(
+                filter = StickinessFilter(
                     data={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie"}],
                         "properties": [{"key": "$browser", "value": "Chrome"}],
-                    }
+                    },
+                    team=self.team,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -128,13 +131,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = Filter(
+                filter = StickinessFilter(
                     data={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "actions": [{"id": watched_movie.pk}],
-                    }
+                    },
+                    team=self.team,
                 )
                 response = stickiness().run(filter, self.team)
             self.assertEqual(response[0]["label"], "watch movie action")
