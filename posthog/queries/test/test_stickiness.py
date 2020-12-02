@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta
+
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Event, Person, Team
@@ -9,13 +13,14 @@ from posthog.test.base import BaseTest
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory):
     class TestStickiness(BaseTest):
-        def _create_multiple_people(self):
+        def _create_multiple_people(self, period=timedelta(days=1)):
+            base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person1",
-                timestamp="2020-01-01T12:00:00Z",
+                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
 
@@ -24,14 +29,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp="2020-01-01T12:00:00Z",
+                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
+                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
             # same day
@@ -39,7 +44,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
+                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
 
@@ -48,21 +53,21 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
-                timestamp="2020-01-01T12:00:00Z",
+                timestamp=(base_time).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3b",
-                timestamp="2020-01-02T12:00:00Z",
+                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
-                timestamp="2020-01-03T12:00:00Z",
+                timestamp=(base_time + period * 2).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
 
@@ -71,7 +76,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person4",
-                timestamp="2020-01-05T12:00:00Z",
+                timestamp=(base_time + period * 4).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome"},
             )
 
@@ -98,6 +103,58 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][2], "3 days")
             self.assertEqual(response[0]["data"][2], 1)
             self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        def test_stickiness_weeks(self):
+            self._create_multiple_people(period=timedelta(weeks=1))
+
+            with freeze_time("2020-02-15T13:01:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-02-15",
+                        "events": [{"id": "watched movie"}],
+                        "period": "week",
+                    },
+                    team=self.team,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 week")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 weeks")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 weeks")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 weeks")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        def test_stickiness_months(self):
+            self._create_multiple_people(period=relativedelta(months=1))
+
+            with freeze_time("2020-02-08T13:01:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-09-08",
+                        "events": [{"id": "watched movie"}],
+                        "period": "month",
+                    },
+                    team=self.team,
+                )
+                response = stickiness().run(filter, self.team)
+            print(response)
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 month")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 months")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 months")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 months")
             self.assertEqual(response[0]["data"][6], 0)
 
         def test_stickiness_prop_filter(self):

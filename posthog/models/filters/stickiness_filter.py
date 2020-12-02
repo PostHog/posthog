@@ -50,30 +50,30 @@ class StickinessFilter(Filter):
 
         self.period = data.get(PERIOD, self.period)
         total_seconds = (self.date_to - self.date_from).total_seconds()
-        if self.interval == "minute":
+        if self.period == "minute":
             self.num_intervals = int(divmod(total_seconds, 60)[0])
-        elif self.interval == "hour":
+        elif self.period == "hour":
             self.num_intervals = int(divmod(total_seconds, 3600)[0])
-        elif self.interval == "day":
+        elif self.period == "day":
             self.num_intervals = int(divmod(total_seconds, 86400)[0])
-        elif self.interval == "week":
+        elif self.period == "week":
             self.num_intervals = (self.date_to - self.date_from).days // 7
-        elif self.interval == "month":
+        elif self.period == "month":
             self.num_intervals = (self.date_to.year - self.date_from.year) + (self.date_to.month - self.date_from.month)
         else:
             raise ValueError("{self.interval} not supported")
         self.num_intervals += 2
 
     def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
-        if self.interval == "minute":
+        if self.period == "minute":
             return TruncMinute(field_name)
-        elif self.interval == "hour":
+        elif self.period == "hour":
             return TruncHour(field_name)
-        elif self.interval == "day":
+        elif self.period == "day":
             return TruncDay(field_name)
-        elif self.interval == "week":
+        elif self.period == "week":
             return TruncWeek(field_name)
-        elif self.interval == "month":
+        elif self.period == "month":
             return TruncMonth(field_name)
         else:
             raise ValueError("{self.interval} not supported")

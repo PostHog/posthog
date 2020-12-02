@@ -63,7 +63,7 @@ class Stickiness(BaseQuery):
         labels = []
         data = []
         for day in range(1, filter.num_intervals):
-            label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
+            label = "{} {}{}".format(day, filter.period, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
 

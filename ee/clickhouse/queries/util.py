@@ -79,15 +79,16 @@ PERIOD_TRUNC_MONTH = "toStartOfMonth"
 
 
 def get_trunc_func_ch(period: str) -> str:
-    if period == "Minute":
+    period = period.lower()
+    if period == "minute":
         return PERIOD_TRUNC_MINUTE
-    elif period == "Hour":
+    elif period == "hour":
         return PERIOD_TRUNC_HOUR
-    elif period == "Week":
+    elif period == "week":
         return PERIOD_TRUNC_WEEK
-    elif period == "Day":
+    elif period == "day":
         return PERIOD_TRUNC_DAY
-    elif period == "Month":
+    elif period == "month":
         return PERIOD_TRUNC_MONTH
     else:
         raise ValueError(f"Period {period} is unsupported.")
