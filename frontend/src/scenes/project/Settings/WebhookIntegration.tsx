@@ -114,7 +114,7 @@ const logic = kea<logicType<UserType>>({
     }),
 })
 
-export function WebhookIntegration({ user }: { user: UserType }): JSX.Element {
+export function WebhookIntegration({ user }: { user: UserType | null }): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
 

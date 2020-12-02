@@ -4958,6 +4958,11 @@ getpass@^0.1.1:
   dependencies:
     assert-plus "^1.0.0"
 
+given2@^2.1.7:
+  version "2.1.7"
+  resolved "https://registry.yarnpkg.com/given2/-/given2-2.1.7.tgz#4c2c7883d7ee1069d077c10551ef2e607943ebd3"
+  integrity sha512-fI3VamsjN2euNVguGpSt2uExyDSMfJoK+SwDxbmV+Thf3v4oF6KKZAFE3LHHuT+PYyMwCsJYXO01TW3euFdPGA==
+
 glob-parent@^3.1.0:
   version "3.1.0"
   resolved "https://registry.yarnpkg.com/glob-parent/-/glob-parent-3.1.0.tgz#9e6af6299d8d3bd2bd40430832bd113df906c5ae"
@@ -8210,10 +8215,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.7.3-beta.2:
-  version "1.7.3-beta.2"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.2.tgz#a1525c29c1f19ec278b60f03c2a21d754b65a128"
-  integrity sha512-yOieAT7wJtHjLldMnvUWU9jtiTqli8aYzMPpEfZPJd3mcF/JMxXt+QKQ+16Vqpjk2XmVowuF1DJBcEUKxgU8ig==
+posthog-js@1.7.3-beta.6:
+  version "1.7.3-beta.6"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.6.tgz#90d1360e535a57e0135f6ad889298c616e5f3489"
+  integrity sha512-Lal8P79aRRb15Gi8fvX2xoDRE+dyvZe5faq9RcXEnJ3nyc7n/q9EU4BQQGi84siw2/8rIbUtsC6Ywwbt9bU0Pg==
 
 posthog-plugins@0.1.3:
   version "0.1.3"

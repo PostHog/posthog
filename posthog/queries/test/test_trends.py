@@ -422,65 +422,57 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-        def _create_maths_events(self):
+        def _create_maths_events(self, values):
             sign_up_action, person = self._create_events()
             person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 2})
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 3})
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 5.5})
-            event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 7.5})
+            for value in values:
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": value}
+                )
+
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             return sign_up_action
 
-        def test_sum_filtering(self):
-            sign_up_action = self._create_maths_events()
+        def _test_math_property_aggregation(self, math_property, values, expected_value):
+            sign_up_action = self._create_maths_events(values)
 
             action_response = trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id, "math": "sum", "math_property": "some_number"}]}),
+                Filter(
+                    data={"actions": [{"id": sign_up_action.id, "math": math_property, "math_property": "some_number"}]}
+                ),
                 self.team,
             )
             event_response = trends().run(
-                Filter(data={"events": [{"id": "sign up", "math": "sum", "math_property": "some_number"}]}), self.team
+                Filter(data={"events": [{"id": "sign up", "math": math_property, "math_property": "some_number"}]}),
+                self.team,
             )
-            self.assertEqual(action_response[0]["data"][-1], 18)
+            # :TRICKY: Work around clickhouse functions not being 100%
+            self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
             self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+        def test_sum_filtering(self):
+            self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
 
         def test_avg_filtering(self):
-            sign_up_action = self._create_maths_events()
-
-            action_response = trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
-                self.team,
-            )
-            event_response = trends().run(
-                Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}), self.team
-            )
-            self.assertEqual(action_response[0]["data"][-1], 4.5)
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self._test_math_property_aggregation("avg", values=[2, 3, 5.5, 7.5], expected_value=4.5)
 
         def test_min_filtering(self):
-            sign_up_action = self._create_maths_events()
-            action_response = trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id, "math": "min", "math_property": "some_number"}]}),
-                self.team,
-            )
-            event_response = trends().run(
-                Filter(data={"events": [{"id": "sign up", "math": "min", "math_property": "some_number"}]}), self.team
-            )
-            self.assertEqual(action_response[0]["data"][-1], 2)
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self._test_math_property_aggregation("min", values=[2, 3, 5.5, 7.5], expected_value=2)
 
         def test_max_filtering(self):
-            sign_up_action = self._create_maths_events()
-            action_response = trends().run(
-                Filter(data={"actions": [{"id": sign_up_action.id, "math": "max", "math_property": "some_number"}]}),
-                self.team,
-            )
-            event_response = trends().run(
-                Filter(data={"events": [{"id": "sign up", "math": "max", "math_property": "some_number"}]}), self.team
-            )
-            self.assertEqual(action_response[0]["data"][-1], 7.5)
-            self.assertTrue(self._compare_entity_response(action_response, event_response))
+            self._test_math_property_aggregation("max", values=[2, 3, 5.5, 7.5], expected_value=7.5)
+
+        def test_median_filtering(self):
+            self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
+
+        def test_p90_filtering(self):
+            self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
+
+        def test_p95_filtering(self):
+            self._test_math_property_aggregation("p95", values=range(101, 201), expected_value=195)
+
+        def test_p99_filtering(self):
+            self._test_math_property_aggregation("p99", values=range(101, 201), expected_value=199)
 
         def test_avg_filtering_non_number_resiliency(self):
             sign_up_action, person = self._create_events()

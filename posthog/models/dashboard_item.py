@@ -3,7 +3,7 @@ from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.utils import generate_cache_key
 
 
