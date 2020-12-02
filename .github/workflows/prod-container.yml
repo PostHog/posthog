@@ -95,7 +95,7 @@ jobs:
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
                   task-definition: ${{ steps.task-def-web.outputs.task-definition }}
-                  service: posthog-production-events
+                  service: posthog-production-event
                   cluster: posthog-production-cluster
 
             - name: Deploy Amazon ECS worker task definition
