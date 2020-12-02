@@ -158,8 +158,8 @@ KAFKA_CERT_KEYS = ["KAFKA_CLIENT_CERT", "KAFKA_CLIENT_CERT", "KAFKA_TRUSTED_CERT
 
 # On AWS with AWS Secret Manager keys are butchered and it's suggested you store them as b64
 for key in KAFKA_CERT_KEYS:
-    if os.environ.get(key, False) == False:
-        os.environ[key] = base64.b64decode(os.environ.get(key + "_B64", ""))
+    if not os.environ.get(key, False):
+        os.environ[key] = base64.b64decode(os.environ.get(key + "_B64", "")).decode("utf-8")
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
