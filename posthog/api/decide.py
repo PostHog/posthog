@@ -9,7 +9,8 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import FeatureFlag, Team, User
 from posthog.utils import cors_response, load_data_from_request
-from .capture import _get_token, _get_project_id
+
+from .capture import _get_project_id, _get_token
 
 
 def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
