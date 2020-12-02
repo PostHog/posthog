@@ -329,7 +329,7 @@ test('attachments', async () => {
         attachedFile: {
             content_type: 'application/json',
             file_name: 'plugin.json',
-            contents: new Buffer('{"name": "plugin"}'),
+            contents: Buffer.from('{"name": "plugin"}'),
         },
     }
     const vm = createPluginConfigVM(
