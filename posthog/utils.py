@@ -430,12 +430,12 @@ def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
 
 
-def queryset_to_named_query(qs: QuerySet) -> Tuple[str, dict]:
+def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
     raw, params = qs.query.sql_with_params()
     arg_count = 0
     counter = count(arg_count)
-    new_string = re.sub(r"%s", lambda _: f"%(arg_{str(next(counter))})s", raw)
+    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
     named_params = {}
     for idx, param in enumerate(params):
-        named_params.update({f"arg_{idx}": param})
+        named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params

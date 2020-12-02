@@ -155,7 +155,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                    SELECT DISTINCT person_id,
                                                    DATE_TRUNC(%(interval)s,
                                                               min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
-                                   FROM ({events}) posthog_event
+                                   FROM ({earliest_events}) posthog_event
                                     JOIN
                                     (SELECT person_id,
                                             distinct_id
@@ -304,7 +304,7 @@ FROM (
             SELECT DISTINCT person_id,
                             DATE_TRUNC(%(interval)s,
                                         min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
-            FROM ({events}) posthog_event
+            FROM ({earliest_events}) posthog_event
             JOIN
             (SELECT person_id,
                     distinct_id
@@ -391,7 +391,14 @@ class LifecycleTrend:
         filter._date_to = after_date_to.isoformat()
 
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
-        event_query, event_params = queryset_to_named_query(filtered_events)
+        event_query, event_params = queryset_to_named_query(filtered_events, "events")
+
+        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
+            filter_events(team_id, filter, entity, include_dates=False)
+        )
+        earliest_events_query, earliest_events_params = queryset_to_named_query(
+            earliest_events_filtered, "earliest_events"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -401,6 +408,7 @@ class LifecycleTrend:
                         "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
                     ),
                     events=event_query,
+                    earliest_events=earliest_events_query,
                 ),
                 {
                     "team_id": team_id,
@@ -413,6 +421,7 @@ class LifecycleTrend:
                     "date_to": date_to,
                     "after_date_to": after_date_to,
                     **event_params,
+                    **earliest_events_params,
                 },
             )
             res = []
@@ -446,6 +455,13 @@ class LifecycleTrend:
         filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
         event_query, event_params = queryset_to_named_query(filtered_events)
 
+        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
+            filter_events(team_id, filter, entity, include_dates=False)
+        )
+        earliest_events_query, earliest_events_params = queryset_to_named_query(
+            earliest_events_filtered, "earliest_events"
+        )
+
         with connection.cursor() as cursor:
             cursor.execute(
                 LIFECYCLE_PEOPLE_SQL.format(
@@ -454,6 +470,7 @@ class LifecycleTrend:
                         "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
                     ),
                     events=event_query,
+                    earliest_events=earliest_events_query,
                 ),
                 {
                     "team_id": team_id,
@@ -470,6 +487,7 @@ class LifecycleTrend:
                     "offset": offset,
                     "limit": limit,
                     **event_params,
+                    **earliest_events_params,
                 },
             )
             pids = cursor.fetchall()
