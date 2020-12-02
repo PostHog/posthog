@@ -171,28 +171,18 @@ export const sessionsTableLogic = kea<
                 actions.loadSessions(true)
             }
 
-            if (params.sessionRecordingId !== (values.sessionRecordingId || undefined)) {
-                if (params.sessionRecordingId) {
-                    actions.setSessionRecordingId(params.sessionRecordingId)
-                } else {
-                    actions.closeSessionPlayer()
-                }
+            if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
+                actions.setSessionRecordingId(params.sessionRecordingId)
             }
         },
         '/person/*': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
-            if (
-                !values.selectedDate ||
-                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
-                (params.sessionRecordingId !== values.sessionRecordingId && params.sessionRecordingId)
-            ) {
+            if (!values.selectedDate || values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD')) {
                 actions.setFilters(params.properties || [], newDate)
             }
 
-            if (params.sessionRecordingId) {
+            if (params.sessionRecordingId && params.sessionRecordingId != values.sessionRecordingId) {
                 actions.setSessionRecordingId(params.sessionRecordingId)
-            } else {
-                actions.closeSessionPlayer()
             }
         },
     }),
