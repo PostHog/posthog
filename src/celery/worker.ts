@@ -3,7 +3,7 @@ import { Message } from './message'
 
 type Handler = (...args: any[]) => Promise<void>
 
-export default class Worker extends Base {
+export class Worker extends Base {
     handlers: Record<string, Handler> = {}
     activeTasks: Set<Promise<any>> = new Set()
 
@@ -194,3 +194,5 @@ export default class Worker extends Base {
         console.info(`🛑 Celery worker cleaned up!`)
     }
 }
+
+export default Worker
