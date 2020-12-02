@@ -3,13 +3,6 @@
     "networkMode": "awsvpc",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
-    "networkConfiguration": {
-        "awsvpcConfiguration": {
-            "subnets": ["subnet-0271e48a5b7629b85"],
-            "securityGroups": ["sg-05a5f7e510b15473c"],
-            "assignPublicIp": "DISABLED"
-        }
-    },
     "containerDefinitions": [
         {
             "name": "posthog-production-migration",
