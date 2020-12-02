@@ -446,7 +446,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 Filter(data={"events": [{"id": "sign up", "math": math_property, "math_property": "some_number"}]}),
                 self.team,
             )
-            self.assertEqual(action_response[0]["data"][-1], expected_value)
+            # :TRICKY: Work around clickhouse functions not being 100%
+            self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
             self.assertTrue(self._compare_entity_response(action_response, event_response))
 
         def test_sum_filtering(self):
