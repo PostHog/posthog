@@ -1,11 +1,12 @@
 import { Pool } from 'pg'
+import * as schedule from 'node-schedule'
+import * as Redis from 'ioredis'
+import { FastifyInstance } from 'fastify'
 import { PluginsServer, PluginsServerConfig } from './types'
 import { version } from '../package.json'
 import { setupPlugins } from './plugins'
 import { startWorker } from './worker'
-import * as schedule from 'node-schedule'
-import * as Redis from 'ioredis'
-import { startWebServer, stopWebServer } from './web/server'
+import { startFastifyInstance, stopFastifyInstance } from './web/server'
 
 export const defaultConfig: PluginsServerConfig = {
     CELERY_DEFAULT_QUEUE: 'celery',
@@ -41,8 +42,9 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
 
     await setupPlugins(server)
 
+    let fastifyInstance: FastifyInstance | null = null
     if (!serverConfig.DISABLE_WEB) {
-        await startWebServer(serverConfig.WEB_PORT, serverConfig.WEB_HOSTNAME)
+        fastifyInstance = await startFastifyInstance(serverConfig.WEB_PORT, serverConfig.WEB_HOSTNAME)
     }
 
     let stopWorker = startWorker(server)
@@ -67,7 +69,7 @@ export async function startPluginsServer(config: PluginsServerConfig): Promise<v
 
     const closeJobs = async () => {
         if (!serverConfig.DISABLE_WEB) {
-            await stopWebServer()
+            await stopFastifyInstance(fastifyInstance!)
         }
         await stopWorker()
         pubSub.disconnect()
