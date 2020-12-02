@@ -1,4 +1,4 @@
-import yargs from 'yargs'
+import * as yargs from 'yargs'
 import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
 
