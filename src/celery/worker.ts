@@ -42,8 +42,7 @@ export default class Worker extends Base {
      * worker.start();
      */
     public start(): Promise<any> {
-        console.info('celery.node worker start...')
-        console.info(`registed task: ${Object.keys(this.handlers)}`)
+        console.info('🍆 Starting Celery worker...')
         return this.run().catch((err) => console.error(err))
     }
 
@@ -77,7 +76,11 @@ export default class Worker extends Base {
     private getConsumer(queue: string): () => any {
         const onMessage = this.createTaskHandler()
 
-        return () => this.broker.subscribe(queue, onMessage)
+        return () => {
+            const result = this.broker.subscribe(queue, onMessage)
+            console.info(`✅ Celery worker subscribed to ${Object.keys(this.handlers).join(', ')}`)
+            return result
+        }
     }
 
     public createTaskHandler(): (message: Message) => any {
@@ -178,13 +181,16 @@ export default class Worker extends Base {
     public async stop(): Promise<void> {
         const taskCount = this.activeTasks.size
         if (taskCount > 0) {
-            console.log(`In progress: ${taskCount} tasks. Waiting for them to finish.`)
+            console.info(
+                `⌛ ${taskCount} ${taskCount === 1 ? 'task' : 'tasks'} in progress, waiting for ${
+                    taskCount === 1 ? 'it' : 'them'
+                } to finish before cleaning Celery up...`
+            )
             await this.whenCurrentJobsFinished()
-            console.log(`Finished. Shutting down celery worker.`)
         } else {
-            console.log(`No tasks in progress, shutting down celery worker`)
+            console.info(`👍 No tasks in progress, cleaning Celery up...`)
         }
-
         await this.disconnect()
+        console.info(`🛑 Celery worker cleaned up!`)
     }
 }
