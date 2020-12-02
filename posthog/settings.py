@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
@@ -151,6 +152,14 @@ for host in _kafka_hosts:
     url = urlparse(host)
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+
+
+KAFKA_CERT_KEYS = ["KAFKA_CLIENT_CERT", "KAFKA_CLIENT_CERT", "KAFKA_TRUSTED_CERT"]
+
+# On AWS with AWS Secret Manager keys are butchered and it's suggested you store them as b64
+for key in KAFKA_CERT_KEYS:
+    if os.environ.get(key, False):
+        os.environ[key] = base64.decode(os.environ.get(key + "_B64"))
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
