@@ -2,17 +2,16 @@ import React, { HTMLProps } from 'react'
 import { router } from 'kea-router'
 
 interface LinkProps extends HTMLProps<HTMLAnchorElement> {
-    to: string | [string, string?, string?]
+    to: string
     preventClick?: boolean
     tag?: string | React.Component
 }
 
 export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
-    const onClick = (event): void => {
+    const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
-            event.preventDefault()
             event.stopPropagation()
-            return window.open(to, '_blank')
+            return
         }
 
         if (!props.target) {
