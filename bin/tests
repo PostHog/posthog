@@ -7,5 +7,5 @@ then
     exit
 fi
 
-REDIS_URL='redis:///' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES AXES_ENABLED=0 python manage.py test $@ --noinput
-REDIS_URL='redis:///' nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES AXES_ENABLED=0 python manage.py test --noinput --keepdb $@; mypy posthog ee"
+REDIS_URL='redis:///' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test $@ --noinput
+REDIS_URL='redis:///' nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --noinput --keepdb $@; mypy posthog ee"
