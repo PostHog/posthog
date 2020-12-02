@@ -6,10 +6,12 @@ import { Tabs, Button } from 'antd'
 
 import { createActionFromEvent } from './createActionFromEvent'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { Link } from 'lib/components/Link'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
     const [showHiddenProps, setShowHiddenProps] = useState(false)
+    const slicedEvent = event.event[0] == '$' ? event.event.slice(1) : event.event
 
     let displayedEventProperties = {}
     let visibleHiddenProperties = {}
@@ -35,6 +37,15 @@ export function EventDetails({ event }) {
             >
                 Create action from event
             </Button>
+
+            <Link
+                to={`/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${slicedEvent}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=`}
+            >
+                <Button style={{ float: 'right', zIndex: 9999, marginRight: 3 }} type="primary">
+                    analyze this event
+                </Button>
+            </Link>
+
             <Tabs
                 style={{ float: 'left', width: '100%', marginTop: -40 }}
                 data-attr="event-details"
