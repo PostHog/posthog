@@ -331,7 +331,36 @@ export const trendsLogic = kea({
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
                 }
+                handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
     }),
 })
+
+const handleLifecycleDefault = (params, callback) => {
+    if (params.shown_as === LIFECYCLE) {
+        if (params.events?.length) {
+            callback({
+                ...params,
+                events: [
+                    {
+                        ...params.events[0],
+                        math: 'total',
+                    },
+                ],
+                actions: [],
+            })
+        } else if (params.actions?.length) {
+            callback({
+                ...params,
+                events: [],
+                actions: [
+                    {
+                        ...params.actions[0],
+                        math: 'total',
+                    },
+                ],
+            })
+        }
+    }
+}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
@@ -10,51 +10,16 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { LIFECYCLE } from 'lib/constants'
-import { useEffect } from 'react'
 
 export function TrendTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
-    const [_filters, _setFilters] = useState(filters)
-
-    useEffect(() => {
-        // only show first event/action if it's lifecycle and default math to total
-        if (filters.shown_as === LIFECYCLE) {
-            if (filters.events?.length) {
-                _setFilters({
-                    ...filters,
-                    events: [
-                        {
-                            ...filters.events[0],
-                            math: 'total',
-                        },
-                    ],
-                    actions: [],
-                })
-            } else if (filters.actions?.length) {
-                _setFilters({
-                    ...filters,
-                    events: [],
-                    actions: [
-                        {
-                            ...filters.actions[0],
-                            math: 'total',
-                        },
-                    ],
-                })
-            } else {
-                _setFilters(filters)
-            }
-        } else {
-            _setFilters(filters)
-        }
-    }, filters)
 
     return (
         <>
             <h4 className="secondary">{'Actions & Events'}</h4>
             <ActionFilter
-                filters={_filters}
+                filters={filters}
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={filters.shown_as === LIFECYCLE}
