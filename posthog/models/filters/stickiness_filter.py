@@ -5,7 +5,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute
 from django.http import HttpRequest
 from django.utils import timezone
 
-from posthog.constants import PERIOD
+from posthog.constants import INTERVAL, PERIOD
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -16,7 +16,7 @@ class StickinessFilter(Filter):
     num_intervals: int
     date_from: datetime
     date_to: datetime
-    period: str = "Day"
+    interval: str = "Day"
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request)
@@ -43,37 +43,36 @@ class StickinessFilter(Filter):
 
         if not self._date_to:
             self._date_to = timezone.now()
-            self.date_to = self.date_to
 
         if self.interval is None:
             self.interval = "day"
 
-        self.period = data.get(PERIOD, self.period).lower()
+        self.interval = data.get(INTERVAL, self.interval).lower()
         total_seconds = (self.date_to - self.date_from).total_seconds()
-        if self.period == "minute":
+        if self.interval == "minute":
             self.num_intervals = int(divmod(total_seconds, 60)[0])
-        elif self.period == "hour":
+        elif self.interval == "hour":
             self.num_intervals = int(divmod(total_seconds, 3600)[0])
-        elif self.period == "day":
+        elif self.interval == "day":
             self.num_intervals = int(divmod(total_seconds, 86400)[0])
-        elif self.period == "week":
+        elif self.interval == "week":
             self.num_intervals = (self.date_to - self.date_from).days // 7
-        elif self.period == "month":
+        elif self.interval == "month":
             self.num_intervals = (self.date_to.year - self.date_from.year) + (self.date_to.month - self.date_from.month)
         else:
-            raise ValueError(f"{self.period} not supported")
+            raise ValueError(f"{self.interval} not supported")
         self.num_intervals += 2
 
     def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
-        if self.period == "minute":
+        if self.interval == "minute":
             return TruncMinute(field_name)
-        elif self.period == "hour":
+        elif self.interval == "hour":
             return TruncHour(field_name)
-        elif self.period == "day":
+        elif self.interval == "day":
             return TruncDay(field_name)
-        elif self.period == "week":
+        elif self.interval == "week":
             return TruncWeek(field_name)
-        elif self.period == "month":
+        elif self.interval == "month":
             return TruncMonth(field_name)
         else:
-            raise ValueError(f"{self.period} not supported")
+            raise ValueError(f"{self.interval} not supported")

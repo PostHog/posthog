@@ -115,7 +115,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "date_from": "2020-01-01",
                         "date_to": "2020-02-15",
                         "events": [{"id": "watched movie"}],
-                        "period": "week",
+                        "interval": "week",
                     },
                     team=self.team,
                 )
@@ -141,12 +141,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "date_from": "2020-01-01",
                         "date_to": "2020-09-08",
                         "events": [{"id": "watched movie"}],
-                        "period": "month",
+                        "interval": "month",
                     },
                     team=self.team,
                 )
                 response = stickiness().run(filter, self.team)
-            print(response)
+
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 month")
             self.assertEqual(response[0]["data"][0], 2)

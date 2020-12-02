@@ -63,7 +63,7 @@ class Stickiness(BaseQuery):
         labels = []
         data = []
         for day in range(1, filter.num_intervals):
-            label = "{} {}{}".format(day, filter.period, "s" if day > 1 else "")
+            label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
 
@@ -77,7 +77,6 @@ class Stickiness(BaseQuery):
     def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
         response = []
-
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
