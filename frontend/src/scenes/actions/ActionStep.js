@@ -193,7 +193,7 @@ export class ActionStep extends Component {
         }
 
         return (
-            <div>
+            <div className={`type-switcher${step.event === undefined ? ' unselected' : ''}`}>
                 <Radio.Group
                     buttonStyle="solid"
                     onChange={handleChange}
@@ -285,6 +285,9 @@ export class ActionStep extends Component {
                                 </button>
                             </div>
                         )}
+                        <div className="mb">
+                            <b>Match Group #{this.props.index + 1}</b>
+                        </div>
                         {<this.TypeSwitcher />}
                         <div
                             style={{
