@@ -132,7 +132,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
-        trunc_func = get_trunc_func_ch(filter.period)
+        trunc_func = get_trunc_func_ch(filter.interval)
 
         params: Dict = {
             "team_id": team.pk,

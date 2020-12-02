@@ -44,10 +44,7 @@ class StickinessFilter(Filter):
         if not self._date_to:
             self._date_to = timezone.now()
 
-        if self.interval is None:
-            self.interval = "day"
-
-        self.interval = data.get(INTERVAL, self.interval).lower()
+        self.interval = data.get(INTERVAL, "day").lower()
         total_seconds = (self.date_to - self.date_from).total_seconds()
         if self.interval == "minute":
             self.num_intervals = int(divmod(total_seconds, 60)[0])
