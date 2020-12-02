@@ -63,7 +63,9 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_params = {"event": entity.id}
 
         result = sync_execute(
-            LIFECYCLE_SQL.format(interval=interval_string, trunc_func=trunc_func, event_query=event_query),
+            LIFECYCLE_SQL.format(
+                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+            ),
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
@@ -73,7 +75,6 @@ class ClickhouseLifecycle(LifecycleTrend):
                 ),
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
-                "filters": prop_filters,
                 **event_params,
                 **date_params,
                 **prop_filter_params,
@@ -123,8 +124,13 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_query = "event = %(event)s"
             event_params = {"event": entity.id}
 
+        props_to_filter = [*filter.properties, *entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+
         result = sync_execute(
-            LIFECYCLE_PEOPLE_SQL.format(interval=interval_string, trunc_func=trunc_func, event_query=event_query),
+            LIFECYCLE_PEOPLE_SQL.format(
+                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+            ),
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
@@ -136,6 +142,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
                 **date_params,
+                **prop_filter_params,
                 "status": lifecycle_type,
                 "target_date": target_date.strftime(
                     "%Y-%m-%d{}".format(
