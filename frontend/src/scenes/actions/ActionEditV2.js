@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
-import { ActionStep } from './ActionStepV2'
+import { ActionStep } from './ActionStep'
 import { Alert, Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
