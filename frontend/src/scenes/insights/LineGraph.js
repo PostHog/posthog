@@ -273,7 +273,6 @@ export function LineGraph({
                                                       fontColor: axisLabelColor,
                                                       precision: 0,
                                                   },
-                                            stacked: true,
                                         },
                               ],
                           },
