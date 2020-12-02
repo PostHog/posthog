@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.client import _KafkaProducer, KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
@@ -21,7 +21,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
 
-kafka_producer = None
+kafka_producer: Optional[_KafkaProducer] = None
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
