@@ -1,5 +1,3 @@
-// Experiment actions-ux-201012
-
 import React, { useState } from 'react'
 import { uuid, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
