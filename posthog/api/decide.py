@@ -99,6 +99,10 @@ def get_decide(request: HttpRequest):
         if team is None and token:
             project_id = _get_project_id(data, request)
             user = User.objects.get_from_personal_api_key(token)
+            if user is None:
+                return cors_response(
+                    request, JsonResponse({"code": "validation", "message": "Invalid personal API key.",}, status=400,),
+                )
             team = user.teams.get(id=project_id)
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
