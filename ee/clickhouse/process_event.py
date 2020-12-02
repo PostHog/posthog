@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.kafka_client.client import _KafkaProducer, KafkaProducer
+from ee.kafka_client.client import KafkaProducer, _KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element

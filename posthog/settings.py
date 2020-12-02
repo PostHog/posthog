@@ -218,7 +218,7 @@ INSTALLED_APPS = [
     "axes",
 ]
 
-if EE_ENABLED:
+if EE_AVAILABLE:
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
