@@ -1,25 +1,7 @@
 import { fastify, FastifyInstance } from 'fastify'
-import { parse as querystringParse, ParsedUrlQuery } from 'querystring'
-import { parse as urlParse } from 'url'
-
-declare module 'fastify' {
-    export interface FastifyRequest {
-        GET: ParsedUrlQuery
-        POST: ParsedUrlQuery
-    }
-}
 
 export function buildFastifyInstance(): FastifyInstance {
     const fastifyInstance = fastify()
-    fastifyInstance.addHook('preHandler', async (request) => {
-        // Mimic Django HttpRequest with GET and POST properties
-        request.GET = urlParse(request.url, true).query
-        try {
-            request.POST = querystringParse(String(request.body))
-        } catch {
-            request.POST = {}
-        }
-    })
     return fastifyInstance
 }
 
