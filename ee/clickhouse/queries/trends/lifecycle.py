@@ -7,6 +7,7 @@ from django.db.models.query import Prefetch
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
@@ -46,6 +47,9 @@ class ClickhouseLifecycle(LifecycleTrend):
         event_query = ""
         event_params: Dict[str, Any] = {}
 
+        props_to_filter = [*filter.properties, *entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+
         _, _, date_params = parse_timestamps(filter=filter)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -59,7 +63,9 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_params = {"event": entity.id}
 
         result = sync_execute(
-            LIFECYCLE_SQL.format(interval=interval_string, trunc_func=trunc_func, event_query=event_query),
+            LIFECYCLE_SQL.format(
+                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+            ),
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
@@ -71,6 +77,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
                 **date_params,
+                **prop_filter_params,
             },
         )
 
@@ -117,8 +124,13 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_query = "event = %(event)s"
             event_params = {"event": entity.id}
 
+        props_to_filter = [*filter.properties, *entity.properties]
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+
         result = sync_execute(
-            LIFECYCLE_PEOPLE_SQL.format(interval=interval_string, trunc_func=trunc_func, event_query=event_query),
+            LIFECYCLE_PEOPLE_SQL.format(
+                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+            ),
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
@@ -130,6 +142,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
                 **date_params,
+                **prop_filter_params,
                 "status": lifecycle_type,
                 "target_date": target_date.strftime(
                     "%Y-%m-%d{}".format(

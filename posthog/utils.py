@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from itertools import count
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +17,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -426,3 +428,14 @@ def get_redis_info() -> Mapping[str, Any]:
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
+
+
+def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
+    raw, params = qs.query.sql_with_params()
+    arg_count = 0
+    counter = count(arg_count)
+    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
+    named_params = {}
+    for idx, param in enumerate(params):
+        named_params.update({f"{prepend}_arg_{idx}": param})
+    return new_string, named_params

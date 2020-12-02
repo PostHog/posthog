@@ -11,6 +11,8 @@ from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.queries.base import filter_events
+from posthog.utils import queryset_to_named_query
 
 LIFECYCLE_SQL = """
 SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY day_start ASC), status FROM  (
@@ -49,7 +51,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                  FROM (
                                                           SELECT DISTINCT person_id,
                                                                           DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
-                                                          FROM posthog_event
+                                                          FROM ({events}) posthog_event
                                                           {action_join}
                                                             JOIN
                                                             (SELECT person_id,
@@ -67,7 +69,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                           JOIN (
                                                      SELECT DISTINCT person_id,
                                                                      DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
-                                                     FROM posthog_event
+                                                     FROM ({events}) posthog_event
                                                      {action_join}
                                                         JOIN
                                                         (SELECT person_id,
@@ -90,7 +92,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                         FROM (
                                                  SELECT DISTINCT person_id,
                                                                  DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
-                                                 FROM posthog_event
+                                                 FROM ({events}) posthog_event
                                                  {action_join}
                                                     JOIN
                                                     (SELECT person_id,
@@ -119,7 +121,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                                                    FROM (
                                                                             SELECT DISTINCT person_id,
                                                                                             array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
-                                                                            FROM posthog_event
+                                                                            FROM ({events}) posthog_event
                                                                             {action_join}
                                                                             JOIN
                                                                             (SELECT person_id,
@@ -153,7 +155,7 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                                    SELECT DISTINCT person_id,
                                                    DATE_TRUNC(%(interval)s,
                                                               min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
-                                   FROM posthog_event
+                                   FROM ({earliest_events}) posthog_event
                                     JOIN
                                     (SELECT person_id,
                                             distinct_id
@@ -198,7 +200,7 @@ FROM (
                             FROM (
                                     SELECT DISTINCT person_id,
                                                     DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
-                                    FROM posthog_event
+                                    FROM ({events}) posthog_event
                                     {action_join}
                                     JOIN
                                     (SELECT person_id,
@@ -216,7 +218,7 @@ FROM (
                                     JOIN (
                                 SELECT DISTINCT person_id,
                                                 DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "sub_day"
-                                FROM posthog_event
+                                FROM ({events}) posthog_event
                                 {action_join}
                                 JOIN
                                 (SELECT person_id,
@@ -239,7 +241,7 @@ FROM (
                 FROM (
                             SELECT DISTINCT person_id,
                                             DATE_TRUNC(%(interval)s, "posthog_event"."timestamp" AT TIME ZONE 'UTC') AS "day"
-                            FROM posthog_event
+                            FROM ({events}) posthog_event
                             {action_join}
                             JOIN
                             (SELECT person_id,
@@ -268,7 +270,7 @@ FROM (
                                             FROM (
                                                     SELECT DISTINCT person_id,
                                                                     array_agg(date_trunc(%(interval)s, posthog_event.timestamp)) as day
-                                                    FROM posthog_event
+                                                    FROM ({events}) posthog_event
                                                     {action_join}
                                                     JOIN
                                                     (SELECT person_id,
@@ -302,7 +304,7 @@ FROM (
             SELECT DISTINCT person_id,
                             DATE_TRUNC(%(interval)s,
                                         min("posthog_event"."timestamp") AT TIME ZONE 'UTC') earliest
-            FROM posthog_event
+            FROM ({earliest_events}) posthog_event
             JOIN
             (SELECT person_id,
                     distinct_id
@@ -384,6 +386,20 @@ class LifecycleTrend:
         )
         interval_trunc = get_trunc_func(period=period)
 
+        # include the before and after when filteirng all events
+        filter._date_from = prev_date_from.isoformat()
+        filter._date_to = after_date_to.isoformat()
+
+        filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
+        event_query, event_params = queryset_to_named_query(filtered_events, "events")
+
+        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
+            filter_events(team_id, filter, entity, include_dates=False)
+        )
+        earliest_events_query, earliest_events_params = queryset_to_named_query(
+            earliest_events_filtered, "earliest_events"
+        )
+
         with connection.cursor() as cursor:
             cursor.execute(
                 LIFECYCLE_SQL.format(
@@ -391,6 +407,8 @@ class LifecycleTrend:
                     event_condition="{} = %(event)s".format(
                         "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
                     ),
+                    events=event_query,
+                    earliest_events=earliest_events_query,
                 ),
                 {
                     "team_id": team_id,
@@ -402,6 +420,8 @@ class LifecycleTrend:
                     "date_from": date_from,
                     "date_to": date_to,
                     "after_date_to": after_date_to,
+                    **event_params,
+                    **earliest_events_params,
                 },
             )
             res = []
@@ -428,6 +448,20 @@ class LifecycleTrend:
         )
         interval_trunc = get_trunc_func(period=period)
 
+        # include the before and after when filteirng all events
+        filter._date_from = prev_date_from.isoformat()
+        filter._date_to = after_date_to.isoformat()
+
+        filtered_events = Event.objects.filter(team_id=team_id).filter(filter_events(team_id, filter, entity))
+        event_query, event_params = queryset_to_named_query(filtered_events)
+
+        earliest_events_filtered = Event.objects.filter(team_id=team_id).filter(
+            filter_events(team_id, filter, entity, include_dates=False)
+        )
+        earliest_events_query, earliest_events_params = queryset_to_named_query(
+            earliest_events_filtered, "earliest_events"
+        )
+
         with connection.cursor() as cursor:
             cursor.execute(
                 LIFECYCLE_PEOPLE_SQL.format(
@@ -435,6 +469,8 @@ class LifecycleTrend:
                     event_condition="{} = %(event)s".format(
                         "action_id" if entity.type == TREND_FILTER_TYPE_ACTIONS else "event"
                     ),
+                    events=event_query,
+                    earliest_events=earliest_events_query,
                 ),
                 {
                     "team_id": team_id,
@@ -450,6 +486,8 @@ class LifecycleTrend:
                     "status": lifecycle_type,
                     "offset": offset,
                     "limit": limit,
+                    **event_params,
+                    **earliest_events_params,
                 },
             )
             pids = cursor.fetchall()
