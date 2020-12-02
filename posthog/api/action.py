@@ -29,6 +29,7 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
@@ -177,6 +178,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == "Stickiness":
+            filter = StickinessFilter(request=request, team=team)
             result = stickiness.Stickiness().run(filter, team)
         else:
             result = trends.Trends().run(filter, team)
