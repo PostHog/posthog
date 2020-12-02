@@ -29,11 +29,14 @@ const saveToDashboardModalLogic = kea({
         },
     }),
 })
+
 const radioStyle = {
     display: 'block',
-    height: '30px',
-    lineHeight: '30px',
+    lineHeight: 30,
+    overflow: 'hidden',
+    whiteSpace: 'normal',
 }
+
 export function SaveToDashboardModal({
     closeModal,
     name: initialName,
@@ -103,14 +106,12 @@ export function SaveToDashboardModal({
                         value={`${newItem}`}
                         style={{ display: 'block', marginBottom: newItem ? 30 : 0 }}
                     >
-                        <pre>
-                            <Radio style={radioStyle} value={'false'}>
-                                Update the existing panel "{fromItemName}" on "{fromDashboardName}"
-                            </Radio>
-                            <Radio style={radioStyle} value={'true'}>
-                                Add as a new panel
-                            </Radio>
-                        </pre>
+                        <Radio style={radioStyle} value={'false'}>
+                            Update the existing panel "{fromItemName}" on "{fromDashboardName}"
+                        </Radio>
+                        <Radio style={radioStyle} value={'true'}>
+                            Add as a new panel
+                        </Radio>
                     </Radio.Group>
                 ) : null}
                 {newItem ? (
