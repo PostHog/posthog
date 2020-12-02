@@ -6,7 +6,6 @@
         "removeComments": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
-        "esModuleInterop": true,
         "moduleResolution": "node",
         "sourceMap": true,
         "baseUrl": "./src",
