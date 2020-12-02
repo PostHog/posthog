@@ -101,10 +101,12 @@ export const entityFilterLogic = kea({
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))
         },
         addFilter: () => {
-            actions.setFilters([
-                ...values.localFilters,
-                { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length },
-            ])
+            if (values.localFilters.length > 0) {
+                const lastFilter = values.localFilters[values.localFilters.length - 1]
+                actions.setFilters([...values.localFilters, { ...lastFilter, order: values.localFilters.length }])
+            } else {
+                actions.setFilters([{ id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }])
+            }
         },
         setFilters: ({ filters }) => {
             props.setFilters(toFilters(filters))
