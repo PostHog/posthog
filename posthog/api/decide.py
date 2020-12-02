@@ -7,21 +7,9 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models import FeatureFlag, Team
-from posthog.utils import base64_to_json, cors_response, load_data_from_request
-
-
-def _get_token(data, request):
-    if request.POST.get("api_key"):
-        return request.POST["api_key"]
-    if request.POST.get("token"):
-        return request.POST["token"]
-    if "token" in data:
-        return data["token"]  # JS reloadFeatures call
-    if "api_key" in data:
-        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-    return None
+from posthog.models import FeatureFlag, Team, User
+from posthog.utils import cors_response, load_data_from_request
+from .capture import _get_token, _get_project_id
 
 
 def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
@@ -53,15 +41,6 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         return response, not request.user.temporary_token
     else:
         return {}, False
-
-
-# May raise exception if request body is malformed
-def get_team_from_token(request: HttpRequest, data_from_request: Dict[str, Any]) -> Union[Team, None]:
-    data = data_from_request["data"]
-    if not data:
-        return None
-    team = Team.objects.get_team_from_token(_get_token(data, request))
-    return team
 
 
 def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:
@@ -105,6 +84,7 @@ def get_decide(request: HttpRequest):
     if request.method == "POST":
         try:
             data_from_request = load_data_from_request(request)
+            data = data_from_request["data"]
         except (json.decoder.JSONDecodeError, TypeError):
             return cors_response(
                 request,
@@ -113,8 +93,12 @@ def get_decide(request: HttpRequest):
                     status=400,
                 ),
             )
-
-        team = get_team_from_token(request, data_from_request)
+        token = _get_token(data, request)
+        team = Team.objects.get_team_from_token(token)
+        if team is None and token:
+            project_id = _get_project_id(data, request)
+            user = User.objects.get_from_personal_api_key(token)
+            team = user.teams.get(id=project_id)
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
