@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { formatLabel } from '~/lib/utils'
-import { getChartColors } from 'lib/colors'
+import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -113,10 +113,11 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
+        const color = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
 
         return {
-            borderColor: colorList[index],
-            backgroundColor: (type === 'bar' || type === 'doughnut') && colorList[index],
+            borderColor: color,
+            backgroundColor: (type === 'bar' || type === 'doughnut') && color,
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,
@@ -236,39 +237,43 @@ export function LineGraph({
                           },
                           scales: {
                               xAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                          padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                                      },
-                                  },
-                              ],
-                              yAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: percentage
-                                          ? {
-                                                min: 0,
-                                                max: 100, // Your absolute max value
-                                                callback: function (value) {
-                                                    return value.toFixed(0) + '%' // convert it to percentage
-                                                },
-                                            }
-                                          : {
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: {
                                                 autoSkip: true,
                                                 beginAtZero: true,
                                                 min: 0,
                                                 fontColor: axisLabelColor,
                                                 precision: 0,
+                                                padding: annotationsLoading || !annotationInRange ? 0 : 35,
                                             },
-                                  },
+                                        },
+                              ],
+                              yAxes: [
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: percentage
+                                                ? {
+                                                      min: 0,
+                                                      max: 100, // Your absolute max value
+                                                      callback: function (value) {
+                                                          return value.toFixed(0) + '%' // convert it to percentage
+                                                      },
+                                                  }
+                                                : {
+                                                      autoSkip: true,
+                                                      beginAtZero: true,
+                                                      min: 0,
+                                                      fontColor: axisLabelColor,
+                                                      precision: 0,
+                                                  },
+                                        },
                               ],
                           },
                           onClick: (_, [point]) => {

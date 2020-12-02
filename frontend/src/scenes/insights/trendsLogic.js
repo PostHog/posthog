@@ -5,7 +5,13 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
+import {
+    STICKINESS,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_TABLE,
+    LIFECYCLE,
+} from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
 import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
@@ -84,7 +90,7 @@ function autocorrectInterval({ date_from, interval }) {
 }
 
 function parsePeopleParams(peopleParams, filters) {
-    const { action, day, breakdown_value } = peopleParams
+    const { action, day, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
         entityId: action.id,
@@ -96,6 +102,9 @@ function parsePeopleParams(peopleParams, filters) {
         params.stickiness_days = day
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = day
+    } else if (filters.shown_as === LIFECYCLE) {
+        params.date_from = filters.date_from
+        params.date_to = filters.date_to
     } else {
         params.date_from = day
         params.date_to = day
@@ -109,7 +118,7 @@ function parsePeopleParams(peopleParams, filters) {
         params.properties = [...params.properties, ...action.properties]
     }
 
-    return toAPIParams(params)
+    return toAPIParams({ ...params, ...restParams })
 }
 
 // props:
@@ -219,9 +228,19 @@ export const trendsLogic = kea({
             actions.setFilters({ display })
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
-            const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-            actions.setPeople(null, null, action, label, day, breakdown_value, null)
-            const people = await api.get(`api/action/people/?${filterParams}`)
+            let people = []
+            if (values.filters.shown_as === LIFECYCLE) {
+                const filterParams = parsePeopleParams(
+                    { label, action, target_date: day, lifecycle_type: breakdown_value },
+                    values.filters
+                )
+                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                people = await api.get(`api/person/lifecycle/?${filterParams}`)
+            } else {
+                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                people = await api.get(`api/action/people/?${filterParams}`)
+            }
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,
@@ -312,7 +331,36 @@ export const trendsLogic = kea({
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
                 }
+                handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
     }),
 })
+
+const handleLifecycleDefault = (params, callback) => {
+    if (params.shown_as === LIFECYCLE) {
+        if (params.events?.length) {
+            callback({
+                ...params,
+                events: [
+                    {
+                        ...params.events[0],
+                        math: 'total',
+                    },
+                ],
+                actions: [],
+            })
+        } else if (params.actions?.length) {
+            callback({
+                ...params,
+                events: [],
+                actions: [
+                    {
+                        ...params.actions[0],
+                        math: 'total',
+                    },
+                ],
+            })
+        }
+    }
+}

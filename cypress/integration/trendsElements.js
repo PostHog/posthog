@@ -34,7 +34,7 @@ describe('Trends actions & events', () => {
 
         // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
         cy.get('[data-attr=math-avg-0]').click({ force: true })
-        cy.get('[data-attr=math-property-selector-0]').should('exist')
+        cy.get('[data-attr=math-property-select]').should('exist')
     })
 
     it('Apply specific filter on default pageview event', () => {
