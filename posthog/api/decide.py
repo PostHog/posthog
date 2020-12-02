@@ -60,19 +60,8 @@ def get_team_from_token(request: HttpRequest, data_from_request: Dict[str, Any])
     data = data_from_request["data"]
     if not data:
         return None
-
-    token = _get_token(data, request)
-    is_personal_api_key = False
-    if not token:
-        token = PersonalAPIKeyAuthentication.find_key(
-            request, data_from_request["body"], data if isinstance(data, dict) else None
-        )
-        is_personal_api_key = True
-
-    if token:
-        return Team.objects.get_team_from_token(token, is_personal_api_key)
-
-    return None
+    team = Team.objects.get_team_from_token(_get_token(data, request))
+    return team
 
 
 def feature_flags(request: HttpRequest, team: Team, data: Dict[str, Any]) -> List[str]:

@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
@@ -58,6 +58,16 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
+def _get_project_id(data, request) -> Optional[int]:
+    if request.GET.get("project_id"):
+        return int(request.POST["project_id"])
+    if request.POST.get("project_id"):
+        return int(request.POST["project_id"])
+    if data.get("project_id"):
+        return int(data["project_id"])
+    return None
+
+
 def _get_distinct_id(data: Dict[str, Any]) -> str:
     try:
         return str(data["$distinct_id"])[0:200]
@@ -98,36 +108,44 @@ def get_event(request):
     sent_at = _get_sent_at(data, request)
 
     token = _get_token(data, request)
-    is_personal_api_key = False
-    if not token:
-        token = PersonalAPIKeyAuthentication.find_key(
-            request, data_from_request["body"], data if isinstance(data, dict) else None
-        )
-        is_personal_api_key = True
-    if not token:
-        return cors_response(
-            request,
-            JsonResponse(
-                {
-                    "code": "validation",
-                    "message": "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
-                },
-                status=400,
-            ),
-        )
 
-    team = Team.objects.get_team_from_token(token, is_personal_api_key)
-    if team is None:
+    if not token:
         return cors_response(
             request,
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
+                    "message": "API key not provided. You can find your project API key in PostHog project settings.",
                 },
                 status=400,
             ),
         )
+    team = Team.objects.get_team_from_token(token)
+
+    if team is None:
+        try:
+            project_id = _get_project_id(data, request)
+        except:
+            return cors_response(
+                request, JsonResponse({"code": "validation", "message": "Invalid project ID.",}, status=400,),
+            )
+        if not project_id:
+            return cors_response(
+                request,
+                JsonResponse(
+                    {
+                        "code": "validation",
+                        "message": "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    },
+                    status=400,
+                ),
+            )
+        user = User.objects.get_from_personal_api_key(token)
+        if user is None:
+            return cors_response(
+                request, JsonResponse({"code": "validation", "message": "Personal API key invalid.",}, status=400,),
+            )
+        team = user.teams.get(id=project_id)
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby
