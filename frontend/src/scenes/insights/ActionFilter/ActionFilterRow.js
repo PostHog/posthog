@@ -295,7 +295,7 @@ function MathPropertySelector(props) {
                     loadPropertyValues(input)
                 }
             }}
-            data-attr="prop-val"
+            data-attr="math-property-select"
             dropdownMatchSelectWidth={350}
             placeholder={'Select property'}
         >
