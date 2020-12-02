@@ -81,7 +81,7 @@ class TestCapture(BaseTest):
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):
-        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key = PersonalAPIKey(label="X", user=self.user)
         key.save()
         data = {
             "event": "$autocapture",

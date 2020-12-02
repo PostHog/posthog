@@ -35,7 +35,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         )
 
     def test_delete_personal_api_key(self):
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
@@ -44,10 +44,10 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
-        my_key = PersonalAPIKey(label=my_label, team=self.team, user=self.user)
+        my_key = PersonalAPIKey(label=my_label, user=self.user)
         my_key.save()
         other_user = self._create_user("abc@def.xyz")
-        other_key = PersonalAPIKey(label="Other test", team=self.team, user=other_user)
+        other_key = PersonalAPIKey(label="Other test", user=other_user)
         other_key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 2)
         response = self.client.get("/api/personal_api_keys")
@@ -68,7 +68,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
 
     def test_get_own_personal_api_key(self):
         my_label = "Test"
-        my_key = PersonalAPIKey(label=my_label, team=self.team, user=self.user)
+        my_key = PersonalAPIKey(label=my_label, user=self.user)
         my_key.save()
         response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         self.assertEqual(response.status_code, 200)
@@ -87,7 +87,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
 
     def test_get_someone_elses_personal_api_key(self):
         other_user = self._create_user("abc@def.xyz")
-        other_key = PersonalAPIKey(label="Other test", team=self.team, user=other_user)
+        other_key = PersonalAPIKey(label="Other test", user=other_user)
         other_key.save()
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         self.assertEqual(response.status_code, 404)
@@ -104,19 +104,19 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         self.assertEqual(response.status_code, 403)
 
     def test_header_resilient(self):
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get("/api/dashboard/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  ")
         self.assertEqual(response.status_code, 200)
 
     def test_query_string(self):
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get(f"/api/dashboard/?personal_api_key={key.value}")
         self.assertEqual(response.status_code, 200)
 
     def test_body(self):
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get("/api/dashboard/", {"personal_api_key": key.value})
         self.assertEqual(response.status_code, 200)
@@ -124,14 +124,14 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     def test_user_not_active(self):
         self.user.is_active = False
         self.user.save()
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
         self.assertEqual(response.status_code, 401)
 
     def test_user_endpoint(self):
         # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django instead)
-        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get("/api/user", HTTP_AUTHORIZATION=f"Bearer {key.value}")
         self.assertEqual(response.status_code, 200)
