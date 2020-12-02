@@ -278,9 +278,9 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
 }
 
 function MathPropertySelector(props) {
-    const applicableProperties = props.properties.filter(
-        ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
-    )
+    const applicableProperties = props.properties
+        .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
+        .sort((a, b) => (a.value + '').localeCompare(b.value))
 
     return (
         <SelectGradientOverflow
@@ -299,29 +299,27 @@ function MathPropertySelector(props) {
             dropdownMatchSelectWidth={350}
             placeholder={'Select property'}
         >
-            {applicableProperties.map(({ value, label }) => {
-                return (
-                    <Select.Option
-                        key={`math-property-${value}-${props.index}`}
-                        value={value}
-                        data-attr={`math-property-${value}-${props.index}`}
+            {applicableProperties.map(({ value, label }) => (
+                <Select.Option
+                    key={`math-property-${value}-${props.index}`}
+                    value={value}
+                    data-attr={`math-property-${value}-${props.index}`}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
+                                will be taken into account.
+                            </>
+                        }
+                        placement="right"
+                        overlayStyle={{ zIndex: 9999999999 }}
                     >
-                        <Tooltip
-                            title={
-                                <>
-                                    Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
-                                    Note that only {props.name} occurences where <code>{label}</code> is set and a
-                                    number will be taken into account.
-                                </>
-                            }
-                            placement="right"
-                            overlayStyle={{ zIndex: 9999999999 }}
-                        >
-                            {label}
-                        </Tooltip>
-                    </Select.Option>
-                )
-            })}
+                        {label}
+                    </Tooltip>
+                </Select.Option>
+            ))}
         </SelectGradientOverflow>
     )
 }
