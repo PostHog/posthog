@@ -193,3 +193,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people
+
+
+class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
+    legacy_team_compatibility = True
