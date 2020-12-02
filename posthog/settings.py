@@ -140,10 +140,8 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 
-_kafka_hosts = KAFKA_URL.split(",")
-
 KAFKA_HOSTS_LIST = []
-for host in _kafka_hosts:
+for host in KAFKA_URL.split(","):
     url = urlparse(host)
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
@@ -153,7 +151,18 @@ CLICKHOUSE = "clickhouse"
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
 
-if PRIMARY_DB == CLICKHOUSE:
+EE_AVAILABLE = False
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    HOOK_EVENTS: Dict[str, str] = {}
+    EE_AVAILABLE = True
+
+EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == CLICKHOUSE
+
+if EE_ENABLED:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
@@ -197,6 +206,9 @@ INSTALLED_APPS = [
     "django_filters",
 ]
 
+if EE_ENABLED:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -215,19 +227,6 @@ MIDDLEWARE = [
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
-
-EE_AVAILABLE = False
-
-# Append Enterprise Edition as an app if available
-try:
-    from ee.apps import EnterpriseConfig  # noqa: F401
-except ImportError:
-    pass
-else:
-    HOOK_EVENTS: Dict[str, str] = {}
-    INSTALLED_APPS.append("rest_hooks")
-    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-    EE_AVAILABLE = True
 
 # Use django-extensions if it exists
 try:
@@ -369,7 +368,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == CLICKHOUSE:
+if EE_ENABLED:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
