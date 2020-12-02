@@ -1,5 +1,5 @@
 import React from 'react'
-import { ActionEdit as ActionEditV2 } from './ActionEditV2'
+import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { userLogic } from 'scenes/userLogic'
@@ -66,7 +66,7 @@ let actionLogic = kea({
 })
 
 function EditComponent(props) {
-    return <ActionEditV2 {...props} />
+    return <ActionEdit {...props} />
 }
 
 export const Action = hot(_Action)
