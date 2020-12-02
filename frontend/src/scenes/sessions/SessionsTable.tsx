@@ -21,13 +21,13 @@ interface SessionsTableProps {
     isPersonPage?: boolean
 }
 
-function SessionPlayerDrawer(): JSX.Element {
+function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
     const { closeSessionPlayer } = useActions(sessionsTableLogic)
     return (
         <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
             <>
                 <a onClick={closeSessionPlayer}>
-                    <ArrowLeftOutlined /> Back to sessions
+                    <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
                 </a>
                 <SessionsPlay />
             </>
@@ -154,7 +154,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {!!sessionRecordingId && <SessionPlayerDrawer />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{
