@@ -164,12 +164,6 @@ def _create_users(team: Team, base_url: str, organization: str) -> None:
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
-    for index, person in enumerate(Person.objects.filter(team=team)):
-        if index > 0 and index % 14 == 0:
-            days_ago -= 1
-
-        distinct_id = str(UUIDT())
-        distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
 
     generate_app_data(org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids)
     generate_revenue_data(org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids)
