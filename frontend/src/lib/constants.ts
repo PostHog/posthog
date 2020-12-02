@@ -8,6 +8,7 @@ export const RETENTION_GRAPH = 'RetentionGraph'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
+export const VOLUME = 'Volume'
 export const STICKINESS = 'Stickiness'
 export const LIFECYCLE = 'Lifecycle'
 

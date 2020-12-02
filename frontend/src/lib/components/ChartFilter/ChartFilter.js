@@ -9,6 +9,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_TABLE,
+    LIFECYCLE,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 
@@ -44,7 +45,7 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
-            disabled={filters.shown_as === 'Lifecycle'}
+            disabled={filters.shown_as === LIFECYCLE}
         >
             <Select.OptGroup label={'Line Chart'}>
                 <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR} disabled={linearDisabled}>
