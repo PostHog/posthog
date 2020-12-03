@@ -11,6 +11,7 @@ import { formatPropertyLabel } from 'lib/utils'
 import { cohortsModel } from '~/models'
 import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
 import SaveModal from '../SaveModal'
+import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -81,8 +82,28 @@ export const determineFilters = (
             result.push({ key: 'Compare', value: `${filters.compare}` })
         }
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) {
-            result.push({ key: 'Target', value: `${filters.target.name}` })
+        if (filters.display) {
+            result.push({
+                key: 'Display',
+                value: `${filters.display === ACTIONS_LINE_GRAPH_LINEAR ? 'Graph' : 'Table'}`,
+            })
+        }
+        if (filters.startEntity) {
+            if (filters.startEntity.events) {
+                result.push({ key: 'Target', value: `${filters.startEntity.events[0].name}` })
+            } else if (filters.startEntity.actions) {
+                result.push({ key: 'Target', value: `${filters.startEntity.actions[0].name}` })
+            }
+        }
+        if (filters.returningEntity) {
+            if (filters.returningEntity.events) {
+                result.push({ key: 'Returning Event', value: `${filters.returningEntity.events[0].name}` })
+            } else if (filters.returningEntity.actions) {
+                result.push({ key: 'Returning Event', value: `${filters.returningEntity.actions[0].name}` })
+            }
+        }
+        if (filters.selectedDate) {
+            result.push({ key: 'Current Date', value: `${filters.selectedDate}\n` })
         }
     } else if (viewType === ViewType.PATHS) {
         if (filters.type) {

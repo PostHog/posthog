@@ -27,6 +27,7 @@ from posthog.models import (
     Event,
     Filter,
     Person,
+    RetentionFilter,
 )
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
@@ -92,8 +93,6 @@ def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
 
 
 class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
@@ -193,7 +192,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         properties = request.GET.get("properties", "{}")
 
-        filter = Filter(data={"properties": json.loads(properties)})
+        filter = RetentionFilter(data={"properties": json.loads(properties)})
 
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
@@ -343,3 +342,7 @@ def action_defined(sender, instance, created, raw, using, **kwargs):
             payload=ActionSerializer(instance).data,
             user=instance.team,
         )
+
+
+class LegacyActionViewSet(ActionViewSet):
+    legacy_team_compatibility = True

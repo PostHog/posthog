@@ -9,7 +9,7 @@ from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_S
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.queries.stickiness import Stickiness
 
 

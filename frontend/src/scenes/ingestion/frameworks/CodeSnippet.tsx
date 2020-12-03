@@ -70,7 +70,7 @@ SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
 export interface CodeSnippetProps {
-    children: string
+    children: string | undefined
     language?: Language
     wrap?: boolean
     actions?: Action[]

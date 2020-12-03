@@ -18,7 +18,7 @@ from .action import Action
 from .action_step import ActionStep
 from .element import Element
 from .element_group import ElementGroup
-from .filter import Filter
+from .filters import Filter
 from .person import Person, PersonDistinctId
 from .team import Team
 from .utils import namedtuplefetchall

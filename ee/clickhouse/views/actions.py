@@ -22,7 +22,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -193,3 +193,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people
+
+
+class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
+    legacy_team_compatibility = True

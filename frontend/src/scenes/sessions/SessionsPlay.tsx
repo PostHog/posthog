@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Player, PlayerRef } from 'posthog-react-rrweb-player'
 import { Card, Col, Input, Row, Skeleton, Tag } from 'antd'
 import {
-    AppleOutlined,
-    ChromeOutlined,
     UserOutlined,
     FieldTimeOutlined,
     PlusOutlined,
     SyncOutlined,
+    LaptopOutlined,
+    MobileOutlined,
+    TabletOutlined,
 } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
@@ -17,20 +18,44 @@ import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'
 import { IconExternalLink } from 'lib/components/icons'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+
 import './Sessions.scss'
 import './SessionsPlayer.scss'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+
+function formatDuration(milliseconds: number): string {
+    const multipliers: Array<[number, string]> = [
+        [24 * 60 * 60 * 1000, 'day'],
+        [60 * 60 * 1000, 'hour'],
+        [60 * 1000, 'minute'],
+    ]
+    for (const [multiplier, identifier] of multipliers) {
+        if (milliseconds > multiplier) {
+            return `${Math.round(milliseconds / multiplier)} ${identifier}`
+        }
+    }
+    return `${Math.round(milliseconds / 1000)} second`
+}
+
+function DeviceIcon({ width }: { width: number }): JSX.Element {
+    if (width <= 475) {
+        return <MobileOutlined />
+    } else if (width > 475 && width < 860) {
+        return <TabletOutlined />
+    }
+    return <LaptopOutlined />
+}
 
 export const SessionsPlay = hot(_SessionsPlay)
 function _SessionsPlay(): JSX.Element {
     const {
         sessionPlayerData,
         sessionPlayerDataLoading,
+        sessionDate,
         addingTagShown,
         addingTag,
         tags,
         tagsLoading,
-        sessionTimestamp,
         eventIndex,
         pageVisitEvents,
     } = useValues(sessionsPlayLogic)
@@ -40,12 +65,18 @@ function _SessionsPlay(): JSX.Element {
     const [playerTime, setCurrentPlayerTime] = useState(0)
     const playerRef = useRef<PlayerRef>(null)
     const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
+    const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
 
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
             addTagInput.current.focus()
         }
     }, [addingTagShown])
+
+    const seekEvent = (playerTime: number): void => {
+        setCurrentPlayerTime(playerTime)
+        playerRef.current?.seek(playerTime)
+    }
 
     return (
         <div className="session-player">
@@ -65,10 +96,12 @@ function _SessionsPlay(): JSX.Element {
                                         </CopyToClipboardInline>
                                     </>
                                 ) : null}
-                                {/* TODO: Not implemented */}
-                                <span className="float-right" style={{ display: 'none' }}>
-                                    <ChromeOutlined /> Chrome on <AppleOutlined /> macOS (1400 x 600)
-                                </span>
+                                {recordingMetadata && (
+                                    <span style={{ marginLeft: 'auto' }}>
+                                        <b>Resolution: </b>
+                                        <DeviceIcon width={recordingMetadata.width} /> {recordingMetadata.resolution}
+                                    </span>
+                                )}
                             </>
                         )}
                     </div>
@@ -87,33 +120,30 @@ function _SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        {sessionPlayerDataLoading && (
+                        {sessionPlayerDataLoading ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 3 }} active />
                             </div>
-                        )}
-                        {!sessionPlayerDataLoading && (
+                        ) : (
                             <>
-                                <div className="mb-05" style={{ display: 'none' }}>
-                                    {/* TODO: Add session duration information */}
-                                    <FieldTimeOutlined /> {sessionTimestamp}
+                                <div className="mb-05">
+                                    <FieldTimeOutlined /> {formatDuration(eventIndex.getDuration())} session on{' '}
+                                    {sessionDate}
                                 </div>
-                                {sessionPlayerData?.person && (
-                                    <div>
-                                        <UserOutlined style={{ marginRight: 4 }} />
-                                        <Link
-                                            to={`/person/${encodeURIComponent(
-                                                sessionPlayerData.person.distinct_ids[0]
-                                            )}`}
-                                            className={rrwebBlockClass + ' ph-no-capture'}
-                                            target="_blank"
-                                            style={{ display: 'inline-flex', alignItems: 'center' }}
-                                        >
-                                            <span style={{ marginRight: 4 }}>{sessionPlayerData.person.name}</span>
-                                            <IconExternalLink />
-                                        </Link>
-                                    </div>
-                                )}
+                                <div>
+                                    <UserOutlined style={{ marginRight: 4 }} />
+                                    <Link
+                                        to={`/person/${encodeURIComponent(
+                                            sessionPlayerData?.person?.distinct_ids[0] || ''
+                                        )}`}
+                                        className={rrwebBlockClass + ' ph-no-capture'}
+                                        target="_blank"
+                                        style={{ display: 'inline-flex', alignItems: 'center' }}
+                                    >
+                                        <span style={{ marginRight: 4 }}>{sessionPlayerData?.person?.name}</span>
+                                        <IconExternalLink />
+                                    </Link>
+                                </div>
                                 <div className="mt" style={{ display: 'none' }}>
                                     <div>
                                         <b>Tags</b>
@@ -166,18 +196,17 @@ function _SessionsPlay(): JSX.Element {
                         <p className="text-muted text-small">
                             Click on an item to jump to that point in the recording.
                         </p>
-                        {sessionPlayerDataLoading && (
+                        {sessionPlayerDataLoading ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 6 }} active />
                             </div>
-                        )}
-                        {!sessionPlayerDataLoading && (
+                        ) : (
                             <div className="timeline">
                                 <div className="line" />
                                 <div className="timeline-items">
                                     {pageVisitEvents.map(({ href, playerTime }, index) => (
                                         <div className={index === atPageIndex ? 'current' : undefined} key={index}>
-                                            <Tag onClick={() => playerRef.current?.seek(playerTime)}>{href}</Tag>
+                                            <Tag onClick={() => seekEvent(playerTime)}>{href}</Tag>
                                         </div>
                                     ))}
                                 </div>

@@ -40,17 +40,8 @@ class License(models.Model):
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
 
-    # TODO: This logic should go on posthog-production (requires abstraction on models/organization.py)
-    STARTER_PLAN = "starter"  # cloud
-    GROWTH_PLAN = "growth"  # cloud
-    STARTUP_PLAN = "startup"  # cloud
-    STARTER_FEATURES = ["organizations_projects"]
-
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = ["zapier", "organizations_projects"]
     PLANS = {
         ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
-        STARTER_PLAN: STARTER_FEATURES,
-        GROWTH_PLAN: ENTERPRISE_FEATURES,
-        STARTUP_PLAN: ENTERPRISE_FEATURES,
     }

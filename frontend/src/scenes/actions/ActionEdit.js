@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
-import { Button, Card, Input } from 'antd'
+import { Alert, Button, Card, Input } from 'antd'
 import { SaveOutlined } from '@ant-design/icons'
 
 // TODO: isEditor === false always
@@ -105,38 +105,47 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
 
             {!isEditor ? (
                 <div>
-                    <div style={{ margin: '1rem 0 0.5rem' }}>
-                        <input
-                            id="webhook-checkbox"
-                            type="checkbox"
-                            onChange={(e) => {
-                                setAction({ ...action, post_to_slack: e.target.checked })
-                                setEdited(true)
-                            }}
-                            checked={!!action.post_to_slack}
-                            disabled={!slackEnabled}
-                        />
-                        <label
-                            className={slackEnabled ? '' : 'disabled'}
-                            style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
-                            htmlFor="webhook-checkbox"
-                        >
-                            Post to Slack/Teams when this action is triggered.
-                        </label>{' '}
-                        <Link to="/project/settings#webhook">
-                            {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
-                        </Link>
+                    <div style={{ margin: '1rem 0' }}>
+                        {user?.is_multi_tenancy && (
+                            <Alert
+                                style={{ marginBottom: '1rem' }}
+                                message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
+                                type="warning"
+                            />
+                        )}
+                        <p>
+                            <input
+                                id="webhook-checkbox"
+                                type="checkbox"
+                                onChange={(e) => {
+                                    setAction({ ...action, post_to_slack: e.target.checked })
+                                    setEdited(true)
+                                }}
+                                checked={!!action.post_to_slack}
+                                disabled={!slackEnabled || user.is_multi_tenancy}
+                            />
+                            <label
+                                className={slackEnabled ? '' : 'disabled'}
+                                style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
+                                htmlFor="webhook-checkbox"
+                            >
+                                Post to webhook when this action is triggered.
+                            </label>{' '}
+                            <Link to="/project/settings#webhook">
+                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                            </Link>
+                        </p>
                         {action.post_to_slack && (
                             <>
                                 <Input
                                     addonBefore="Message format (optional)"
-                                    placeholder="[action.name] triggered by [user.name]"
+                                    placeholder="Default: [action.name] triggered by [user.name]"
                                     value={action.slack_message_format}
                                     onChange={(e) => {
                                         setAction({ ...action, slack_message_format: e.target.value })
                                         setEdited(true)
                                     }}
-                                    disabled={!slackEnabled || !action.post_to_slack}
+                                    disabled={!slackEnabled || !action.post_to_slack || user.is_multi_tenancy}
                                     data-attr="edit-slack-message-format"
                                 />
                                 <small>

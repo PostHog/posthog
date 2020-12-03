@@ -29,11 +29,14 @@ const saveToDashboardModalLogic = kea({
         },
     }),
 })
+
 const radioStyle = {
     display: 'block',
-    height: '30px',
-    lineHeight: '30px',
+    lineHeight: 30,
+    overflow: 'hidden',
+    whiteSpace: 'normal',
 }
+
 export function SaveToDashboardModal({
     closeModal,
     name: initialName,

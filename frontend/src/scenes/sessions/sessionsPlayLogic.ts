@@ -6,12 +6,13 @@ import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicTy
 import { PersonType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
+
 interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
     actions: {
         toggleAddingTagShown: () => {},
         setAddingTag: (payload: string) => ({ payload }),
@@ -81,27 +82,20 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData>>({
         },
     }),
     selectors: {
-        sessionTimestamp: [
+        sessionDate: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData): string | null => {
                 if (!sessionPlayerData?.snapshots.length || !sessionPlayerData.snapshots[0].timestamp) {
                     return null
                 }
-                // TODO: Client-side timestamp, needs review
-                return moment(sessionPlayerData.snapshots[0].timestamp).format('lll')
+                // :KLUDGE: This is not using the session timestamp but client-side timestamp
+                return moment(sessionPlayerData.snapshots[0].timestamp).format('MMM Do')
             },
         ],
         eventIndex: [
             (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData): EventIndex => {
-                return new EventIndex(sessionPlayerData?.snapshots || [])
-            },
+            (sessionPlayerData: SessionPlayerData): EventIndex => new EventIndex(sessionPlayerData?.snapshots || []),
         ],
-        pageVisitEvents: [
-            (selectors) => [selectors.eventIndex],
-            (eventIndex) => {
-                return eventIndex.pageChangeEvents()
-            },
-        ],
+        pageVisitEvents: [(selectors) => [selectors.eventIndex], (eventIndex) => eventIndex.pageChangeEvents()],
     },
 })

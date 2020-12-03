@@ -32,7 +32,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            with self.assertNumQueries(10):
+            with self.assertNumQueries(11):
                 response = self.client.get("/api/event/?distinct_id=2").json()
             self.assertEqual(response["results"][0]["person"], "tim@posthog.com")
             self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "button")
@@ -49,7 +49,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             event_factory(
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
-            with self.assertNumQueries(7):
+            with self.assertNumQueries(8):
                 response = self.client.get("/api/event/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
@@ -64,7 +64,7 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            with self.assertNumQueries(7):
+            with self.assertNumQueries(8):
                 response = self.client.get(
                     "/api/event/?properties=%s" % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()

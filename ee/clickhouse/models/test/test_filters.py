@@ -9,7 +9,7 @@ from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.event import Event
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.test_filter_model import property_to_Q_test_factory

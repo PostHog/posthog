@@ -14,7 +14,8 @@ from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
+from posthog.models.filters.retention_filter import RetentionFilter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
@@ -77,6 +78,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = RetentionFilter(request=request)
         result = ClickhouseRetention().run(filter, team)
         return Response({"data": result})

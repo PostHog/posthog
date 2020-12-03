@@ -57,7 +57,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(2):
                 response = self.client.get(
                     "/e/?data=%s" % quote(self._dict_to_json(data)),
                     content_type="application/json",
@@ -96,7 +96,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(3):
                 response = self.client.get(
                     "/e/?data=%s" % quote(self._dict_to_json(data)),
                     content_type="application/json",
