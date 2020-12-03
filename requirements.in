@@ -1,15 +1,5 @@
 # pip-compile requirements.in
 
-# kafka security
-cffi==1.8.2
-cryptography==1.5
-enum34==1.1.6
-ipaddress==1.0.17
-pyasn1==0.1.9
-pycparser==2.14
-six==1.10.0
-wheel==0.24.0
-
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 asgiref==3.2.7
