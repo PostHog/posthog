@@ -312,6 +312,8 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
+        elif request.content_type == "text/plain":
+            data = request.body
         else:
             data = request.POST.get("data")
     else:
