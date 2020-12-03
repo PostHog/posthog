@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from './EmptyStates'
+import { ACTIONS_BAR_CHART, LIFECYCLE } from 'lib/constants'
 
 export function ActionsLineGraph({
     dashboardItemId = null,
@@ -31,11 +32,11 @@ export function ActionsLineGraph({
     }, [toParams(otherFilters)])
 
     return results && !resultsLoading ? (
-        filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
+        filters.session || results.reduce((total, item) => total + item.count, 0) !== 0 ? (
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
-                type="line"
+                type={filters.shown_as === LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
                 color={color}
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
@@ -47,7 +48,12 @@ export function ActionsLineGraph({
                         ? null
                         : (point) => {
                               const { dataset, day } = point
-                              loadPeople(dataset.action || 'session', dataset.label, day, dataset.breakdown_value)
+                              loadPeople(
+                                  dataset.action || 'session',
+                                  dataset.label,
+                                  day,
+                                  dataset.breakdown_value || dataset.status
+                              )
                           }
                 }
             />

@@ -84,9 +84,9 @@ filter_events takes team_id, filter, entity and generates a Q objects that you c
 """
 
 
-def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None) -> Q:
+def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None, include_dates: bool = True) -> Q:
     filters = Q()
-    if filter.date_from:
+    if filter.date_from and include_dates:
         filters &= Q(timestamp__gte=filter.date_from)
     relativity = relativedelta(days=1)
     if filter.interval == "hour":
@@ -97,7 +97,8 @@ def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None)
         relativity = relativedelta(weeks=1)
     elif filter.interval == "month":
         relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
-    filters &= Q(timestamp__lte=filter.date_to + relativity)
+    if include_dates:
+        filters &= Q(timestamp__lte=filter.date_to + relativity)
     if filter.properties:
         filters &= filter.properties_to_Q(team_id=team_id)
     if entity and entity.properties:

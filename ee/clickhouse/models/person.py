@@ -131,6 +131,10 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
     )
 
 
+def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
+    return Person.objects.filter(team_id=team_id, uuid__in=uuids)
+
+
 def merge_people(team_id: int, target: Dict, old_id: UUID, old_props: Dict) -> None:
     # merge the properties
     properties = {**old_props, **target["properties"]}

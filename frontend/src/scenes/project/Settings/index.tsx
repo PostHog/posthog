@@ -18,9 +18,7 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { CommentOutlined, SendOutlined, CheckOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
-import posthog from 'posthog-js'
 
 export const Setup = hot(_Setup)
 function _Setup(): JSX.Element {
@@ -29,32 +27,7 @@ function _Setup(): JSX.Element {
     const { location } = useValues(router)
     const { user } = useValues(userLogic)
 
-    const { activateFlow, showPalette } = useActions(commandPaletteLogic)
-
-    const shareFeedback = (instruction: string = "What's on your mind?"): void => {
-        showPalette()
-        activateFlow({
-            scope: 'Sharing Feedback',
-            instruction,
-            icon: CommentOutlined,
-            resolver: (argument) => ({
-                icon: SendOutlined,
-                display: 'Send',
-                executor: !argument?.length
-                    ? undefined
-                    : () => {
-                          posthog.capture('palette feedback', { message: argument })
-                          return {
-                              resolver: {
-                                  icon: CheckOutlined,
-                                  display: 'Message Sent!',
-                                  executor: true,
-                              },
-                          }
-                      },
-            }),
-        })
-    }
+    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
 
@@ -149,8 +122,8 @@ function _Setup(): JSX.Element {
                 <OptInSessionRecording />
                 <p>
                     This is a new feature of PostHog. Please{' '}
-                    <a onClick={() => shareFeedback('How can we improve session recording?')}>share feedback</a> with
-                    us!
+                    <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
+                    with us!
                 </p>
                 <Divider />
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">

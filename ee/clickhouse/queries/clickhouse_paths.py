@@ -45,7 +45,7 @@ class ClickhousePaths(Paths):
         if not filter._date_to:
             filter._date_to = timezone.now()
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)

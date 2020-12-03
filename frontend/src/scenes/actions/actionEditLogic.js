@@ -45,24 +45,31 @@ export const actionEditLogic = kea({
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
-            action.steps = action.steps.map((step) => {
-                let localStep = { ...step }
-                if (localStep.event == '$pageview') {
-                    localStep.selection = ['url', 'url_matching', 'properties']
-                }
-                if (localStep.event != '$pageview' && localStep.event != '$autocapture') {
-                    localStep.selection = ['properties']
-                }
-                if (!localStep.selection) {
-                    return localStep
-                }
-                let data = {}
-                Object.keys(localStep).map((key) => {
-                    data[key] =
-                        key == 'id' || key == 'event' || localStep.selection.indexOf(key) > -1 ? localStep[key] : null
+            action.steps = action.steps
+                .map((step) => {
+                    const localStep = { ...step }
+                    if (localStep.event == '$pageview') {
+                        localStep.selection = ['url', 'url_matching', 'properties']
+                    }
+                    if (localStep.event != '$pageview' && localStep.event != '$autocapture') {
+                        localStep.selection = ['properties']
+                    }
+                    if (!localStep.selection) {
+                        return localStep
+                    }
+                    const data = {}
+                    Object.keys(localStep).map((key) => {
+                        data[key] =
+                            key == 'id' || key == 'event' || localStep.selection.indexOf(key) > -1
+                                ? localStep[key]
+                                : null
+                    })
+                    return data
                 })
-                return data
-            })
+                .filter((step) => {
+                    // Will discard any match groups that were added but for which a type of event selection has not been made
+                    return step.selection || step.event
+                })
             try {
                 let token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {

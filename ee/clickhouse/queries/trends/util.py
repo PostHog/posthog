@@ -5,6 +5,17 @@ from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
+MATH_FUNCTIONS = {
+    "sum": "sum",
+    "avg": "avg",
+    "min": "min",
+    "max": "max",
+    "median": "quantile(0.50)",
+    "p90": "quantile(0.90)",
+    "p95": "quantile(0.95)",
+    "p99": "quantile(0.99)",
+}
+
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     aggregate_operation = "count(*)"
@@ -14,17 +25,8 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
-    elif entity.math == "sum":
-        aggregate_operation = "sum({})".format(value)
-        params = {"join_property_key": entity.math_property}
-    elif entity.math == "avg":
-        aggregate_operation = "avg({})".format(value)
-        params = {"join_property_key": entity.math_property}
-    elif entity.math == "min":
-        aggregate_operation = "min({})".format(value)
-        params = {"join_property_key": entity.math_property}
-    elif entity.math == "max":
-        aggregate_operation = "max({})".format(value)
+    elif entity.math in MATH_FUNCTIONS:
+        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
         params = {"join_property_key": entity.math_property}
 
     return aggregate_operation, join_condition, params

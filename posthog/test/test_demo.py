@@ -10,10 +10,5 @@ class TestDemo(BaseTest):
         demo_team = Team.objects.get(name__icontains="demo")
         self.assertGreater(Event.objects.count(), 10000)
         self.assertGreater(Person.objects.count(), 100)
-        # self.assertEqual(
-        #     Action.objects.count(), 4,
-        # )
-        # action_event_counts = [action.events.count() for action in Action.objects.all()]
-        # self.assertCountEqual(action_event_counts, [2, 9, 100, 145])
-
+        self.assertGreater(Action.objects.count(), 5)
         self.assertIn("$pageview", demo_team.event_names)

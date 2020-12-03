@@ -45,6 +45,7 @@ class ClickhouseTrendsBreakdown:
             result.extend(all_result)
         else:
             result = self._format_breakdown_query(entity, filter, team_id)
+
         return result
 
     def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
@@ -53,7 +54,7 @@ class ClickhouseTrendsBreakdown:
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")
