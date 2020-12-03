@@ -155,7 +155,7 @@ for host in _kafka_hosts:
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
-KAFKA_BASE64_KEYS = os.environ.get("KAFKA_BASE64_KEYS", False)
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
 
 POSTGRES = "postgres"
