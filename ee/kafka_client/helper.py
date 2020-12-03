@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 try:
     from urllib.parse import urlparse
 except ImportError:
-    from urlparse import urlparse
+    from urlparse import urlparse  # type: ignor
 
 from base64 import standard_b64encode
 
@@ -94,7 +94,7 @@ def get_kafka_brokers():
 
     return [
         "{}:{}".format(parsedUrl.hostname, parsedUrl.port)
-        for parsedUrl in [urlparse(url) for url in os.environ.get("KAFKA_URL").split(",")]
+        for parsedUrl in [urlparse(url) for url in os.environ.get("KAFKA_URL", "").split(",")]
     ]
 
 
