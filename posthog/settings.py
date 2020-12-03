@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
@@ -144,6 +145,8 @@ KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
 
 
+# Kafka Configs
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -151,6 +154,9 @@ for host in _kafka_hosts:
     url = urlparse(host)
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
+
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"

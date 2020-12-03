@@ -1,26 +1,20 @@
 {
-    "family": "posthog-production-fargate",
+    "family": "posthog-production-migration",
     "networkMode": "awsvpc",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
         {
-            "name": "posthog-production",
-            "portMappings": [
-                {
-                    "containerPort": 8000,
-                    "protocol": "tcp"
-                }
-            ],
+            "name": "posthog-production-migration",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
                     "awslogs-group": "awslogs-posthog-production",
                     "awslogs-region": "us-east-1",
-                    "awslogs-stream-prefix": "posthog-production"
+                    "awslogs-stream-prefix": "posthog-production-migration"
                 }
             },
-            "essential": true,
+            "image": "795637471508.dkr.ecr.us-east-1.amazonaws.com/posthog-production:29c952a1ce67fcc1815219e864163ab6695560d9",
             "environment": [
                 {
                     "name": "CLICKHOUSE_ASYNC",
@@ -64,6 +58,10 @@
                 },
                 {
                     "name": "IS_DOCKER",
+                    "value": "True"
+                },
+                {
+                    "name": "KAFKA_BASE64_KEYS",
                     "value": "True"
                 },
                 {
@@ -117,16 +115,16 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_USE_TLS::"
                 },
                 {
-                    "name": "KAFKA_CLIENT_CERT",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT::"
+                    "name": "KAFKA_CLIENT_CERT_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_B64::"
                 },
                 {
-                    "name": "KAFKA_CLIENT_CERT_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY::"
+                    "name": "KAFKA_CLIENT_CERT_KEY_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY_B64::"
                 },
                 {
-                    "name": "KAFKA_TRUSTED_CERT",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT::"
+                    "name": "KAFKA_TRUSTED_CERT_B64",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT_B64::"
                 },
                 {
                     "name": "KAFKA_URL",
@@ -198,10 +196,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-server"]
+            "command": ["./bin/docker-migrate"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
-    "cpu": "512",
-    "memory": "1024"
+    "cpu": "1024",
+    "memory": "2048"
 }
