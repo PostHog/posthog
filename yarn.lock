@@ -8215,10 +8215,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.7.3-beta.8:
-  version "1.7.3-beta.8"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.8.tgz#ee4511bec9b371144bb89211d4fa22f8d4a5c9bf"
-  integrity sha512-q0OSxmw4ImMtt5Xc8GWAKBM0jE9Kd56qRkZSuyJlYEQhUuILP1E2q7DFoMo/tcoW9Tn3j4DRUzSlBUqyDv3a+g==
+posthog-js@1.7.3-beta.9:
+  version "1.7.3-beta.9"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.9.tgz#cde92533426685e6f93a53fefa1b85f1f2e09562"
+  integrity sha512-VfMmJmhAsgolt58YrglZUctw4nFY+VqB+6haoiIrhbr6X0k5JzVD9CKC9G5TqJ8nK44/2Si/nDuxRc2DWywB6Q==
 
 posthog-plugins@0.1.3:
   version "0.1.3"
