@@ -7,15 +7,15 @@ from django.db.models.query import Prefetch
 from django.utils import timezone
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.api.person import PersonSerializer
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Action, Entity, Event, Filter, Team
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
+from posthog.queries import base
 from posthog.utils import relative_date_parse
 
-from .base import BaseQuery, base, filter_events, handle_compare, process_entity_for_events
+from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 
 def execute_custom_sql(query, params):
@@ -95,6 +95,7 @@ class Stickiness(BaseQuery):
         return results
 
     def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
+        from posthog.api.person import PersonSerializer
 
         if filter.target_entity.type == TREND_FILTER_TYPE_EVENTS:
             filtered_events = base.process_entity_for_events(
@@ -124,4 +125,5 @@ class Stickiness(BaseQuery):
         )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
         return PersonSerializer(people, many=True).data
