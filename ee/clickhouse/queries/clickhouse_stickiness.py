@@ -22,7 +22,7 @@ from posthog.queries.stickiness import Stickiness
 class ClickhouseStickiness(Stickiness):
     def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team_id)
         trunc_func = get_trunc_func_ch(filter.interval)
 
@@ -73,7 +73,7 @@ class ClickhouseStickiness(Stickiness):
 
     def _retrieve_people(self, filter: StickinessFilter, team: Team) -> ReturnDict:
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=filter.target_entity)
         trunc_func = get_trunc_func_ch(filter.interval)

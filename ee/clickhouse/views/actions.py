@@ -120,7 +120,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         return entity_filter, params
 
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
         person_filter = ""
         person_filter_params: Dict[str, Any] = {}

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 from django.db.models.expressions import Value
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek, TruncYear
@@ -37,13 +37,13 @@ class StickinessFilter(Filter):
             raise ValueError("Team must be provided to stickiness filter")
 
         if self._date_from == "all":
-            self._date_from = (
-                Event.objects.filter(team_id=team.pk)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
-        elif not self._date_from:
+            get_earliest_timestamp: Optional[Callable] = kwargs.get("get_earliest_timestamp", None)
+            if not get_earliest_timestamp:
+                raise ValueError("Callable must be provided when date filtering is all time")
+
+            self._date_from = get_earliest_timestamp(team_id=team.pk)
+
+        if not self._date_from:
             self._date_from = relative_date_parse("-7d")
 
         if not self._date_to:

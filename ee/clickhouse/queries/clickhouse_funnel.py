@@ -60,7 +60,9 @@ class ClickhouseFunnel(Funnel):
         if not self._filter._date_to:
             self._filter._date_to = timezone.now()
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=self._filter, table="events.")
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(
+            filter=self._filter, table="events.", team_id=self._team.pk
+        )
         self.params: Dict = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering

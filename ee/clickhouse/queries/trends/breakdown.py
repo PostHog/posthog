@@ -8,7 +8,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response, process_math
-from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
@@ -52,9 +52,11 @@ class ClickhouseTrendsBreakdown:
 
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
-        interval_annotation = get_interval_annotation_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
+        interval_annotation = get_trunc_func_ch(filter.interval)
+        num_intervals, seconds_in_interval = get_time_diff(
+            filter.interval or "day", filter.date_from, filter.date_to, team_id
+        )
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, table_name="e")

@@ -178,7 +178,9 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(request=request, team=team)
+            filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
+            )
             result = stickiness.Stickiness().run(filter, team)
         else:
             result = trends.Trends().run(filter, team)

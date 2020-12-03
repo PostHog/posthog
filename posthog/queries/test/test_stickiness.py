@@ -12,7 +12,7 @@ from posthog.test.base import BaseTest
 
 
 # parameterize tests to reuse in EE
-def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory):
+def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
     class TestStickiness(APIBaseTest):
         def _create_multiple_people(self, period=timedelta(days=1)):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
@@ -97,6 +97,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "events": [{"id": "watched movie"}],
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -117,8 +118,9 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 filter = StickinessFilter(
                     data={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}],},
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness().run(filter, self.team, get_earliest_timestamp=get_earliest_timestamp)
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -143,6 +145,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "interval": "minute",
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -169,6 +172,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "interval": "hour",
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -195,6 +199,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "interval": "week",
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -221,6 +226,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "interval": "month",
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -247,6 +253,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "properties": [{"key": "$browser", "value": "Chrome"}],
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
 
@@ -273,6 +280,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "actions": [{"id": watched_movie.pk}],
                     },
                     team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
                 )
                 response = stickiness().run(filter, self.team)
             self.assertEqual(response[0]["label"], "watch movie action")
@@ -293,6 +301,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "entityId": watched_movie.id,
                 },
                 team=self.team,
+                get_earliest_timestamp=get_earliest_timestamp,
             )
             people = stickiness().people(filter, self.team)
 
@@ -344,5 +353,5 @@ def _create_action(**kwargs):
     return action
 
 
-class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
+class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create, _create_action, Event.objects.earliest_timestamp)):  # type: ignore
     pass

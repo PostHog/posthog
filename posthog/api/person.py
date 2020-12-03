@@ -271,7 +271,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        filter = StickinessFilter(request=request, team=team)
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp)
         people = self.stickiness_class().people(filter, team)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
 from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
@@ -17,12 +17,14 @@ from posthog.utils import append_data, friendly_time
 class ClickhouseSessionsAvg:
     def calculate_avg(self, filter: Filter, team: Team):
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 
-        interval_notation = get_interval_annotation_ch(filter.interval)
-        num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
+        interval_notation = get_trunc_func_ch(filter.interval)
+        num_intervals, seconds_in_interval = get_time_diff(
+            filter.interval or "day", filter.date_from, filter.date_to, team.pk
+        )
 
         avg_query = SESSIONS_NO_EVENTS_SQL.format(
             team_id=team.pk, date_from=parsed_date_from, date_to=parsed_date_to, filters=filters, sessions_limit="",

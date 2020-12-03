@@ -9,7 +9,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -41,16 +41,16 @@ class ClickhouseLifecycle(LifecycleTrend):
             raise ValueError("Starting date must be provided")
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
+        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
         interval_increment, interval_string = self.get_interval(interval)
-        trunc_func = get_interval_annotation_ch(interval)
+        trunc_func = get_trunc_func_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
 
-        _, _, date_params = parse_timestamps(filter=filter)
+        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
@@ -100,13 +100,13 @@ class ClickhouseLifecycle(LifecycleTrend):
             raise ValueError("Starting date must be provided")
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
+        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id=team_id)
         interval_increment, interval_string = self.get_interval(interval)
-        trunc_func = get_interval_annotation_ch(interval)
+        trunc_func = get_trunc_func_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
 
-        _, _, date_params = parse_timestamps(filter=filter)
+        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
