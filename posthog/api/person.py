@@ -20,6 +20,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 from posthog.utils import convert_property_value, relative_date_parse
 
 
@@ -79,6 +80,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     lifecycle_class = LifecycleTrend
     retention_class = Retention
+    stickiness_class = Stickiness
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -261,9 +263,22 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"result": people, "next": next_url})
 
+    @action(methods=["GET"], detail=False)
+    def stickiness(self, request: request.Request) -> response.Response:
+        team = request.user.team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+        filter = StickinessFilter(request=request, team=team)
+        people = self.stickiness_class().people(filter, team)
+        next_url = paginated_result(people, request, filter.offset)
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
 
 def paginated_result(
-    entites: Union[List[Dict], ReturnDict], request: request.Request, offset: int = 0
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
 ) -> Optional[str]:
     next_url: Optional[str] = request.get_full_path()
     if len(entites) > 99 and next_url:

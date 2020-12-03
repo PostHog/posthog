@@ -35,7 +35,7 @@ from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key
 
-from .person import PersonSerializer
+from .person import PersonSerializer, paginated_result
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -282,7 +282,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
             people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
-            return serialize_people(people=people, request=request)
+            return PersonSerializer(people, context={"request": request}, many=True).data
 
         filtered_events: QuerySet = QuerySet()
         if request.GET.get("session"):
@@ -313,24 +313,9 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = _calculate_people(events=filtered_events, offset=offset)
 
         current_url = request.get_full_path()
-        next_url: Optional[str] = request.get_full_path()
-        if people["count"] > 99 and next_url:
-            if "offset" in next_url:
-                next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-            else:
-                next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-                )
-        else:
-            next_url = None
+        next_url = paginated_result(people, request, offset)
 
-        return {"results": [people], "next": next_url, "previous": current_url[1:]}
-
-
-def serialize_people(people: QuerySet, request: request.Request) -> Dict:
-    people_dict = [PersonSerializer(person, context={"request": request}).data for person in people]
-    return {"people": people_dict, "count": len(people_dict)}
+        return {"results": [{"people": people, "count": len(people)}], "next": next_url, "previous": current_url[1:]}
 
 
 @receiver(post_save, sender=Action, dispatch_uid="hook-action-defined")
