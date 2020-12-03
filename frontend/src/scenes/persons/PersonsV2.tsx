@@ -4,21 +4,12 @@ import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
 import { Button, Tabs, Input, Row } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PersonsV2 } from './PersonsV2'
 
 const { TabPane } = Tabs
 
-export const Persons = hot(_Persons)
-function _Persons(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['persons-2353'] ? <PersonsV2 /> : <PersonsV1 />
-}
-
-function PersonsV1(): JSX.Element {
+export function PersonsV2(): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
@@ -33,7 +24,7 @@ function PersonsV1(): JSX.Element {
 
     return (
         <div>
-            <PageHeader title="Persons" />
+            <PageHeader title="Persons 2" />
             <Cohort
                 onChange={(cohort: string) => {
                     setListFilters({ cohort })
