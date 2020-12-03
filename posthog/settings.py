@@ -145,6 +145,8 @@ KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
 
 
+# Kafka Configs
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -153,13 +155,8 @@ for host in _kafka_hosts:
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
+KAFKA_BASE64_KEYS = os.environ.get("KAFKA_BASE64_KEYS", False)
 
-KAFKA_CERT_KEYS = ["KAFKA_CLIENT_CERT", "KAFKA_CLIENT_CERT", "KAFKA_TRUSTED_CERT"]
-
-# On AWS with AWS Secret Manager keys are butchered and it's suggested you store them as b64
-for key in KAFKA_CERT_KEYS:
-    if not os.environ.get(key, False):
-        os.environ[key] = base64.b64decode(os.environ.get(key + "_B64", "")).decode("utf-8")
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"

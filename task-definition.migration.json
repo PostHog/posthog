@@ -61,7 +61,7 @@
                     "value": "True"
                 },
                 {
-                    "name": "IS_HEROKU",
+                    "name": "KAFKA_BASE64_KEYS",
                     "value": "True"
                 },
                 {
