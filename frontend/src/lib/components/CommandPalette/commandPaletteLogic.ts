@@ -32,6 +32,8 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    ApiOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -556,6 +558,22 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
+                        icon: ApiOutlined,
+                        display: 'Go to Plugins',
+                        synonyms: ['integrations'],
+                        executor: () => {
+                            push('/project/plugins')
+                        },
+                    },
+                    {
+                        icon: DatabaseOutlined,
+                        display: 'Go to System Status Page',
+                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        executor: () => {
+                            push('/instance/status')
+                        },
+                    },
+                    {
                         icon: PlusOutlined,
                         display: 'Create Action',
                         executor: () => {
@@ -652,7 +670,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-keys')
+                                        push('/me/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             }
