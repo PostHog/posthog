@@ -105,6 +105,78 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        def test_stickiness_all_time(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                filter = StickinessFilter(
+                    data={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}],},
+                    team=self.team,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        def test_stickiness_minutes(self):
+            self._create_multiple_people(period=timedelta(minutes=1))
+
+            with freeze_time("2020-01-01T12:08:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01T12:00:00.00Z",
+                        "date_to": "2020-01-01T12:08:00.00Z",
+                        "events": [{"id": "watched movie"}],
+                        "interval": "minute",
+                    },
+                    team=self.team,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 minute")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 minutes")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 minutes")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 minutes")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        def test_stickiness_hours(self):
+            self._create_multiple_people(period=timedelta(hours=1))
+
+            with freeze_time("2020-01-01T20:01:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01T12:00:00.00Z",
+                        "date_to": "2020-01-01T20:00:00.00Z",
+                        "events": [{"id": "watched movie"}],
+                        "interval": "hour",
+                    },
+                    team=self.team,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 hour")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 hours")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 hours")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 hours")
+            self.assertEqual(response[0]["data"][6], 0)
+
         def test_stickiness_weeks(self):
             self._create_multiple_people(period=timedelta(weeks=1))
 
