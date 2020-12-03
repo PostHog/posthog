@@ -118,6 +118,7 @@ class Stickiness(BaseQuery):
             .annotate(day_count=Count(filter.trunc_func("timestamp"), distinct=True))
             .filter(day_count=filter.stickiness_days)
         )
+
         people = Person.objects.filter(
             team=team, id__in=[p["person_id"] for p in events[filter.offset : filter.offset + 100]],
         )

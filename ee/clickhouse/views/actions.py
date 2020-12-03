@@ -119,40 +119,6 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return entity_filter, params
 
-    def _calculate_stickiness_entity_people(
-        self, team: Team, entity: Entity, filter: StickinessFilter, stickiness_day: int
-    ):
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
-        entity_sql, entity_params = self._format_entity_filter(entity=entity)
-        trunc_func = get_trunc_func_ch(filter.interval)
-
-        params: Dict = {
-            "team_id": team.pk,
-            **prop_filter_params,
-            "stickiness_day": stickiness_day,
-            **entity_params,
-            "offset": filter.offset,
-        }
-
-        content_sql = STICKINESS_PEOPLE_SQL.format(
-            entity_filter=entity_sql,
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-        )
-
-        people = sync_execute(
-            PEOPLE_SQL.format(
-                content_sql=content_sql, query="", latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")
-            ),
-            params,
-        )
-        serialized_people = ClickhousePersonSerializer(people, many=True).data
-
-        return serialized_people
-
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
