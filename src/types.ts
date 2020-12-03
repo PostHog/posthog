@@ -38,7 +38,7 @@ export interface Plugin {
 export interface PluginConfig {
     id: PluginConfigId
     team_id: TeamId
-    plugin: Plugin
+    plugin?: Plugin
     plugin_id: PluginId
     enabled: boolean
     order: number
@@ -71,6 +71,7 @@ export interface PluginAttachmentDB {
     plugin_config_id: PluginConfigId
     key: string
     content_type: string
+    file_size: number | null
     file_name: string
     contents: Buffer | null
 }

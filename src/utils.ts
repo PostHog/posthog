@@ -74,10 +74,23 @@ export async function getFileFromTGZ(archive: Buffer, file: string): Promise<str
 export function getFileFromZip(archive: Buffer, file: string): string | null {
     const zip = new AdmZip(archive)
     const zipEntries = zip.getEntries() // an array of ZipEntry records
-    const root = zipEntries[0].entryName
-    const fileData = zip.getEntry(`${root}${file}`)
+    let fileData
+
+    if (zipEntries[0].entryName.endsWith('/')) {
+        // if first entry is `pluginfolder/` (a folder!)
+        const root = zipEntries[0].entryName
+        fileData = zip.getEntry(`${root}${file}`)
+    } else {
+        // if first entry is `pluginfolder/index.js` (or whatever file)
+        const rootPathArray = zipEntries[0].entryName.split('/')
+        rootPathArray.pop()
+        const root = rootPathArray.join('/')
+        fileData = zip.getEntry(`${root}/${file}`)
+    }
+
     if (fileData) {
         return fileData.getData().toString()
     }
+
     return null
 }

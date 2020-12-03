@@ -1,5 +1,6 @@
 import { PluginConfig, PluginError, PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
+import { setError } from './sql'
 
 export async function processError(
     server: PluginsServer,
@@ -23,9 +24,9 @@ export async function processError(
                   event: event,
               }
 
-    await server.db.query('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [errorJson, pluginConfig.id])
+    await setError(server, errorJson, pluginConfig)
 }
 
 export async function clearError(server: PluginsServer, pluginConfig: PluginConfig): Promise<void> {
-    await server.db.query('UPDATE posthog_pluginconfig SET error = NULL WHERE id = $1', [pluginConfig.id])
+    await setError(server, null, pluginConfig)
 }
