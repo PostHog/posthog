@@ -10,7 +10,7 @@ from kafka import KafkaProducer as KP
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
 from ee.settings import KAFKA_ENABLED
-from posthog.settings import IS_HEROKU, KAFKA_HOSTS, KAFKA_BASE64_KEYS, TEST
+from posthog.settings import IS_HEROKU, KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 

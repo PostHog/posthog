@@ -4,8 +4,8 @@ https://github.com/heroku/kafka-helper
 """
 
 import base64
-import os
 import json
+import os
 import ssl
 from tempfile import NamedTemporaryFile
 
@@ -18,8 +18,7 @@ from base64 import standard_b64encode
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-
-from kafka import KafkaProducer, KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 
 
 def get_kafka_ssl_context():
