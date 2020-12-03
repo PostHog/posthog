@@ -136,7 +136,7 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-        shareFeedbackCommand: (instruction: string) => ({ instruction }),
+        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -259,7 +259,7 @@ export const commandPaletteLogic = kea<
                 }
             }
         },
-        shareFeedbackCommand: ({ instruction }) => {
+        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
             actions.showPalette()
             actions.activateFlow({
                 scope: 'Sharing Feedback',
