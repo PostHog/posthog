@@ -81,10 +81,10 @@ export function CommandResults(): JSX.Element {
                 executeResult(result)
             }
         } else if (event.key === 'ArrowDown') {
-            event.preventDefault();
+            event.preventDefault()
             onArrowDown(commandSearchResults.length - 1)
         } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
+            event.preventDefault()
             onArrowUp()
         }
     })
