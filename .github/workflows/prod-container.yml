@@ -3,8 +3,8 @@ name: Build & Deploy Production Containers
 on:
     push:
         branches:
-          - master
-          - main
+            - master
+            - main
 
 jobs:
     build:
