@@ -4,8 +4,8 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import { Card, Checkbox, Col, Input, Radio } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
-import { Button, Card, Checkbox, Input, Radio } from 'antd'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) {
@@ -137,22 +137,11 @@ export class ActionStep extends Component {
                 this.sendStep(this.props.step)
             }
         }
-        let selectorError, matches
-        try {
-            matches = document.querySelectorAll(props.selector).length
-        } catch {
-            selectorError = true
-        }
+
         return (
             <div className={'mb ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
-                {props.selector && this.props.isEditor && (
-                    <small className={'form-text float-right ' + (selectorError ? 'text-danger' : 'text-muted')}>
-                        {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
-                    </small>
-                )}
                 <label>
                     <Checkbox
-                        name="selection"
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={(e) => {
@@ -180,7 +169,7 @@ export class ActionStep extends Component {
         )
     }
     TypeSwitcher = () => {
-        let { step, isEditor } = this.props
+        let { step } = this.props
         const handleChange = (e) => {
             const type = e.target.value
             if (type === '$autocapture') {
@@ -190,23 +179,21 @@ export class ActionStep extends Component {
                     },
                     () => this.sendStep({ ...step, event: '$autocapture' })
                 )
+            } else if (type === 'event') {
+                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
             } else if (type === '$pageview') {
                 this.setState({ selection: ['url'] }, () =>
                     this.sendStep({
                         ...step,
                         event: '$pageview',
-                        url: isEditor
-                            ? window.location.protocol + '//' + window.location.host + window.location.pathname
-                            : step.url,
+                        url: step.url,
                     })
                 )
-            } else {
-                this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))
             }
         }
 
         return (
-            <div>
+            <div className={`type-switcher${step.event === undefined ? ' unselected' : ''}`}>
                 <Radio.Group
                     buttonStyle="solid"
                     onChange={handleChange}
@@ -216,43 +203,49 @@ export class ActionStep extends Component {
                             : 'event'
                     }
                 >
-                    <Radio.Button value="$autocapture">Frontend element</Radio.Button>
+                    <Radio.Button value="$autocapture">Autocapture</Radio.Button>
                     <Radio.Button value="event">Custom event</Radio.Button>
                     <Radio.Button value="$pageview">Page view</Radio.Button>
                 </Radio.Group>
             </div>
         )
     }
-    AutocaptureFields({ step, isEditor, actionId }) {
+    AutocaptureFields({ step, actionId }) {
+        const AndC = () => {
+            return (
+                <div className="text-center">
+                    <span className="match-condition-badge mc-and">AND</span>
+                </div>
+            )
+        }
         return (
             <div>
-                {!isEditor && (
-                    <span>
-                        <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
-                            Select element on site <ExportOutlined />
-                        </AppEditorLink>
-                        <a
-                            href="https://posthog.com/docs/features/actions"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ marginLeft: 8 }}
-                        >
-                            See documentation.
-                        </a>{' '}
-                    </span>
-                )}
+                <span>
+                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
+                        Select element on site <ExportOutlined />
+                    </AppEditorLink>
+                    <a
+                        href="https://posthog.com/docs/features/actions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ marginLeft: 8 }}
+                    >
+                        See documentation.
+                    </a>{' '}
+                </span>
                 <this.Option
                     item="href"
-                    label="Link href"
+                    label="Link href equals"
                     selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
                 />
-                <this.Option item="text" label="Text" />
-                <this.Option item="selector" label="Selector" selector={step.selector} />
-                <this.Option
-                    item="url"
-                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                    label="URL"
-                />
+                <AndC />
+                <this.Option item="text" label="Text equals" />
+                <AndC />
+                <this.Option item="selector" label="HTML selector matches" selector={step.selector} />
+                <div style={{ marginBottom: 18 }}>
+                    <AndC />
+                </div>
+                <this.Option item="url" extra_options={<this.URLMatching step={step} />} label="URL" />
                 {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                     <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
                 )}
@@ -263,7 +256,6 @@ export class ActionStep extends Component {
         const handleURLMatchChange = (e) => {
             this.sendStep({ ...step, url_matching: e.target.value })
         }
-
         return (
             <Radio.Group
                 buttonStyle="solid"
@@ -279,105 +271,91 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, isEditor, actionId, isOnlyStep } = this.props
+        let { step, actionId, isOnlyStep, index, identifier, onDelete } = this.props
 
         return (
-            <Card
-                style={{
-                    marginBottom: 0,
-                    background: isEditor ? 'rgba(0,0,0,0.05)' : '',
-                }}
-            >
-                <div>
-                    {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
-                        <button
+            <Col span={24} md={12}>
+                <Card className="action-step" style={{ overflow: 'visible' }}>
+                    {index > 0 && <div className="match-condition-badge mc-main mc-or">OR</div>}
+                    <div>
+                        {!isOnlyStep && (
+                            <div className="remove-wrapper">
+                                <button type="button" aria-label="delete" onClick={onDelete}>
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                        )}
+                        <div className="mb">
+                            <b>Match Group #{this.props.index + 1}</b>
+                        </div>
+                        {<this.TypeSwitcher />}
+                        <div
                             style={{
-                                border: 0,
-                                float: 'right',
-                                color: 'hsl(0, 0%, 80%)',
+                                marginTop: step.event === '$pageview' ? 20 : 8,
+                                paddingBottom: 0,
                             }}
-                            type="button"
-                            aria-label="Close"
-                            onClick={this.props.onDelete}
                         >
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    )}
-                    {!isEditor && <this.TypeSwitcher />}
-                    <div
-                        style={{
-                            marginTop: step.event === '$pageview' && !isEditor ? 20 : 8,
-                            paddingBottom: isEditor ? 1 : 0,
-                        }}
-                    >
-                        {isEditor && [
-                            <Button
-                                key="inspect-button"
-                                size="small"
-                                style={{ margin: '10px 0px 10px 12px' }}
-                                onClick={() => this.start()}
-                            >
-                                Inspect element
-                            </Button>,
-                            this.state.inspecting && (
-                                <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
-                                    Hover over and click on an element you want to create an action for
-                                </p>
-                            ),
-                        ]}
+                            {step.event === '$autocapture' && (
+                                <this.AutocaptureFields step={step} actionId={actionId} />
+                            )}
+                            {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                                <div style={{ marginTop: '2rem' }}>
+                                    <label>Event name: {step.event}</label>
+                                    <EventName
+                                        value={step.event}
+                                        isActionStep={true}
+                                        onChange={(value) =>
+                                            this.sendStep({
+                                                ...step,
+                                                event: value,
+                                            })
+                                        }
+                                    />
+                                </div>
+                            )}
+                            {step.event === '$pageview' && (
+                                <div>
+                                    <this.Option
+                                        item="url"
+                                        extra_options={<this.URLMatching step={step} />}
+                                        label="URL"
+                                    />
+                                    {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                                        <small style={{ display: 'block', marginTop: -12 }}>
+                                            {URL_MATCHING_HINTS[step.url_matching]}
+                                        </small>
+                                    )}
+                                </div>
+                            )}
 
-                        {step.event === '$autocapture' && (
-                            <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
-                        )}
-                        {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                            <div style={{ marginTop: '2rem' }}>
-                                <label>Event name: {step.event}</label>
-                                <EventName
-                                    value={step.event}
-                                    isActionStep={true}
-                                    onChange={(value) =>
-                                        this.sendStep({
-                                            ...step,
-                                            event: value,
-                                        })
-                                    }
-                                />
-                            </div>
-                        )}
-                        {step.event === '$pageview' && (
-                            <div>
-                                <this.Option
-                                    item="url"
-                                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                                    label="URL"
-                                />
-                                {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                                    <small style={{ display: 'block', marginTop: -12 }}>
-                                        {URL_MATCHING_HINTS[step.url_matching]}
-                                    </small>
-                                )}
-                            </div>
-                        )}
-                        {!isEditor && (
-                            <PropertyFilters
-                                propertyFilters={step.properties}
-                                pageKey={'action-edit'}
-                                onChange={(properties) => {
-                                    this.sendStep({
-                                        ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
-                                        properties,
-                                    })
-                                }}
-                            />
-                        )}
+                            {step.event && (
+                                <div className="property-filters">
+                                    <h3 className="l3">Filters</h3>
+                                    {(!step.properties || step.properties.length === 0) && (
+                                        <div className="text-muted">This match group has no additional filters.</div>
+                                    )}
+                                    <PropertyFilters
+                                        propertyFilters={step.properties}
+                                        pageKey={identifier}
+                                        onChange={(properties) => {
+                                            this.sendStep({
+                                                ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                                properties,
+                                            })
+                                        }}
+                                        showConditionBadges
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-            </Card>
+                </Card>
+            </Col>
         )
     }
 }
 ActionStep.propTypes = {
-    isEditor: PropTypes.bool,
     step: PropTypes.object,
     simmer: PropTypes.func,
+    index: PropTypes.number.isRequired,
 }

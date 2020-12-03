@@ -1,7 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
-import { InfoCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -9,12 +8,20 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
-import { CaretLeftOutlined, CaretRightOutlined } from '@ant-design/icons'
+import {
+    CaretLeftOutlined,
+    CaretRightOutlined,
+    PoweroffOutlined,
+    QuestionCircleOutlined,
+    ArrowLeftOutlined,
+} from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
+import { userLogic } from 'scenes/userLogic'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -47,6 +54,8 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         sessionRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
+    const { user } = useValues(userLogic)
+    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     const columns = [
         {
@@ -112,12 +121,35 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         {
             title: (
                 <span>
-                    <Tooltip title="Enable session recording from Project > Settings">
-                        <span>
-                            Play session
-                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                        </span>
-                    </Tooltip>
+                    {user?.team?.session_recording_opt_in ? (
+                        <Tooltip
+                            title={
+                                <>
+                                    Replay sessions as if you were in front of your users. Not seeing a recording you're
+                                    expecting? <a onClick={() => shareFeedbackCommand()}>Let us know</a>.
+                                </>
+                            }
+                        >
+                            <span>
+                                Play session
+                                <QuestionCircleOutlined style={{ marginLeft: 6 }} />
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip
+                            title={
+                                <>
+                                    Session recording is turned off for this project. Go to{' '}
+                                    <Link to="/project/settings#session-recording"> project settings</Link> to enable.
+                                </>
+                            }
+                        >
+                            <span>
+                                <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
+                                Play session
+                            </span>
+                        </Tooltip>
+                    )}
                 </span>
             ),
             render: function RenderEndPoint(session: SessionType) {

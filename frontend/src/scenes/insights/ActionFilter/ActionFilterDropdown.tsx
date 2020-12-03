@@ -91,7 +91,12 @@ export function ActionFilterDropdown({
                         return (
                             <>
                                 <AimOutlined /> Actions
-                                <Link to={`/action/${item.id}`} style={{ float: 'right' }}>
+                                <Link
+                                    to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
+                                        window.location.pathname + window.location.search
+                                    )}`}
+                                    style={{ float: 'right' }}
+                                >
                                     edit
                                 </Link>
                                 <br />

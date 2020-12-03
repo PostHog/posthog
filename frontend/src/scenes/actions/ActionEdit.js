@@ -1,14 +1,14 @@
-import React, { useState, Fragment } from 'react'
+import React, { useState } from 'react'
 import { uuid, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
+import './Actions.scss'
 import { ActionStep } from './ActionStep'
-import { Alert, Button, Card, Input } from 'antd'
-import { SaveOutlined } from '@ant-design/icons'
+import { Alert, Button, Col, Input, Row } from 'antd'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
-// TODO: isEditor === false always
-export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, temporaryToken }) {
+export function ActionEdit({ actionId, apiURL, onSave, user, simmer, temporaryToken }) {
     let logic = actionEditLogic({
         id: actionId,
         apiURL,
@@ -25,22 +25,28 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
         return <Loading />
     }
 
+    const newAction = () => {
+        setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
+    }
+
     const addGroup = (
-        <Button
-            onClick={() => {
-                setAction({ ...action, steps: [...action.steps, { isNew: uuid() }] })
-            }}
-        >
+        <Button onClick={newAction} size="small">
             Add another match group
         </Button>
     )
 
     return (
-        <Card style={{ marginTop: isEditor ? 8 : '' }}>
-            <div className="mt">
+        <div className="action-edit-container">
+            <form
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    saveAction()
+                }}
+            >
+                <label>Action name:</label>
                 <Input
                     required
-                    placeholder="For example: user signed up"
+                    placeholder="e.g. user account created, purchase completed, movie watched"
                     value={action.name}
                     onChange={(e) => {
                         setAction({ ...action, name: e.target.value })
@@ -48,62 +54,65 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
                     }}
                     data-attr="edit-action-input"
                 />
-            </div>
+                {action.count > -1 && (
+                    <div>
+                        <small className="text-muted">Matches {action.count} events</small>
+                    </div>
+                )}
 
-            {action.count > -1 && (
-                <div>
-                    <small className="text-muted">Matches {action.count} events</small>
+                <div className="match-group-section" style={{ overflow: 'visible' }}>
+                    <h2 className="subtitle">Match groups</h2>
+                    <div>
+                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
+                        <a href="https://posthog.com/docs/features/actions" target="_blank">
+                            <InfoCircleOutlined />
+                        </a>
+                    </div>
+                    <div style={{ textAlign: 'right', marginBottom: 12 }}>{addGroup}</div>
+
+                    <Row gutter={[24, 24]}>
+                        {action.steps.map((step, index) => (
+                            <ActionStep
+                                key={step.id || step.isNew}
+                                identifier={step.id || step.isNew}
+                                index={index}
+                                step={step}
+                                isEditor={false}
+                                actionId={action.id}
+                                simmer={simmer}
+                                isOnlyStep={action.steps.length === 1}
+                                onDelete={() => {
+                                    const identifier = step.id ? 'id' : 'isNew'
+                                    setAction({
+                                        ...action,
+                                        steps: action.steps.filter((s) => s[identifier] !== step[identifier]),
+                                    })
+                                    setEdited(true)
+                                }}
+                                onChange={(newStep) => {
+                                    setAction({
+                                        ...action,
+                                        steps: action.steps.map((s) =>
+                                            (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
+                                                ? {
+                                                      id: step.id,
+                                                      isNew: step.isNew,
+                                                      ...newStep,
+                                                  }
+                                                : s
+                                        ),
+                                    })
+                                    setEdited(true)
+                                }}
+                            />
+                        ))}
+                        <Col span={24} md={12}>
+                            <div className="match-group-add-skeleton" onClick={newAction}>
+                                <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
+                            </div>
+                        </Col>
+                    </Row>
                 </div>
-            )}
-
-            {!isEditor && <br />}
-
-            {action.steps.map((step, index) => (
-                <Fragment key={index}>
-                    {index > 0 ? (
-                        <div
-                            style={{
-                                textAlign: 'center',
-                                fontSize: 13,
-                                letterSpacing: 1,
-                                opacity: 0.7,
-                                margin: 8,
-                            }}
-                        >
-                            OR
-                        </div>
-                    ) : null}
-                    <ActionStep
-                        key={step.id || step.isNew}
-                        step={step}
-                        isEditor={isEditor}
-                        actionId={action.id}
-                        simmer={simmer}
-                        isOnlyStep={action.steps.length === 1}
-                        onDelete={() => {
-                            setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
-                            setEdited(true)
-                        }}
-                        onChange={(newStep) => {
-                            setAction({
-                                ...action,
-                                steps: action.steps.map((s) =>
-                                    (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
-                                        ? {
-                                              id: step.id,
-                                              isNew: step.isNew,
-                                              ...newStep,
-                                          }
-                                        : s
-                                ),
-                            })
-                            setEdited(true)
-                        }}
-                    />
-                </Fragment>
-            ))}
-
-            {!isEditor ? (
                 <div>
                     <div style={{ margin: '1rem 0' }}>
                         {user?.is_multi_tenancy && (
@@ -161,30 +170,25 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, t
                         )}
                     </div>
                 </div>
-            ) : (
-                <br />
-            )}
-
-            {errorActionId && (
-                <p className="text-danger">
-                    Action with this name already exists.{' '}
-                    <a href={apiURL + 'action/' + errorActionId}>Click here to edit.</a>
-                </p>
-            )}
-
-            <div>
-                {addGroup}
-                <Button
-                    disabled={!edited}
-                    data-attr="save-action-button"
-                    className="float-right"
-                    type="primary"
-                    icon={<SaveOutlined />}
-                    onClick={saveAction}
-                >
-                    Save action
-                </Button>
-            </div>
-        </Card>
+                {errorActionId && (
+                    <p className="text-danger">
+                        Action with this name already exists.{' '}
+                        <a href={apiURL + 'action/' + errorActionId}>Click here to edit.</a>
+                    </p>
+                )}
+                <div>
+                    <Button
+                        disabled={!edited}
+                        data-attr="save-action-button"
+                        className="float-right"
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={saveAction}
+                    >
+                        Save action
+                    </Button>
+                </div>
+            </form>
+        </div>
     )
 }

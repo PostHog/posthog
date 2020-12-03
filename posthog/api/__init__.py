@@ -53,7 +53,7 @@ organizations_router.register(
 
 if is_ee_enabled():
     try:
-        from ee.clickhouse.views.actions import ClickhouseActionsViewSet
+        from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
         from ee.clickhouse.views.events import ClickhouseEventsViewSet
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
@@ -64,17 +64,21 @@ if is_ee_enabled():
         print(e)
     else:
         # legacy endpoints (to be removed eventually)
-        router.register(r"action", ClickhouseActionsViewSet, basename="action")
+        router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
         router.register(r"event", ClickhouseEventsViewSet, basename="event")
         router.register(r"insight", ClickhouseInsightsViewSet, basename="insight")
         router.register(r"person", ClickhousePersonViewSet, basename="person")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"element", ClickhouseElementViewSet, basename="element")
+        # nested endpoints
+        projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
 else:
     # legacy endpoints (to be removed eventually)
     router.register(r"insight", insight.InsightViewSet)
-    router.register(r"action", action.ActionViewSet)
+    router.register(r"action", action.LegacyActionViewSet)
     router.register(r"person", person.PersonViewSet)
     router.register(r"event", event.EventViewSet)
     router.register(r"paths", paths.PathsViewSet, basename="paths")
     router.register(r"element", element.ElementViewSet)
+    # nested endpoints
+    projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])

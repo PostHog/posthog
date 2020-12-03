@@ -16,7 +16,7 @@ class ClickhouseSessionsList:
     def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 
-        date_from, date_to = parse_timestamps(filter)
+        date_from, date_to, _ = parse_timestamps(filter)
         params = {**params, "team_id": team.pk, "limit": limit, "offset": offset, "distinct_id_limit": limit + offset}
         query = SESSION_SQL.format(
             date_from=date_from, date_to=date_to, filters=filters, sessions_limit="LIMIT %(offset)s, %(limit)s",
