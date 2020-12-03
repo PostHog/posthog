@@ -46,6 +46,10 @@ export function MergePersonButton({
                         }
                     }}
                 >
+                    Merge all properties and events of the selected users into <strong>{person.name}.</strong>
+                    <br />
+                    <br />
+                    Note: If there is a conflict, the properties of <strong>{person.name}</strong> will take precedence.
                     <Select
                         mode="multiple"
                         allowClear
