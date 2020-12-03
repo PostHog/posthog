@@ -29,7 +29,7 @@ class _KafkaProducer:
     def __init__(self):
         if TEST:
             self.producer = TestKafkaProducer()
-        elif IS_HEROKU: 
+        elif IS_HEROKU:
             self.producer = kafka_helper.get_kafka_producer(value_serializer=lambda d: d)
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(value_serializer=lambda d: d)

@@ -8,6 +8,7 @@ import os
 import json
 import ssl
 from tempfile import NamedTemporaryFile
+
 try:
     from urllib.parse import urlparse
 except ImportError:
@@ -42,36 +43,35 @@ def get_kafka_ssl_context():
     # SSLContext inside the with so when it goes out of scope the files are removed which has them
     # existing for the shortest amount of time.  As extra caution password
     # protect/encrypt the client key
-    with NamedTemporaryFile(suffix='.crt') as cert_file, \
-         NamedTemporaryFile(suffix='.key') as key_file, \
-         NamedTemporaryFile(suffix='.crt') as trust_file:
-        cert_file.write(base64.b64decode(os.environ['KAFKA_CLIENT_CERT_B64'].encode('utf-8')))
+    with NamedTemporaryFile(suffix=".crt") as cert_file, NamedTemporaryFile(
+        suffix=".key"
+    ) as key_file, NamedTemporaryFile(suffix=".crt") as trust_file:
+        cert_file.write(base64.b64decode(os.environ["KAFKA_CLIENT_CERT_B64"].encode("utf-8")))
         cert_file.flush()
 
         # setup cryptography to password encrypt/protect the client key so it's not in the clear on
         # the filesystem.  Use the generated password in the call to load_cert_chain
         passwd = standard_b64encode(os.urandom(33))
         private_key = serialization.load_pem_private_key(
-            base64.b64decode(os.environ['KAFKA_CLIENT_CERT_KEY_B64'].encode('utf-8')),
+            base64.b64decode(os.environ["KAFKA_CLIENT_CERT_KEY_B64"].encode("utf-8")),
             password=None,
-            backend=default_backend()
+            backend=default_backend(),
         )
         pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.BestAvailableEncryption(passwd)
+            encryption_algorithm=serialization.BestAvailableEncryption(passwd),
         )
         key_file.write(pem)
         key_file.flush()
 
-        trust_file.write(base64.b64decode(os.environ['KAFKA_TRUSTED_CERT_B64'].encode('utf-8')))
+        trust_file.write(base64.b64decode(os.environ["KAFKA_TRUSTED_CERT_B64"].encode("utf-8")))
         trust_file.flush()
 
         # create an SSLContext for passing into the kafka provider using the create_default_context
         # function which creates an SSLContext with protocol set to PROTOCOL_SSLv23, OP_NO_SSLv2,
         # and OP_NO_SSLv3 when purpose=SERVER_AUTH.
-        ssl_context = ssl.create_default_context(
-            purpose=ssl.Purpose.SERVER_AUTH, cafile=trust_file.name)
+        ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=trust_file.name)
         ssl_context.load_cert_chain(cert_file.name, keyfile=key_file.name, password=passwd)
 
         # Intentionally disabling hostname checking.  The Kafka cluster runs in the cloud and Apache
@@ -90,32 +90,32 @@ def get_kafka_brokers():
     """
     # NOTE: The Kafka environment variables need to be present. If using
     # Apache Kafka on Heroku, they will be available in your app configuration.
-    if not os.environ.get('KAFKA_URL'):
-        raise RuntimeError('The KAFKA_URL config variable is not set.')
+    if not os.environ.get("KAFKA_URL"):
+        raise RuntimeError("The KAFKA_URL config variable is not set.")
 
-    return ['{}:{}'.format(parsedUrl.hostname, parsedUrl.port) for parsedUrl in
-            [urlparse(url) for url in os.environ.get('KAFKA_URL').split(',')]]
+    return [
+        "{}:{}".format(parsedUrl.hostname, parsedUrl.port)
+        for parsedUrl in [urlparse(url) for url in os.environ.get("KAFKA_URL").split(",")]
+    ]
 
 
-def get_kafka_producer(acks='all',
-                       value_serializer=lambda v: json.dumps(v).encode('utf-8')):
+def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).encode("utf-8")):
     """
     Return a KafkaProducer that uses the SSLContext created with create_ssl_context.
     """
 
     producer = KafkaProducer(
         bootstrap_servers=get_kafka_brokers(),
-        security_protocol='SSL',
+        security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_serializer=value_serializer,
-        acks=acks
+        acks=acks,
     )
 
     return producer
 
 
-def get_kafka_consumer(topic=None,
-                       value_deserializer=lambda v: json.loads(v.decode('utf-8'))):
+def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.decode("utf-8"))):
     """
     Return a KafkaConsumer that uses the SSLContext created with create_ssl_context.
     """
@@ -125,9 +125,9 @@ def get_kafka_consumer(topic=None,
     consumer = KafkaConsumer(
         topic,
         bootstrap_servers=get_kafka_brokers(),
-        security_protocol='SSL',
+        security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
-        value_deserializer=value_deserializer
+        value_deserializer=value_deserializer,
     )
 
     return consumer
