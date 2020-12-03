@@ -30,7 +30,9 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  ref: ''
+                  # ref defaults to whatever branch the action is operating on. Leaving it blank on master or main will make it
+                  # easier to switch if we decide to. Also makes branch deploys easier.
+                  # ref: 'master'
                   path: 'deploy/'
 
             - name: Build, tag, and push image to Amazon ECR
