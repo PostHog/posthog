@@ -37,7 +37,7 @@ class StickinessFilter(Filter):
             raise ValueError("Team must be provided to stickiness filter")
 
         if self._date_from == "all":
-            return (
+            self._date_from = (
                 Event.objects.filter(team_id=team.pk)
                 .order_by("timestamp")[0]
                 .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -47,7 +47,7 @@ class StickinessFilter(Filter):
             self._date_from = relative_date_parse("-7d")
 
         if not self._date_to:
-            self._date_to = timezone.now()
+            self._date_to = timezone.now().isoformat()
 
         self.stickiness_days = int(data.get(STICKINESS_DAYS, "0"))
         self.interval = data.get(INTERVAL, "day").lower()
