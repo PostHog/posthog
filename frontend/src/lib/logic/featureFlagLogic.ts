@@ -28,12 +28,14 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             {
                 get(_, flag) {
                     const flagString = flag.toString()
-                    notifyFlagIfNeeded(flagString, !!featureFlags[flagString])
-                    return featureFlags[flagString]
+                    const flagState = !!featureFlags[flagString]
+                    notifyFlagIfNeeded(flagString, flagState)
+                    return flagState
                 },
             }
         )
     } else {
+        // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
         const flags: FeatureFlagsSet = {}
         for (const flag of Object.keys(featureFlags)) {
             Object.defineProperty(flags, flag, {
