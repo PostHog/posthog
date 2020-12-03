@@ -20,7 +20,11 @@ export function createPluginConfigVM(
     vm.freeze(fetch, 'fetch')
     vm.freeze(
         {
-            cache: createCache(server, pluginConfig.plugin.name, pluginConfig.team_id),
+            cache: createCache(
+                server,
+                pluginConfig.plugin?.name || pluginConfig.plugin_id.toString(),
+                pluginConfig.team_id
+            ),
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
         },
