@@ -91,13 +91,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         return res
 
     def get_people(
-        self,
-        filter: Filter,
-        team_id: int,
-        target_date: datetime,
-        lifecycle_type: str,
-        offset: int = 0,
-        limit: int = 100,
+        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
     ):
         entity = filter.entities[0]
         date_from = filter.date_from
@@ -149,7 +143,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                         " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
                     )
                 ),
-                "offset": offset,
+                "offset": filter.offset,
                 "limit": limit,
             },
         )

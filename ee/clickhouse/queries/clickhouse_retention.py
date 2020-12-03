@@ -126,9 +126,7 @@ class ClickhouseRetention(Retention):
             params = {"{}_event".format(prepend): "$pageview"}
         return condition, params
 
-    def _retrieve_people(
-        self, filter: RetentionFilter, team: Team, offset,
-    ):
+    def _retrieve_people(self, filter: RetentionFilter, team: Team):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
@@ -166,7 +164,7 @@ class ClickhouseRetention(Retention):
                 "reference_end_date": reference_date_to.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
-                "offset": offset,
+                "offset": filter.offset,
                 **target_params,
                 **return_params,
                 **prop_filter_params,
