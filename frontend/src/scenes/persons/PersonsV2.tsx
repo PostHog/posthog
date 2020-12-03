@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
-import { Button, Tabs, Input, Row } from 'antd'
+import { Button, Input, Row, Radio } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
-
-const { TabPane } = Tabs
 
 export function PersonsV2(): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
@@ -24,13 +22,13 @@ export function PersonsV2(): JSX.Element {
 
     return (
         <div>
-            <PageHeader title="Persons 2" />
+            <PageHeader title="Persons" />
             <Cohort
                 onChange={(cohort: string) => {
                     setListFilters({ cohort })
                 }}
             />
-            <Row style={{ justifyContent: 'space-between', gap: '0.75rem' }} className="mb">
+            <Row style={{ gap: '0.75rem' }} className="mb">
                 <Input.Search
                     data-attr="persons-search"
                     placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
@@ -51,7 +49,24 @@ export function PersonsV2(): JSX.Element {
                     }}
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
                 />
-
+                <div>
+                    <Radio.Group
+                        buttonStyle="solid"
+                        onChange={(e) => {
+                            const key = e.target.value
+                            console.log(key)
+                            setListFilters({ is_identified: key === 'all' ? undefined : key })
+                            loadPersons()
+                        }}
+                        value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
+                    >
+                        <Radio.Button value="all">All users</Radio.Button>
+                        <Radio.Button value="true">Identified</Radio.Button>
+                        <Radio.Button value="false">Anonymous</Radio.Button>
+                    </Radio.Group>
+                </div>
+            </Row>
+            <div className="mb text-right">
                 <Button
                     type="default"
                     icon={<ExportOutlined />}
@@ -59,30 +74,7 @@ export function PersonsV2(): JSX.Element {
                 >
                     Export
                 </Button>
-            </Row>
-            <Tabs
-                activeKey={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'default'}
-                onChange={(key) => {
-                    setListFilters({ is_identified: key === 'default' ? undefined : key })
-                    loadPersons()
-                }}
-            >
-                <TabPane
-                    tab={<span data-attr="people-types-tab">All</span>}
-                    key="default"
-                    data-attr="people-types-tab"
-                />
-                <TabPane
-                    tab={<span data-attr="people-types-tab">Identified</span>}
-                    key="true"
-                    data-attr="people-types-tab"
-                />
-                <TabPane
-                    tab={<span data-attr="people-types-tab">Anonymous</span>}
-                    key="false"
-                    data-attr="people-types-tab"
-                />
-            </Tabs>
+            </div>
 
             <div>
                 <PersonsTable
