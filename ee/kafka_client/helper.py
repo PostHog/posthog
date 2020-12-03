@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 try:
     from urllib.parse import urlparse
 except ImportError:
-    from urlparse import urlparse  # type: ignor
+    from urlparse import urlparse  # type: ignore
 
 from base64 import standard_b64encode
 
