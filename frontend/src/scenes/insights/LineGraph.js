@@ -190,7 +190,9 @@ export function LineGraph({
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
-                              axis: 'x',
+                              // If bar, we want to only show the tooltip for what we're hovering over
+                              // to avoid confusion
+                              ...(type !== 'bar' ? { axis: 'x' } : {}),
                               bodySpacing: 5,
                               position: 'nearest',
                               yPadding: 10,
