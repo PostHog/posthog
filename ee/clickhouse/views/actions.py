@@ -81,14 +81,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
             filter._date_to = date_from + timedelta(minutes=1)
 
         current_url = request.get_full_path()
-
-        if shown_as is not None and shown_as == "Stickiness":
-            stickiness_day = int(request.GET["stickiness_days"])
-            filter = StickinessFilter(request=request, team=team)
-            serialized_people = self._calculate_stickiness_entity_people(team, entity, filter, stickiness_day)
-
-        else:
-            serialized_people = self._calculate_entity_people(team, entity, filter)
+        serialized_people = self._calculate_entity_people(team, entity, filter)
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()

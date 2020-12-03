@@ -16,7 +16,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import (
     Action,
@@ -177,7 +177,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
-        if filter.shown_as == "Stickiness":
+        if filter.shown_as == TRENDS_STICKINESS:
             filter = StickinessFilter(request=request, team=team)
             result = stickiness.Stickiness().run(filter, team)
         else:
@@ -248,15 +248,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         def _calculate_people(events: QuerySet, offset: int):
             shown_as = request.GET.get("shown_as")
-            if shown_as is not None and shown_as == "Stickiness":
-                stickiness_days = int(request.GET["stickiness_days"])
-                events = (
-                    events.values("person_id")
-                    .annotate(day_count=Count(functions.TruncDay("timestamp"), distinct=True))
-                    .filter(day_count=stickiness_days)
-                )
-            else:
-                events = events.values("person_id").distinct()
+            events = events.values("person_id").distinct()
 
             if request.GET.get("breakdown_type") == "cohort" and request.GET.get("breakdown_value") != "all":
                 events = events.filter(
