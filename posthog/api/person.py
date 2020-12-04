@@ -36,6 +36,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "distinct_ids",
             "properties",
+            "is_identified",
             "created_at",
             "uuid",
         ]
