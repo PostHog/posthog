@@ -1,11 +1,11 @@
-import React from 'react'
-import { Table } from 'antd'
+import React, { useRef } from 'react'
+import { Button, Table } from 'antd'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PersonType } from '~/types'
 import { IconPerson } from 'lib/components/icons'
-import { ArrowRightOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import moment from 'moment'
@@ -14,12 +14,25 @@ import { midEllipsis } from 'lib/utils'
 interface PersonsTableType {
     people: PersonType[]
     loading?: boolean
+    hasPrevious?: boolean
+    hasNext?: boolean
+    loadPrevious?: () => void
+    loadNext?: () => void
 }
 
-export function PersonsTable({ people, loading = false }: PersonsTableType): JSX.Element {
+export function PersonsTable({
+    people,
+    loading = false,
+    hasPrevious,
+    hasNext,
+    loadPrevious,
+    loadNext,
+}: PersonsTableType): JSX.Element {
     const linkToPerson = (person: PersonType): string => {
         return `/person/${encodeURIComponent(person.distinct_ids[0])}`
     }
+
+    const topRef = useRef<HTMLSpanElement>(null)
 
     const columns = [
         {
@@ -85,20 +98,35 @@ export function PersonsTable({ people, loading = false }: PersonsTableType): JSX
     ]
 
     return (
-        <Table
-            size="small"
-            columns={columns}
-            loading={loading}
-            rowKey="id"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-            expandable={{
-                expandedRowRender: function RenderPropertiesTable({ properties }) {
-                    return <PropertiesTable properties={properties} />
-                },
-                rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
-            }}
-            dataSource={people}
-            className="persons-table"
-        />
+        <>
+            <span ref={topRef} />
+            <Table
+                size="small"
+                columns={columns}
+                loading={loading}
+                rowKey="id"
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                expandable={{
+                    expandedRowRender: function RenderPropertiesTable({ properties }) {
+                        return <PropertiesTable properties={properties} />
+                    },
+                    rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
+                }}
+                dataSource={people}
+                className="persons-table"
+            />
+            <div style={{ margin: '3rem auto 10rem', width: 200 }}>
+                <Button
+                    type="link"
+                    disabled={!hasPrevious}
+                    onClick={() => loadPrevious && loadPrevious() && window.scrollTo(0, 0)}
+                >
+                    <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
+                </Button>
+                <Button type="link" disabled={!hasNext} onClick={() => loadNext && loadNext() && window.scrollTo(0, 0)}>
+                    Next <RightOutlined style={{ verticalAlign: 'initial' }} />
+                </Button>
+            </div>
+        </>
     )
 }

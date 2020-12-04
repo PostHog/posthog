@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTableV2'
 import { Button, Input, Row, Radio } from 'antd'
-import { ExportOutlined, LeftOutlined, RightOutlined, PlusOutlined } from '@ant-design/icons'
+import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
@@ -80,16 +80,14 @@ export function PersonsV2(): JSX.Element {
             </div>
 
             <div>
-                <PersonsTable people={persons.results} loading={personsLoading} />
-
-                <div style={{ margin: '3rem auto 10rem', width: 200 }}>
-                    <Button type="link" disabled={!persons.previous} onClick={() => loadPersons(persons.previous)}>
-                        <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
-                    </Button>
-                    <Button type="link" disabled={!persons.next} onClick={() => loadPersons(persons.next)}>
-                        Next <RightOutlined style={{ verticalAlign: 'initial' }} />
-                    </Button>
-                </div>
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                />
             </div>
         </div>
     )
