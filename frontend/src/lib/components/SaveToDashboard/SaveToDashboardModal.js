@@ -56,7 +56,6 @@ const saveToDashboardModalLogic = kea({
 
 const radioStyle = {
     display: 'block',
-    lineHeight: 30,
     overflow: 'hidden',
     whiteSpace: 'normal',
 }
