@@ -1,16 +1,16 @@
 import React from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Table, Tooltip } from 'antd'
+import { Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
-import moment from 'moment'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
+import { Created } from 'lib/components/Created'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
@@ -84,11 +84,7 @@ export function ActionsTable() {
         {
             title: 'Created',
             render: function RenderCreatedAt(_, action) {
-                return (
-                    <Tooltip title={moment(action.created_at).format('LLL')}>
-                        {moment(action.created_at).fromNow()}
-                    </Tooltip>
-                )
+                return <Created timestamp={action.created_at} />
             },
         },
         {

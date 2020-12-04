@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
 import { Button, Tabs, Input, Row } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
+import { CohortType } from '~/types'
 
 const { TabPane } = Tabs
 
 export const Persons = hot(_Persons)
-function _Persons(): JSX.Element {
+function _Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
@@ -22,16 +22,16 @@ function _Persons(): JSX.Element {
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
+        if (cohort) {
+            setListFilters({ cohort: cohort.id })
+        }
+
+        loadPersons()
     }, [])
 
     return (
         <div>
-            <PageHeader title="Persons" />
-            <Cohort
-                onChange={(cohort: string) => {
-                    setListFilters({ cohort })
-                }}
-            />
+            {!cohort && <PageHeader title="Persons" />}
             <Row style={{ justifyContent: 'space-between', gap: '0.75rem' }} className="mb">
                 <Input.Search
                     data-attr="persons-search"
@@ -91,6 +91,7 @@ function _Persons(): JSX.Element {
                     people={persons.results}
                     loading={personsLoading}
                     actions={true}
+                    cohort={cohort}
                     onChange={() => loadPersons()}
                 />
 

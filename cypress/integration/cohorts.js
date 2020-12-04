@@ -28,17 +28,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr=success-toast]').should('exist')
 
         // back to cohorts
-        cy.get('h1').should('contain', 'Persons')
-        cy.get('[data-attr=menu-item-cohorts]').click()
-
-        cy.get('h1').should('contain', 'Cohorts')
-        cy.get('.ant-empty').should('not.exist')
-
-        // click the first row's first column's cohort title
-        cy.get('[data-row-key="1"] > :nth-child(1) > a').click()
-
-        // back on the persons page
-        cy.get('h1').should('contain', 'Persons')
-        cy.get('.ant-table-tbody > tr').should('exist')
+        cy.get('.ant-drawer-close').click({ force: true })
+        cy.get('.ant-table-tbody').contains('Test Cohort')
     })
 })

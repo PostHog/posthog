@@ -177,7 +177,7 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
-    groups?: Record<string, any>[]
+    groups: Record<string, any>[]
 }
 
 export interface InsightHistory {

@@ -6,7 +6,7 @@ import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 
-export function PersonsTable({ people, loading, actions, onChange }) {
+export function PersonsTable({ people, loading, actions, onChange, cohort }) {
     let columns = [
         {
             title: 'Person',
@@ -15,7 +15,11 @@ export function PersonsTable({ people, loading, actions, onChange }) {
             render: function RenderName(_, person) {
                 return (
                     <Link
-                        to={'/person/' + encodeURIComponent(person.distinct_ids[0])}
+                        to={
+                            '/person/' +
+                            encodeURIComponent(person.distinct_ids[0]) +
+                            (cohort ? `#backTo=Back to cohorts&backToURL=/cohorts/${cohort.id}` : '')
+                        }
                         className={'ph-no-capture ' + rrwebBlockClass}
                     >
                         {person.name}

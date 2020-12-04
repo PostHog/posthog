@@ -4,7 +4,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import format_ch_timestamp
+from ee.clickhouse.queries.util import format_ch_timestamp, get_trunc_func_ch
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -26,11 +26,6 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
-PERIOD_TRUNC_HOUR = "toStartOfHour"
-PERIOD_TRUNC_DAY = "toStartOfDay"
-PERIOD_TRUNC_WEEK = "toStartOfWeek"
-PERIOD_TRUNC_MONTH = "toStartOfMonth"
-
 
 class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
@@ -44,7 +39,7 @@ class ClickhouseRetention(Retention):
 
         target_query = ""
         target_params: Dict = {}
-        trunc_func = self._get_trunc_func_ch(period)
+        trunc_func = get_trunc_func_ch(period)
 
         target_query, target_params = self._get_condition(target_entity, table="e")
         returning_query, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
@@ -126,24 +121,10 @@ class ClickhouseRetention(Retention):
             params = {"{}_event".format(prepend): "$pageview"}
         return condition, params
 
-    def _get_trunc_func_ch(self, period: str) -> str:
-        if period == "Hour":
-            return PERIOD_TRUNC_HOUR
-        elif period == "Week":
-            return PERIOD_TRUNC_WEEK
-        elif period == "Day":
-            return PERIOD_TRUNC_DAY
-        elif period == "Month":
-            return PERIOD_TRUNC_MONTH
-        else:
-            raise ValueError(f"Period {period} is unsupported.")
-
-    def _retrieve_people(
-        self, filter: RetentionFilter, team: Team, offset,
-    ):
+    def _retrieve_people(self, filter: RetentionFilter, team: Team):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        trunc_func = self._get_trunc_func_ch(period)
+        trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
@@ -170,7 +151,7 @@ class ClickhouseRetention(Retention):
                 "end_date": format_ch_timestamp(date_to, filter),
                 "reference_start_date": format_ch_timestamp(reference_date_from, filter),
                 "reference_end_date": format_ch_timestamp(reference_date_to, filter),
-                "offset": offset,
+                "offset": filter.offset,
                 **target_params,
                 **return_params,
                 **prop_filter_params,
