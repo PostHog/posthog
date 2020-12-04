@@ -24,7 +24,7 @@ from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import Retention
+from posthog.queries.retention import Retention, appearance_to_markers
 
 PERIOD_TRUNC_HOUR = "toStartOfHour"
 PERIOD_TRUNC_DAY = "toStartOfDay"
@@ -226,16 +226,5 @@ class ClickhouseRetention(Retention):
             },
         )
 
-        result = []
-        marker_length = filter.total_intervals - filter.selected_interval
-        for val in query_result:
-            result.append({"id": val[0], "appearances": _appearance_to_markers(sorted(val[2]), marker_length)})
-
+        result = self.process_people_in_period(filter, query_result)
         return result
-
-
-def _appearance_to_markers(vals: List, num_intervals: int) -> List:
-    markers = [0 for _ in range(num_intervals)]
-    for val in vals:
-        markers[val] = 1
-    return markers

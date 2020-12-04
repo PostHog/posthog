@@ -272,7 +272,102 @@ class Retention(BaseQuery):
         return results
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-        pass
+        period = filter.period
+        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+
+        events: QuerySet = QuerySet()
+        entity_condition, entity_condition_strigified = self.get_entity_condition(
+            filter.target_entity, "first_event_date"
+        )
+        returning_condition, returning_condition_stringified = self.get_entity_condition(
+            filter.returning_entity, "events"
+        )
+        events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
+
+        trunc, fields = self._get_trunc_func("timestamp", period)
+
+        filter._date_from = (filter.date_from + filter.selected_interval * filter.period_increment).isoformat()
+
+        if is_first_time_retention:
+            filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
+            first_date = (
+                filtered_events.filter(entity_condition)
+                .values("person_id", "event", "action")
+                .annotate(first_date=Min(trunc))
+                .filter(filter.custom_date_filter_Q("first_date"))
+                .distinct()
+            )
+            final_query = (
+                filtered_events.filter(filter.date_filter_Q)
+                .filter(returning_condition)
+                .values_list("person_id", "event_date", "event", "action")
+                .union(first_date.values_list("first_date", "person_id", "event", "action"))
+            )
+        else:
+            filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
+            first_date = (
+                filtered_events.filter(entity_condition)
+                .annotate(first_date=trunc)
+                .values("first_date", "person_id", "event", "action")
+                .distinct()
+            )
+
+            final_query = (
+                filtered_events.filter(returning_condition)
+                .values_list("person_id", "event_date", "event", "action")
+                .union(first_date.values_list("first_date", "person_id", "event", "action"))
+            )
+
+        event_query, events_query_params = final_query.query.sql_with_params()
+        reference_event_query, first_date_params = first_date.query.sql_with_params()
+
+        final_query = """
+            SELECT person_id, count(person_id) appearance_count, array_agg(date) appearances FROM (
+                SELECT DISTINCT
+                    {fields}
+                    "events"."person_id"
+                FROM ({event_query}) events
+                LEFT JOIN ({reference_event_query}) first_event_date
+                ON (events.person_id = first_event_date.person_id)
+                WHERE event_date >= first_date
+                AND {target_condition} AND {return_condition}
+                OR ({target_condition} AND event_date = first_date)
+            ) person_appearances
+            WHERE first_date = 0
+            GROUP BY person_id
+            ORDER BY appearance_count DESC
+            LIMIT %s OFFSET %s
+        """.format(
+            event_query=event_query,
+            reference_event_query=reference_event_query,
+            fields=fields,
+            return_condition=returning_condition_stringified,
+            target_condition=entity_condition_strigified,
+        )
+        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
+
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        )
+
+        result = []
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                final_query,
+                start_params + events_query_params + first_date_params + event_params + (100, filter.offset),
+            )
+
+            result = self.process_people_in_period(filter, cursor.fetchall())
+
+        return result
+
+    def process_people_in_period(self, filter: RetentionFilter, vals) -> List[Dict[str, Any]]:
+        marker_length = filter.total_intervals - filter.selected_interval
+        result = []
+        for val in vals:
+            result.append({"id": val[0], "appearances": appearance_to_markers(sorted(val[2]), marker_length)})
+        return result
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:
@@ -311,3 +406,10 @@ class Retention(BaseQuery):
             return TruncMonth(subject), fields
         else:
             raise ValueError(f"Period {period} is unsupported.")
+
+
+def appearance_to_markers(vals: List, num_intervals: int) -> List:
+    markers = [0 for _ in range(num_intervals)]
+    for val in vals:
+        markers[int(val)] = 1
+    return markers
