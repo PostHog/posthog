@@ -275,7 +275,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             people = self.retention_class().people(filter, team, offset)
 
-        print(people)
         next_url: Optional[str] = request.get_full_path()
         if len(people) > 99 and next_url:
             if "offset" in next_url:

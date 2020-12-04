@@ -23,7 +23,7 @@ export function RetentionLineGraph({
 }: RetentionLineGraphProps): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
     const { filters, retention, retentionLoading, people, peopleLoading } = useValues(logic)
-    const { loadPeople, loadMoreGraphPeople } = useActions(logic)
+    const { loadPeople, loadMorePeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
@@ -84,7 +84,7 @@ export function RetentionLineGraph({
                     }}
                 >
                     {peopleNext && (
-                        <Button type="primary" onClick={loadMoreGraphPeople}>
+                        <Button type="primary" onClick={loadMorePeople}>
                             {people?.loadingMore ? <Spin /> : 'Load more people'}
                         </Button>
                     )}

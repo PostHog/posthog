@@ -130,18 +130,20 @@ export function RetentionTable({ dashboardItemId = null }) {
                                                         </td>
                                                     ))}
                                             </tr>
-                                            {people[selectedRow] &&
-                                                people[selectedRow].map((person) => (
-                                                    <tr key={person.id}>
+                                            {people.result &&
+                                                people.result.map((personAppearances) => (
+                                                    <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                                {personAppearances.person.name}
+                                                            </Link>
                                                         </td>
-                                                        {retention.data[selectedRow].values.map((step, index) => {
+                                                        {personAppearances.appearances.map((appearance, index) => {
                                                             return (
                                                                 <td
                                                                     key={index}
                                                                     className={
-                                                                        step.people.indexOf(person.id) > -1
+                                                                        appearance
                                                                             ? 'retention-success'
                                                                             : 'retention-dropped'
                                                                     }
@@ -158,7 +160,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        {retention.data[selectedRow].values.some((element) => element.next) && (
+                                        {people.next && (
                                             <Button type="primary" onClick={() => loadMore(selectedRow)}>
                                                 {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>

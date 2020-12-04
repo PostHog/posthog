@@ -122,11 +122,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         setFilters: (filters) => ({ filters }),
-        loadMore: (selectedIndex) => ({ selectedIndex }),
-        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
-        loadMoreGraphPeople: true,
-        updateGraphPeople: (people) => ({ people }),
-        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        loadMorePeople: true,
+        updatePeople: (people) => ({ people }),
         updateRetention: (retention) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
@@ -163,11 +160,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         ],
         people: {
             clearPeople: () => ({}),
-            updatePeople: (state, { selectedIndex, people }) => ({
-                ...state,
-                [`${selectedIndex}`]: [...state[selectedIndex], ...people],
-            }),
-            updateGraphPeople: (_, { people }) => people,
+            updatePeople: (_, { people }) => people,
         },
         retention: {
             updateRetention: (_, { retention }) => retention,
@@ -176,10 +169,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         loadingMore: [
             false,
             {
-                loadMore: () => true,
+                loadMorePeople: () => true,
                 updatePeople: () => false,
-                updateGraphPeople: () => false,
-                loadMoreGraphPeople: () => true,
             },
         ],
     }),
@@ -281,49 +272,14 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
-        loadMore: async ({ selectedIndex }) => {
-            let peopleToAdd = []
-            for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
-                if (next) {
-                    const params = toParams({ id: next, offset })
-                    const referenceResults = await api.get(`api/person/references/?${params}`)
-                    const retentionCopy = { ...values.retention }
-                    if (referenceResults.offset) {
-                        retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
-                    } else {
-                        retentionCopy.data[selectedIndex].values[index].next = null
-                    }
-                    retentionCopy.data[selectedIndex].values[index].people = [
-                        ...retentionCopy.data[selectedIndex].values[index].people,
-                        ...referenceResults.result,
-                    ]
-                    actions.updateRetention(retentionCopy)
-                    if (index === 0) {
-                        peopleToAdd = referenceResults.result
-                    }
-                }
-            }
-
-            actions.loadMorePeople(selectedIndex, peopleToAdd)
-        },
-        loadMorePeople: async ({ selectedIndex, peopleIds }) => {
-            if (peopleIds.length === 0) {
-                actions.updatePeople(selectedIndex, [])
-            }
-            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
-            peopleResult.sort(function (a, b) {
-                return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
-            })
-            actions.updatePeople(selectedIndex, peopleResult)
-        },
-        loadMoreGraphPeople: async () => {
+        loadMorePeople: async () => {
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
                     result: [...values.people.result, ...peopleResult['result']],
                     next: peopleResult['next'],
                 }
-                actions.updateGraphPeople(newPeople)
+                actions.updatePeople(newPeople)
             }
         },
     }),
