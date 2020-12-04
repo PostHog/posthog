@@ -342,7 +342,10 @@ def load_data_from_request(request):
 
     #  Is it plain json?
     try:
-        data = json.loads(data)
+        # parse_constant gets called in case of NaN, Infinity etc
+        # default behaviour is to put those into the DB directly
+        # but we just want it to return None
+        data = json.loads(data, parse_constant=lambda x: None)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = base64_to_json(data)

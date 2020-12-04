@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import api from 'lib/api'
-import { Input, Button, Alert } from 'antd'
+import { Input, Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { logicType } from 'types/scenes/project/Settings/WebhookIntegrationType'
 import { UserType } from '~/types'
@@ -114,7 +114,7 @@ const logic = kea<logicType<UserType>>({
     }),
 })
 
-export function WebhookIntegration({ user }: { user: UserType | null }): JSX.Element {
+export function WebhookIntegration(): JSX.Element {
     const { isSaving, editedWebhook } = useValues(logic)
     const { testThenSaveWebhook, setEditedWebhook } = useActions(logic)
 
@@ -128,21 +128,13 @@ export function WebhookIntegration({ user }: { user: UserType | null }): JSX.Ele
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {user?.is_multi_tenancy && (
-                <Alert
-                    style={{ maxWidth: '40rem', marginBottom: '1rem' }}
-                    message="Webhooks are currently unavailable on PostHog Cloud. The feature will be back online soon."
-                    type="warning"
-                />
-            )}
             <Input
                 value={editedWebhook}
                 addonBefore="Webhook URL"
                 onChange={(e) => setEditedWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={'integration disabled' + (user?.is_multi_tenancy ? '' : ' – type a URL to enable')}
-                disabled={user.is_multi_tenancy}
+                placeholder={'integration disabled – type a URL to enable'}
             />
             <Button
                 type="primary"
@@ -150,7 +142,6 @@ export function WebhookIntegration({ user }: { user: UserType | null }): JSX.Ele
                     e.preventDefault()
                     testThenSaveWebhook()
                 }}
-                disabled={user.is_multi_tenancy}
             >
                 {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
             </Button>
