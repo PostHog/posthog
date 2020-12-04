@@ -6,7 +6,6 @@ import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Spin, Table, Tooltip } from 'antd'
-import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
@@ -30,9 +29,6 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
         eventFilter,
     } = useValues(logic)
     const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
-    const {
-        location: { search },
-    } = useValues(router)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -102,7 +98,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 }
                 return showLinkToPerson ? (
                     <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
+                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
                         className={'ph-no-capture ' + rrwebBlockClass}
                     >
                         {event.person}

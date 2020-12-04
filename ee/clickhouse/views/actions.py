@@ -22,7 +22,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.property import Property
 from posthog.models.team import Team
 
@@ -125,7 +125,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         return entity_filter, params
 
     def _calculate_stickiness_entity_people(self, team: Team, entity: Entity, filter: Filter, stickiness_day: int):
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
 
@@ -155,7 +155,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         return serialized_people
 
     def _calculate_entity_people(self, team: Team, entity: Entity, filter: Filter):
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         entity_sql, entity_params = self._format_entity_filter(entity=entity)
         person_filter = ""
         person_filter_params: Dict[str, Any] = {}
@@ -193,3 +193,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         serialized_people = ClickhousePersonSerializer(people, many=True).data
 
         return serialized_people
+
+
+class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
+    legacy_team_compatibility = True

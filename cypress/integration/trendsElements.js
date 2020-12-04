@@ -11,9 +11,9 @@ describe('Trends actions & events', () => {
 
     it('Add a pageview action filter', () => {
         // when
-        cy.contains('Add action/event').click()
+        cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.contains('Pageviews').click()
+        cy.contains('HogFlix homepage view').click()
 
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -34,7 +34,7 @@ describe('Trends actions & events', () => {
 
         // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
         cy.get('[data-attr=math-avg-0]').click({ force: true })
-        cy.get('[data-attr=math-property-selector-0]').should('exist')
+        cy.get('[data-attr=math-property-select]').should('exist')
     })
 
     it('Apply specific filter on default pageview event', () => {
@@ -118,7 +118,7 @@ describe('Trends actions & events', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('.ant-input').type('Pageviews')
+        cy.get('.ant-input').type('Home page views')
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add panel to dashboard').click()

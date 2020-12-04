@@ -7,7 +7,6 @@ import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
@@ -16,11 +15,10 @@ import { Created } from 'lib/components/Created'
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     let columns = [
         {
-            title: !featureFlags['actions-ux-201012'] ? 'Action ID' : 'Name',
+            title: 'Name',
             dataIndex: 'name',
             key: 'name',
             render: function RenderName(_, action, index) {
@@ -90,7 +88,7 @@ export function ActionsTable() {
             },
         },
         {
-            title: !featureFlags['actions-ux-201012'] ? 'Actions' : '',
+            title: '',
             render: function RenderActions(action) {
                 return (
                     <span>

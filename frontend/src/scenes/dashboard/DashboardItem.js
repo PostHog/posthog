@@ -26,6 +26,7 @@ import {
     CopyOutlined,
     DeliveredProcedureOutlined,
     ReloadOutlined,
+    BarChartOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -34,6 +35,7 @@ import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { RetentionLineGraph } from 'scenes/retention/RetentionLineGraph'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -48,6 +50,14 @@ const typeMap = {
         className: 'graph',
         element: ActionsLineGraph,
         icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBar: {
+        className: 'bar',
+        element: ActionsLineGraph,
+        icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }) =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -86,6 +96,19 @@ const typeMap = {
         element: RetentionTable,
         icon: TableOutlined,
         viewText: 'View table',
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.Retention, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    RetentionGraph: {
+        className: 'retention-graph',
+        element: RetentionLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,

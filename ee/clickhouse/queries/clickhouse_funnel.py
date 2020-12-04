@@ -12,7 +12,7 @@ from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
@@ -60,7 +60,7 @@ class ClickhouseFunnel(Funnel):
         if not self._filter._date_to:
             self._filter._date_to = timezone.now()
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=self._filter, table="events.")
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=self._filter, table="events.")
         self.params: Dict = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering

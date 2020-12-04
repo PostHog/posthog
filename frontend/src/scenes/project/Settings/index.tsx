@@ -16,18 +16,24 @@ import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Link } from 'lib/components/Link'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const Setup = hot(_Setup)
-function _Setup({ user }) {
+function _Setup(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
+
+    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title={`Project Settings – ${user.team.name}`} />
+            <PageHeader title={`Project Settings${user ? `– ${user.team?.name}` : ''}`} />
             <Card>
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -100,13 +106,23 @@ function _Setup({ user }) {
                         BETA
                     </Tag>
                 </h2>
-                <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
+                <p>
+                    Watch sessions replays to see how users interact with your app and find out what can be improved.
+                    You can watch recorded sessions in the <Link to="/sessions">sessions page</Link>. Please note{' '}
+                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
+                    of{' '}
+                    <a
+                        href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        posthog-js
+                    </a>{' '}
+                    installed.
+                </p>
                 <OptInSessionRecording />
                 <p>
                     This is a new feature of PostHog. Please{' '}
-                    <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                        share feedback
-                    </a>{' '}
+                    <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
                     with us!
                 </p>
                 <Divider />

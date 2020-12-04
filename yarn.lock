@@ -4958,6 +4958,11 @@ getpass@^0.1.1:
   dependencies:
     assert-plus "^1.0.0"
 
+given2@^2.1.7:
+  version "2.1.7"
+  resolved "https://registry.yarnpkg.com/given2/-/given2-2.1.7.tgz#4c2c7883d7ee1069d077c10551ef2e607943ebd3"
+  integrity sha512-fI3VamsjN2euNVguGpSt2uExyDSMfJoK+SwDxbmV+Thf3v4oF6KKZAFE3LHHuT+PYyMwCsJYXO01TW3euFdPGA==
+
 glob-parent@^3.1.0:
   version "3.1.0"
   resolved "https://registry.yarnpkg.com/glob-parent/-/glob-parent-3.1.0.tgz#9e6af6299d8d3bd2bd40430832bd113df906c5ae"
@@ -8210,20 +8215,20 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.7.2:
-  version "1.7.2"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.2.tgz#edacb90413630f85db0ec317a7d687704b3101fb"
-  integrity sha512-iv/2LTHFRFOrf4xih40Soa1tUNNIcg21LMP7rtUjAeg+TFJEToBPkUgp93b7tT1VXblN2irJHS7ELEo9EriJAQ==
+posthog-js@1.7.3-beta.9:
+  version "1.7.3-beta.9"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.9.tgz#cde92533426685e6f93a53fefa1b85f1f2e09562"
+  integrity sha512-VfMmJmhAsgolt58YrglZUctw4nFY+VqB+6haoiIrhbr6X0k5JzVD9CKC9G5TqJ8nK44/2Si/nDuxRc2DWywB6Q==
 
 posthog-plugins@0.1.3:
   version "0.1.3"
   resolved "https://registry.yarnpkg.com/posthog-plugins/-/posthog-plugins-0.1.3.tgz#3a47f1303733720c308f33f67162ca2823845bbf"
   integrity sha512-6VElUUux/AA+uetGWk9p0+cep8+ByE0P0Zv8cypT9z/3hLUhueTjrvQZDL835656BOPtVRdBOxjBqQ7fYog57g==
 
-posthog-react-rrweb-player@^1.0.9:
-  version "1.0.9"
-  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.9.tgz#8bf92bae8c90b5080ca591226a014d65be200ad7"
-  integrity sha512-1iWJgJRUhC2uUrJelXnqynLhbnJ/gZ0SBT2jTHoKKOVT4NsQ7in6yH4GW5NFDEnTAMjtavZ6+P8G4mkb4tXkeA==
+posthog-react-rrweb-player@^1.0.11:
+  version "1.0.11"
+  resolved "https://registry.yarnpkg.com/posthog-react-rrweb-player/-/posthog-react-rrweb-player-1.0.11.tgz#960c6198af179242e5c94aebdb8301d2439eb51a"
+  integrity sha512-aCBcTQfbKWj/k1OAxIIe8m0FBLmJpvAyCYe9dcgmGLuac8G92CaMaV9RKUvPaZPpLexyxGRaB117w1MX9g7RKg==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
