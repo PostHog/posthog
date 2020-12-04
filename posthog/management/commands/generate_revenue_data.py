@@ -42,10 +42,9 @@ def generate_revenue_data(org, team_name="", team_id=0, event_number=1000, days=
         team.event_properties.append("first_visit")
     if "purchase_value" not in team.event_properties_numerical:
         team.event_properties_numerical.append("purchase_value")
-    team.save()
 
-    if not use_ch:
-        _create_psql_actions_and_funnel(team)
+    team.save()
+    _create_actions_and_funnel(team)
 
 
 def _generate_psql_data(team, n_events, n_days, distinct_ids):
@@ -103,7 +102,58 @@ def _generate_psql_data(team, n_events, n_days, distinct_ids):
     Event.objects.bulk_create(events)
 
 
-def _create_psql_actions_and_funnel(team):
+def _generate_ch_data(team, n_events, n_days, distinct_ids=[]):
+    from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+    from ee.clickhouse.models.event import create_event
+
+    for i in range(0, n_events - len(distinct_ids)):
+        distinct_id = generate_clickhouse_uuid()
+        distinct_ids.append(distinct_id)
+        Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
+
+    for i in range(0, n_events):
+        if random.randint(0, 10) <= 4:
+            create_event(
+                event="entered_free_trial",
+                team=team,
+                distinct_id=distinct_ids[i],
+                timestamp=now() - relativedelta(days=345),
+                event_uuid=uuid4(),
+            )
+
+        create_event(
+            event="$pageview",
+            team=team,
+            distinct_id=distinct_ids[i],
+            timestamp=now() - relativedelta(days=350),
+            properties={"first_visit": True},
+            event_uuid=uuid4(),
+        )
+
+    days_ago_options = ()
+    for n in range(0, int(n_events * 0.72)):
+        base_days = random.randint(0, 29)
+        for j in range(0, 11):
+            plan = random.choice(PRICING_TIERS)
+            create_event(
+                event="$pageview",
+                team=team,
+                distinct_id=distinct_ids[n],
+                timestamp=now() - relativedelta(days=(j * 29 + base_days) if j == 0 else (j * 29 + base_days) - 1),
+                event_uuid=uuid4(),
+            )
+            if random.randint(0, 10) <= 8:
+                create_event(
+                    event="purchase",
+                    team=team,
+                    distinct_id=distinct_ids[n],
+                    properties={"plan": plan[0], "purchase_value": plan[1],},
+                    timestamp=now() - relativedelta(days=j * 29 + base_days),
+                    event_uuid=uuid4(),
+                )
+
+
+def _create_actions_and_funnel(team):
     purchase_action = Action.objects.create(team=team, name="Purchase")
     ActionStep.objects.create(action=purchase_action, event="purchase")
 
@@ -134,29 +184,6 @@ def _create_psql_actions_and_funnel(team):
         },
     )
     recalculate_actions(team)
-
-
-def _generate_ch_data(team, n_events, n_days, distinct_ids):
-    from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
-    from ee.clickhouse.models.event import create_event
-
-    distinct_ids = []
-    for i in range(0, n_events):
-        distinct_id = generate_clickhouse_uuid()
-        distinct_ids.append(distinct_id)
-        Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
-
-    for i in range(0, n_events):
-        event_uuid = uuid4()
-        plan = random.choice(PRICING_TIERS)
-        create_event(
-            event="purchase",
-            team=team,
-            distinct_id=distinct_ids[i],
-            properties={"plan": plan[0], "purchase_value": plan[1],},
-            timestamp=now() - relativedelta(days=random.randint(0, n_days)),
-            event_uuid=event_uuid,
-        )
 
 
 def _get_team(org, team_name, team_id):
@@ -213,3 +240,6 @@ class Command(BaseCommand):
             use_ch=options["use_ch"],
             distinct_ids=[],
         )
+
+
+# docker exec ee_web_1 DEBUG=1 python3 manage.py generate_revenue_data --org="Demo" --team_name="HogFlix Demo App" —event_number=300 --use_ch=True

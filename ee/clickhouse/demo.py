@@ -10,17 +10,20 @@ from django.utils.timezone import now
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import update_person_is_identified, update_person_properties
+from posthog.management.commands.generate_app_data import generate_app_data
+from posthog.management.commands.generate_revenue_data import generate_revenue_data
 from posthog.models import Team
 from posthog.models.element import Element
 from posthog.models.person import Person
 
 
-def create_anonymous_users_ch(team: Team, base_url: str) -> None:
+def create_anonymous_users_ch(team: Team, base_url: str, organization: str) -> None:
     with open(Path("posthog/demo_data.json").resolve(), "r") as demo_data_file:
         demo_data = json.load(demo_data_file)
 
     demo_data_index = 0
     days_ago = 7
+    distinct_ids = []
     for index in range(0, 100):
         if index > 0 and index % 14 == 0:
             days_ago -= 1
@@ -29,6 +32,7 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
         distinct_id = generate_clickhouse_uuid()
+        distinct_ids.append(distinct_id)
         person = Person.objects.create(team_id=team.pk, distinct_ids=[distinct_id], properties={"is_demo": True})
 
         event_uuid = uuid4()
@@ -153,5 +157,11 @@ def create_anonymous_users_ch(team: Team, base_url: str) -> None:
                         event_uuid=event_uuid,
                     )
 
+    generate_app_data(
+        org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids, use_ch=True
+    )
+    generate_revenue_data(
+        org=organization, team_id=team.pk, event_number=500, days=100, distinct_ids=distinct_ids, use_ch=True
+    )
     team.event_properties_numerical.append("purchase")
     team.save()

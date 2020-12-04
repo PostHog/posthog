@@ -46,8 +46,7 @@ def generate_app_data(org, team_name="", team_id=0, event_number=1000, days=100,
 
     team.save()
 
-    if not use_ch:
-        _create_psql_actions_and_funnel(team)
+    _create_actions_and_funnel(team)
 
 
 def _generate_psql_data(team, n_events, n_days, distinct_ids):
@@ -122,7 +121,69 @@ def _generate_psql_data(team, n_events, n_days, distinct_ids):
     Event.objects.bulk_create(events)
 
 
-def _create_psql_actions_and_funnel(team):
+def _generate_ch_data(team, n_events, n_days, distinct_ids=[]):
+    from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
+    from ee.clickhouse.models.event import create_event
+
+    for i in range(0, n_events - len(distinct_ids)):
+        distinct_id = generate_clickhouse_uuid()
+        distinct_ids.append(distinct_id)
+        Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
+
+    for i in range(0, n_events):
+        n_days_back = random.randint(1, n_days)
+        create_event(
+            event="$pageview",
+            team=team,
+            distinct_id=distinct_ids[i][0],
+            timestamp=now() - relativedelta(days=n_days_back),
+            properties={"$current_url": "https://hogflix/"},
+            event_uuid=uuid4(),
+        )
+        create_event(
+            event="installed_app",
+            team=team,
+            distinct_id=distinct_ids[i][0],
+            timestamp=now() - relativedelta(days=n_days_back),
+            event_uuid=uuid4(),
+        )
+        if random.randint(0, 10) <= 9:
+            create_event(
+                event="watched_movie",
+                team=team,
+                distinct_id=distinct_ids[i][0],
+                timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=100),
+                properties={"is_first_movie": random.choice([True, False])},
+                event_uuid=uuid4(),
+            )
+            create_event(
+                event="$pageview",
+                team=team,
+                distinct_id=distinct_ids[i][0],
+                timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=15),
+                properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
+                event_uuid=uuid4(),
+            )
+            if random.randint(0, 10) <= 8:
+                create_event(
+                    event="$pageview",
+                    team=team,
+                    distinct_id=distinct_ids[i][0],
+                    timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=30),
+                    properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
+                    event_uuid=uuid4(),
+                )
+                create_event(
+                    event="rated_app",
+                    team=team,
+                    distinct_id=distinct_ids[i][0],
+                    timestamp=now() - relativedelta(days=n_days_back) + relativedelta(seconds=45),
+                    properties={"app_rating": distinct_ids[i][1]},
+                    event_uuid=uuid4(),
+                )
+
+
+def _create_actions_and_funnel(team):
     installed_app_action = Action.objects.create(team=team, name="Installed App")
     ActionStep.objects.create(action=installed_app_action, event="installed_app")
 
@@ -157,10 +218,6 @@ def _create_psql_actions_and_funnel(team):
         },
     )
     recalculate_actions(team)
-
-
-def _generate_ch_data():
-    pass
 
 
 def _get_team(org, team_name, team_id):

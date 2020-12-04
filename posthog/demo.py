@@ -228,6 +228,8 @@ def demo(request):
 
         result = get_events_by_team(team_id=team.pk)
         if not result:
-            create_anonymous_users_ch(team=team, base_url=request.build_absolute_uri("/demo"))
+            create_anonymous_users_ch(
+                team=team, base_url=request.build_absolute_uri("/demo"), organization=organization
+            )
 
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
