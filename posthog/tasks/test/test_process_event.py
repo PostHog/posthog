@@ -3,7 +3,6 @@ from typing import Any, Callable, List, Optional, Union
 from unittest.mock import patch
 from uuid import UUID
 
-import numpy as np
 from django.conf import settings
 from django.test import TransactionTestCase
 from django.utils.timezone import now
