@@ -26,26 +26,32 @@ export function PersonsV2(): JSX.Element {
                 }}
             />
             <Row style={{ gap: '0.75rem' }} className="mb">
-                <Input.Search
-                    data-attr="persons-search"
-                    placeholder={`search person by email, name or ID (e.g. ${exampleEmail})`}
-                    autoFocus
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                        if (!e.target.value) {
-                            setListFilters({ search: undefined })
+                <div style={{ flexGrow: 1, maxWidth: 600 }}>
+                    <Input.Search
+                        data-attr="persons-search"
+                        placeholder={`search person by email, name or ID (e.g. ${exampleEmail})`}
+                        autoFocus
+                        value={searchTerm}
+                        onChange={(e) => {
+                            setSearchTerm(e.target.value)
+                            if (!e.target.value) {
+                                setListFilters({ search: undefined })
+                                loadPersons()
+                            }
+                        }}
+                        enterButton
+                        allowClear
+                        onSearch={() => {
+                            setListFilters({ search: searchTerm || undefined })
                             loadPersons()
-                        }
-                    }}
-                    enterButton
-                    allowClear
-                    onSearch={() => {
-                        setListFilters({ search: searchTerm || undefined })
-                        loadPersons()
-                    }}
-                    style={{ maxWidth: 600, width: 'initial', flexGrow: 1 }}
-                />
+                        }}
+                        style={{ width: '100%' }}
+                    />
+                    <div className="text-muted text-small">
+                        You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
+                        <code>has:name</code>)
+                    </div>
+                </div>
                 <div>
                     <Radio.Group
                         buttonStyle="solid"
