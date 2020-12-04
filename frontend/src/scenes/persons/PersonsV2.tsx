@@ -3,18 +3,15 @@ import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTableV2'
 import { Button, Input, Row, Radio } from 'antd'
-import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { ExportOutlined, LeftOutlined, RightOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
+import { Link } from 'lib/components/Link'
 
 export function PersonsV2(): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
-    const { persons, listFilters, personsLoading } = useValues(personsLogic)
+    const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
-
-    const exampleEmail =
-        (persons && persons.results.find((person) => person.properties?.email)?.properties?.email) ||
-        'example@gmail.com'
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
@@ -31,7 +28,7 @@ export function PersonsV2(): JSX.Element {
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <Input.Search
                     data-attr="persons-search"
-                    placeholder={persons && 'Try ' + exampleEmail + ' or has:email'}
+                    placeholder={`search person by email, name or ID (e.g. ${exampleEmail})`}
                     autoFocus
                     value={searchTerm}
                     onChange={(e) => {
@@ -47,7 +44,7 @@ export function PersonsV2(): JSX.Element {
                         setListFilters({ search: searchTerm || undefined })
                         loadPersons()
                     }}
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    style={{ maxWidth: 600, width: 'initial', flexGrow: 1 }}
                 />
                 <div>
                     <Radio.Group
@@ -74,6 +71,12 @@ export function PersonsV2(): JSX.Element {
                 >
                     Export
                 </Button>
+                {/* TODO: Hidden until new cohorts UX is defined */}
+                <Link to="/cohorts/new" style={{ display: 'none' }} className="ml">
+                    <Button type="default" icon={<PlusOutlined />}>
+                        New Cohort
+                    </Button>
+                </Link>
             </div>
 
             <div>
