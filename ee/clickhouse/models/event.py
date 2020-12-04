@@ -112,7 +112,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
             prop_vals = [res.strip('"') for res in event[9]]
             return dict(zip(event[8], prop_vals))
         else:
-            props = json.loads(event[2])
+            # parse_constants gets called for any NaN, Infinity etc values
+            # we just want those to be returned as None
+            props = json.loads(event[2], parse_constant=lambda x: None)
             unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
             return unpadded
 
