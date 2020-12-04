@@ -19,17 +19,17 @@ from posthog.queries.lifecycle import LifecycleTrend
 
 
 class ClickhouseLifecycle(LifecycleTrend):
-    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str]:
+    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str, str]:
         if interval == "hour":
-            return timedelta(hours=1), "1 HOUR"
+            return timedelta(hours=1), "1 HOUR", "1 MINUTE"
         elif interval == "minute":
-            return timedelta(minutes=1), "1 MINUTE"
+            return timedelta(minutes=1), "1 MINUTE", "1 SECOND"
         elif interval == "day":
-            return timedelta(days=1), "1 DAY"
+            return timedelta(days=1), "1 DAY", "1 HOUR"
         elif interval == "week":
-            return timedelta(weeks=1), "1 WEEK"
+            return timedelta(weeks=1), "1 WEEK", "1 DAY"
         elif interval == "month":
-            return relativedelta(months=1), "1 MONTH"
+            return relativedelta(months=1), "1 MONTH", "1 DAY"
         else:
             raise ValueError("{interval} not supported")
 
@@ -42,7 +42,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         interval = filter.interval or "day"
         num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
-        interval_increment, interval_string = self.get_interval(interval)
+        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
         trunc_func = get_interval_annotation_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
@@ -64,7 +64,11 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         result = sync_execute(
             LIFECYCLE_SQL.format(
-                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+                interval=interval_string,
+                trunc_func=trunc_func,
+                event_query=event_query,
+                filters=prop_filters,
+                sub_interval=sub_interval_string,
             ),
             {
                 "team_id": team_id,
@@ -107,7 +111,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         interval = filter.interval or "day"
         num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
-        interval_increment, interval_string = self.get_interval(interval)
+        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
         trunc_func = get_interval_annotation_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
@@ -129,7 +133,11 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(
-                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+                interval=interval_string,
+                trunc_func=trunc_func,
+                event_query=event_query,
+                filters=prop_filters,
+                sub_interval=sub_interval_string,
             ),
             {
                 "team_id": team_id,
