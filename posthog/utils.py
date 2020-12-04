@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from itertools import count
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +17,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -283,15 +285,11 @@ def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
 
-def get_redis_heartbeat() -> Union[str, int]:
-    redis_instance = get_client()
-    if not redis_instance:
-        return "offline"
+def get_celery_heartbeat() -> Union[str, int]:
+    last_heartbeat = get_client().get("POSTHOG_HEARTBEAT")
+    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else -1
 
-    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
-    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
-
-    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
+    if 0 <= worker_heartbeat < 300:
         return worker_heartbeat
     return "offline"
 
@@ -314,6 +312,8 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
+        elif request.content_type == "text/plain":
+            data = request.body
         else:
             data = request.POST.get("data")
     else:
@@ -403,7 +403,23 @@ def is_postgres_alive() -> bool:
 
 def is_redis_alive() -> bool:
     try:
-        return get_redis_heartbeat() != "offline"
+        get_redis_info()
+        return True
+    except BaseException:
+        return False
+
+
+def is_celery_alive() -> bool:
+    try:
+        return get_celery_heartbeat() != "offline"
+    except BaseException:
+        return False
+
+
+def is_plugin_server_alive() -> bool:
+    try:
+        ping = get_client().get("@posthog-plugin-server/ping")
+        return ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30)
     except BaseException:
         return False
 
@@ -414,3 +430,14 @@ def get_redis_info() -> Mapping[str, Any]:
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
+
+
+def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
+    raw, params = qs.query.sql_with_params()
+    arg_count = 0
+    counter = count(arg_count)
+    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
+    named_params = {}
+    for idx, param in enumerate(params):
+        named_params.update({f"{prepend}_arg_{idx}": param})
+    return new_string, named_params

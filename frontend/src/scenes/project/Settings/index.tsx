@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Card, Divider } from 'antd'
+import { Card, Divider, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { OptInSessionRecording } from './OptInSessionRecording'
@@ -14,20 +14,26 @@ import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
-import { DeleteProject } from './DeleteProject'
+import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Link } from 'lib/components/Link'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const Setup = hot(_Setup)
-function _Setup({ user }) {
+function _Setup(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
+    const { user } = useValues(userLogic)
+
+    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader title={`Project Settings – ${user.team.name}`} />
+            <PageHeader title={`Project Settings${user ? `– ${user.team?.name}` : ''}`} />
             <Card>
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture
@@ -72,38 +78,58 @@ function _Setup({ user }) {
                 Write-only means it can only create new events. It can't read events or any of your other data stored
                 with PostHog, so it's safe to use in public apps.
                 <Divider />
-                <h2 id="urls">Permitted Domains/URLs</h2>
+                <h2 className="subtitle" id="urls">
+                    Permitted Domains/URLs
+                </h2>
                 <p>
                     These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
                     also where you'll be able to create Actions and record sessions.
                 </p>
                 <EditAppUrls />
                 <Divider />
-                <h2 id="webhook">Webhook Integration</h2>
+                <h2 className="subtitle" id="webhook">
+                    Webhook Integration
+                </h2>
                 <WebhookIntegration user={user} />
                 <Divider />
-                <h2 id="datacapture">Data Capture Configuration</h2>
+                <h2 className="subtitle" id="datacapture">
+                    Data Capture Configuration
+                </h2>
                 <IPCapture />
                 <Divider />
-                <h2>PostHog Toolbar</h2>
+                <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <h2 id="sessionrecording" className="subtitle">
-                    Session recording <span style={{ fontSize: 16, color: 'var(--warning)' }}>BETA</span>
+                <h2 id="session-recording" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
+                    Session Recording
+                    <Tag color="orange" style={{ marginLeft: 8 }}>
+                        BETA
+                    </Tag>
                 </h2>
-                <p>Watch sessions replays to see how users interact with your app and find out what can be improved.</p>
+                <p>
+                    Watch sessions replays to see how users interact with your app and find out what can be improved.
+                    You can watch recorded sessions in the <Link to="/sessions">sessions page</Link>. Please note{' '}
+                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
+                    of{' '}
+                    <a
+                        href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        posthog-js
+                    </a>{' '}
+                    installed.
+                </p>
                 <OptInSessionRecording />
-                <br />
                 <p>
                     This is a new feature of PostHog. Please{' '}
-                    <a href="https://github.com/PostHog/posthog/issues/new/choose" target="_blank">
-                        share feedback
-                    </a>{' '}
+                    <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
                     with us!
                 </p>
                 <Divider />
-                <h2 style={{ color: 'var(--danger)' }}>Danger Zone</h2>
-                <DeleteProject />
+                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
+                    Danger Zone
+                </h2>
+                <DangerZone />
             </Card>
         </div>
     )

@@ -32,6 +32,8 @@ import {
     LogoutOutlined,
     PlusOutlined,
     LineChartOutlined,
+    ApiOutlined,
+    DatabaseOutlined,
 } from '@ant-design/icons'
 import { DashboardType } from '~/types'
 import api from 'lib/api'
@@ -136,6 +138,7 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
+        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -257,6 +260,30 @@ export const commandPaletteLogic = kea<
                     })
                 }
             }
+        },
+        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
+            actions.showPalette()
+            actions.activateFlow({
+                scope: 'Sharing Feedback',
+                instruction,
+                icon: CommentOutlined,
+                resolver: (argument) => ({
+                    icon: SendOutlined,
+                    display: 'Send',
+                    executor: !argument?.length
+                        ? undefined
+                        : () => {
+                              posthog.capture('palette feedback', { message: argument })
+                              return {
+                                  resolver: {
+                                      icon: CheckOutlined,
+                                      display: 'Message Sent!',
+                                      executor: true,
+                                  },
+                              }
+                          },
+                }),
+            })
         },
     }),
     selectors: {
@@ -509,17 +536,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Organization Members',
-                        synonyms: ['teammates'],
+                        display: 'Go to Team Members',
+                        synonyms: ['organization', 'members', 'invites'],
                         executor: () => {
                             push('/organization/members')
-                        },
-                    },
-                    {
-                        icon: SendOutlined,
-                        display: 'Go to Organization Invites',
-                        executor: () => {
-                            push('/organization/invites')
                         },
                     },
                     {
@@ -535,6 +555,22 @@ export const commandPaletteLogic = kea<
                         synonyms: ['account'],
                         executor: () => {
                             push('/me/settings')
+                        },
+                    },
+                    {
+                        icon: ApiOutlined,
+                        display: 'Go to Plugins',
+                        synonyms: ['integrations'],
+                        executor: () => {
+                            push('/project/plugins')
+                        },
+                    },
+                    {
+                        icon: DatabaseOutlined,
+                        display: 'Go to System Status Page',
+                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        executor: () => {
+                            push('/instance/status')
                         },
                     },
                     {
@@ -634,7 +670,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/my/settings', {}, 'personal-api-keys')
+                                        push('/me/settings', {}, 'personal-api-keys')
                                     },
                                 }
                             }

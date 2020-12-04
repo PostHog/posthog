@@ -8,7 +8,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from ee.clickhouse.sql.paths.path import PATHS_QUERY_FINAL
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.paths import Paths
 from posthog.utils import relative_date_parse
@@ -45,7 +45,7 @@ class ClickhousePaths(Paths):
         if not filter._date_to:
             filter._date_to = timezone.now()
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)

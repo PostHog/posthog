@@ -1,7 +1,7 @@
 import copy
 import datetime
 from itertools import accumulate
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -23,9 +23,9 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL, Subquery
 from django.db.models.functions import Cast
-from django.utils.timezone import now
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -37,11 +37,24 @@ from posthog.models import (
     Person,
     Team,
 )
+from posthog.models.utils import Percentile
+from posthog.queries.lifecycle import LifecycleTrend
 from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
+
+MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
+    "sum": Sum,
+    "avg": Avg,
+    "min": Min,
+    "max": Max,
+    "median": lambda expr: Percentile(0.5, expr),
+    "p90": lambda expr: Percentile(0.9, expr),
+    "p95": lambda expr: Percentile(0.95, expr),
+    "p99": lambda expr: Percentile(0.99, expr),
+}
 
 
 def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
@@ -195,14 +208,13 @@ def aggregate_by_interval(
 
 
 def process_math(query: QuerySet, entity: Entity) -> QuerySet:
-    math_to_aggregate_function = {"sum": Sum, "avg": Avg, "min": Min, "max": Max}
     if entity.math == "dau":
         # In daily active users mode count only up to 1 event per user per day
         query = query.annotate(count=Count("person_id", distinct=True))
-    elif entity.math in math_to_aggregate_function:
+    elif entity.math in MATH_TO_AGGREGATE_FUNCTION:
         # Run relevant aggregate function on specified event property, casting it to a double
         query = query.annotate(
-            count=math_to_aggregate_function[entity.math](
+            count=MATH_TO_AGGREGATE_FUNCTION[entity.math](
                 Cast(RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField(),)
             )
         )
@@ -233,10 +245,13 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
     return ret_dict
 
 
-class Trends(BaseQuery):
+class Trends(LifecycleTrend, BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team_id)
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            result = self._serialize_lifecycle(entity, filter, team_id)
         else:
             result = self._format_normal_query(entity, filter, team_id)
 

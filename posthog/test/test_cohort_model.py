@@ -19,7 +19,7 @@ class TestCohort(BaseTest):
         person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team)
         person4 = Person.objects.create(distinct_ids=["person_4"], team=self.team)
 
-        cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}])
+        cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": "7"}])
         cohort.calculate_people(use_clickhouse=False)
         with self.assertNumQueries(1):
             self.assertEqual([p for p in cohort.people.all()], [person1])

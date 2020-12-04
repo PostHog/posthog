@@ -9,7 +9,7 @@ from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_S
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 from posthog.queries.stickiness import Stickiness
 
 
@@ -19,7 +19,7 @@ class ClickhouseStickiness(Stickiness):
             raise ValueError("_stickiness needs date_to and date_from set")
         range_days = (filter.date_to - filter.date_from).days + 2
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team_id)
 
         params: Dict = {"team_id": team_id}

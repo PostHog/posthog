@@ -10,9 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
+from datetime import timedelta
 from distutils.util import strtobool
 from typing import Dict, List, Sequence
 from urllib.parse import urlparse
@@ -143,6 +145,8 @@ KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
 
 
+# Kafka Configs
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -150,6 +154,9 @@ for host in _kafka_hosts:
     url = urlparse(host)
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
+
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
@@ -183,6 +190,16 @@ STATSD_HOST = os.environ.get("STATSD_HOST")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "")
 
+# django-axes settings to lockout after too many attempts
+AXES_ENABLED = get_bool_from_env("AXES_ENABLED", True)
+AXES_FAILURE_LIMIT = int(os.environ.get("AXES_FAILURE_LIMIT", 5))
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_LOCKOUT_TEMPLATE = "too_many_failed_logins.html"
+AXES_META_PRECEDENCE_ORDER = [
+    "HTTP_X_FORWARDED_FOR",
+    "REMOTE_ADDR",
+]
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -198,6 +215,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "social_django",
     "django_filters",
+    "axes",
 ]
 
 
@@ -213,6 +231,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 
 if STATSD_HOST is not None:
@@ -272,6 +291,7 @@ SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 
 AUTHENTICATION_BACKENDS = (
+    "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "social_core.backends.google.GoogleOAuth2",
@@ -454,6 +474,7 @@ EMAIL_USE_TLS = get_bool_from_env("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool_from_env("EMAIL_USE_SSL", False)
 DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_DEFAULT_FROM", os.environ.get("DEFAULT_FROM_EMAIL", "root@localhost"))
 
+MULTI_TENANCY = False  # overriden by posthog-production
 
 CACHES = {
     "default": {
@@ -524,6 +545,6 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler",},},
     "root": {"handlers": ["console"], "level": "WARNING",},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": False,},
+        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "WARNING"), "propagate": True,},
     },
 }

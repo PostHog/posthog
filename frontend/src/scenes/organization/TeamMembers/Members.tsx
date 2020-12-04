@@ -1,7 +1,7 @@
 import React from 'react'
 import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { membersLogic } from './logic'
+import { membersLogic } from './membersLogic'
 import {
     DeleteOutlined,
     ExclamationCircleOutlined,
@@ -12,40 +12,54 @@ import {
     CrownFilled,
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { hot } from 'react-hot-loader/root'
-import { CreateOrgInviteModalWithButton } from '../Invites/CreateOrgInviteModal'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { PageHeader } from 'lib/components/PageHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+
+const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
+    (value) => typeof value === 'number'
+) as OrganizationMembershipLevel[]
 
 function isMembershipLevelChangeDisallowed(
     currentOrganization: OrganizationType | null,
     currentUser: UserType,
     memberChanged: OrganizationMemberType,
-    newLevel?: OrganizationMembershipLevel
+    newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
+    if (memberChanged.user_id === currentUser.id) {
+        return "You can't change your own access level."
+    }
     if (!currentMembershipLevel) {
         return 'Your membership level is unknown.'
     }
-    if (newLevel) {
-        if (newLevel >= currentMembershipLevel) {
-            return 'You can only change access level of others to lower than your current one.'
+    if (Array.isArray(newLevelOrAllowedLevels)) {
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+            return false
         }
-        if (newLevel === memberChanged.level) {
+        if (!newLevelOrAllowedLevels.length) {
+            return "You don't have permission to change this member's access level."
+        }
+    } else {
+        if (newLevelOrAllowedLevels === memberChanged.level) {
             return "It doesn't make sense to set the same level as before."
         }
+        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+            return false
+        }
+        if (newLevelOrAllowedLevels > currentMembershipLevel) {
+            return 'You can only change access level of others to lower or equal to your current one.'
+        }
     }
-    return currentMembershipLevel < OrganizationMembershipLevel.Admin
-        ? 'Only organization administrators can change access levels.'
-        : currentMembershipLevel <= memberChanged.level
-        ? 'You can only change access level of users with level lower than you.'
-        : memberChanged.user_id === currentUser.id
-        ? "You can't change your own access level."
-        : false
+    if (currentMembershipLevel < OrganizationMembershipLevel.Admin) {
+        return "You don't have permission to change access levels."
+    }
+    if (currentMembershipLevel < memberChanged.level) {
+        return 'You can only change access level of members with level lower or equal to you.'
+    }
+    return false
 }
 
 function LevelComponent(level: OrganizationMembershipLevel, member: OrganizationMemberType): JSX.Element | null {
@@ -86,7 +100,10 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
         </Button>
     )
 
-    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member)
+    const allowedLevels = membershipLevelIntegers.filter(
+        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
+    )
+    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
@@ -94,32 +111,28 @@ function LevelComponent(level: OrganizationMembershipLevel, member: Organization
         <Dropdown
             overlay={
                 <Menu>
-                    {Object.values(OrganizationMembershipLevel).map(
-                        (listLevel) =>
-                            typeof listLevel === 'number' &&
-                            !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel) && (
-                                <Menu.Item key={`${member.user_id}-level-${listLevel}`}>
-                                    <a href="#" onClick={generateHandleClick(listLevel)}>
-                                        {listLevel === OrganizationMembershipLevel.Owner ? (
-                                            <>
-                                                <CrownFilled style={{ marginRight: '0.5rem' }} />
-                                                Pass on organization ownership
-                                            </>
-                                        ) : listLevel > level ? (
-                                            <>
-                                                <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                                Promote to {organizationMembershipLevelToName.get(listLevel)}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                                Demote to {organizationMembershipLevelToName.get(listLevel)}
-                                            </>
-                                        )}
-                                    </a>
-                                </Menu.Item>
-                            )
-                    )}
+                    {allowedLevels.map((listLevel) => (
+                        <Menu.Item key={`${member.user_id}-level-${listLevel}`}>
+                            <a href="#" onClick={generateHandleClick(listLevel)}>
+                                {listLevel === OrganizationMembershipLevel.Owner ? (
+                                    <>
+                                        <CrownFilled style={{ marginRight: '0.5rem' }} />
+                                        Pass on organization ownership
+                                    </>
+                                ) : listLevel > level ? (
+                                    <>
+                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
+                                        Promote to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                ) : (
+                                    <>
+                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
+                                        Demote to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                )}
+                            </a>
+                        </Menu.Item>
+                    ))}
                 </Menu>
             }
         >
@@ -160,28 +173,28 @@ function ActionsComponent(_, member: OrganizationMemberType): JSX.Element | null
         })
     }
 
+    const allowDeletion =
+        // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
+        (member.level <= currentMembershipLevel || member.user_id === user.id) &&
+        // unless that user is the organization's owner, in which case they can't leave
+        member.level !== OrganizationMembershipLevel.Owner
+
     return (
         <div>
-            {member.level !== OrganizationMembershipLevel.Owner &&
-                (member.level < currentMembershipLevel || member.user_id === user.id) && (
-                    <a className="text-danger" onClick={handleClick}>
-                        {member.user_id !== user.id ? (
-                            <DeleteOutlined title="Remove Member" />
-                        ) : (
-                            <LogoutOutlined title="Leave Organization" />
-                        )}
-                    </a>
-                )}
+            {allowDeletion && (
+                <a className="text-danger" onClick={handleClick}>
+                    {member.user_id !== user.id ? (
+                        <DeleteOutlined title="Remove Member" />
+                    ) : (
+                        <LogoutOutlined title="Leave Organization" />
+                    )}
+                </a>
+            )}
         </div>
     )
 }
 
-interface MembersProps {
-    user: UserType
-}
-
-export const Members = hot(_Members)
-function _Members({ user }: MembersProps): JSX.Element {
+export function Members({ user }: { user: UserType }): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
     const columns: ColumnsType<Record<string, any>> = [
@@ -220,11 +233,7 @@ function _Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                title="Organization Members"
-                caption="View and manage all organization members here. Build an even better product together."
-            />
-            <CreateOrgInviteModalWithButton />
+            <h2 className="subtitle">Organization Members</h2>
             <Table
                 dataSource={members}
                 columns={columns}

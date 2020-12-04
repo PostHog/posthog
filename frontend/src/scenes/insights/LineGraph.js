@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { formatLabel } from '~/lib/utils'
-import { getChartColors } from 'lib/colors'
+import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -30,6 +30,7 @@ export function LineGraph({
     ['data-attr']: dataAttr,
     dashboardItemId,
     inSharedMode,
+    percentage,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -112,10 +113,11 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
+        const color = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
 
         return {
-            borderColor: colorList[index],
-            backgroundColor: (type === 'bar' || type === 'doughnut') && colorList[index],
+            borderColor: color,
+            backgroundColor: (type === 'bar' || type === 'doughnut') && color,
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,
@@ -188,7 +190,11 @@ export function LineGraph({
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
+                              // If bar, we want to only show the tooltip for what we're hovering over
+                              // to avoid confusion
+                              ...(type !== 'bar' ? { axis: 'x' } : {}),
                               bodySpacing: 5,
+                              position: 'nearest',
                               yPadding: 10,
                               xPadding: 10,
                               caretPadding: 0,
@@ -206,11 +212,14 @@ export function LineGraph({
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                                           return null
                                       }
-                                      var label = entityData.chartLabel || entityData.label || ''
+                                      const label = entityData.chartLabel || entityData.label || ''
+                                      const formattedLabel = entityData.action
+                                          ? formatLabel(label, entityData.action)
+                                          : label
                                       return (
-                                          (entityData.action ? formatLabel(label, entityData.action) : label) +
-                                          ' - ' +
-                                          tooltipItem.yLabel.toLocaleString()
+                                          (formattedLabel ? formattedLabel + ' — ' : '') +
+                                          tooltipItem.yLabel.toLocaleString() +
+                                          (percentage ? '%' : '')
                                       )
                                   },
                               },
@@ -230,31 +239,43 @@ export function LineGraph({
                           },
                           scales: {
                               xAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                          padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                                      },
-                                  },
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: {
+                                                autoSkip: true,
+                                                beginAtZero: true,
+                                                min: 0,
+                                                fontColor: axisLabelColor,
+                                                precision: 0,
+                                                padding: annotationsLoading || !annotationInRange ? 0 : 35,
+                                            },
+                                        },
                               ],
                               yAxes: [
-                                  {
-                                      display: true,
-                                      gridLines: { color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: {
-                                          autoSkip: true,
-                                          beginAtZero: true,
-                                          min: 0,
-                                          fontColor: axisLabelColor,
-                                          precision: 0,
-                                      },
-                                  },
+                                  type === 'bar'
+                                      ? { stacked: true }
+                                      : {
+                                            display: true,
+                                            gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                                            ticks: percentage
+                                                ? {
+                                                      min: 0,
+                                                      max: 100, // Your absolute max value
+                                                      callback: function (value) {
+                                                          return value.toFixed(0) + '%' // convert it to percentage
+                                                      },
+                                                  }
+                                                : {
+                                                      autoSkip: true,
+                                                      beginAtZero: true,
+                                                      min: 0,
+                                                      fontColor: axisLabelColor,
+                                                      precision: 0,
+                                                  },
+                                        },
                               ],
                           },
                           onClick: (_, [point]) => {

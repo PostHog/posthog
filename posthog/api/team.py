@@ -5,16 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from rest_framework import (
-    exceptions,
-    generics,
-    permissions,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, generics, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework_extensions.routers import NestedRouterMixin
 
@@ -26,6 +17,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
+    UninitiatedOrCloudOnly,
 )
 
 
@@ -177,4 +169,4 @@ class TeamSignupSerializer(serializers.Serializer):
 
 class TeamSignupViewset(generics.CreateAPIView):
     serializer_class = TeamSignupSerializer
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = [UninitiatedOrCloudOnly]

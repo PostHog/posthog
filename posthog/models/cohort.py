@@ -13,7 +13,7 @@ from posthog.ee import is_ee_enabled
 
 from .action import Action
 from .event import Event
-from .filter import Filter
+from .filters import Filter
 from .person import Person
 
 DELETE_QUERY = """
@@ -109,7 +109,7 @@ class Cohort(models.Model):
                     .filter(
                         team_id=self.team_id,
                         **(
-                            {"timestamp__gt": timezone.now() - relativedelta(days=group["days"])}
+                            {"timestamp__gt": timezone.now() - relativedelta(days=int(group["days"]))}
                             if group.get("days")
                             else {}
                         ),

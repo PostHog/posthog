@@ -26,12 +26,15 @@ import {
     RETENTION_TABLE,
     PATHS_VIZ,
     FUNNEL_VIZ,
+    ACTIONS_BAR_CHART,
+    BAR_CHART_LABEL,
+    RETENTION_GRAPH,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
-import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
@@ -57,6 +60,7 @@ const displayMap = {
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     [`${ACTIONS_TABLE}`]: TABLE_LABEL,
     [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
+    [`${ACTIONS_BAR_CHART}`]: BAR_CHART_LABEL,
 }
 
 const showIntervalFilter = {
@@ -71,7 +75,7 @@ const showChartFilter = {
     [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.RETENTION}`]: true,
     [`${ViewType.PATHS}`]: false,
 }
 
@@ -96,8 +100,10 @@ function determineInsightType(activeView, display) {
         return display || ACTIONS_LINE_GRAPH_LINEAR
     } else if (activeView === ViewType.FUNNELS) {
         return FUNNEL_VIZ
-    } else if (activeView === ViewType.RETENTION) {
+    } else if (activeView === ViewType.RETENTION && display !== ACTIONS_LINE_GRAPH_LINEAR) {
         return RETENTION_TABLE
+    } else if (activeView === ViewType.RETENTION && display === ACTIONS_LINE_GRAPH_LINEAR) {
+        return RETENTION_GRAPH
     } else if (activeView === ViewType.PATHS) {
         return PATHS_VIZ
     } else {
@@ -216,7 +222,7 @@ function _Insights() {
                                         />
                                     )}
 
-                                    {showComparePrevious[activeView] && <CompareFilter />}
+                                    {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
                                     <SaveToDashboard
                                         item={{
                                             type: determineInsightType(activeView, allFilters.display),
@@ -236,7 +242,7 @@ function _Insights() {
                                         [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
                                         [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
                                         [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                        [`${ViewType.RETENTION}`]: <RetentionTable />,
+                                        [`${ViewType.RETENTION}`]: <RetentionContainer />,
                                         [`${ViewType.PATHS}`]: <Paths />,
                                     }[activeView]
                                 }
@@ -277,7 +283,8 @@ function TrendInsight({ view }) {
                     {loading && <Loading />}
                     {(!filters.display ||
                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
+                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
                     {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} view={view} />}
                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
                 </div>

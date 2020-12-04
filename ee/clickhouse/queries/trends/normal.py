@@ -13,7 +13,7 @@ from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filter import Filter
+from posthog.models.filters import Filter
 
 
 class ClickhouseTrendsNormal:
@@ -21,7 +21,7 @@ class ClickhouseTrendsNormal:
 
         interval_annotation = get_interval_annotation_ch(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(filter.interval or "day", filter.date_from, filter.date_to)
-        parsed_date_from, parsed_date_to = parse_timestamps(filter=filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter)
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)

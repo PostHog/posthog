@@ -17,7 +17,7 @@ from posthog.utils import append_data, friendly_time
 class ClickhouseSessionsAvg:
     def calculate_avg(self, filter: Filter, team: Team):
 
-        parsed_date_from, parsed_date_to = parse_timestamps(filter)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 
