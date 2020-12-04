@@ -6,6 +6,7 @@ from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -330,7 +331,7 @@ class Retention(BaseQuery):
         return result
 
     def process_people_in_period(
-        self, filter: RetentionFilter, vals, people_dict: Dict[str, Person]
+        self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
     ) -> List[Dict[str, Any]]:
         marker_length = filter.total_intervals - filter.selected_interval
         result = []
