@@ -7,6 +7,7 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
+import numpy as np
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -494,3 +495,15 @@ class TestCapture(BaseTest):
             "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
         )
         self.assertEqual(response.json()["code"], "validation")
+
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_nan(self, patch_process_event_with_plugins):
+        self.client.post(
+            "/track/",
+            data={
+                "data": json.dumps([{"event": "beep", "properties": {"distinct_id": np.nan}}]),
+                "api_key": self.team.api_token,
+            },
+        )
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        self.assertEqual(arguments["data"]["properties"]["distinct_id"], None)
