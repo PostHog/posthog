@@ -122,7 +122,7 @@ export const routes: Record<string, Scene> = {
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
+    '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
@@ -285,6 +285,9 @@ export const sceneLogic = kea<sceneLogicType>({
                                 ? others[Object.keys(others)[0]]
                                 : values.loadedScenes['404'].component,
                         logic: logic,
+                    }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
                 actions.setLoadedScene(scene, loadedScene)
