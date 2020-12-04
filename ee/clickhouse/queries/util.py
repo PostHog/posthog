@@ -32,12 +32,14 @@ def parse_timestamps(filter: Filter, table: str = "") -> Tuple[str, str, dict]:
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(timestamp: datetime, filter: Filter, default_hour_min: str = " 00:00:00"):
-    return timestamp.strftime(
-        "%Y-%m-%d{}".format(
-            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else default_hour_min
-        )
+def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
+    is_hour_or_min = (
+        (filter.interval and filter.interval.lower() == "hour")
+        or (filter.interval and filter.interval.lower() == "minute")
+        or (filter.period and filter.period.lower() == "hour")
+        or (filter.period and filter.period.lower() == "minute")
     )
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
 
 
 def get_time_diff(interval: str, start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[int, int]:

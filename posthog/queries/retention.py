@@ -156,38 +156,9 @@ class Retention(BaseQuery):
             )
             data = namedtuplefetchall(cursor)
 
-            scores: dict = {}
-            for datum in data:
-                key = round(datum.first_date, 1)
-                if not scores.get(key, None):
-                    scores.update({key: {}})
-                for person in datum.people:
-                    if not scores[key].get(person, None):
-                        scores[key].update({person: 1})
-                    else:
-                        scores[key][person] += 1
-
-        by_dates = {}
-        for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
-
-            random_key = "".join(
-                random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
-            )
-            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
-            cache.set(
-                cache_key, people, 600,
-            )
-            by_dates.update(
-                {
-                    (int(row.first_date), int(row.date)): {
-                        "count": row.count,
-                        "people": people[0:100],
-                        "offset": 100,
-                        "next": cache_key if len(people) > 100 else None,
-                    }
-                }
-            )
+            by_dates = {}
+            for row in data:
+                by_dates.update({(int(row.first_date), int(row.date)): {"count": row.count}})
 
         return by_dates
 
