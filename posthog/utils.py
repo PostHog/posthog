@@ -438,7 +438,8 @@ def recalculate_actions(team) -> None:
     actions = Action.objects.filter(team=team)
     for action in actions:
         action.calculate_events()
-        
+
+
 def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
     raw, params = qs.query.sql_with_params()
     arg_count = 0
