@@ -267,6 +267,13 @@ class Retention(BaseQuery):
 
         return PersonSerializer(people, many=True).data
 
+    def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+        results = self._retrieve_people_in_period(filter, team)
+        return results
+
+    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+        pass
+
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             return Q(event=entity.id), "{}.event = %s".format(table)
