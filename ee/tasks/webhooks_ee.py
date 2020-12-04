@@ -32,6 +32,8 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
         for action in actions:
             qs = Event.objects.filter(pk=_event.pk).query_db_by_action(action)
             if qs:
+                # webhooks
+                action.on_perform(_event)
                 message_text, message_markdown = get_formatted_message(action, _event, site_url,)
                 if determine_webhook_type(team) == "slack":
                     message = {
