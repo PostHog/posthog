@@ -26,6 +26,7 @@ from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
+from posthog.settings import print_warning
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -179,8 +180,25 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
         context["gitlab_auth"] = True
-    if settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY and settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
-        context["google_auth"] = True
+    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None
+    ):
+        if settings.MULTI_TENANCY:
+            context["google_auth"] = True
+        else:
+            google_login_paid_for = False
+            try:
+                from ee.models.license import License
+            except ImportError:
+                pass
+            else:
+                license = License.objects.first_valid()
+                if license is not None and "google_login" in license.available_features:
+                    google_login_paid_for = True
+            if google_login_paid_for:
+                context["google_auth"] = True
+            else:
+                print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
