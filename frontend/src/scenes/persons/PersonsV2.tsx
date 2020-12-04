@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
-import { PersonsTable } from './PersonsTableV2'
+import { PersonsTable } from './PersonsTable'
 import { Button, Input, Row, Radio } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -87,6 +87,7 @@ export function PersonsV2(): JSX.Element {
                     hasNext={!!persons.next}
                     loadPrevious={() => loadPersons(persons.previous)}
                     loadNext={() => loadPersons(persons.next)}
+                    allColumns
                 />
             </div>
         </div>

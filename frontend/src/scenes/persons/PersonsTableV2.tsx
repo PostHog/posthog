@@ -18,6 +18,7 @@ interface PersonsTableType {
     hasNext?: boolean
     loadPrevious?: () => void
     loadNext?: () => void
+    allColumns?: boolean // whether to show all columns or not
 }
 
 export function PersonsTable({
@@ -27,6 +28,7 @@ export function PersonsTable({
     hasNext,
     loadPrevious,
     loadNext,
+    allColumns,
 }: PersonsTableType): JSX.Element {
     const linkToPerson = (person: PersonType): string => {
         return `/person/${encodeURIComponent(person.distinct_ids[0])}`
@@ -76,26 +78,32 @@ export function PersonsTable({
                 )
             },
         },
-        {
+    ]
+
+    if (allColumns) {
+        columns.push({
             title: 'First seen',
             key: 'created',
             render: function Render(_: string, person: PersonType) {
                 return <> {moment(person.created_at).fromNow()}</>
             },
+        })
+    }
+
+    columns.push({
+        key: 'actions',
+        title: '',
+        render: function Render(_: string, person: PersonType) {
+            return (
+                <>
+                    <Link to={linkToPerson(person)} data-attr="goto-person-arrow">
+                        <ArrowRightOutlined />
+                        {allColumns ? ' view' : ''}
+                    </Link>
+                </>
+            )
         },
-        {
-            key: 'actions',
-            render: function Render(_: string, person: PersonType) {
-                return (
-                    <>
-                        <Link to={linkToPerson(person)} data-attr="goto-person-arrow">
-                            <ArrowRightOutlined /> view
-                        </Link>
-                    </>
-                )
-            },
-        },
-    ]
+    })
 
     return (
         <>
@@ -115,18 +123,24 @@ export function PersonsTable({
                 dataSource={people}
                 className="persons-table"
             />
-            <div style={{ margin: '3rem auto 10rem', width: 200 }}>
-                <Button
-                    type="link"
-                    disabled={!hasPrevious}
-                    onClick={() => loadPrevious && loadPrevious() && window.scrollTo(0, 0)}
-                >
-                    <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
-                </Button>
-                <Button type="link" disabled={!hasNext} onClick={() => loadNext && loadNext() && window.scrollTo(0, 0)}>
-                    Next <RightOutlined style={{ verticalAlign: 'initial' }} />
-                </Button>
-            </div>
+            {(hasPrevious || hasNext) && (
+                <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
+                    <Button
+                        type="link"
+                        disabled={!hasPrevious}
+                        onClick={() => loadPrevious && loadPrevious() && window.scrollTo(0, 0)}
+                    >
+                        <LeftOutlined /> Previous
+                    </Button>
+                    <Button
+                        type="link"
+                        disabled={!hasNext}
+                        onClick={() => loadNext && loadNext() && window.scrollTo(0, 0)}
+                    >
+                        Next <RightOutlined />
+                    </Button>
+                </div>
+            )}
         </>
     )
 }
