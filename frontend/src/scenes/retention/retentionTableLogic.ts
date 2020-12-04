@@ -108,19 +108,10 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
 
                     return res
                 } else {
-                    const people = values.retention.data[rowIndex].values[0].people
+                    const urlParams = toUrlParams(values, { selected_interval: rowIndex })
+                    const res = await api.get(`api/person/retention/?${urlParams}`)
 
-                    if (people.length === 0) {
-                        return []
-                    }
-                    const results = (await api.get('api/person/?id=' + people.join(','))).results
-                    results.sort(function (a, b) {
-                        return people.indexOf(a.id) - people.indexOf(b.id)
-                    })
-                    return {
-                        ...values.people,
-                        [`${rowIndex}`]: results,
-                    }
+                    return res
                 }
             },
         },

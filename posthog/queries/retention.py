@@ -1,18 +1,11 @@
-import datetime
-import random
-import string
-from datetime import timedelta
 from typing import Any, Dict, List, Tuple, Union
 
-from dateutil.relativedelta import relativedelta
-from django.core.cache import cache
 from django.db import connection
 from django.db.models import Min
 from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
-from django.utils.timezone import now
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -21,7 +14,6 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
-from posthog.utils import generate_cache_key
 
 
 class Retention(BaseQuery):
@@ -323,21 +315,31 @@ class Retention(BaseQuery):
 
         result = []
 
+        from posthog.api.person import PersonSerializer
+
         with connection.cursor() as cursor:
             cursor.execute(
                 final_query,
                 start_params + events_query_params + first_date_params + event_params + (100, filter.offset),
             )
+            raw_results = cursor.fetchall()
+            people_dict = {}
+            for person in Person.objects.filter(team_id=team.pk, id__in=[val[0] for val in raw_results]):
+                people_dict.update({person.pk: PersonSerializer(person).data})
 
-            result = self.process_people_in_period(filter, cursor.fetchall())
+            result = self.process_people_in_period(filter, raw_results, people_dict)
 
         return result
 
-    def process_people_in_period(self, filter: RetentionFilter, vals) -> List[Dict[str, Any]]:
+    def process_people_in_period(
+        self, filter: RetentionFilter, vals, people_dict: Dict[str, Person]
+    ) -> List[Dict[str, Any]]:
         marker_length = filter.total_intervals - filter.selected_interval
         result = []
         for val in vals:
-            result.append({"id": val[0], "appearances": appearance_to_markers(sorted(val[2]), marker_length)})
+            result.append(
+                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+            )
         return result
 
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:

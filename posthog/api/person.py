@@ -13,6 +13,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
 from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -262,12 +263,19 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
+
+        display = request.GET.get("display", None)
         team = request.user.team
         assert team is not None
         filter = RetentionFilter(request=request)
         offset = int(request.GET.get("offset", 0))
-        people = self.retention_class().people(filter, team, offset)
 
+        if display == TRENDS_TABLE:
+            people = self.retention_class().people_in_period(filter, team)
+        else:
+            people = self.retention_class().people(filter, team, offset)
+
+        print(people)
         next_url: Optional[str] = request.get_full_path()
         if len(people) > 99 and next_url:
             if "offset" in next_url:

@@ -22,9 +22,9 @@ from ee.clickhouse.sql.retention.retention import (
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import Retention, appearance_to_markers
+from posthog.queries.retention import Retention
 
 PERIOD_TRUNC_HOUR = "toStartOfHour"
 PERIOD_TRUNC_DAY = "toStartOfDay"
@@ -225,6 +225,13 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
+        people_dict = {}
+        all_people = sync_execute(
+            "SELECT * FROM person WHERE id IN %(uuids)s", {"uuids": [val[0] for val in query_result]}
+        )
 
-        result = self.process_people_in_period(filter, query_result)
+        for person in all_people:
+            people_dict.update({person[0]: ClickhousePersonSerializer(person).data})
+
+        result = self.process_people_in_period(filter, query_result, people_dict)
         return result
