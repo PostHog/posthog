@@ -1,10 +1,10 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import format_ch_timestamp, get_trunc_func_ch
+from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -22,7 +22,7 @@ from ee.clickhouse.sql.retention.retention import (
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import RetentionFilter
+from posthog.models.filters import Filter, RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
 
@@ -69,12 +69,18 @@ class ClickhouseRetention(Retention):
             ),
             {
                 "team_id": team.pk,
-                "start_date": format_ch_timestamp(date_from, filter),
-                "end_date": format_ch_timestamp(date_to, filter),
-                "reference_start_date": format_ch_timestamp(date_from, filter),
-                "reference_end_date": format_ch_timestamp(
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to, filter
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_end_date": (
+                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
+                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
                 **target_params,
                 **returning_params,
@@ -86,12 +92,18 @@ class ClickhouseRetention(Retention):
             INITIAL_INTERVAL_SQL.format(reference_event_sql=reference_event_sql),
             {
                 "team_id": team.pk,
-                "start_date": format_ch_timestamp(date_from, filter),
-                "end_date": format_ch_timestamp(date_to, filter),
-                "reference_start_date": format_ch_timestamp(date_from, filter),
-                "reference_end_date": format_ch_timestamp(
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to, filter
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_end_date": (
+                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
+                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
                 **target_params,
                 **returning_params,
@@ -147,10 +159,18 @@ class ClickhouseRetention(Retention):
             ),
             {
                 "team_id": team.pk,
-                "start_date": format_ch_timestamp(date_from, filter),
-                "end_date": format_ch_timestamp(date_to, filter),
-                "reference_start_date": format_ch_timestamp(reference_date_from, filter),
-                "reference_end_date": format_ch_timestamp(reference_date_to, filter),
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_start_date": reference_date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "reference_end_date": reference_date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
                 "offset": filter.offset,
                 **target_params,
                 **return_params,
@@ -163,7 +183,7 @@ class ClickhouseRetention(Retention):
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        trunc_func = self._get_trunc_func_ch(period)
+        trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
@@ -196,8 +216,12 @@ class ClickhouseRetention(Retention):
             ),
             {
                 "team_id": team.pk,
-                "start_date": format_ch_timestamp(date_from, filter),
-                "end_date": format_ch_timestamp(date_to, filter),
+                "start_date": date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
+                "end_date": date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                ),
                 "offset": filter.offset,
                 "limit": 100,
                 "period": period,
