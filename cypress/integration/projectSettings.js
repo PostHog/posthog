@@ -26,7 +26,7 @@ describe('Setup', () => {
                 suggestionUrlMatched = true
             }
         }
-        expect(suggestionUrlMatched).toBe(true)
+        expect(suggestionUrlMatched).to.be.true
 
         cy.title().should('equal', 'Project Settings • PostHog')
     })
