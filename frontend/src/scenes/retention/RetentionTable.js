@@ -54,7 +54,7 @@ export function RetentionTable({ dashboardItemId = null }) {
     function dismissModal() {
         setModalVisible(false)
     }
-    console.log(people)
+
     return (
         <>
             <Table
