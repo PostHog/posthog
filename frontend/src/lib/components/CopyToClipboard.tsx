@@ -9,6 +9,8 @@ interface InlineProps {
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
+    tooltipMessage?: string
+    iconStyle?: Record<string, string | number>
 }
 
 interface InputProps {
@@ -23,10 +25,12 @@ export function CopyToClipboardInline({
     explicitValue,
     description,
     isValueSensitive = false,
+    tooltipMessage = 'Click to copy',
+    iconStyle = {},
     ...props
 }: InlineProps): JSX.Element {
     return (
-        <Tooltip title="Click to copy">
+        <Tooltip title={tooltipMessage}>
             <span
                 className={isValueSensitive ? 'ph-no-capture ' + rrwebBlockClass : ''}
                 style={{ cursor: 'pointer' }}
@@ -36,7 +40,7 @@ export function CopyToClipboardInline({
                 {...props}
             >
                 {children}
-                <CopyOutlined style={{ marginLeft: 4 }} />
+                <CopyOutlined style={{ marginLeft: 4, ...iconStyle }} />
             </span>
         </Tooltip>
     )

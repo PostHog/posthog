@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Cohort } from './Cohort'
-import { PersonsTable } from './PersonsTable'
+import { PersonsTable } from './PersonsTableV2'
 import { Button, Input, Row, Radio } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -77,12 +77,7 @@ export function PersonsV2(): JSX.Element {
             </div>
 
             <div>
-                <PersonsTable
-                    people={persons.results}
-                    loading={personsLoading}
-                    actions={true}
-                    onChange={() => loadPersons()}
-                />
+                <PersonsTable people={persons.results} loading={personsLoading} />
 
                 <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                     <Button type="link" disabled={!persons.previous} onClick={() => loadPersons(persons.previous)}>
