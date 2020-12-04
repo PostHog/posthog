@@ -11,9 +11,9 @@ describe('Trends actions & events', () => {
 
     it('Add a pageview action filter', () => {
         // when
-        cy.contains('Add action/event').click()
+        cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.contains('Pageviews').click()
+        cy.contains('HogFlix homepage view').click()
 
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -118,7 +118,7 @@ describe('Trends actions & events', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('.ant-input').type('Pageviews')
+        cy.get('.ant-input').type('Home page views')
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add panel to dashboard').click()
