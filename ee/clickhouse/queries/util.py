@@ -33,11 +33,8 @@ def parse_timestamps(filter: Filter, team_id: int, table: str = "") -> Tuple[str
 
 
 def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
-    is_hour_or_min = (
-        (filter.interval and filter.interval.lower() == "hour")
-        or (filter.interval and filter.interval.lower() == "minute")
-        or (filter.period and filter.period.lower() == "hour")
-        or (filter.period and filter.period.lower() == "minute")
+    is_hour_or_min = (filter.interval and filter.interval.lower() == "hour") or (
+        filter.interval and filter.interval.lower() == "minute"
     )
     return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
 
