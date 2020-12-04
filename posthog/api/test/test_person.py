@@ -15,15 +15,25 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
             )
             person_factory(
-                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+                team=self.team,
+                distinct_ids=["distinct_id_2"],
+                properties={"email": "another@gmail.com", "name": "james"},
             )
-            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={"name": "jane"})
 
             response = self.client.get("/api/person/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 
             response = self.client.get("/api/person/?search=another@gm")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 1)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:invalid_property")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 0)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:name")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
 

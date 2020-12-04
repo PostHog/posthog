@@ -96,7 +96,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             contains = []
             for part in parts:
                 if ":" in part:
-                    queryset = queryset.filter(properties__has_key=part.split(":")[1])
+                    matcher, key = part.split(":")
+                    if matcher == "has":
+                        # Matches for example has:email or has:name
+                        queryset = queryset.filter(properties__has_key=key)
                 else:
                     contains.append(part)
             queryset = queryset.filter(
