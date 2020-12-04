@@ -81,11 +81,12 @@ class TestCapture(BaseTest):
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):
-        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key = PersonalAPIKey(label="X", user=self.user)
         key.save()
         data = {
             "event": "$autocapture",
-            "personal_api_key": key.value,
+            "api_key": key.value,
+            "project_id": self.team.id,
             "properties": {
                 "distinct_id": 2,
                 "$elements": [
@@ -96,7 +97,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(3):
+            with self.assertNumQueries(5):
                 response = self.client.get(
                     "/e/?data=%s" % quote(self._dict_to_json(data)),
                     content_type="application/json",
@@ -318,7 +319,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "Project or personal API key invalid. You can find your project API key in PostHog project settings.",
+            "Project API key invalid. You can find your project API key in PostHog project settings.",
         )
 
     def test_batch_token_not_set(self):
@@ -331,7 +332,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "Neither api_key nor personal_api_key set. You can find your project API key in PostHog project settings.",
+            "API key not provided. You can find your project API key in PostHog project settings.",
         )
 
     def test_batch_distinct_id_not_set(self):
