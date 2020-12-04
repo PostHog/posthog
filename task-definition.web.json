@@ -80,7 +80,7 @@
                 },
                 {
                     "name": "SITE_URL",
-                    "value": "https://app.posthog.net"
+                    "value": "https://app.posthog.com"
                 }
             ],
             "secrets": [
