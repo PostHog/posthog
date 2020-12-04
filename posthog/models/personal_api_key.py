@@ -13,3 +13,8 @@ class PersonalAPIKey(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+
+    # DEPRECATED: personal API keys are now specifically personal, without team affiliation	
+    team = models.ForeignKey(	
+        "posthog.Team", on_delete=models.SET_NULL, related_name="personal_api_keys+", null=True, blank=True	
+    )
