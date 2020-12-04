@@ -18,15 +18,7 @@ describe('Setup', () => {
         cy.reload(true)
         cy.get('[data-attr=menu-item-project]').click()
         cy.get('[data-attr=app-url-suggestion]').click()
-
-        const possibleSuggestions = ['/insights', '/demo']
-        let suggestionUrlMatched = false
-        for (const url of possibleSuggestions) {
-            if (cy.get('[data-attr=app-url-item]').contains(url)) {
-                suggestionUrlMatched = true
-            }
-        }
-        expect(suggestionUrlMatched).to.be.true
+        cy.get('[data-attr=app-url-item]').contains(/\/insights|\/demo/g)
 
         cy.title().should('equal', 'Project Settings • PostHog')
     })
