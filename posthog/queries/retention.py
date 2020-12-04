@@ -200,13 +200,11 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter)
         return result
 
-    def people(self, filter: RetentionFilter, team: Team, offset: int = 0, *args, **kwargs):
-        results = self._retrieve_people(filter, team, offset,)
+    def people(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+        results = self._retrieve_people(filter, team)
         return results
 
-    def _retrieve_people(
-        self, filter: RetentionFilter, team: Team, offset,
-    ):
+    def _retrieve_people(self, filter: RetentionFilter, team: Team):
         period = filter.period
         trunc, fields = self._get_trunc_func("timestamp", period)
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -258,7 +256,7 @@ class Retention(BaseQuery):
         ).all()
 
         people = Person.objects.filter(
-            team=team, id__in=[p["person_id"] for p in filtered_events[offset : offset + 100]],
+            team=team, id__in=[p["person_id"] for p in filtered_events[filter.offset : filter.offset + 100]],
         )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
