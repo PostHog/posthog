@@ -17,7 +17,7 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "DISABLE_SERVER_SIDE_CURSORS",
+                    "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
                 {
