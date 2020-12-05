@@ -165,6 +165,9 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
             title: 'Usage',
             key: 'usage',
             render: function renderWhen({ event }) {
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
                 const eventTag = event.event[0] == '$' ? event.event.slice(1) : event.event
                 return (
                     <Link
