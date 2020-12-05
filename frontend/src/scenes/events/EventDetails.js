@@ -4,14 +4,12 @@ import moment from 'moment'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
-import { createActionFromEvent, viewInsightFromEvent } from './createActionFromEvent'
+import { createActionFromEvent } from './createActionFromEvent'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
     const [showHiddenProps, setShowHiddenProps] = useState(false)
-
-    const slicedEvent = event.event[0] == '$' ? event.event.slice(1) : event.event
 
     let displayedEventProperties = {}
     let visibleHiddenProperties = {}
@@ -36,17 +34,6 @@ export function EventDetails({ event }) {
                 type="primary"
             >
                 Create action from event
-            </Button>
-
-            <Button
-                data-attr="view-event-insight"
-                style={{ float: 'right', zIndex: 9999, marginRight: 3 }}
-                onClick={() => {
-                    viewInsightFromEvent(slicedEvent)
-                }}
-                type="primary"
-            >
-                analyze this event
             </Button>
 
             <Tabs

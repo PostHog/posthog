@@ -161,6 +161,20 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 )
             },
         },
+        {
+            title: 'Usage',
+            key: 'usage',
+            render: function renderWhen({ event }) {
+                const eventTag = event.event[0] == '$' ? event.event.slice(1) : event.event
+                return (
+                    <Link
+                        to={`/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${eventTag}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=`}
+                    >
+                        Insights <ExportOutlined />
+                    </Link>
+                )
+            },
+        },
     ]
 
     return (
