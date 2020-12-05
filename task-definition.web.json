@@ -23,6 +23,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "DISABLE_SERVER_SIDE_CURSORS",
+                    "value": "True"
+                },
+                {
                     "name": "CLICKHOUSE_ASYNC",
                     "value": "False"
                 },
