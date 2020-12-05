@@ -11,6 +11,9 @@ services:
         # On Linux, you may need to update USER_UID and USER_GID below if not your local UID is not 1000.
         USER_UID: 1000
         USER_GID: 1000
+      environment:
+        DATABASE_URL: 'postgres://postgres:postgres@db:5432/postgres'
+        REDIS_URL: 'redis://redis:6379/'
 
     volumes:
       - ..:/workspace:cached
@@ -39,6 +42,11 @@ services:
 
     # Add "forwardPorts": ["5432"] to **devcontainer.json** to forward MongoDB locally.
     # (Adding the "ports" property to this file will not forward from a Codespace.)
+  redis:
+      image: 'redis:5-alpine'
+      container_name: posthog_redis
+      ports:
+          - '6379:6379'
 
 volumes:
   postgres-data:
