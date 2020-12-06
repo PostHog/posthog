@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug to help us perfect PostHog
+about: Tell us where it is, we'll squash it
 labels: bug
 ---
 
