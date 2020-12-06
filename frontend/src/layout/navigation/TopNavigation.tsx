@@ -140,7 +140,7 @@ export function _TopNavigation(): JSX.Element {
                         <IconMenu />
                     </div>
                     <div className="hide-lte-lg ml-05">
-                        {!user?.is_multi_tenancy && (
+                        {(!user?.is_multi_tenancy || user.is_staff) && (
                             <Badge
                                 type={systemStatus ? 'success' : 'danger'}
                                 onClick={() => push('/instance/status')}

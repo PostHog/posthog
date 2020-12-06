@@ -146,6 +146,7 @@ def user(request):
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
+            "is_staff": user.is_staff,
             "ee_available": user.ee_available,
             "email_service_available": is_email_available(with_absolute_urls=True),
             "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
