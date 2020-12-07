@@ -106,12 +106,12 @@ test('piscina worker test', async () => {
             const piscina = setupPiscina(cores, testCode, 1)
 
             // warmup
-            await processCountEvents(cores * 3, piscina)
+            await processCountEvents(cores * 4, piscina)
 
             // start
             let throughput = 0
             for (let i = 0; i < rounds; i++) {
-                const { eventsPerSecond } = await processCountEvents(events * cores, piscina)
+                const { eventsPerSecond } = await processCountEvents(events, piscina)
                 throughput += eventsPerSecond
             }
             result[`${cores} cores`] = Math.round(throughput / rounds)
