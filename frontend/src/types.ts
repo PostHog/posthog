@@ -98,13 +98,14 @@ export interface TeamType {
 
 export interface ActionType {
     count?: number
-    created_at?: string
+    created_at: string
     deleted?: boolean
-    id?: number
+    id: number
     is_calculating?: boolean
-    name?: string
+    name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
+    created_by: Record<string, any>
 }
 
 export interface ActionStepType {
