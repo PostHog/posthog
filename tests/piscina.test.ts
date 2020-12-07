@@ -45,51 +45,66 @@ async function processCountEvents(count: number, piscina: ReturnType<typeof make
     return log
 }
 
-function setupPiscina(workers: number) {
+function setupPiscina(workers: number, code: string) {
     return makePiscina({
         ...defaultConfig,
         WORKER_CONCURRENCY: workers,
-        __jestMock: mockJestWithIndex(`
+        __jestMock: mockJestWithIndex(code),
+    })
+}
+
+test('piscina 2-24 workers', async () => {
+    const testName = ''
+    const coreCount = os.cpus().length
+
+    const workers = [1, 2, 4, 8].filter((cores) => cores <= coreCount)
+    const events = 1000
+    const rounds = 5
+
+    const tests: Record<string, string> = {
+        simple: `
+            function processEvent (event, meta) {
+                event.properties = { "somewhere": "over the rainbow" }; 
+                return event
+            }
+        `,
+        for200k: `
             function processEvent (event, meta) {
                 let j = 0; for(let i = 0; i < 200000; i++) { j = i };
                 event.properties = { "somewhere": "over the rainbow" }; 
                 return event
             }
-        `),
-    })
-}
+        `,
+    }
 
-test('piscina 2-24 workers', async () => {
-    const cpuCount = os.cpus().length
-
-    const workers = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64].filter((cores) =>
-        cpuCount === 2 ? cores <= cpuCount : cores < cpuCount
-    )
-    const events = 10000
-    const rounds = 5
-
-    const results: Record<number, number> = {}
-    for (const cores of workers) {
-        const piscina = setupPiscina(cores)
-
-        // warmup
-        await processCountEvents(cpuCount * 4, piscina)
-
-        // start
-        let throughput = 0
-        for (let i = 0; i < rounds; i++) {
-            const { eventsPerSecond } = await processCountEvents(events, piscina)
-            throughput += eventsPerSecond
+    const results: Array<Record<string, string | number>> = []
+    for (const [testName, testCode] of Object.entries(tests)) {
+        const result: Record<string, any> = {
+            testName,
+            coreCount,
         }
-        results[cores] = Math.round(throughput / rounds)
-        await piscina.destroy()
-    }
+        for (const cores of workers) {
+            const piscina = setupPiscina(cores, testCode)
 
-    console.log({ cpuCount })
-    console.log(JSON.stringify(results, null, 2))
+            // warmup
+            await processCountEvents(coreCount * 4, piscina)
 
-    // expect that adding more cores (up to cpuCount) increases throughput
-    for (let i = 1; i < workers.length; i++) {
-        expect(results[workers[i - 1]]).toBeLessThan(results[workers[i]])
+            // start
+            let throughput = 0
+            for (let i = 0; i < rounds; i++) {
+                const { eventsPerSecond } = await processCountEvents(events * cores, piscina)
+                throughput += eventsPerSecond
+            }
+            result[`${cores} cores`] = Math.round(throughput / rounds)
+            await piscina.destroy()
+        }
+        console.log(JSON.stringify({ result }, null, 2))
+        // for (let i = 1; i < workers.length; i++) {
+        //     expect(result[`${workers[i - 1]} cores`]).toBeLessThan(result[`${workers[i]} cores`])
+        // }
+        results.push(result)
     }
+    console.table(results)
+
+    // expect that adding more cores (up to coreCount) increases throughput
 })
