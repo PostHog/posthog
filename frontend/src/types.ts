@@ -19,6 +19,9 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    is_staff: boolean
+    is_debug: boolean
+    is_impersonated: boolean
     email_service_available: boolean
 }
 
