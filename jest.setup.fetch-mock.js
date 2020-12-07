@@ -6,7 +6,8 @@ jest.mock('node-fetch', () => {
         (url) =>
             new Promise((resolve) =>
                 resolve({
-                    json: () => new Promise((resolve) => resolve(responsesToUrls[url])),
+                    json: () => new Promise((resolve) => resolve(responsesToUrls[url]) || { fetch: 'mock' }),
+                    text: () => new Promise((resolve) => resolve(JSON.stringify(responsesToUrls[url])) || 'fetchmock'),
                 })
             )
     )
