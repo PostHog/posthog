@@ -7,6 +7,10 @@ import { createCache } from './extensions/cache'
 import { createInternalPostHogInstance } from 'posthog-js-lite'
 import { performance } from 'perf_hooks'
 
+function areWeTestingWithJest() {
+    return process.env.JEST_WORKER_ID !== undefined
+}
+
 export function createPluginConfigVM(
     server: PluginsServer,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
@@ -18,6 +22,9 @@ export function createPluginConfigVM(
     })
     vm.freeze(createConsole(), 'console')
     vm.freeze(fetch, 'fetch')
+    if (areWeTestingWithJest()) {
+        vm.freeze(setTimeout, '__jestSetTimeout')
+    }
     vm.freeze(
         {
             cache: createCache(
