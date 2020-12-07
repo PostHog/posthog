@@ -236,6 +236,10 @@ export const trendsLogic = kea({
                 )
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
+            } else if (values.filters.shown_as === STICKINESS) {
+                const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
+                actions.setPeople(null, null, action, label, day, breakdown_value, null)
+                people = await api.get(`api/person/stickiness/?${filterParams}`)
             } else {
                 const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
                 actions.setPeople(null, null, action, label, day, breakdown_value, null)

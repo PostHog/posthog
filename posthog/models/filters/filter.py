@@ -62,7 +62,7 @@ class Filter(PropertyMixin):
     start_point: Optional[str] = None
     _offset: Optional[str] = None
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         if request:
             data = {
                 **request.GET.dict(),

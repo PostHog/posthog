@@ -11,7 +11,6 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
-from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team

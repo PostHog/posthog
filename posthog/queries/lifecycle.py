@@ -438,13 +438,7 @@ class LifecycleTrend:
         return res
 
     def get_people(
-        self,
-        filter: Filter,
-        team_id: int,
-        target_date: datetime,
-        lifecycle_type: str,
-        offset: int = 0,
-        limit: int = 100,
+        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
     ):
         entity = filter.entities[0]
         period = filter.interval or "day"
@@ -490,7 +484,7 @@ class LifecycleTrend:
                     "after_date_to": after_date_to,
                     "target_date": target_date,
                     "status": lifecycle_type,
-                    "offset": offset,
+                    "offset": filter.offset,
                     "limit": limit,
                     **event_params,
                     **earliest_events_params,
