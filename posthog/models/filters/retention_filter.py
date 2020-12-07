@@ -94,8 +94,4 @@ class RetentionFilter(Filter):
             PERIOD: self.period,
             TARGET_ENTITY: self.target_entity.to_dict(),
         }
-        return {
-            key: value
-            for key, value in full_dict.items()
-            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
-        }
+        return full_dict

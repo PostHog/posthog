@@ -15,6 +15,8 @@ from posthog.constants import FUNNELS, PATHS, RETENTION, STICKINESS, TRENDS
 from posthog.decorators import TYPE_TO_FILTER, CacheType
 from posthog.ee import is_ee_enabled
 from posthog.models import DashboardItem, Filter, Team
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.funnel import Funnel
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
@@ -94,11 +96,13 @@ def get_cache_type(filter: Filter) -> CacheType:
         return CacheType.TRENDS
 
 
-def import_from(module, name):
+def import_from(module: str, name: str) -> Any:
     return getattr(importlib.import_module(module), name)
 
 
-def _calculate_by_filter(filter, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(
+    filter: Union[Filter, RetentionFilter, StickinessFilter], key: str, team_id: int, cache_type: CacheType
+) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 

@@ -98,8 +98,4 @@ class StickinessFilter(Filter):
     def to_dict(self) -> Dict[str, Any]:
         common_vals = super().to_dict()
         full_dict = {**common_vals, STICKINESS_DAYS: self.stickiness_days, ENTITY_ID: self.entityId, TYPE: self.type}
-        return {
-            key: value
-            for key, value in full_dict.items()
-            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
-        }
+        return full_dict
