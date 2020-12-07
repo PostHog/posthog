@@ -27,11 +27,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         exampleEmail: [
             (s) => [s.persons],
             (persons: PersonPaginatedResponse): string => {
-                return (
-                    (persons &&
-                        persons.results.find((person: PersonType) => person.properties?.email)?.properties?.email) ||
-                    'example@gmail.com'
-                )
+                const match = persons && persons.results.find((person) => person.properties?.email)
+                return match?.properties?.email || 'example@gmail.com'
             },
         ],
     },
