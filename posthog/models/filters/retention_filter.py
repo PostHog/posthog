@@ -83,3 +83,19 @@ class RetentionFilter(Filter):
             return timedelta(days=total_intervals), timedelta(days=1)
         else:
             raise ValueError(f"Period {period} is unsupported.")
+
+    def to_dict(self) -> Dict[str, Any]:
+        common_vals = super().to_dict()
+        full_dict = {
+            **common_vals,
+            RETENTION_TYPE: self.retention_type,
+            TOTAL_INTERVALS: self.total_intervals,
+            SELECTED_INTERVAL: self.selected_interval,
+            PERIOD: self.period,
+            TARGET_ENTITY: self.target_entity.to_dict(),
+        }
+        return {
+            key: value
+            for key, value in full_dict.items()
+            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
+        }

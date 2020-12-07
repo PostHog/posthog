@@ -46,6 +46,8 @@ TARGET_ENTITY = "target_entity"
 OFFSET = "offset"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
+ENTITY_ID = "entityId"
+TYPE = "type"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"

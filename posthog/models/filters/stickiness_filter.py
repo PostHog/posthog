@@ -6,7 +6,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute
 from django.http import HttpRequest
 from django.utils import timezone
 
-from posthog.constants import INTERVAL, STICKINESS_DAYS
+from posthog.constants import ENTITY_ID, INTERVAL, STICKINESS_DAYS, TYPE
 from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
@@ -51,8 +51,8 @@ class StickinessFilter(Filter):
 
         self.stickiness_days = int(data.get(STICKINESS_DAYS, "0"))
         self.interval = data.get(INTERVAL, "day").lower()
-        self.entityId = data.get("entityId", None)
-        self.type = data.get("type", None)
+        self.entityId = data.get(ENTITY_ID, None)
+        self.type = data.get(TYPE, None)
 
         total_seconds = (self.date_to - self.date_from).total_seconds()
         if self.interval == "minute":
@@ -91,3 +91,12 @@ class StickinessFilter(Filter):
             return Entity({"id": self.entityId, "type": self.type})
         else:
             raise ValueError("An entity must be provided for stickiness target entity to be determined")
+
+    def to_dict(self) -> Dict[str, Any]:
+        common_vals = super().to_dict()
+        full_dict = {**common_vals, STICKINESS_DAYS: self.stickiness_days, ENTITY_ID: self.entityId, TYPE: self.type}
+        return {
+            key: value
+            for key, value in full_dict.items()
+            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
+        }
