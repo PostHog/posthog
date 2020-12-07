@@ -101,6 +101,8 @@ export function setLogLevel(logLevel: LogLevel) {
         if (loopLevel === logLevel) {
             break
         }
+        const originalFunction = (console as any)[loopLevel]._original || (console as any)[loopLevel]
         ;(console as any)[loopLevel] = () => {}
+        ;(console as any)[loopLevel]._original = originalFunction
     }
 }
