@@ -6,7 +6,6 @@ import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import './RetentionTable.scss'
 import moment from 'moment'
-import posthog from 'posthog-js'
 
 export function RetentionTable({ dashboardItemId = null }) {
     const {
@@ -62,7 +61,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
+                rowClassName={'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 rowKey="date"
