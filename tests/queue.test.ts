@@ -53,7 +53,7 @@ test('worker and task passing via redis', async () => {
     expect(item['headers']['task']).toBe('posthog.tasks.process_event.process_event_with_plugins')
     expect(item['properties']['body_encoding']).toBe('base64')
 
-    const body = new Buffer(item['body'], 'base64').toString()
+    const body = Buffer.from(item['body'], 'base64').toString()
     const [args2, kwargs2] = JSON.parse(body)
 
     expect(args2).toEqual(args)
@@ -74,7 +74,7 @@ test('worker and task passing via redis', async () => {
     expect(processedItem['headers']['task']).toBe('posthog.tasks.process_event.process_event')
     expect(processedItem['properties']['body_encoding']).toBe('base64')
 
-    const processedBody = new Buffer(processedItem['body'], 'base64').toString()
+    const processedBody = Buffer.from(processedItem['body'], 'base64').toString()
     const [args3, kwargs3] = JSON.parse(processedBody)
 
     expect(args3).toEqual([])
