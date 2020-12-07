@@ -1,8 +1,8 @@
-import { startQueue } from '../queue'
-import { createServer, defaultConfig } from '../../server'
-import { PluginsServer } from '../../types'
-import Client from '../../celery/client'
-import { runPlugins } from '../../plugins'
+import { startQueue } from '../src/worker/queue'
+import { createServer, defaultConfig } from '../src/server'
+import { PluginsServer } from '../src/types'
+import Client from '../src/celery/client'
+import { runPlugins } from '../src/plugins'
 
 function advanceOneTick() {
     return new Promise((resolve) => process.nextTick(resolve))

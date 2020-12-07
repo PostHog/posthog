@@ -1,6 +1,6 @@
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../sql'
-import { Plugin, PluginAttachmentDB, PluginConfig, PluginError, PluginsServer } from '../types'
-import { createServer } from '../server'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../src/sql'
+import { Plugin, PluginAttachmentDB, PluginConfig, PluginError, PluginsServer } from '../src/types'
+import { createServer } from '../src/server'
 
 let mockServer: PluginsServer
 beforeEach(async () => {

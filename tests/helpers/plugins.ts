@@ -1,4 +1,4 @@
-import { Plugin, PluginAttachmentDB, PluginConfig } from '../../types'
+import { Plugin, PluginAttachmentDB, PluginConfig } from '../../src/types'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
