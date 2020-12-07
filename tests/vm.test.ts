@@ -1,7 +1,7 @@
 import { createPluginConfigVM, prepareForRun } from '../src/vm'
 import { PluginConfig, PluginsServer, Plugin } from '../src/types'
 import { PluginEvent } from 'posthog-plugins'
-import { createServer, defaultConfig } from '../src/server'
+import { createServer } from '../src/server'
 import * as fetch from 'node-fetch'
 
 const defaultEvent = {
@@ -40,7 +40,7 @@ const mockConfig: PluginConfig = {
 }
 
 beforeEach(async () => {
-    mockServer = (await createServer(defaultConfig))[0]
+    mockServer = (await createServer())[0]
 })
 
 afterEach(async () => {

@@ -2,7 +2,7 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import AdmZip from 'adm-zip'
 import * as zlib from 'zlib'
-import { LogLevel } from 'types'
+import { LogLevel } from './types'
 
 /**
  * @param binary Buffer
