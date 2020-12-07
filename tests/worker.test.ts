@@ -53,32 +53,50 @@ function setupPiscina(workers: number, code: string) {
     })
 }
 
-test('piscina 2-24 workers', async () => {
+test('piscina worker test', async () => {
     const testName = ''
     const coreCount = os.cpus().length
 
     const workers = [1, 2, 4, 8].filter((cores) => cores <= coreCount)
-    const events = 1000
     const rounds = 5
 
-    const tests: Record<string, string> = {
-        simple: `
-            function processEvent (event, meta) {
-                event.properties = { "somewhere": "over the rainbow" }; 
-                return event
-            }
-        `,
-        for200k: `
-            function processEvent (event, meta) {
-                let j = 0; for(let i = 0; i < 200000; i++) { j = i };
-                event.properties = { "somewhere": "over the rainbow" }; 
-                return event
-            }
-        `,
-    }
+    const tests: { testName: string; events: number; testCode: string }[] = [
+        {
+            testName: 'simple',
+            events: 10000,
+            testCode: `
+                function processEvent (event, meta) {
+                    event.properties = { "somewhere": "over the rainbow" };
+                    return event
+                }
+            `,
+        },
+        {
+            testName: 'for200k',
+            events: 10000,
+            testCode: `
+                function processEvent (event, meta) {
+                    let j = 0; for(let i = 0; i < 200000; i++) { j = i };
+                    event.properties = { "somewhere": "over the rainbow" };
+                    return event
+                }
+            `,
+        },
+        {
+            testName: 'timeout100ms',
+            events: 5,
+            testCode: `
+                async function processEvent (event, meta) {
+                    await new Promise(resolve => __jestSetTimeout(() => resolve(), 100))
+                    event.properties = { "somewhere": "over the rainbow" };
+                    return event             
+                }
+            `,
+        },
+    ]
 
     const results: Array<Record<string, string | number>> = []
-    for (const [testName, testCode] of Object.entries(tests)) {
+    for (const { testName, events, testCode } of tests) {
         const result: Record<string, any> = {
             testName,
             coreCount,
@@ -87,7 +105,7 @@ test('piscina 2-24 workers', async () => {
             const piscina = setupPiscina(cores, testCode)
 
             // warmup
-            await processCountEvents(coreCount * 4, piscina)
+            await processCountEvents(cores * 3, piscina)
 
             // start
             let throughput = 0
@@ -98,13 +116,12 @@ test('piscina 2-24 workers', async () => {
             result[`${cores} cores`] = Math.round(throughput / rounds)
             await piscina.destroy()
         }
-        console.log(JSON.stringify({ result }, null, 2))
-        // for (let i = 1; i < workers.length; i++) {
-        //     expect(result[`${workers[i - 1]} cores`]).toBeLessThan(result[`${workers[i]} cores`])
-        // }
         results.push(result)
+        console.log(JSON.stringify({ result }, null, 2))
     }
     console.table(results)
-
     // expect that adding more cores (up to coreCount) increases throughput
+    // for (let i = 1; i < workers.length; i++) {
+    //     expect(result[`${workers[i - 1]} cores`]).toBeLessThan(result[`${workers[i]} cores`])
+    // }
 })
