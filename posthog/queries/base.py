@@ -21,7 +21,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
             events = events.order_by(order_by)
         return events
     elif entity.type == TREND_FILTER_TYPE_EVENTS:
-        return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team_id, order_by=order_by)
+        return Event.objects.filter_by_event_with_people(event_id=int(entity.id), team_id=team_id, order_by=order_by)
     return QuerySet()
 
 

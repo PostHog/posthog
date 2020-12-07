@@ -222,8 +222,8 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def filter_by_event_with_people(self, event: "Event", team_id: int, order_by: str = "-id") -> models.QuerySet:
-        events = self.filter(team_id=team_id).filter(event=event).add_person_id(team_id=team_id)
+    def filter_by_event_with_people(self, event_id: int, team_id: int, order_by: str = "-id") -> models.QuerySet:
+        events = self.filter(team_id=team_id).filter(event_id=event_id).add_person_id(team_id=team_id)
         if order_by:
             events = events.order_by(order_by)
         return events
