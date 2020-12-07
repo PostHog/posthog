@@ -14,7 +14,7 @@ jest.mock('../src/sql')
 
 let mockServer: PluginsServer
 beforeEach(async () => {
-    ;[mockServer] = await createServer()
+    ;[mockServer] = await createServer({ LOG_LEVEL: 'log' })
 })
 
 test('setupPlugins and runPlugins', async () => {
