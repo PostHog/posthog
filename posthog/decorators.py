@@ -2,10 +2,12 @@ from enum import Enum
 from functools import wraps
 from typing import Callable, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http.request import HttpRequest
 from django.utils.timezone import now
 
+from posthog.ee import is_ee_enabled
 from posthog.models import Filter, Team, User
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -59,6 +61,10 @@ def cached_function(cache_type: CacheType):
             if not request.GET.get("refresh", False):
                 cached_result = cache.get(cache_key)
                 if cached_result:
+                    if is_ee_enabled() and settings.EE_AVAILABLE:
+                        from ee.clickhouse.client import save_cache_call
+
+                        save_cache_call()
                     return cached_result["result"]
             # call function being wrapped
             result = f(*args, **kwargs)
