@@ -70,10 +70,6 @@ export function RetentionTable({ dashboardItemId = null }) {
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            if (posthog.isFeatureEnabled('ch-retention-endpoint')) {
-                                return
-                            }
-
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
