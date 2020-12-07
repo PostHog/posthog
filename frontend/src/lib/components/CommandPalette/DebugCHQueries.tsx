@@ -9,7 +9,8 @@ export async function debugCHQueries(): Promise<void> {
     Modal.info({
         visible: true,
         width: '80%',
-        title: 'Recently executed Clickhouse queries for this user',
+        title: 'ClickHouse queries recently executed for this user',
+        icon: null,
         content: (
             <>
                 <Table
