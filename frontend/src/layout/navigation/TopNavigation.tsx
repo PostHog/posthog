@@ -157,6 +157,7 @@ export function _TopNavigation(): JSX.Element {
                                 tooltip={`Toggle command palette (${platformCommandControlKey('K')})`}
                                 icon={<SearchOutlined />}
                                 className="mr"
+                                type="primary"
                             />
                         )}
                         {!user?.is_multi_tenancy && (
