@@ -10,7 +10,7 @@ from django.utils.timezone import now
 from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import update_person_is_identified, update_person_properties
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.models.element import Element
 from posthog.models.person import Person
 
