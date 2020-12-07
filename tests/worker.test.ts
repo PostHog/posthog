@@ -23,14 +23,19 @@ function processOneEvent(processEvent: (event: PluginEvent) => Promise<PluginEve
 }
 
 async function processCountEvents(count: number, piscina: ReturnType<typeof makePiscina>) {
+    const maxPromises = 1000
     const startTime = performance.now()
-    const promises = Array(count)
+    const promises = Array(maxPromises)
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
-    for (let i = 0; i < count; i++) {
-        promises[i] = processOneEvent(processEvent)
+
+    const groups = Math.ceil(count / maxPromises)
+    for (let j = 0; j < groups; j++) {
+        const groupCount = j === groups - 1 ? count % maxPromises : maxPromises
+        for (let i = 0; i < groupCount; i++) {
+            promises[i] = processOneEvent(processEvent)
+        }
+        await Promise.all(promises)
     }
-    // this will get heavy for tests > 10k events, should chunk them somehow...
-    await Promise.all(promises)
 
     const ms = Math.round((performance.now() - startTime) * 1000) / 1000
 
@@ -50,6 +55,7 @@ function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
         ...defaultConfig,
         WORKER_CONCURRENCY: workers,
         TASKS_PER_WORKER: tasksPerWorker,
+        LOG_LEVEL: 'log',
         __jestMock: mockJestWithIndex(code),
     })
 }
