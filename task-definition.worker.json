@@ -17,6 +17,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
+                },
+                {
                     "name": "CLICKHOUSE_ASYNC",
                     "value": "False"
                 },

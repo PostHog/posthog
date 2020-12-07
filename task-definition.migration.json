@@ -17,6 +17,10 @@
             "image": "795637471508.dkr.ecr.us-east-1.amazonaws.com/posthog-production:29c952a1ce67fcc1815219e864163ab6695560d9",
             "environment": [
                 {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
+                },
+                {
                     "name": "CLICKHOUSE_ASYNC",
                     "value": "False"
                 },
