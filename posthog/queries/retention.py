@@ -69,7 +69,7 @@ class Retention(BaseQuery):
         }
         return [result]
 
-    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _determine_query_params(self, filter: RetentionFilter, team: Team):
 
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -115,8 +115,28 @@ class Retention(BaseQuery):
                 .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
 
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        )
+
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
+
+        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
+
+        return (
+            {
+                "event_query": event_query,
+                "reference_event_query": reference_event_query,
+                "fields": fields,
+                "return_condition": returning_condition_stringified,
+                "target_condition": entity_condition_strigified,
+            },
+            start_params + events_query_params + first_date_params + event_params,
+        )
+
+    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+        format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
             SELECT
@@ -131,22 +151,11 @@ class Retention(BaseQuery):
             OR ({target_condition} AND event_date = first_date)
             GROUP BY date, first_date
         """.format(
-            event_query=event_query,
-            reference_event_query=reference_event_query,
-            fields=fields,
-            return_condition=returning_condition_stringified,
-            target_condition=entity_condition_strigified,
-        )
-        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
-
-        start_params = (
-            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+            **format_fields
         )
 
         with connection.cursor() as cursor:
-            cursor.execute(
-                final_query, start_params + events_query_params + first_date_params + event_params,
-            )
+            cursor.execute(final_query, params)
             data = namedtuplefetchall(cursor)
 
             by_dates = {}
@@ -234,54 +243,9 @@ class Retention(BaseQuery):
         return results
 
     def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-        period = filter.period
-        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-
-        events: QuerySet = QuerySet()
-        entity_condition, entity_condition_strigified = self.get_entity_condition(
-            filter.target_entity, "first_event_date"
-        )
-        returning_condition, returning_condition_stringified = self.get_entity_condition(
-            filter.returning_entity, "events"
-        )
-        events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk).annotate(event_date=F("timestamp"))
-
-        trunc, fields = self._get_trunc_func("timestamp", period)
 
         filter._date_from = (filter.date_from + filter.selected_interval * filter.period_increment).isoformat()
-
-        if is_first_time_retention:
-            filtered_events = events.filter(filter.properties_to_Q(team_id=team.pk))
-            first_date = (
-                filtered_events.filter(entity_condition)
-                .values("person_id", "event", "action")
-                .annotate(first_date=Min(trunc))
-                .filter(filter.custom_date_filter_Q("first_date"))
-                .distinct()
-            )
-            final_query = (
-                filtered_events.filter(filter.date_filter_Q)
-                .filter(returning_condition)
-                .values_list("person_id", "event_date", "event", "action")
-                .union(first_date.values_list("first_date", "person_id", "event", "action"))
-            )
-        else:
-            filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
-            first_date = (
-                filtered_events.filter(entity_condition)
-                .annotate(first_date=trunc)
-                .values("first_date", "person_id", "event", "action")
-                .distinct()
-            )
-
-            final_query = (
-                filtered_events.filter(returning_condition)
-                .values_list("person_id", "event_date", "event", "action")
-                .union(first_date.values_list("first_date", "person_id", "event", "action"))
-            )
-
-        event_query, events_query_params = final_query.query.sql_with_params()
-        reference_event_query, first_date_params = first_date.query.sql_with_params()
+        format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
             SELECT person_id, count(person_id) appearance_count, array_agg(date) appearances FROM (
@@ -300,16 +264,7 @@ class Retention(BaseQuery):
             ORDER BY appearance_count DESC
             LIMIT %s OFFSET %s
         """.format(
-            event_query=event_query,
-            reference_event_query=reference_event_query,
-            fields=fields,
-            return_condition=returning_condition_stringified,
-            target_condition=entity_condition_strigified,
-        )
-        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
-
-        start_params = (
-            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+            **format_fields
         )
 
         result = []
@@ -318,8 +273,7 @@ class Retention(BaseQuery):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                final_query,
-                start_params + events_query_params + first_date_params + event_params + (100, filter.offset),
+                final_query, params + (100, filter.offset),
             )
             raw_results = cursor.fetchall()
             people_dict = {}
