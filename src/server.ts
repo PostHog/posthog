@@ -31,6 +31,7 @@ export const defaultConfig: PluginsServerConfig = overrideWithEnv({
     WEB_PORT: 3008,
     WEB_HOSTNAME: '0.0.0.0',
     WORKER_CONCURRENCY: 0, // use all cores
+    TASKS_PER_WORKER: 1,
 })
 
 export async function createServer(

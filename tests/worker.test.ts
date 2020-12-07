@@ -45,10 +45,11 @@ async function processCountEvents(count: number, piscina: ReturnType<typeof make
     return log
 }
 
-function setupPiscina(workers: number, code: string) {
+function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
     return makePiscina({
         ...defaultConfig,
         WORKER_CONCURRENCY: workers,
+        TASKS_PER_WORKER: tasksPerWorker,
         __jestMock: mockJestWithIndex(code),
     })
 }
@@ -102,7 +103,7 @@ test('piscina worker test', async () => {
             coreCount,
         }
         for (const cores of workers) {
-            const piscina = setupPiscina(cores, testCode)
+            const piscina = setupPiscina(cores, testCode, 1)
 
             // warmup
             await processCountEvents(cores * 3, piscina)

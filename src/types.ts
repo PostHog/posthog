@@ -5,6 +5,7 @@ import { VM, VMScript } from 'vm2'
 
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number
+    TASKS_PER_WORKER: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
     PLUGINS_CELERY_QUEUE: string
