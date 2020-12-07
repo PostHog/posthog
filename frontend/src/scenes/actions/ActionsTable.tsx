@@ -14,7 +14,6 @@ import { Created } from 'lib/components/Created'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
-import moment from 'moment'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -56,7 +55,7 @@ export function ActionsTable(): JSX.Element {
                       render: function RenderVolume(_, action: ActionType) {
                           return <span>{action.count}</span>
                       },
-                      sorter: (a: ActionType, b: ActionType) => a.count - b.count,
+                      sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
                   },
               ]
             : []),
@@ -137,7 +136,7 @@ export function ActionsTable(): JSX.Element {
             render: function RenderCreatedAt(_, action: ActionType) {
                 return <Created timestamp={action.created_at} />
             },
-            sorter: (a: ActionType, b: ActionType) => moment(a.created_at).isAfter(b.created_at),
+            sorter: (a: ActionType, b: ActionType) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
         },
         {
             title: '',

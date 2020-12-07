@@ -80,7 +80,7 @@ function _Cohorts(): JSX.Element {
             render: function RenderCreatedAt(_, cohort: CohortType): JSX.Element | undefined | '' {
                 return cohort.created_at && <Created timestamp={cohort.created_at} />
             },
-            sorter: (a: CohortType, b: CohortType) => moment(a.created_at).isAfter(b.created_at),
+            sorter: (a: CohortType, b: CohortType) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
         },
         {
             title: 'Created by',
@@ -88,7 +88,9 @@ function _Cohorts(): JSX.Element {
                 return cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'
             },
             sorter: (a: CohortType, b: CohortType) =>
-                moment(a.created_by?.first_name).isAfter(b.created_by?.first_name),
+                (a.created_by?.first_name || a.created_by?.email).localeCompare(
+                    b.created_by?.first_name || b.created_by?.email
+                ),
         },
         {
             title: (
