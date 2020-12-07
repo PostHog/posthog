@@ -3,6 +3,8 @@ import { Redis } from 'ioredis'
 import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugins'
 import { VM, VMScript } from 'vm2'
 
+export type LogLevel = 'debug' | 'info' | 'log' | 'warn' | 'error' | 'none'
+
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
@@ -15,6 +17,7 @@ export interface PluginsServerConfig {
     DISABLE_WEB: boolean
     WEB_PORT: number
     WEB_HOSTNAME: string
+    LOG_LEVEL: LogLevel
 
     __jestMock?: {
         getPluginRows: Plugin[]

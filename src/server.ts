@@ -8,31 +8,8 @@ import { startFastifyInstance, stopFastifyInstance } from './web/server'
 import { Worker } from 'celery/worker'
 import { version } from '../package.json'
 import { PluginEvent } from 'posthog-plugins'
+import { defaultConfig } from './config'
 import Piscina from 'piscina'
-
-function overrideWithEnv(config: PluginsServerConfig): PluginsServerConfig {
-    const newConfig: Record<string, any> = { ...config }
-    for (const [key, value] of Object.entries(config)) {
-        if (process.env[key]) {
-            newConfig[key] = process.env[key]
-        }
-    }
-    return newConfig as PluginsServerConfig
-}
-
-export const defaultConfig: PluginsServerConfig = overrideWithEnv({
-    CELERY_DEFAULT_QUEUE: 'celery',
-    DATABASE_URL: 'postgres://localhost:5432/posthog',
-    PLUGINS_CELERY_QUEUE: 'posthog-plugins',
-    REDIS_URL: 'redis://localhost/',
-    BASE_DIR: '.',
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
-    DISABLE_WEB: false,
-    WEB_PORT: 3008,
-    WEB_HOSTNAME: '0.0.0.0',
-    WORKER_CONCURRENCY: 0, // use all cores
-    TASKS_PER_WORKER: 1,
-})
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {}
