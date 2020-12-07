@@ -245,7 +245,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     displayOperatorAndValue={displayOperatorAndValue}
                 />
 
-                {type && value ? (
+                {type === 'cohort' && value ? (
                     <Link to={`/cohorts/${value}`} target="_blank">
                         <Col style={{ marginLeft: 10, marginTop: 5 }}> View </Col>
                     </Link>
