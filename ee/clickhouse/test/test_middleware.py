@@ -16,7 +16,7 @@ class TestQueryMiddleware(APIBaseTest):
         #  Test saving queries if we're impersonating a user
         user2 = User.objects.create_and_join(organization=self.organization, email="test", password="bla")
         self.client.post("/admin/login/user/{}/".format(user2.pk))
-        self.client.get('/api/insight/trend/?events=[{"id": "$pageview"}]')
+        self.client.get('/api/insight/trend/?events=[{"id": "$pageleave"}]')
 
         response = self.client.get("/api/debug_ch_queries/").json()
         self.assertIn("SELECT", response[0]["query"])  # type: ignore
