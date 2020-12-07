@@ -4,7 +4,8 @@ const historyIndex = new Map<string, number>()
 
 export function logTime(name: string, time: number, error?: boolean): void {
     const ms = Math.round(time * 1000) / 1000
-    console.log(`Running plugin ${name}: ${error ? 'ERROR IN ' : ''}${ms}ms`)
+    // TODO: add this back with better dev logging. Disabling since this trashes performance tests.
+    // console.log(`Running plugin ${name}: ${error ? 'ERROR IN ' : ''}${ms}ms`)
     if (!histories.has(name)) {
         histories.set(name, new Array(sampleCount))
         historyIndex.set(name, -1)

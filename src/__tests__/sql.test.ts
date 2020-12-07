@@ -1,16 +1,10 @@
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../sql'
 import { Plugin, PluginAttachmentDB, PluginConfig, PluginError, PluginsServer } from '../types'
-import { defaultConfig } from '../server'
-import { Pool } from 'pg'
-import * as Redis from 'ioredis'
+import { createServer } from '../server'
 
 let mockServer: PluginsServer
 beforeEach(async () => {
-    mockServer = {
-        ...defaultConfig,
-        db: new Pool(),
-        redis: new Redis('redis://mockmockmock/'),
-    }
+    ;[mockServer] = await createServer()
 })
 
 test('getPluginAttachmentRows', async () => {

@@ -4,6 +4,7 @@ import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugi
 import { VM, VMScript } from 'vm2'
 
 export interface PluginsServerConfig {
+    WORKER_CONCURRENCY: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
     PLUGINS_CELERY_QUEUE: string
@@ -13,11 +14,24 @@ export interface PluginsServerConfig {
     DISABLE_WEB: boolean
     WEB_PORT: number
     WEB_HOSTNAME: string
+
+    __jestMock?: {
+        getPluginRows: Plugin[]
+        getPluginConfigRows: PluginConfig[]
+        getPluginAttachmentRows: PluginAttachmentDB[]
+    }
 }
 
 export interface PluginsServer extends PluginsServerConfig {
+    // active connections to postgres and redis
     db: Pool
     redis: Redis
+
+    // currently enabled plugin status
+    plugins: Map<PluginId, Plugin>
+    pluginConfigs: Map<PluginConfigId, PluginConfig>
+    pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
+    defaultConfigs: PluginConfig[]
 }
 
 export type PluginId = number
