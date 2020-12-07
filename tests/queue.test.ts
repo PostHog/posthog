@@ -1,5 +1,5 @@
 import { startQueue } from '../src/worker/queue'
-import { createServer, defaultConfig } from '../src/server'
+import { createServer } from '../src/server'
 import { PluginsServer } from '../src/types'
 import Client from '../src/celery/client'
 import { runPlugins } from '../src/plugins'
@@ -14,7 +14,7 @@ beforeEach(async () => {
     // silence logs
     console.info = jest.fn()
 
-    mockServer = (await createServer(defaultConfig))[0]
+    mockServer = (await createServer())[0]
 })
 
 test('worker and task passing via redis', async () => {

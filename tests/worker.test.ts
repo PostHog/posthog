@@ -1,5 +1,5 @@
-import { defaultConfig } from '../src/server'
 import { makePiscina } from '../src/worker/piscina'
+import { defaultConfig } from '../src/config'
 import { PluginEvent } from 'posthog-plugins/src/types'
 import { performance } from 'perf_hooks'
 import { mockJestWithIndex } from './helpers/plugins'

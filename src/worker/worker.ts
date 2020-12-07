@@ -8,6 +8,8 @@ type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 export async function createWorker(config: PluginsServerConfig): Promise<TaskWorker> {
     setLogLevel(config.LOG_LEVEL)
 
+    console.info('🧵 Starting Piscina Worker Thread')
+
     const [server, closeServer] = await createServer(config)
     await setupPlugins(server)
 
