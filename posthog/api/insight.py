@@ -132,7 +132,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.FILTER)
+    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
@@ -260,7 +260,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
-    @cached_function(cache_type=CacheType.FILTER)
+    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)
@@ -279,7 +279,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.FILTER)
+    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)

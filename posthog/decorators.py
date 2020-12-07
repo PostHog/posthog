@@ -8,6 +8,7 @@ from django.utils.timezone import now
 
 from posthog.models import Filter, Team, User
 from posthog.models.dashboard_item import DashboardItem
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
@@ -17,6 +18,7 @@ from .utils import generate_cache_key
 class CacheType(str, Enum):
     FILTER = "Filter"
     TRENDS = "Trends"
+    RETENTION = "Retention"
     FUNNEL = "Funnel"
 
 
@@ -31,8 +33,12 @@ def cached_function(cache_type: CacheType):
             if not team:
                 return f(*args, **kwargs)
 
-            if cache_type == CacheType.FILTER or cache_type == CacheType.TRENDS:
+            if cache_type == CacheType.TRENDS:
                 filter = Filter(request=request)
+                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
+                payload = {"filter": filter.toJSON(), "team_id": team.pk}
+            elif cache_type == CacheType.RETENTION:
+                filter = RetentionFilter(request=request)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}
             elif cache_type == CacheType.FUNNEL:

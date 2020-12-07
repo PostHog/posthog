@@ -24,7 +24,7 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     filter = Filter(data=filter_dict)
-    if cache_type == CacheType.FILTER:
+    if cache_type == CacheType.TRENDS:
         result = _calculate_trends(filter, key, int(payload["team_id"]))
     elif cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, key, int(payload["team_id"]))
@@ -51,7 +51,7 @@ def update_cached_items() -> None:
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)
 
-        cache_type = CacheType.FUNNEL if filter.insight == "FUNNELS" else CacheType.FILTER
+        cache_type = CacheType.FUNNEL if filter.insight == "FUNNELS" else CacheType.TRENDS
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
@@ -61,8 +61,6 @@ def update_cached_items() -> None:
 
 
 def _calculate_trends(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    actions = Action.objects.filter(team_id=team_id)
-    actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
     result = Trends().run(filter, Team(pk=team_id))
