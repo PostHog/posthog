@@ -132,20 +132,28 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
-            )
-            result = stickiness.Stickiness().run(filter, team)
+            result = self.calculate_stickiness(request)
         else:
-            result = trends.Trends().run(filter, team)
-
+            result = self._calculate_trend(request)
         self._refresh_dashboard(request=request)
 
+        return result
+
+    @cached_function(cache_type=CacheType.TRENDS)
+    def _calculate_trend(self, request: request.Request,) -> List[Dict[str, Any]]:
+        filter = Filter(request=request)
+        team = self.team
+        result = trends.Trends().run(filter, team)
+        return result
+
+    @cached_function(cache_type=CacheType.STICKINESS)
+    def calculate_stickiness(self, request: request.Request) -> List[Dict[str, Any]]:
+        team = self.team
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp)
+        result = stickiness.Stickiness().run(filter, team)
         return result
 
     # ******************************************
@@ -260,11 +268,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    # @cached_function(cache_type=CacheType.RETENTION)
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)
         result = retention.Retention().run(filter, team)
+        self._refresh_dashboard(request=request)
         return result
 
     # ******************************************
@@ -279,11 +288,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function(cache_type=CacheType.PATHS)
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
+        self._refresh_dashboard(request=request)
         return resp
 
     # Checks if a dashboard id has been set and if so, update the refresh date

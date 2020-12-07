@@ -111,7 +111,9 @@ class Filter(PropertyMixin):
             return breakdown
 
     def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
-        if target_entity_data:
+        if isinstance(target_entity_data, dict):
+            return Entity(target_entity_data)
+        elif target_entity_data:
             data = json.loads(target_entity_data)
             return Entity({"id": data["id"], "type": data["type"]})
         return None

@@ -9,10 +9,10 @@ import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLo
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 
 export const dateOptions = {
-    h: 'Hour',
-    d: 'Day',
-    w: 'Week',
-    m: 'Month',
+    Hour: 'Hour',
+    Day: 'Day',
+    Week: 'Week',
+    Month: 'Month',
 }
 
 const RETENTION_RECURRING = 'retention_recurring'
@@ -49,12 +49,12 @@ function cleanFilters(filters): any {
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
         selectedDate: filters.selectedDate ? moment(filters.selectedDate) : null,
-        period: filters.period || 'd',
+        period: filters.period || 'Day',
         display: filters.display || 'ActionsTable',
     }
 }
 
-function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): string {
+function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): str {
     let params: Record<string, any> = { ...values.filters }
     params['properties'] = values.properties
     if (values.selectedDate) {
@@ -161,7 +161,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                           events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                           actions: [],
                       },
-                      period: props.filters.period || 'd',
+                      period: props.filters.period || 'Day',
                       retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
                       display: props.filters.display || ACTIONS_TABLE,
                   }

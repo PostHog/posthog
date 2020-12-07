@@ -19,6 +19,8 @@ class CacheType(str, Enum):
     FILTER = "Filter"
     TRENDS = "Trends"
     RETENTION = "Retention"
+    STICKINESS = "Stickiness"
+    PATHS = "Path"
     FUNNEL = "Funnel"
 
 

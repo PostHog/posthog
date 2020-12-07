@@ -51,3 +51,9 @@ TYPE = "type"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
+
+TRENDS = "TRENDS"
+FUNNELS = "FUNNELS"
+PATHS = "PATHS"
+RETENTION = "RETENTION"
+STICKINESS = "Stickiness"
