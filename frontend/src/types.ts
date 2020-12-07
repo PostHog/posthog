@@ -169,6 +169,7 @@ export interface PersonType {
     name: string
     distinct_ids: string[]
     properties: Record<string, any>
+    is_identified: boolean
     created_at?: string
 }
 
