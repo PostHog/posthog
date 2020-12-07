@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import FUNNELS, PATHS, RETENTION, STICKINESS, TRENDS
-from posthog.decorators import CacheType
+from posthog.decorators import TYPE_TO_FILTER, CacheType
 from posthog.ee import is_ee_enabled
 from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -36,14 +36,6 @@ TYPE_TO_IMPORT = {
     CacheType.STICKINESS: ("posthog.queries.stickiness", "Stickiness"),
     CacheType.RETENTION: ("posthog.queries.retention", "Retention"),
     CacheType.PATHS: ("posthog.queries.paths", "Paths"),
-}
-
-TYPE_TO_FILTER = {
-    CacheType.TRENDS: Filter,
-    CacheType.STICKINESS: StickinessFilter,
-    CacheType.RETENTION: RetentionFilter,
-    CacheType.PATHS: Filter,
-    CacheType.FUNNEL: Filter,
 }
 
 

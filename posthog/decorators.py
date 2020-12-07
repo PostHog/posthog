@@ -9,6 +9,7 @@ from django.utils.timezone import now
 from posthog.models import Filter, Team, User
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
@@ -24,6 +25,15 @@ class CacheType(str, Enum):
     FUNNEL = "Funnel"
 
 
+TYPE_TO_FILTER = {
+    CacheType.TRENDS: Filter,
+    CacheType.STICKINESS: StickinessFilter,
+    CacheType.RETENTION: RetentionFilter,
+    CacheType.PATHS: Filter,
+    CacheType.FUNNEL: Filter,
+}
+
+
 def cached_function(cache_type: CacheType):
     def parameterized_decorator(f: Callable):
         @wraps(f)
@@ -35,18 +45,14 @@ def cached_function(cache_type: CacheType):
             if not team:
                 return f(*args, **kwargs)
 
-            if cache_type == CacheType.TRENDS:
-                filter = Filter(request=request)
-                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
-                payload = {"filter": filter.toJSON(), "team_id": team.pk}
-            elif cache_type == CacheType.RETENTION:
-                filter = RetentionFilter(request=request)
-                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
-                payload = {"filter": filter.toJSON(), "team_id": team.pk}
-            elif cache_type == CacheType.FUNNEL:
+            if cache_type == CacheType.FUNNEL:
                 pk = args[2]
                 cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
                 payload = {"funnel_id": pk, "team_id": team.pk}
+            elif cache_type in [_cache_type.value for _cache_type in CacheType]:
+                filter = TYPE_TO_FILTER[cache_type](request=request)
+                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
+                payload = {"filter": filter.toJSON(), "team_id": team.pk}
             else:
                 raise ValueError("Invalid cache type!")
             # return cached result if possible
