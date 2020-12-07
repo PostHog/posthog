@@ -1,10 +1,8 @@
 import { createPluginConfigVM, prepareForRun } from '../vm'
 import { PluginConfig, PluginsServer, Plugin } from '../types'
 import { PluginEvent } from 'posthog-plugins'
-import { defaultConfig } from '../server'
-import * as Redis from 'ioredis'
+import { createServer, defaultConfig } from '../server'
 import * as fetch from 'node-fetch'
-import { Pool } from 'pg'
 
 const defaultEvent = {
     distinct_id: 'my_id',
@@ -41,12 +39,8 @@ const mockConfig: PluginConfig = {
     vm: null,
 }
 
-beforeEach(() => {
-    mockServer = {
-        ...defaultConfig,
-        db: new Pool(),
-        redis: new Redis('redis://mockmockmock/'),
-    }
+beforeEach(async () => {
+    mockServer = (await createServer(defaultConfig))[0]
 })
 
 afterEach(async () => {

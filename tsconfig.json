@@ -7,6 +7,8 @@
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
         "moduleResolution": "node",
+        "esModuleInterop": true,
+        "allowJs": true,
         "sourceMap": true,
         "baseUrl": "./src",
         "outDir": "./dist",

@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
 import * as tar from 'tar-stream'
-import * as AdmZip from 'adm-zip'
+import AdmZip from 'adm-zip'
 import * as zlib from 'zlib'
 
 /**

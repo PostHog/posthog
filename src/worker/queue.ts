@@ -1,11 +1,13 @@
-import { runPlugins } from './plugins'
-import { PluginsServer } from './types'
+import { PluginsServer } from '../types'
 import { PluginEvent } from 'posthog-plugins'
 
-import Worker from './celery/worker'
-import Client from './celery/client'
+import Worker from '../celery/worker'
+import Client from '../celery/client'
 
-export function startWorker(server: PluginsServer): Worker {
+export function startQueue(
+    server: PluginsServer,
+    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
+): Worker {
     const worker = new Worker(server.redis, server.PLUGINS_CELERY_QUEUE)
     const client = new Client(server.redis, server.CELERY_DEFAULT_QUEUE)
 
@@ -21,7 +23,7 @@ export function startWorker(server: PluginsServer): Worker {
             sent_at?: string
         ) => {
             const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data } as PluginEvent
-            const processedEvent = await runPlugins(server, event)
+            const processedEvent = await processEvent(event)
             if (processedEvent) {
                 const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
                 client.sendTask('posthog.tasks.process_event.process_event', [], {
