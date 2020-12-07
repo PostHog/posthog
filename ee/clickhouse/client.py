@@ -164,3 +164,15 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
         cache.set(key, json.dumps(queries), timeout=120)
     except Exception as e:
         capture_exception(e)
+
+
+def save_cache_call() -> None:
+
+    try:
+        key = "save_query_{}".format(_save_query_user_id)
+        queries = json.loads(cache.get(key) or "[]")
+
+        queries.insert(0, {"timestamp": now().isoformat(), "query": "Retrieved from cache", "execution_time": 0})
+        cache.set(key, json.dumps(queries), timeout=120)
+    except Exception as e:
+        capture_exception(e)
