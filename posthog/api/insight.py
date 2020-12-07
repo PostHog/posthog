@@ -268,7 +268,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
-    # @cached_function(cache_type=CacheType.RETENTION)
+    @cached_function(cache_type=CacheType.RETENTION)
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)

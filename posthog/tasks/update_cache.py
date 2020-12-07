@@ -1,24 +1,21 @@
 import importlib
 import json
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import FUNNELS, PATHS, RETENTION, STICKINESS, TRENDS
 from posthog.decorators import TYPE_TO_FILTER, CacheType
 from posthog.ee import is_ee_enabled
-from posthog.models import Action, ActionStep, DashboardItem, Filter, Team
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models import DashboardItem, Filter, Team
 from posthog.queries.funnel import Funnel
-from posthog.queries.trends import Trends
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
@@ -46,7 +43,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
     if cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, key, int(payload["team_id"]))
     else:
-        filter = TYPE_TO_FILTER[cache_type](data=filter_dict)
+        team = Team(pk=int(payload["team_id"]))
+        filter = TYPE_TO_FILTER[cache_type](data=filter_dict, team=team)
         result = _calculate_by_filter(filter, key, int(payload["team_id"]), cache_type)
 
     if result:
@@ -69,7 +67,8 @@ def update_cached_items() -> None:
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
         filter = Filter(data=item.filters)
         cache_type = get_cache_type(filter)
-        filter = TYPE_TO_FILTER[cache_type](data=item.filters)
+        team = Team(pk=item.team_id)
+        filter = TYPE_TO_FILTER[cache_type](data=item.filters, team=team)
 
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)

@@ -50,7 +50,7 @@ def cached_function(cache_type: CacheType):
                 cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
                 payload = {"funnel_id": pk, "team_id": team.pk}
             elif cache_type in [_cache_type.value for _cache_type in CacheType]:
-                filter = TYPE_TO_FILTER[cache_type](request=request)
+                filter = TYPE_TO_FILTER[cache_type](request=request, team=team)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}
             else:

@@ -61,10 +61,13 @@ class StickinessFilter(Filter):
             self.num_intervals = int(divmod(total_seconds, 3600)[0])
         elif self.interval == "day":
             self.num_intervals = int(divmod(total_seconds, 86400)[0])
+            self._date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         elif self.interval == "week":
             self.num_intervals = (self.date_to - self.date_from).days // 7
+            self._date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         elif self.interval == "month":
             self.num_intervals = (self.date_to.year - self.date_from.year) + (self.date_to.month - self.date_from.month)
+            self._date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         else:
             raise ValueError(f"{self.interval} not supported")
         self.num_intervals += 2

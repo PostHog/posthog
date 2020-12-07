@@ -206,4 +206,11 @@ class Filter(PropertyMixin):
         return filter
 
     def toJSON(self):
-        return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+        return json.dumps(self.to_dict(), default=json_serializer, sort_keys=True, indent=4)
+
+
+def json_serializer(o):
+    if isinstance(o, (datetime.date, datetime.datetime)):
+        return o.isoformat()
+    else:
+        return o.__dict__
