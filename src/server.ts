@@ -26,7 +26,7 @@ export async function createServer(
     const redis = new Redis(serverConfig.REDIS_URL)
 
     redis.on('error', (error) => {
-        console.info('🔴 Redis error!', error)
+        console.error('🔴 Redis error!', error)
         process.kill(process.pid, 'SIGTERM')
     })
 
