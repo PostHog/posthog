@@ -1,4 +1,4 @@
-import * as s from '../../sql'
+import * as s from '../../src/sql'
 
 // mock functions that get data from postgres and give them the right types
 type UnPromisify<F> = F extends (...args: infer A) => Promise<infer T> ? (...args: A) => T : never

@@ -1,7 +1,7 @@
-import { createPluginConfigVM, prepareForRun } from '../vm'
-import { PluginConfig, PluginsServer, Plugin } from '../types'
+import { createPluginConfigVM, prepareForRun } from '../src/vm'
+import { PluginConfig, PluginsServer, Plugin } from '../src/types'
 import { PluginEvent } from 'posthog-plugins'
-import { createServer, defaultConfig } from '../server'
+import { createServer, defaultConfig } from '../src/server'
 import * as fetch from 'node-fetch'
 
 const defaultEvent = {
