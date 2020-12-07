@@ -1,30 +1,29 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Cohort } from './Cohort'
 import { PersonsTable } from './PersonsTable'
 import { Button, Input, Row, Radio } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
 import { Link } from 'lib/components/Link'
+import { CohortType } from '~/types'
 
-export function PersonsV2(): JSX.Element {
+export function PersonsV2({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exampleEmail } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke
 
     useEffect(() => {
         setSearchTerm(listFilters.search)
+        if (cohort) {
+            setListFilters({ cohort: cohort.id })
+            loadPersons()
+        }
     }, [])
 
     return (
         <div>
-            <PageHeader title="Persons" />
-            <Cohort
-                onChange={(cohort: string) => {
-                    setListFilters({ cohort })
-                }}
-            />
+            {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
                     <Input.Search
@@ -94,6 +93,7 @@ export function PersonsV2(): JSX.Element {
                     loadPrevious={() => loadPersons(persons.previous)}
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
+                    cohort={cohort}
                 />
             </div>
         </div>

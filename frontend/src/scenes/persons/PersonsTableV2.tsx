@@ -3,7 +3,7 @@ import { Button, Table } from 'antd'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import { PersonType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 import { IconPerson } from 'lib/components/icons'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
@@ -19,6 +19,7 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
+    cohort?: CohortType
 }
 
 export function PersonsTable({
@@ -29,9 +30,11 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     allColumns,
+    cohort,
 }: PersonsTableType): JSX.Element {
     const linkToPerson = (person: PersonType): string => {
-        return `/person/${encodeURIComponent(person.distinct_ids[0])}`
+        const backTo = cohort ? `#backTo=Back%20to%20Cohorts&backToURL=/cohorts/${cohort.id}` : ''
+        return `/person/${encodeURIComponent(person.distinct_ids[0])}${backTo}`
     }
 
     const topRef = useRef<HTMLSpanElement>(null)
