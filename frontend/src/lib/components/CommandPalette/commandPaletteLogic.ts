@@ -588,20 +588,24 @@ export const commandPaletteLogic = kea<
                             userLogic.actions.logout()
                         },
                     },
-                    ...(userLogic.values.user?.is_staff ||
+                ],
+            }
+
+            const debugClickhouseQueries: Command = {
+                key: 'debug-clickhouse-queries',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver:
+                    userLogic.values.user?.is_staff ||
                     userLogic.values.user?.is_debug ||
                     userLogic.values.user?.is_impersonated
-                        ? [
-                              {
-                                  icon: PlusOutlined,
-                                  display: 'Debug ClickHouse queries',
-                                  executor: () => {
-                                      debugCHQueries()
-                                  },
+                        ? {
+                              icon: PlusOutlined,
+                              display: 'Debug ClickHouse Queries',
+                              executor: () => {
+                                  debugCHQueries()
                               },
-                          ]
-                        : []),
-                ],
+                          }
+                        : [],
             }
 
             const calculator: Command = {
@@ -775,6 +779,7 @@ export const commandPaletteLogic = kea<
 
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
+            actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
@@ -783,6 +788,7 @@ export const commandPaletteLogic = kea<
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
             actions.deregisterCommand('open-urls')
+            actions.deregisterCommand('debug-clickhouse-queries')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
             actions.deregisterCommand('create-dashboard')
