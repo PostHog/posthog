@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Table } from 'antd'
+import { Input, Radio, Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -108,22 +108,7 @@ export function ActionsTable(): JSX.Element {
             },
         },
         {
-            title: (
-                <>
-                    Created by{' '}
-                    <small>
-                        <a
-                            href="#"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                setFilterByMe(!filterByMe)
-                            }}
-                        >
-                            {filterByMe ? "(everyone's actions)" : '(my actions)'}
-                        </a>
-                    </small>
-                </>
-            ),
+            title: 'Created by',
             render: function RenderCreatedBy(_, action: ActionType) {
                 if (!action.created_by) {
                     return 'Unknown'
@@ -216,11 +201,15 @@ export function ActionsTable(): JSX.Element {
                 allowClear
                 enterButton
                 autoFocus
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1 }}
+                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
                 }}
             />
+            <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                <Radio.Button value={false}>All actions</Radio.Button>
+                <Radio.Button value={true}>My actions</Radio.Button>
+            </Radio.Group>
 
             <div className="mb float-right">
                 <NewActionButton />
