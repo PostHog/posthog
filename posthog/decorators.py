@@ -15,7 +15,7 @@ from .utils import generate_cache_key
 
 
 class CacheType(str, Enum):
-    TRENDS = "Trends"
+    FILTER = "Filter"
     FUNNEL = "Funnel"
 
 
@@ -30,7 +30,7 @@ def cached_function(cache_type: CacheType):
             if not team:
                 return f(*args, **kwargs)
 
-            if cache_type == CacheType.TRENDS:
+            if cache_type == CacheType.FILTER:
                 filter = Filter(request=request)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict, List
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -17,6 +17,7 @@ from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
+from posthog.decorators import CacheType, cached_function
 from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -26,7 +27,11 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 class ClickhouseInsightsViewSet(InsightViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_trends(request)
+        return Response(result)
 
+    @cached_function(cache_type=CacheType.FILTER)
+    def calculate_trends(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
 
@@ -37,8 +42,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             result = ClickhouseTrends().run(filter, team)
 
         self._refresh_dashboard(request=request)
-
-        return Response(result)
+        return result
 
     @action(methods=["GET"], detail=False)
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -66,24 +70,36 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
     @action(methods=["GET"], detail=False)
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        resp = self.calculate_paths(request)
+        return Response(resp)
 
+    @cached_function(cache_type=CacheType.FILTER)
+    def calculate_paths(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
-        resp = ClickhousePaths().run(filter=filter, team=team)
-        return Response(resp)
+        result = ClickhousePaths().run(filter=filter, team=team)
+        return result
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel(request)
+        return Response(result)
 
+    @cached_function(cache_type=CacheType.FILTER)
+    def calculate_funnel(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
-        response = ClickhouseFunnel(team=team, filter=filter).run()
-        return Response(response)
+        result = ClickhouseFunnel(team=team, filter=filter).run()
+        return result
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_retention(request)
+        return Response({"data": result})
 
+    @cached_function(cache_type=CacheType.FILTER)
+    def calculate_retention(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)
         result = ClickhouseRetention().run(filter, team)
-        return Response({"data": result})
+        return result
