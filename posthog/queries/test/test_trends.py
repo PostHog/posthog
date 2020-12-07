@@ -1156,6 +1156,78 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 elif res["status"] == "new":
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
 
+        def test_lifecycle_trend_weeks(self):
+            # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-01T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-05T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-10T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-15T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-27T12:00:00Z",
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-03-02T12:00:00Z",
+            )
+
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-02-11T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-02-18T12:00:00Z",
+            )
+
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-02-12T12:00:00Z",
+            )
+
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-02-27T12:00:00Z",
+            )
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-02-05T00:00:00Z",
+                        "date_to": "2020-03-09T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                        "interval": "week",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(len(result), 4)
+            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertTrue(
+                result[0]["days"] == ["2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
+                or result[0]["days"] == ["2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+            )
+            for res in result:
+                if res["status"] == "dormant":
+                    self.assertEqual(res["data"], [0, -2, -1, -1, -1])
+                elif res["status"] == "returning":
+                    self.assertEqual(res["data"], [1, 1, 0, 1, 0])
+                elif res["status"] == "resurrecting":
+                    self.assertEqual(res["data"], [0, 0, 1, 0, 0])
+                elif res["status"] == "new":
+                    self.assertEqual(res["data"], [2, 0, 1, 0, 0])
+
         def test_lifecycle_trend_months(self):
 
             p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})

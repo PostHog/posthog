@@ -124,11 +124,11 @@ class TestDecide(BaseTest):
         self.assertEqual(len(response["featureFlags"]), 0)
 
     def test_feature_flags_with_personal_api_key(self):
-        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key = PersonalAPIKey(label="X", user=self.user)
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
-        response = self._post_decide({"distinct_id": "example_id", "personal_api_key": key.value})
+        response = self._post_decide({"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id})
         self.assertEqual(len(response["featureFlags"]), 1)

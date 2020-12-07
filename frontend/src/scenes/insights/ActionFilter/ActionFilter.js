@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlusCircleOutlined } from '@ant-design/icons'
 
 export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, copy = '', disabled = false }) {
@@ -11,7 +10,6 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
     // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -37,10 +35,10 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, c
                     onClick={() => addFilter()}
                     style={{ marginTop: '0.5rem' }}
                     data-attr="add-action-event-button"
-                    icon={featureFlags['actions-ux-201012'] && <PlusCircleOutlined />}
+                    icon={<PlusCircleOutlined />}
                     disabled={disabled}
                 >
-                    {!featureFlags['actions-ux-201012'] ? 'Add action/event' : copy || 'Action or raw event'}
+                    {copy || 'Action or event'}
                 </Button>
             </div>
         </div>

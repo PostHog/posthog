@@ -9,7 +9,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_interval_annotation_ch, get_time_diff, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -19,17 +19,17 @@ from posthog.queries.lifecycle import LifecycleTrend
 
 
 class ClickhouseLifecycle(LifecycleTrend):
-    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str]:
+    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str, str]:
         if interval == "hour":
-            return timedelta(hours=1), "1 HOUR"
+            return timedelta(hours=1), "1 HOUR", "1 MINUTE"
         elif interval == "minute":
-            return timedelta(minutes=1), "1 MINUTE"
+            return timedelta(minutes=1), "1 MINUTE", "1 SECOND"
         elif interval == "day":
-            return timedelta(days=1), "1 DAY"
+            return timedelta(days=1), "1 DAY", "1 HOUR"
         elif interval == "week":
-            return timedelta(weeks=1), "1 WEEK"
+            return timedelta(weeks=1), "1 WEEK", "1 DAY"
         elif interval == "month":
-            return relativedelta(months=1), "1 MONTH"
+            return relativedelta(months=1), "1 MONTH", "1 DAY"
         else:
             raise ValueError("{interval} not supported")
 
@@ -41,16 +41,16 @@ class ClickhouseLifecycle(LifecycleTrend):
             raise ValueError("Starting date must be provided")
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
-        interval_increment, interval_string = self.get_interval(interval)
-        trunc_func = get_interval_annotation_ch(interval)
+        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
+        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
+        trunc_func = get_trunc_func_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
 
-        _, _, date_params = parse_timestamps(filter=filter)
+        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
@@ -64,7 +64,11 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         result = sync_execute(
             LIFECYCLE_SQL.format(
-                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+                interval=interval_string,
+                trunc_func=trunc_func,
+                event_query=event_query,
+                filters=prop_filters,
+                sub_interval=sub_interval_string,
             ),
             {
                 "team_id": team_id,
@@ -91,13 +95,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         return res
 
     def get_people(
-        self,
-        filter: Filter,
-        team_id: int,
-        target_date: datetime,
-        lifecycle_type: str,
-        offset: int = 0,
-        limit: int = 100,
+        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
     ):
         entity = filter.entities[0]
         date_from = filter.date_from
@@ -106,13 +104,13 @@ class ClickhouseLifecycle(LifecycleTrend):
             raise ValueError("Starting date must be provided")
 
         interval = filter.interval or "day"
-        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to)
-        interval_increment, interval_string = self.get_interval(interval)
-        trunc_func = get_interval_annotation_ch(interval)
+        num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id=team_id)
+        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
+        trunc_func = get_trunc_func_ch(interval)
         event_query = ""
         event_params: Dict[str, Any] = {}
 
-        _, _, date_params = parse_timestamps(filter=filter)
+        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
@@ -129,7 +127,11 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(
-                interval=interval_string, trunc_func=trunc_func, event_query=event_query, filters=prop_filters
+                interval=interval_string,
+                trunc_func=trunc_func,
+                event_query=event_query,
+                filters=prop_filters,
+                sub_interval=sub_interval_string,
             ),
             {
                 "team_id": team_id,
@@ -149,7 +151,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                         " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
                     )
                 ),
-                "offset": offset,
+                "offset": filter.offset,
                 "limit": limit,
             },
         )

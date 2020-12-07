@@ -33,7 +33,7 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
-        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH:00') || moment().format('YYYY-MM-DD HH:00'),
+        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH:00'),
         properties: properties,
         insight: ViewType.RETENTION,
     }
@@ -48,7 +48,7 @@ function cleanFilters(filters): any {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
-        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : moment().startOf('hour'),
+        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : null,
         period: filters.period || 'd',
         display: filters.display || 'ActionsTable',
     }
@@ -156,7 +156,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                       startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
-                      selectedDate: moment(props.filters.selectedDate) || moment().startOf('hour'),
+                      selectedDate: moment(props.filters.selectedDate),
                       returningEntity: props.filters.returningEntity || {
                           events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                           actions: [],
