@@ -1,6 +1,5 @@
 import json
 from datetime import timedelta
-from posthog.models.action import Action
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
@@ -14,6 +13,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
+from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
