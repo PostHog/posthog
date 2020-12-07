@@ -16,7 +16,7 @@ function getDefaultConfig(): PluginsServerConfig {
         WEB_HOSTNAME: '0.0.0.0',
         WORKER_CONCURRENCY: 0, // use all cores
         TASKS_PER_WORKER: 1,
-        LOG_LEVEL: 'log',
+        LOG_LEVEL: 'info',
     }
 }
 

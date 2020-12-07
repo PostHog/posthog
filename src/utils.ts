@@ -2,6 +2,7 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import AdmZip from 'adm-zip'
 import * as zlib from 'zlib'
+import { LogLevel } from 'types'
 
 /**
  * @param binary Buffer
@@ -93,4 +94,13 @@ export function getFileFromZip(archive: Buffer, file: string): string | null {
     }
 
     return null
+}
+
+export function setLogLevel(logLevel: LogLevel) {
+    for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error', 'none']) {
+        if (loopLevel === logLevel) {
+            break
+        }
+        ;(console as any)[loopLevel] = () => {}
+    }
 }

@@ -1,3 +1,4 @@
+import { setLogLevel } from '../utils'
 import { runPlugins, setupPlugins } from '../plugins'
 import { createServer } from '../server'
 import { PluginsServerConfig } from '../types'
@@ -5,6 +6,8 @@ import { PluginsServerConfig } from '../types'
 type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
 export async function createWorker(config: PluginsServerConfig): Promise<TaskWorker> {
+    setLogLevel(config.LOG_LEVEL)
+
     const [server, closeServer] = await createServer(config)
     await setupPlugins(server)
 

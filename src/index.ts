@@ -3,6 +3,7 @@ import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
 import { makePiscina } from './worker/piscina'
 import { defaultConfig, configHelp } from './config'
+import { setLogLevel } from './utils'
 
 type Argv = {
     config: string
@@ -40,6 +41,7 @@ app = app.help().command({
                 }
             }
         }
+        setLogLevel(parsedConfig.LOG_LEVEL || defaultConfig.LOG_LEVEL)
         startPluginsServer(parsedConfig as PluginsServerConfig, makePiscina)
     },
 }).argv
