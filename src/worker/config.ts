@@ -31,5 +31,9 @@ export function createConfig(serverConfig: PluginsServerConfig, filename: string
         config.maxThreads = serverConfig.WORKER_CONCURRENCY
     }
 
+    if (serverConfig.TASKS_PER_WORKER > 1) {
+        config.concurrentTasksPerWorker = serverConfig.TASKS_PER_WORKER
+    }
+
     return config
 }
