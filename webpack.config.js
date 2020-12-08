@@ -74,8 +74,6 @@ function createEntry(entry) {
                     ? '/static/'
                     : process.env.JS_URL
                     ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
-                    : process.env.IS_PORTER
-                    ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
@@ -190,14 +188,7 @@ function createEntry(entry) {
             port: 8234,
             stats: 'minimal',
             disableHostCheck: !!process.env.LOCAL_HTTPS,
-            public: process.env.JS_URL
-                ? new URL(process.env.JS_URL).host
-                : process.env.IS_PORTER
-                ? `${process.env.PORTER_WEBPACK_HOST}`
-                : `${webpackDevServerFrontendAddr}:8234`,
-            allowedHosts: process.env.IS_PORTER
-                ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
-                : [],
+            public: process.env.JS_URL ? new URL(process.env.JS_URL).host : `${webpackDevServerFrontendAddr}:8234`,
             headers: {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': '*',
