@@ -32,6 +32,7 @@ app = app.help().command({
         const parsedConfig: Record<string, any> = config ? JSON.parse(config) : {}
         for (const [key, value] of Object.entries(otherArgs)) {
             if (typeof value !== 'undefined') {
+                // convert camelCase argument keys to under_score
                 const newKey = key
                     .replace(/(?:^|\.?)([A-Z])/g, (x, y) => '_' + y.toUpperCase())
                     .replace(/^_/, '')
