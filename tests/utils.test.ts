@@ -1,4 +1,5 @@
 import { getFileFromTGZ, getFileFromZip, getFileFromArchive, bufferToStream, setLogLevel } from '../src/utils'
+import { LogLevel } from '../src/types'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =
@@ -66,7 +67,7 @@ test('setLogLevel', async () => {
     }
 
     resetMocks()
-    setLogLevel('debug')
+    setLogLevel(LogLevel.Debug)
     console.debug('debug')
     console.info('debug')
     console.log('debug')
@@ -79,7 +80,7 @@ test('setLogLevel', async () => {
     expect(console.error).toHaveBeenCalledWith('debug')
 
     resetMocks()
-    setLogLevel('info')
+    setLogLevel(LogLevel.Info)
     console.debug('info')
     console.info('info')
     console.log('info')
@@ -92,7 +93,7 @@ test('setLogLevel', async () => {
     expect(console.error).toHaveBeenCalledWith('info')
 
     resetMocks()
-    setLogLevel('log')
+    setLogLevel(LogLevel.Log)
     console.debug('log')
     console.info('log')
     console.log('log')
@@ -105,7 +106,7 @@ test('setLogLevel', async () => {
     expect(console.error).toHaveBeenCalledWith('log')
 
     resetMocks()
-    setLogLevel('warn')
+    setLogLevel(LogLevel.Warn)
     console.debug('warn')
     console.info('warn')
     console.log('warn')
@@ -118,7 +119,7 @@ test('setLogLevel', async () => {
     expect(console.error).toHaveBeenCalledWith('warn')
 
     resetMocks()
-    setLogLevel('error')
+    setLogLevel(LogLevel.Error)
     console.debug('error')
     console.info('error')
     console.log('error')
@@ -131,7 +132,7 @@ test('setLogLevel', async () => {
     expect(console.error).toHaveBeenCalledWith('error')
 
     resetMocks()
-    setLogLevel('none')
+    setLogLevel(LogLevel.None)
     console.debug('none')
     console.info('none')
     console.log('none')

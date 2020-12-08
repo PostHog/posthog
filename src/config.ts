@@ -1,4 +1,4 @@
-import { PluginsServerConfig, PluginsServerConfigKey } from './types'
+import { LogLevel, PluginsServerConfig, PluginsServerConfigKey } from './types'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -16,7 +16,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WEB_HOSTNAME: '0.0.0.0',
         WORKER_CONCURRENCY: 0, // use all cores
         TASKS_PER_WORKER: 100,
-        LOG_LEVEL: 'info',
+        LOG_LEVEL: LogLevel.Info,
     }
 }
 

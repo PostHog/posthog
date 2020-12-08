@@ -3,7 +3,14 @@ import { Redis } from 'ioredis'
 import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugins'
 import { VM, VMScript } from 'vm2'
 
-export type LogLevel = 'debug' | 'info' | 'log' | 'warn' | 'error' | 'none'
+export enum LogLevel {
+    Debug = 'debug',
+    Info = 'info',
+    Log = 'log',
+    Warn = 'warn',
+    Error = 'error',
+    None = 'none',
+}
 
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number
