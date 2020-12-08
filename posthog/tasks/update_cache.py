@@ -23,7 +23,7 @@ from posthog.queries.funnel import Funnel
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
-PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 3))
+PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
