@@ -64,7 +64,7 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "editorParams": {},
         "isAuthenticated": False,
-        "supportedCompression": ["gzip", "lz64"],
+        "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
 
     if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME):
@@ -107,5 +107,5 @@ def get_decide(request: HttpRequest):
         if team:
             response["featureFlags"] = feature_flags(request, team, data_from_request["data"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
-                response["sessionRecording"] = {"endpoint": "/s"}
+                response["sessionRecording"] = {"endpoint": "/s/"}
     return cors_response(request, JsonResponse(response))

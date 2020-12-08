@@ -8,12 +8,21 @@ import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
 import { Button, Dropdown } from 'antd'
-import { ProjectOutlined, DownOutlined, ToolOutlined, PlusOutlined, UpOutlined } from '@ant-design/icons'
+import {
+    ProjectOutlined,
+    DownOutlined,
+    ToolOutlined,
+    PlusOutlined,
+    UpOutlined,
+    SearchOutlined,
+} from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { hot } from 'react-hot-loader/root'
+import { isMobile, platformCommandControlKey } from 'lib/utils'
+import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 
 export const TopNavigation = hot(_TopNavigation)
 export function _TopNavigation(): JSX.Element {
@@ -26,6 +35,7 @@ export function _TopNavigation(): JSX.Element {
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
+    const { showPalette } = useActions(commandPaletteLogic)
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
     const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
 
@@ -35,7 +45,7 @@ export function _TopNavigation(): JSX.Element {
                 <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                 <div className="details">
                     <span>{user?.email}</span>
-                    <span>{user?.organization.name}</span>
+                    <span>{user?.organization?.name}</span>
                 </div>
             </div>
             <div className="text-center">
@@ -89,7 +99,7 @@ export function _TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="dp-title">SELECT A PROJECT</div>
             <div className="projects">
-                {user?.organization.teams.map((team) => {
+                {user?.organization?.teams.map((team) => {
                     return (
                         <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
                             <span style={{ flexGrow: 1 }}>{team.name}</span>
@@ -97,7 +107,7 @@ export function _TopNavigation(): JSX.Element {
                                 className="settings"
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (team.id === user?.team.id) {
+                                    if (team.id === user?.team?.id) {
                                         push('/project/settings')
                                     } else {
                                         updateCurrentProject(team.id, '/project/settings')
@@ -140,6 +150,16 @@ export function _TopNavigation(): JSX.Element {
                         <IconMenu />
                     </div>
                     <div className="hide-lte-lg ml-05">
+                        {!isMobile() && (
+                            <Badge
+                                data-attr="command-palette-toggle"
+                                onClick={showPalette}
+                                tooltip={`Toggle command palette (${platformCommandControlKey('K')})`}
+                                icon={<SearchOutlined />}
+                                className="mr"
+                                type="primary"
+                            />
+                        )}
                         {!user?.is_multi_tenancy && (
                             <Badge
                                 type={systemStatus ? 'success' : 'danger'}
@@ -160,7 +180,7 @@ export function _TopNavigation(): JSX.Element {
                     <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter">
                         <div style={{ height: '100%' }} className="cursor-pointer flexed">
                             <ProjectOutlined className="mr-05" />
-                            {user?.team.name} <DownOutlined className="ml-05" />
+                            {user?.team?.name} <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
                 </div>
@@ -170,7 +190,7 @@ export function _TopNavigation(): JSX.Element {
                             <div className="pp">{user?.name[0]?.toUpperCase()}</div>
                             <div className="details hide-lte-lg">
                                 <span>{user?.name}</span>
-                                <span>{user?.organization.name}</span>
+                                <span>{user?.organization?.name}</span>
                             </div>
                         </div>
                     </Dropdown>

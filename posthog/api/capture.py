@@ -9,7 +9,6 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User

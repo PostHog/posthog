@@ -21,6 +21,7 @@
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly --https",
+        "start-docker": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack-dev-server --hotOnly --host 0.0.0.0",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
@@ -66,7 +67,7 @@
         "react-toastify": "^5.5.0",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
-        "rrweb": "^0.9.9",
+        "rrweb": "^0.9.11",
         "sass": "^1.26.2",
         "zxcvbn": "^4.4.2"
     },

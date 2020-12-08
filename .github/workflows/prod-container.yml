@@ -77,7 +77,7 @@ jobs:
                     "awsvpcConfiguration": {
                       "subnets": ["subnet-8738fde1"],
                       "securityGroups": ["sg-05a5f7e510b15473c"],
-                      "assignPublicIp": "DISABLED"
+                      "assignPublicIp": "ENABLED"
                     }}'
               env:
                   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

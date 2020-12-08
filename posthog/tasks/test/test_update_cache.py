@@ -6,7 +6,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.models import Dashboard, DashboardItem, Filter, Funnel
+from posthog.models import Dashboard, DashboardItem, Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
