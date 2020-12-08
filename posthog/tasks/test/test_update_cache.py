@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from typing import Union
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -68,7 +69,10 @@ class TestUpdateCache(BaseTest):
         self.assertEqual(cache.get(funnel_key)["result"][0]["count"], 0)
 
     def _test_refresh_dashboard_cache_types(
-        self, filter, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock
+        self,
+        filter: Union[Filter, RetentionFilter, StickinessFilter],
+        patch_update_cache_item: MagicMock,
+        patch_apply_async: MagicMock,
     ) -> None:
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
