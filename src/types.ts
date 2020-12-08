@@ -3,8 +3,18 @@ import { Redis } from 'ioredis'
 import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugins'
 import { VM, VMScript } from 'vm2'
 
+export enum LogLevel {
+    Debug = 'debug',
+    Info = 'info',
+    Log = 'log',
+    Warn = 'warn',
+    Error = 'error',
+    None = 'none',
+}
+
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number
+    TASKS_PER_WORKER: number
     CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string
     PLUGINS_CELERY_QUEUE: string
@@ -14,6 +24,7 @@ export interface PluginsServerConfig {
     DISABLE_WEB: boolean
     WEB_PORT: number
     WEB_HOSTNAME: string
+    LOG_LEVEL: LogLevel
 
     __jestMock?: {
         getPluginRows: Plugin[]
@@ -21,6 +32,7 @@ export interface PluginsServerConfig {
         getPluginAttachmentRows: PluginAttachmentDB[]
     }
 }
+export type PluginsServerConfigKey = Exclude<keyof PluginsServerConfig, '__jestMock'>
 
 export interface PluginsServer extends PluginsServerConfig {
     // active connections to postgres and redis

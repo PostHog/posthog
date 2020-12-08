@@ -2,6 +2,7 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import AdmZip from 'adm-zip'
 import * as zlib from 'zlib'
+import { LogLevel } from './types'
 
 /**
  * @param binary Buffer
@@ -93,4 +94,16 @@ export function getFileFromZip(archive: Buffer, file: string): string | null {
     }
 
     return null
+}
+
+export function setLogLevel(logLevel: LogLevel): void {
+    for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error', 'none']) {
+        if (loopLevel === logLevel) {
+            break
+        }
+        const originalFunction = (console as any)[loopLevel]._original || (console as any)[loopLevel]
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        ;(console as any)[loopLevel] = () => {}
+        ;(console as any)[loopLevel]._original = originalFunction
+    }
 }

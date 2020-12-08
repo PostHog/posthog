@@ -1,6 +1,6 @@
 import { runPlugins, setupPlugins } from '../src/plugins'
 import { createServer } from '../src/server'
-import { PluginsServer } from '../src/types'
+import { LogLevel, PluginsServer } from '../src/types'
 import { PluginEvent } from 'posthog-plugins/src/types'
 import {
     mockPluginTempFolder,
@@ -14,7 +14,7 @@ jest.mock('../src/sql')
 
 let mockServer: PluginsServer
 beforeEach(async () => {
-    ;[mockServer] = await createServer()
+    ;[mockServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
 })
 
 test('setupPlugins and runPlugins', async () => {
