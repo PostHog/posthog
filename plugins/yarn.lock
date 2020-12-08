@@ -562,10 +562,10 @@ posthog-js-lite@^0.0.5:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
 
-posthog-plugin-server@0.3.0:
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.3.0.tgz#1076a301d282d6221962a51e90aefb406ef657f2"
-  integrity sha512-FQiOlPE203cwCcQDpr8J+YAR9JMMd3DaudaNO8xvKCZyMvSGgfU4cWFV7FoCT1i9InRI0sDx1ns9QWzg05VGeA==
+posthog-plugin-server@0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.3.1.tgz#657608983ec756c8563ed3402c1c29dca88e16a9"
+  integrity sha512-eeUZn9TqzHx7Ommoq9lhEQGF1WSnPzBetb0AA9cmYIQViYBQCvio6XIHICxD1TeDqtQqDTwZAZzc/H1Zf4tjqg==
   dependencies:
     adm-zip "^0.4.16"
     fastify "^3.8.0"
