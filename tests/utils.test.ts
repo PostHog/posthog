@@ -1,4 +1,4 @@
-import { getFileFromTGZ, getFileFromZip, getFileFromArchive, bufferToStream } from '../utils'
+import { getFileFromTGZ, getFileFromZip, getFileFromArchive, bufferToStream } from '../src/utils'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =

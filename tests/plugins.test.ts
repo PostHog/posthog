@@ -1,6 +1,6 @@
-import { runPlugins, setupPlugins } from '../plugins'
-import { createServer } from '../server'
-import { PluginsServer } from '../types'
+import { runPlugins, setupPlugins } from '../src/plugins'
+import { createServer } from '../src/server'
+import { PluginsServer } from '../src/types'
 import { PluginEvent } from 'posthog-plugins/src/types'
 import {
     mockPluginTempFolder,
@@ -10,7 +10,7 @@ import {
     pluginConfig39,
 } from './helpers/plugins'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from './helpers/sqlMock'
-jest.mock('../sql')
+jest.mock('../src/sql')
 
 let mockServer: PluginsServer
 beforeEach(async () => {
