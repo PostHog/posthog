@@ -110,3 +110,17 @@ export function setLogLevel(logLevel: LogLevel): void {
         }
     }
 }
+
+export function cloneObject<T extends any | any[]>(obj: T): T {
+    if (obj !== Object(obj)) {
+        return obj
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(cloneObject) as T
+    }
+    const clone: Record<string, any> = {}
+    for (const i in obj) {
+        clone[i] = cloneObject(obj[i])
+    }
+    return clone as T
+}
