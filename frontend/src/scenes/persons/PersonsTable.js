@@ -5,8 +5,16 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
+import { PersonsTable as PersonsTableV2 } from './PersonsTableV2'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function PersonsTable({ people, loading, actions, onChange, cohort }) {
+export function PersonsTable(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['persons-2353'] ? <PersonsTableV2 {...props} /> : <PersonsTableV1 {...props} />
+}
+
+function PersonsTableV1({ people, loading, actions, onChange, cohort }) {
     let columns = [
         {
             title: 'Person',

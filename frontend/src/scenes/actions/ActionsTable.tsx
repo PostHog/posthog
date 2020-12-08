@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Table } from 'antd'
+import { Input, Radio, Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
-import { DeleteWithUndo } from 'lib/utils'
+import { DeleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
@@ -11,17 +11,33 @@ import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
 import { Created } from 'lib/components/Created'
+import { ActionType } from '~/types'
+import Fuse from 'fuse.js'
+import { userLogic } from 'scenes/userLogic'
 
-export function ActionsTable() {
+const searchActions = (sources: ActionType[], search: string): ActionType[] => {
+    return new Fuse(sources, {
+        keys: ['name', 'url'],
+        threshold: 0.3,
+    })
+        .search(search)
+        .map((result) => result.item)
+}
+
+export function ActionsTable(): JSX.Element {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
+    const [searchTerm, setSearchTerm] = useState(false)
+    const [filterByMe, setFilterByMe] = useState(false)
+    const { user } = useValues(userLogic)
 
-    let columns = [
+    const columns = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(_, action, index) {
+            sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
+            render: function RenderName(_, action: ActionType, index: number) {
                 return (
                     <Link
                         data-attr={'action-link-' + index}
@@ -36,34 +52,53 @@ export function ActionsTable() {
             ? [
                   {
                       title: 'Volume',
-                      render: function RenderVolume(_, action) {
+                      render: function RenderVolume(_, action: ActionType) {
                           return <span>{action.count}</span>
                       },
+                      sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
                   },
               ]
             : []),
         {
             title: 'Type',
-            render: function RenderType(_, action) {
+            render: function RenderType(_, action: ActionType) {
                 return (
                     <span>
-                        {action.steps.map((step) => (
+                        {action.steps?.map((step) => (
                             <div key={step.id}>
                                 {(() => {
+                                    let url = stripHTTP(step.url || '')
+                                    url = url.slice(0, 40) + (url.length > 40 ? '...' : '')
                                     switch (step.event) {
                                         case '$autocapture':
                                             return 'Autocapture'
                                         case '$pageview':
                                             switch (step.url_matching) {
                                                 case 'regex':
-                                                    return 'Page view URL matches regex'
+                                                    return (
+                                                        <>
+                                                            Page view URL matches regex <strong>{url}</strong>
+                                                        </>
+                                                    )
                                                 case 'exact':
-                                                    return 'Page view URL matches exactly'
+                                                    return (
+                                                        <>
+                                                            Page view URL matches exactly <strong>{url}</strong>
+                                                        </>
+                                                    )
                                                 default:
-                                                    return 'Page view URL contains'
+                                                    return (
+                                                        <>
+                                                            Page view URL contains <strong>{url}</strong>
+                                                        </>
+                                                    )
                                             }
                                         default:
-                                            return 'Event: ' + step.event
+                                            return (
+                                                <>
+                                                    Event: <strong>{step.event}</strong>
+                                                </>
+                                            )
                                     }
                                 })()}
                             </div>
@@ -74,7 +109,7 @@ export function ActionsTable() {
         },
         {
             title: 'Created by',
-            render: function RenderCreatedBy(_, action) {
+            render: function RenderCreatedBy(_, action: ActionType) {
                 if (!action.created_by) {
                     return 'Unknown'
                 }
@@ -83,16 +118,17 @@ export function ActionsTable() {
         },
         {
             title: 'Created',
-            render: function RenderCreatedAt(_, action) {
+            render: function RenderCreatedAt(_, action: ActionType) {
                 return <Created timestamp={action.created_at} />
             },
+            sorter: (a: ActionType, b: ActionType) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
         },
         {
             title: '',
-            render: function RenderActions(action) {
+            render: function RenderActions(action: ActionType) {
                 return (
                     <span>
-                        <Link to={'/action/' + action.id}>
+                        <Link to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}>
                             <EditOutlined />
                         </Link>
                         <DeleteWithUndo
@@ -109,6 +145,13 @@ export function ActionsTable() {
             },
         },
     ]
+    let data = actions
+    if (searchTerm) {
+        data = searchActions(data, searchTerm)
+    }
+    if (filterByMe) {
+        data = data.filter((item) => item.created_by?.id === user?.id)
+    }
 
     return (
         <div>
@@ -154,9 +197,24 @@ export function ActionsTable() {
                 </div>
             </div>
 
-            <div className="mb text-right">
+            <Input.Search
+                allowClear
+                enterButton
+                autoFocus
+                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
+                onChange={(e) => {
+                    setSearchTerm(e.target.value)
+                }}
+            />
+            <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                <Radio.Button value={false}>All actions</Radio.Button>
+                <Radio.Button value={true}>My actions</Radio.Button>
+            </Radio.Group>
+
+            <div className="mb float-right">
                 <NewActionButton />
             </div>
+            <br />
             <Table
                 size="small"
                 columns={columns}
@@ -164,7 +222,7 @@ export function ActionsTable() {
                 rowKey="id"
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 data-attr="actions-table"
-                dataSource={actions}
+                dataSource={data}
                 locale={{ emptyText: 'The first step to standardized analytics is creating your first action.' }}
             />
         </div>

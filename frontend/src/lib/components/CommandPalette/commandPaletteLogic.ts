@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
+import { debugCHQueries } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -590,6 +591,23 @@ export const commandPaletteLogic = kea<
                 ],
             }
 
+            const debugClickhouseQueries: Command = {
+                key: 'debug-clickhouse-queries',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver:
+                    userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_debug ||
+                    userLogic.values.user?.is_impersonated
+                        ? {
+                              icon: PlusOutlined,
+                              display: 'Debug ClickHouse Queries',
+                              executor: () => {
+                                  debugCHQueries()
+                              },
+                          }
+                        : [],
+            }
+
             const calculator: Command = {
                 key: 'calculator',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -761,6 +779,7 @@ export const commandPaletteLogic = kea<
 
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
+            actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
             actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
@@ -769,6 +788,7 @@ export const commandPaletteLogic = kea<
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
             actions.deregisterCommand('open-urls')
+            actions.deregisterCommand('debug-clickhouse-queries')
             actions.deregisterCommand('calculator')
             actions.deregisterCommand('create-personal-api-key')
             actions.deregisterCommand('create-dashboard')

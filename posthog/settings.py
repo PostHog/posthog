@@ -249,6 +249,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
     EE_AVAILABLE = True
 
 # Use django-extensions if it exists
