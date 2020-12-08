@@ -14,6 +14,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers
 
 from posthog.auth import authenticate_secondarily
@@ -148,6 +149,9 @@ def user(request):
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": user.ee_available,
             "email_service_available": is_email_available(with_absolute_urls=True),
+            "is_debug": getattr(settings, "DEBUG", False),
+            "is_staff": user.is_staff,
+            "is_impersonated": is_impersonated_session(request),
             "plugin_access": {"install": can_install_plugins_via_api(), "configure": can_configure_plugins_via_api()},
         }
     )

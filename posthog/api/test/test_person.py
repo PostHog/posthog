@@ -15,15 +15,25 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
             )
             person_factory(
-                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+                team=self.team,
+                distinct_ids=["distinct_id_2"],
+                properties={"email": "another@gmail.com", "name": "james"},
             )
-            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={"name": "jane"})
 
             response = self.client.get("/api/person/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 
             response = self.client.get("/api/person/?search=another@gm")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 1)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:invalid_property")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 0)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:name")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
 
@@ -103,7 +113,10 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
         def test_filter_person_list(self):
 
             person1: Person = person_factory(
-                team=self.team, distinct_ids=["distinct_id", "another_one"], properties={"email": "someone@gmail.com"},
+                team=self.team,
+                distinct_ids=["distinct_id", "another_one"],
+                properties={"email": "someone@gmail.com"},
+                is_identified=True,
             )
             person2: Person = person_factory(
                 team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
@@ -114,6 +127,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["id"], person1.pk)
+            self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
             response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -184,7 +198,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             # all
             response = self.client.get(
-                "/api/person"
+                "/api/person",
             )  # Make sure the endpoint works with and without the trailing slash
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 3)
@@ -206,6 +220,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["id"], person_anonymous.id)
+            self.assertEqual(response.json()["results"][0]["is_identified"], False)
 
             # identified
             response = self.client.get("/api/person/?is_identified=true")
@@ -213,6 +228,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(len(response.json()["results"]), 2)
             self.assertEqual(response.json()["results"][0]["id"], person_identified_using_event.id)
             self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
+            self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
         def test_delete_person(self):
             person = person_factory(

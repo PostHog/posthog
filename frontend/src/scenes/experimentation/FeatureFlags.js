@@ -40,7 +40,7 @@ function _FeatureFlags() {
                     </Tooltip>
                 )
             },
-            sorter: (a, b) => a.created_at > b.created_at,
+            sorter: (a, b) => (new Date(a.created_at) > new Date(b.created_at) ? 1 : -1),
         },
         {
             title: 'Created by',
