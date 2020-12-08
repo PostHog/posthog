@@ -172,7 +172,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 const eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${eventTag}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
 
                 if (event.event[0] != '$') {
-                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22name%22%3A%22%24${eventTag}%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+                    eventLink = `insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22${eventTag}%22%2C%22name%22%3A%22Order%20Completed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&new_entity=%5B%5D`
                 }
                 return (
                     <Link to={eventLink} data-attr="events-table-usage">
