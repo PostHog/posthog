@@ -36,6 +36,7 @@ import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { RetentionLineGraph } from 'scenes/retention/RetentionLineGraph'
+import { dashboardsModel } from '~/models'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -140,7 +141,6 @@ export function DashboardItem({
     renameDashboardItem,
     duplicateDashboardItem,
     isDraggingRef,
-    dashboards,
     inSharedMode,
     enableWobblyDragging,
     index,
@@ -148,12 +148,14 @@ export function DashboardItem({
     onRefresh,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
-    const className = typeMap[item.type].className
-    const Element = typeMap[item.type].element
-    const Icon = typeMap[item.type].icon
-    const viewText = typeMap[item.type].viewText
-    const link = typeMap[item.type].link(item)
+    const type = item.filters.insight || ViewType.TRENDS
+    const className = typeMap[type].className
+    const Element = typeMap[type].element
+    const Icon = typeMap[type].icon
+    const viewText = typeMap[type].viewText
+    const link = typeMap[type].link(item)
     const color = item.color || 'white'
+    const { dashboards } = useValues(dashboardsModel)
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(enableWobblyDragging, {

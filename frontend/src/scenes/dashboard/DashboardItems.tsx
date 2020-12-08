@@ -1,18 +1,17 @@
 import './DashboardItems.scss'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardItemType } from '~/types'
 
 const ReactGridLayout = WidthProvider(Responsive)
-const noop = () => {}
+const noop = (): void => {}
 
-export function DashboardItems({ logic, inSharedMode }) {
-    const { dashboards } = useValues(dashboardsModel)
+export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inSharedMode: boolean }): JSX.Element {
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(logic)
     const {
         loadDashboardItems,
@@ -83,7 +82,7 @@ export function DashboardItems({ logic, inSharedMode }) {
             }}
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
-            {items.map((item, index) => (
+            {items.map((item: DashboardItemType, index: number) => (
                 <div key={item.id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.id}
@@ -97,7 +96,6 @@ export function DashboardItems({ logic, inSharedMode }) {
                         duplicateDashboardItem={duplicateDashboardItem}
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
-                        dashboards={dashboards}
                         inSharedMode={inSharedMode}
                         enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
                         index={index}
