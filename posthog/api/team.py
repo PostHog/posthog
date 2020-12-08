@@ -125,4 +125,9 @@ class TeamViewSet(viewsets.ModelViewSet):
 
 
 class TeamSignupViewset(OrganizationSignupViewset):
+    """
+    DEPRECATED: Only for transition purposes to support posthog-production repo. May be removed after
+    https://github.com/PostHog/posthog-production/pull/54 is merged.
+    """
+
     pass
