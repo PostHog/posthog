@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 from time import time
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import sqlparse
 from aioch import Client
@@ -10,6 +10,9 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
+from django.core.cache import cache
+from django.utils.timezone import now
+from sentry_sdk.api import capture_exception
 
 from posthog import redis
 from posthog.settings import (
@@ -27,6 +30,7 @@ from posthog.settings import (
 
 CACHE_TTL = 60  # seconds
 
+_save_query_user_id = False
 
 if PRIMARY_DB != CLICKHOUSE:
     ch_client = None  # type: Client
@@ -106,6 +110,8 @@ else:
             if settings.SHELL_PLUS_PRINT_SQL:
                 print(format_sql(query, args))
                 print("Execution time: %.6fs" % (execution_time,))
+            if _save_query_user_id:
+                save_query(query, args, execution_time)
         return result
 
 
@@ -141,3 +147,20 @@ def format_sql(sql, params):
         pass
 
     return sql
+
+
+def save_query(sql: str, params: Dict, execution_time: float) -> None:
+    """
+    Save query for debugging purposes
+    """
+
+    try:
+        key = "save_query_{}".format(_save_query_user_id)
+        queries = json.loads(cache.get(key) or "[]")
+
+        queries.insert(
+            0, {"timestamp": now().isoformat(), "query": format_sql(sql, params), "execution_time": execution_time}
+        )
+        cache.set(key, json.dumps(queries), timeout=120)
+    except Exception as e:
+        capture_exception(e)

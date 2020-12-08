@@ -14,6 +14,7 @@ from django.template.loader import render_to_string
 from django.urls import include, path, re_path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
+from loginas.utils import is_impersonated_session, restore_original_login
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -254,6 +255,11 @@ def logout(request):
         request.user.temporary_token = None
         request.user.save()
 
+    if is_impersonated_session(request):
+        restore_original_login(request)
+        return redirect("/")
+
+    restore_original_login(request)
     response = auth_views.logout_then_login(request)
     response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
 

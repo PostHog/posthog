@@ -6,12 +6,19 @@ import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonsV2 } from './PersonsV2'
 import { CohortType } from '~/types'
 
 const { TabPane } = Tabs
 
 export const Persons = hot(_Persons)
 function _Persons({ cohort }: { cohort: CohortType }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['persons-2353'] ? <PersonsV2 cohort={cohort} /> : <PersonsV1 cohort={cohort} />
+}
+
+function PersonsV1({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('') // Not on Kea because it's a component-specific store & to avoid changing the URL on every keystroke

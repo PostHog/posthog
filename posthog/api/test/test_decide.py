@@ -1,6 +1,5 @@
 import base64
 import json
-from unittest.mock import patch
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
 
@@ -90,7 +89,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
         response = self._post_decide(origin="https://example.com")
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]

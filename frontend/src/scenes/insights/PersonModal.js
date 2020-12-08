@@ -21,7 +21,7 @@ export function PersonModal({ visible, view }) {
             onOk={closeModal}
             onCancel={closeModal}
             footer={<Button onClick={closeModal}>Close</Button>}
-            width={700}
+            width={800}
         >
             {people ? (
                 <p>

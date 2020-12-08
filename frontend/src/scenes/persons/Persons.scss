@@ -1,0 +1,26 @@
+@import '~/vars';
+
+.persons-table {
+    .user-email {
+        display: flex;
+        align-items: center;
+
+        svg {
+            height: 18px;
+        }
+
+        &.anonymous {
+            color: $text_muted;
+            svg {
+                color: $purple_300;
+            }
+        }
+
+        &.identified {
+            color: $text_default;
+            svg {
+                color: $purple_700;
+            }
+        }
+    }
+}
