@@ -131,7 +131,7 @@ export default class RedisBroker {
                 Promise.resolve()
             })
             .then(() => this.receive(index, resolve, queue, callback))
-            .catch((err) => console.log(err))
+            .catch((err) => console.error(err))
     }
 
     /**

@@ -15,8 +15,6 @@ if (isMainThread) {
         },
     }
 } else {
-    console.log('🧵 Starting Piscina Worker Thread')
-
     if (areWeTestingWithJest()) {
         require('ts-node').register()
     }
