@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.constants import TRENDS_LINEAR
 from posthog.models import Dashboard, DashboardItem, Filter
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import BaseTest
@@ -28,9 +29,11 @@ class TestUpdateCache(BaseTest):
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
-        item = DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
+        item = DashboardItem.objects.create(
+            dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team, type=TRENDS_LINEAR
+        )
         funnel_item = DashboardItem.objects.create(
-            dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team
+            dashboard=shared_dashboard, filters=funnel_filter.to_dict(), team=self.team, type=TRENDS_LINEAR
         )
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
@@ -38,6 +41,7 @@ class TestUpdateCache(BaseTest):
             dashboard=dashboard_to_cache,
             filters=Filter(data={"events": [{"id": "cache this"}]}).to_dict(),
             team=self.team,
+            type=TRENDS_LINEAR,
         )
 
         dashboard_do_not_cache = Dashboard.objects.create(
@@ -47,6 +51,7 @@ class TestUpdateCache(BaseTest):
             dashboard=dashboard_do_not_cache,
             filters=Filter(data={"events": [{"id": "do not cache this"}]}).to_dict(),
             team=self.team,
+            type=TRENDS_LINEAR,
         )
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))

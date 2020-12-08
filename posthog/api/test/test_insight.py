@@ -6,6 +6,7 @@ from django.test.utils import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.constants import TRENDS_LINEAR
 from posthog.ee import is_ee_enabled
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
@@ -28,11 +29,11 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user, type=TRENDS_LINEAR
             )
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, type=TRENDS_LINEAR)
 
             response = self.client.get("/api/insight/", data={"user": "true"}).json()
 
@@ -45,16 +46,20 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
+                type=TRENDS_LINEAR,
             )
 
             # create without saved
             DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user, type=TRENDS_LINEAR
             )
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, type=TRENDS_LINEAR)
 
             response = self.client.get("/api/insight/", data={"saved": "true", "user": "true",},).json()
 

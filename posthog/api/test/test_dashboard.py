@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.constants import TRENDS_LINEAR
 from posthog.models import Dashboard, DashboardItem, Filter, User
 from posthog.test.base import BaseTest, TransactionBaseTest
 from posthog.utils import generate_cache_key
@@ -62,10 +63,10 @@ class TestDashboard(TransactionBaseTest):
         }
         filter = Filter(data=filter_dict)
 
-        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        DashboardItem.objects.create(
-            dashboard=dashboard, filters=filter.to_dict(), team=self.team,
+        item = DashboardItem.objects.create(
+            dashboard=dashboard, filters=filter_dict, team=self.team, type=TRENDS_LINEAR,
         )
+        DashboardItem.objects.create(dashboard=dashboard, filters=filter.to_dict(), team=self.team, type=TRENDS_LINEAR)
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(response["items"][0]["result"], None)
 
@@ -94,7 +95,11 @@ class TestDashboard(TransactionBaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item = DashboardItem.objects.create(
-                dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
+                dashboard=dashboard,
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                last_refresh=now(),
+                type=TRENDS_LINEAR,
             )
 
         with freeze_time("2020-01-20T13:00:01Z"):
@@ -149,7 +154,9 @@ class TestDashboard(TransactionBaseTest):
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
 
-        item = DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+        item = DashboardItem.objects.create(
+            filters={"hello": "test"}, team=self.team, created_by=test_user, type=TRENDS_LINEAR
+        )
 
         # Make sure the endpoint works with and without the trailing slash
         self.client.post(

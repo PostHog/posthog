@@ -5,6 +5,7 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.constants import TRENDS_LINEAR
 from posthog.models import Annotation, Dashboard, DashboardItem, Team, User
 from posthog.test.base import APIBaseTest, BaseTest
 
@@ -29,7 +30,11 @@ class TestAnnotation(BaseTest):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
 
         dashboardItem = DashboardItem.objects.create(
-            team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=timezone.now(),
+            team=self.team,
+            dashboard=dashboard,
+            name="Pageviews this week",
+            last_refresh=timezone.now(),
+            type=TRENDS_LINEAR,
         )
         Annotation.objects.create(
             team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,

@@ -2,6 +2,7 @@ from typing import Callable
 
 from freezegun import freeze_time
 
+from posthog.constants import TRENDS_LINEAR
 from posthog.models import DashboardItem, Event
 from posthog.models.team import Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
@@ -23,6 +24,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
                     },
+                    type=TRENDS_LINEAR,
                 )
                 create_event(
                     distinct_id="test",
@@ -37,6 +39,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
                     },
+                    type=TRENDS_LINEAR,
                 )
                 DashboardItem.objects.create(
                     team=self.team,
@@ -44,14 +47,18 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
                     },
+                    type=TRENDS_LINEAR,
                 )
                 DashboardItem.objects.create(
                     team=self.team,
                     filters={"events": [{"id": "custom event"}], "properties": [{"key": "team_id", "value": "3"}]},
+                    type=TRENDS_LINEAR,
                 )
-                DashboardItem.objects.create(team=self.team, filters={"events": [{"id": "event that doesnt exist"}]})
+                DashboardItem.objects.create(
+                    team=self.team, filters={"events": [{"id": "event that doesnt exist"}]}, type=TRENDS_LINEAR
+                )
                 # broken dashboard item
-                DashboardItem.objects.create(team=self.team, filters={})
+                DashboardItem.objects.create(team=self.team, filters={}, type=TRENDS_LINEAR)
                 create_event(
                     distinct_id="test",
                     team=self.team,
@@ -75,6 +82,7 @@ def test_calculate_event_property_usage(create_event: Callable) -> Callable:
                 )
                 DashboardItem.objects.create(
                     team=team2,
+                    type=TRENDS_LINEAR,
                     filters={
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
