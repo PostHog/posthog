@@ -48,7 +48,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: 5,
+                            colSpan: 6,
                             style: {
                                 cursor: 'pointer',
                             },
