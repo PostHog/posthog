@@ -25,6 +25,7 @@ export interface PluginsServerConfig {
         getPluginAttachmentRows: PluginAttachmentDB[]
     }
 }
+export type PluginsServerConfigKey = Exclude<keyof PluginsServerConfig, '__jestMock'>
 
 export interface PluginsServer extends PluginsServerConfig {
     // active connections to postgres and redis
