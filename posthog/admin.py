@@ -9,7 +9,6 @@ from posthog.models import (
     Element,
     Event,
     FeatureFlag,
-    Funnel,
     Person,
     Team,
     User,
@@ -19,7 +18,6 @@ admin.site.register(Team)
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(FeatureFlag)
-admin.site.register(Funnel)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(DashboardItem)
