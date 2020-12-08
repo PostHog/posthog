@@ -27,6 +27,8 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
+from posthog.constants import DatabaseType
+
 
 def get_env(key):
     try:
@@ -140,23 +142,12 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
-
-LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
-
-KAFKA_HOSTS_LIST = []
-for host in KAFKA_URL.split(","):
-    url = urlparse(host)
-    KAFKA_HOSTS_LIST.append(url.netloc)
-KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-
+KAFKA_HOSTS = ",".join((urlparse(host).netloc for host in KAFKA_URL.split(",")))
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
-
-POSTGRES = "postgres"
-CLICKHOUSE = "clickhouse"
-
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+PRIMARY_DB = os.environ.get("PRIMARY_DB", DatabaseType.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 try:
@@ -167,7 +158,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     EE_AVAILABLE = True
 
-EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == CLICKHOUSE
+EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == DatabaseType.CLICKHOUSE
 
 if EE_ENABLED:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
