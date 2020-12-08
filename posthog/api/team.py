@@ -14,6 +14,8 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
 )
 
+from .organization import OrganizationSignupViewset
+
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
@@ -120,3 +122,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         team.api_token = generate_random_token()
         team.save()
         return response.Response(TeamSerializer(team).data)
+
+
+class TeamSignupViewset(OrganizationSignupViewset):
+    pass
