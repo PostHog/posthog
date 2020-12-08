@@ -1,11 +1,11 @@
-import { defaultConfig } from '../../server'
-import { makePiscina } from '../piscina'
+import { defaultConfig } from '../src/server'
+import { makePiscina } from '../src/worker/piscina'
 import { PluginEvent } from 'posthog-plugins/src/types'
 import { performance } from 'perf_hooks'
-import { mockJestWithIndex } from '../../__tests__/helpers/plugins'
+import { mockJestWithIndex } from './helpers/plugins'
 import * as os from 'os'
 
-jest.mock('../../sql')
+jest.mock('../src/sql')
 jest.setTimeout(300000) // 300 sec timeout
 
 function processOneEvent(processEvent: (event: PluginEvent) => Promise<PluginEvent>): Promise<PluginEvent> {
