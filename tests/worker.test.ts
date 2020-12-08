@@ -61,7 +61,6 @@ function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
 }
 
 test('piscina worker test', async () => {
-    const testName = ''
     const coreCount = os.cpus().length
 
     const workers = [1, 2, 4, 8].filter((cores) => cores <= coreCount)
