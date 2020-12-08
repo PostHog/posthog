@@ -14,7 +14,7 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
 )
 
-from .organization import OrganizationSignupViewset
+from .organization import OrganizationSignupSerializer, OrganizationSignupViewset
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -125,6 +125,15 @@ class TeamViewSet(viewsets.ModelViewSet):
 
 
 class TeamSignupViewset(OrganizationSignupViewset):
+    """
+    DEPRECATED: Only for transition purposes to support posthog-production repo. May be removed after
+    https://github.com/PostHog/posthog-production/pull/54 is merged.
+    """
+
+    pass
+
+
+class TeamSignupSerializer(OrganizationSignupSerializer):
     """
     DEPRECATED: Only for transition purposes to support posthog-production repo. May be removed after
     https://github.com/PostHog/posthog-production/pull/54 is merged.
