@@ -1,6 +1,6 @@
 {
     "name": "posthog-plugin-server",
-    "version": "0.2.0",
+    "version": "0.3.1",
     "description": "PostHog Plugin Server",
     "types": "dist/src/index.d.ts",
     "main": "dist/src/index.js",
@@ -20,7 +20,7 @@
         "task:db-init": "ts-node ./tasks/db-init.ts"
     },
     "bin": {
-        "posthog-plugin-server": "./bin/posthog-plugin-server"
+        "posthog-plugin-server": "bin/posthog-plugin-server"
     },
     "author": "Marius Andra <marius.andra@gmail.com>",
     "repository": "https://github.com/PostHog/posthog-plugin-server",
