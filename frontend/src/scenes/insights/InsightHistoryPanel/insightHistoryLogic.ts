@@ -161,10 +161,11 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             })
             actions.loadInsights()
         },
-        saveInsight: async ({ insight: { id }, name }) => {
+        saveInsight: async ({ insight: { id, type }, name }) => {
             await api.update(`api/insight/${id}`, {
                 name,
                 saved: true,
+                type,
             })
             actions.loadInsights()
             actions.loadSavedInsights()

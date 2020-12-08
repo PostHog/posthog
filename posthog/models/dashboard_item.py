@@ -18,7 +18,7 @@ class DashboardItem(models.Model):
     filters: JSONField = JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
-    type: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    type: models.CharField = models.CharField(max_length=400)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, auto_now_add=True)

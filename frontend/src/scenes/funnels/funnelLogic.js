@@ -147,6 +147,7 @@ export const funnelLogic = kea({
                 filters: values.filters,
                 name,
                 saved: true,
+                type: 'FunnelViz',
             })
         },
         clearFunnel: async () => {
