@@ -203,6 +203,7 @@ AXES_META_PRECEDENCE_ORDER = [
 # Application definition
 
 INSTALLED_APPS = [
+    "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -492,6 +493,14 @@ if TEST:
 
     celery.current_app.conf.CELERY_ALWAYS_EAGER = True
     celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+
+
+def add_recorder_js_headers(headers, path, url):
+    if url.endswith("/recorder.js"):
+        headers["Cache-Control"] = "max-age=31536000, public"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if DEBUG and not TEST:
     print_warning(
