@@ -1,4 +1,11 @@
-import { getFileFromTGZ, getFileFromZip, getFileFromArchive, bufferToStream, setLogLevel } from '../src/utils'
+import {
+    getFileFromTGZ,
+    getFileFromZip,
+    getFileFromArchive,
+    bufferToStream,
+    setLogLevel,
+    cloneObject,
+} from '../src/utils'
 import { LogLevel } from '../src/types'
 
 // .zip in Base64: github repo posthog/helloworldplugin
@@ -143,4 +150,28 @@ test('setLogLevel', async () => {
     expect((console.log as any)._original).toBeDefined()
     expect((console.warn as any)._original).toBeDefined()
     expect((console.error as any)._original).toBeDefined()
+})
+
+test('cloneObject', async () => {
+    const o1 = ['string', 'value']
+    expect(cloneObject(o1)).toEqual(o1)
+    expect(cloneObject(o1) === o1).toBe(false)
+
+    const o2 = { key: 'value' }
+    expect(cloneObject(o2)).toEqual(o2)
+    expect(cloneObject(o2) === o2).toBe(false)
+
+    const o3 = { key: 'value', nested: ['a1', 'a2'], nestedObj: { key: 'other' } }
+    expect(cloneObject(o3)).toEqual(o3)
+    expect(cloneObject(o3) === o3).toBe(false)
+    expect((cloneObject(o3) as typeof o3).nested === o3.nested).toBe(false)
+    expect((cloneObject(o3) as typeof o3).nestedObj === o3.nestedObj).toBe(false)
+
+    const o4 = null
+    expect(cloneObject(o4)).toEqual(o4)
+    expect(cloneObject(o4) === o4).toBe(true)
+
+    const o5 = 'string'
+    expect(cloneObject(o5)).toEqual(o5)
+    expect(cloneObject(o5) === o5).toBe(true)
 })
