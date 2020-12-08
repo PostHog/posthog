@@ -96,7 +96,7 @@ export function getFileFromZip(archive: Buffer, file: string): string | null {
     return null
 }
 
-export function setLogLevel(logLevel: LogLevel) {
+export function setLogLevel(logLevel: LogLevel): void {
     for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error', 'none']) {
         if (loopLevel === logLevel) {
             break
