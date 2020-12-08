@@ -64,7 +64,7 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "editorParams": {},
         "isAuthenticated": False,
-        "supportedCompression": ["gzip", "lz64"],
+        "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
 
     if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME):
