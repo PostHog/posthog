@@ -3,7 +3,9 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
+from django.db.models.query_utils import Q
 from django.http import HttpRequest
+from django.utils import timezone
 
 from posthog.constants import (
     PERIOD,
@@ -16,6 +18,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
+from posthog.utils import relative_date_parse
 
 RETENTION_DEFAULT_INTERVALS = 11
 
@@ -28,7 +31,6 @@ class RetentionFilter(Filter):
     period_increment: Union[timedelta, relativedelta] = timedelta(days=1)
     total_increment: Union[timedelta, relativedelta] = timedelta(days=total_intervals)
     selected_interval: int = 0
-    date_from: datetime.datetime
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request)
@@ -43,28 +45,61 @@ class RetentionFilter(Filter):
         self.retention_type = data.get(RETENTION_TYPE, self.retention_type)
         self.total_intervals = data.get(TOTAL_INTERVALS, self.total_intervals)
         self.selected_interval = int(data.get(SELECTED_INTERVAL, 0))
-
-        if not self.date_from:
-            self._date_from = "-11d"
-
         tdelta, t1 = RetentionFilter.determine_time_delta(self.total_intervals, self.period)
-        if not self.date_to:
-            self._date_to = (self.date_to + t1).isoformat()
+
+        self.period_increment = t1
+        self.total_increment = tdelta
+
+    @property
+    def date_from(self):
+        date_from = super().date_from
+        date_to = self.date_to
+        if not date_from:
+            date_from = relative_date_parse("-11d")
 
         if self.period == "Hour":
-            date_to = self.date_to
-            date_from: datetime.datetime = date_to - tdelta
+            date_from: datetime.datetime = date_to - self.total_increment
         elif self.period == "Week":
-            date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_to - tdelta
+            date_from = date_to - self.total_increment
             date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
         else:
-            date_to = self.date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_to - tdelta
+            date_from = date_to - self.total_increment
 
-        self._date_from = date_from.isoformat()
-        self._date_to = date_to.isoformat()
-        self.period_increment = t1
+        return date_from
+
+    @property
+    def people_date_filter_to_Q(self):
+        date_from = self.date_from + self.selected_interval * self.period_increment
+        date_to = date_from + self.period_increment
+        if self._date_from == "all":
+            return Q()
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(timestamp__gte=date_from)
+        if date_to:
+            filter &= Q(timestamp__lte=date_to)
+        return filter
+
+    def people_reference_date_filter_to_Q(self, field: str = "timestamp"):
+        date_from = self.date_from
+        date_to = self.date_from + self.period_increment
+        if self._date_from == "all":
+            return Q()
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(**{"{}__gte".format(field): date_from})
+        if date_to:
+            filter &= Q(**{"{}__lte".format(field): date_to})
+        return filter
+
+    @property
+    def date_to(self):
+        date_to = super().date_to + self.period_increment
+
+        if self.period == "Hour":
+            return date_to
+        else:
+            return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property
     def returning_entity(self) -> Entity:

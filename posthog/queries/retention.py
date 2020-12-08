@@ -214,18 +214,7 @@ class Retention(BaseQuery):
 
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
-        reference_date_from = filter.date_from
-        reference_date_to = filter.date_from + filter.period_increment
-        date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = date_from + filter.period_increment
-
-        filter._date_from = date_from.isoformat()
-        filter._date_to = date_to.isoformat()
-
-        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
-
-        filter._date_from = reference_date_from.isoformat()
-        filter._date_to = reference_date_to.isoformat()
+        filtered_events = events.filter(filter.people_date_filter_to_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
@@ -235,11 +224,11 @@ class Retention(BaseQuery):
             .filter(entity_condition)
             .values("person_id")
             .annotate(first_date=Min(trunc))
-            .filter(filter.custom_date_filter_Q("first_date"))
+            .filter(filter.people_reference_date_filter_to_Q("first_date"))
             .distinct()
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
-            .filter(filter.date_filter_Q)
+            .filter(filter.people_reference_date_filter_to_Q())
             .filter(filter.properties_to_Q(team_id=team.pk))
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
