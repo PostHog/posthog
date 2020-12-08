@@ -169,11 +169,13 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                     return { props: { colSpan: 0 } }
                 }
                 const eventTag = event.event[0] == '$' ? event.event.slice(1) : event.event
+                const eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${eventTag}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+
+                if (event.event[0] != '$') {
+                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22name%22%3A%22%24${eventTag}%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+                }
                 return (
-                    <Link
-                        to={`/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${eventTag}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`}
-                        data-attr="events-table-usage"
-                    >
+                    <Link to={eventLink} data-attr="events-table-usage">
                         Insights <ExportOutlined />
                     </Link>
                 )
