@@ -52,20 +52,18 @@ class RetentionFilter(Filter):
 
     @property
     def date_from(self):
-        date_from = super().date_from
+        _date_from = super().date_from
         date_to = self.date_to
-        if not date_from:
-            date_from = relative_date_parse("-11d")
+        if not _date_from:
+            _date_from = relative_date_parse("-11d")
 
-        if self.period == "Hour":
-            date_from: datetime.datetime = date_to - self.total_increment
-        elif self.period == "Week":
-            date_from = date_to - self.total_increment
-            date_from = date_from - timedelta(days=date_from.isoweekday() % 7)
+        if self.period == "Week":
+            _date_from = date_to - self.total_increment
+            _date_from = _date_from - timedelta(days=_date_from.isoweekday() % 7)  # type: ignore
         else:
-            date_from = date_to - self.total_increment
+            _date_from = date_to - self.total_increment
 
-        return date_from
+        return _date_from
 
     @property
     def people_date_filter_to_Q(self):
