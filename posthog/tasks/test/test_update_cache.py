@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -71,11 +72,20 @@ class TestUpdateCache(BaseTest):
     ) -> None:
 
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
-        trend_to_cache = DashboardItem.objects.create(
-            dashboard=dashboard_to_cache,
-            filters=Filter(data={"insight": "TRENDS", "events": [{"id": "cache this"}]}).to_dict(),
-            team=self.team,
-        )
+        for i in range(10):
+
+            trend_to_cache = DashboardItem.objects.create(
+                dashboard=dashboard_to_cache,
+                filters=Filter(data={"insight": "TRENDS", "events": [{"id": "cache this {}".format(i)}]}).to_dict(),
+                team=self.team,
+                last_refresh=now() - timedelta(days=i),
+            )
+        # retention_to_cache = DashboardItem.objects.create(
+        #     dashboard=dashboard_to_cache,
+        #     filters=Filter(data={"insight": "RETENTION", "events": [{"id": "cache this"}]}).to_dict(),
+        #     team=self.team,
+        #     last_refresh=now()
+        # )
         update_cached_items()
         for call_item in patch_update_cache_item.call_args_list:
             print(*call_item[0])

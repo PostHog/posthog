@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
-from django.db.models.expressions import F
+from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
@@ -70,12 +70,9 @@ def update_cached_items() -> None:
         .distinct("filters_hash")
     )
 
-    for item in (
-        items.filter(filters__isnull=False)
-        .exclude(filters={})
-        .order_by("filters", "last_refresh")
-        .distinct("filters")[0:PARALLEL_DASHBOARD_ITEM_CACHE]
-    ):
+    for item in DashboardItem.objects.filter(
+        pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
+    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
         filter = Filter(data=item.filters)
         cache_type = get_cache_type(filter)
         team = Team(pk=item.team_id)
