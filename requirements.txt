@@ -23,6 +23,7 @@ defusedxml==0.6.0         # via -r requirements.in, python3-openid, social-auth-
 dj-database-url==0.5.0    # via -r requirements.in
 django-axes==5.9.0        # via -r requirements.in
 django-cors-headers==3.5.0  # via -r requirements.in
+django-deprecate-fields==0.1.0  # via -r requirements.in
 django-extensions==3.0.9  # via -r requirements.in
 django-filter==2.4.0      # via -r requirements.in
 django-ipware==3.0.2      # via django-axes
@@ -30,7 +31,7 @@ django-loginas==0.3.9     # via -r requirements.in
 django-redis==4.12.1      # via -r requirements.in
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0  # via -r requirements.in
 django-statsd==2.5.2      # via -r requirements.in
-django==3.0.11            # via -r requirements.in, django-axes, django-cors-headers, django-filter, django-redis, django-rest-hooks, djangorestframework
+django==3.0.11            # via -r requirements.in, django-axes, django-cors-headers, django-deprecate-fields, django-filter, django-redis, django-rest-hooks, djangorestframework
 djangorestframework-csv==2.1.0  # via -r requirements.in
 djangorestframework==3.12.1  # via -r requirements.in, djangorestframework-csv, drf-exceptions-hog, drf-extensions
 drf-exceptions-hog==0.0.4  # via -r requirements.in
