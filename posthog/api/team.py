@@ -1,11 +1,14 @@
 from typing import Any, Dict
 
+import posthoganalytics
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.models import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import (
     CREATE_METHODS,
@@ -139,4 +142,21 @@ class TeamSignupSerializer(OrganizationSignupSerializer):
     https://github.com/PostHog/posthog-production/pull/54 is merged.
     """
 
-    pass
+    def create(self, validated_data, **kwargs):
+        user = super().create(validated_data, **kwargs)
+
+        if settings.TEST:
+            is_first_user: bool = not User.objects.exists()
+            realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+            posthoganalytics.capture(
+                user.distinct_id,
+                "user signed up",
+                properties={"is_first_user": is_first_user, "is_organization_first_user": True},
+            )
+
+            posthoganalytics.identify(
+                user.distinct_id,
+                properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
+            )
+
+        return user
