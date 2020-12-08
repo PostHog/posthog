@@ -126,8 +126,4 @@ test('piscina worker test', async () => {
         console.log(JSON.stringify({ result }, null, 2))
     }
     console.table(results)
-    // expect that adding more cores (up to coreCount) increases throughput
-    // for (let i = 1; i < workers.length; i++) {
-    //     expect(result[`${workers[i - 1]} cores`]).toBeLessThan(result[`${workers[i]} cores`])
-    // }
 })
