@@ -56,12 +56,10 @@ class RetentionFilter(Filter):
         date_to = self.date_to
         if not _date_from:
             _date_from = relative_date_parse("-11d")
+        _date_from = date_to - self.total_increment
 
         if self.period == "Week":
-            _date_from = date_to - self.total_increment
             _date_from = _date_from - timedelta(days=_date_from.isoweekday() % 7)  # type: ignore
-        else:
-            _date_from = date_to - self.total_increment
 
         return _date_from
 
