@@ -77,7 +77,7 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s"})
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_evil_site(self):
