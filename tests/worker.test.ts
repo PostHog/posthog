@@ -63,7 +63,7 @@ function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
 test('piscina worker test', async () => {
     const coreCount = os.cpus().length
 
-    const workers = [1, 2, 4, 8].filter((cores) => cores <= coreCount)
+    const workers = [1, 2, 4, 8, 12, 16].filter((cores) => cores <= coreCount)
     const rounds = 5
 
     const tests: { testName: string; events: number; testCode: string }[] = [
@@ -90,7 +90,7 @@ test('piscina worker test', async () => {
         },
         {
             testName: 'timeout100ms',
-            events: 5,
+            events: 2000,
             testCode: `
                 async function processEvent (event, meta) {
                     await new Promise(resolve => __jestSetTimeout(() => resolve(), 100))
@@ -108,7 +108,7 @@ test('piscina worker test', async () => {
             coreCount,
         }
         for (const cores of workers) {
-            const piscina = setupPiscina(cores, testCode, 1)
+            const piscina = setupPiscina(cores, testCode, 100)
 
             // warmup
             await processCountEvents(cores * 4, piscina)
