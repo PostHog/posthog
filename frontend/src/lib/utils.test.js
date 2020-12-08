@@ -1,4 +1,4 @@
-import { formatLabel, identifierToHuman } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis } from './utils'
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {
@@ -40,5 +40,19 @@ describe('formatLabel()', () => {
         given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
 
         expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+    })
+})
+
+describe('midEllipsis()', () => {
+    it('returns same string if short', () => {
+        expect(midEllipsis('1234567890', 10)).toEqual('1234567890')
+    })
+
+    it('formats string properly', () => {
+        expect(midEllipsis('1234567890', 2)).toEqual('1...0')
+        expect(midEllipsis('1234567890', 4)).toEqual('12...90')
+        expect(midEllipsis('1234567890', 8)).toEqual('1234...7890')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F...oSdWwrEWtdBeM')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25).length).toBeLessThanOrEqual(28) // 25 + 3 (...)
     })
 })

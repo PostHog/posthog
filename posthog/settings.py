@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
@@ -141,11 +142,16 @@ CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _click
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 
+LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
+
 KAFKA_HOSTS_LIST = []
 for host in KAFKA_URL.split(","):
     url = urlparse(host)
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
+
 
 POSTGRES = "postgres"
 CLICKHOUSE = "clickhouse"
@@ -218,10 +224,6 @@ INSTALLED_APPS = [
     "axes",
 ]
 
-if EE_AVAILABLE:
-    INSTALLED_APPS.append("rest_hooks")
-    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
@@ -236,6 +238,11 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
 ]
+
+if EE_AVAILABLE:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
@@ -305,16 +312,13 @@ SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
 SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY", "")
-SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET", "")
+SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY", "")
-SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET", "")
+SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
-
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases

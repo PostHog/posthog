@@ -15,7 +15,6 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
-    SessionsPlay = 'sessionsPlay',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
@@ -52,7 +51,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.SessionsPlay]: () => import(/* webpackChunkName: 'sessionsPlay' */ './sessions/SessionsPlay'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
@@ -104,9 +102,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectCreateFirst]: {
         plain: true,
     },
-    [Scene.SessionsPlay]: {
-        plain: true,
-    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
@@ -124,11 +119,10 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
-    '/sessions/play': Scene.SessionsPlay,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
+    '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
@@ -291,6 +285,9 @@ export const sceneLogic = kea<sceneLogicType>({
                                 ? others[Object.keys(others)[0]]
                                 : values.loadedScenes['404'].component,
                         logic: logic,
+                    }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
                 actions.setLoadedScene(scene, loadedScene)

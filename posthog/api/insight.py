@@ -14,9 +14,10 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Filter, Person, Team
+from posthog.models import DashboardItem, Event, Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.utils import generate_cache_key
@@ -136,6 +137,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
+            filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp
+            )
             result = stickiness.Stickiness().run(filter, team)
         else:
             result = trends.Trends().run(filter, team)

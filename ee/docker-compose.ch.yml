@@ -17,7 +17,7 @@ services:
         build:
             context: ../
             dockerfile: dev.Dockerfile
-        command: ./bin/docker-ch-dev-web
+        command: ./ee/bin/docker-ch-dev-web
         volumes:
             - ..:/code
         ports:

@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { personsLogicType } from 'types/scenes/persons/personsLogicType'
 import { PersonType } from '~/types'
@@ -20,6 +21,15 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             {} as Record<string, string>,
             {
                 setListFilters: (state, { payload }) => ({ ...state, ...payload }),
+            },
+        ],
+    },
+    selectors: {
+        exampleEmail: [
+            (s) => [s.persons],
+            (persons: PersonPaginatedResponse): string => {
+                const match = persons && persons.results.find((person) => person.properties?.email)
+                return match?.properties?.email || 'example@gmail.com'
             },
         ],
     },
@@ -45,7 +55,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     }),
     actionToUrl: ({ values }) => ({
         setListFilters: () => {
-            return ['/persons', values.listFilters]
+            if (router.values.location.pathname.indexOf('/persons') > -1) {
+                return ['/persons', values.listFilters]
+            }
         },
     }),
     urlToAction: ({ actions, values }) => ({

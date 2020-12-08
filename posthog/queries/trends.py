@@ -23,9 +23,9 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL, Subquery
 from django.db.models.functions import Cast
-from django.utils.timezone import now
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -38,6 +38,7 @@ from posthog.models import (
     Team,
 )
 from posthog.models.utils import Percentile
+from posthog.queries.lifecycle import LifecycleTrend
 from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
@@ -244,10 +245,13 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
     return ret_dict
 
 
-class Trends(BaseQuery):
+class Trends(LifecycleTrend, BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+
         if filter.breakdown:
             result = self._serialize_breakdown(entity, filter, team_id)
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            result = self._serialize_lifecycle(entity, filter, team_id)
         else:
             result = self._format_normal_query(entity, filter, team_id)
 

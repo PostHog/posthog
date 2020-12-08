@@ -58,7 +58,7 @@
     }
 }
 
-// ActionStepV2.js
+// ActionStep
 .action-step {
     margin-bottom: 0;
     height: 100%;
@@ -80,12 +80,12 @@
     }
 
     .type-switcher {
-        width: 100%;
-        margin-top: 16px;
-
-        button {
-            flex: 1;
-            font-size: 0.85rem;
+        &.unselected {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 100%;
+            text-align: center;
         }
     }
 

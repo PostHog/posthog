@@ -9,6 +9,7 @@ import { ShownAsFilter } from '../../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../trendsLogic'
 import { ViewType } from '../../insightLogic'
+import { LIFECYCLE } from 'lib/constants'
 
 export function TrendTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
@@ -21,8 +22,9 @@ export function TrendTab(): JSX.Element {
                 filters={filters}
                 setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
-                hideMathSelector={false}
+                hideMathSelector={filters.shown_as === LIFECYCLE}
                 copy="Add graph series"
+                disabled={filters.shown_as === LIFECYCLE && (filters.events?.length || filters.actions?.length)}
             />
             <hr />
             <h4 className="secondary">Filters</h4>
@@ -62,7 +64,7 @@ export function TrendTab(): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <ShownAsFilter filters={filters} onChange={(shown_as): void => setFilters({ shown_as })} />
+            <ShownAsFilter filters={filters} onChange={(filters): void => setFilters(filters)} />
         </>
     )
 }

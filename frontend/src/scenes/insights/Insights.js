@@ -26,6 +26,8 @@ import {
     RETENTION_TABLE,
     PATHS_VIZ,
     FUNNEL_VIZ,
+    ACTIONS_BAR_CHART,
+    BAR_CHART_LABEL,
     RETENTION_GRAPH,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
@@ -58,6 +60,7 @@ const displayMap = {
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     [`${ACTIONS_TABLE}`]: TABLE_LABEL,
     [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
+    [`${ACTIONS_BAR_CHART}`]: BAR_CHART_LABEL,
 }
 
 const showIntervalFilter = {
@@ -219,7 +222,7 @@ function _Insights() {
                                         />
                                     )}
 
-                                    {showComparePrevious[activeView] && <CompareFilter />}
+                                    {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
                                     <SaveToDashboard
                                         item={{
                                             type: determineInsightType(activeView, allFilters.display),
@@ -280,7 +283,8 @@ function TrendInsight({ view }) {
                     {loading && <Loading />}
                     {(!filters.display ||
                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
+                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
                     {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} view={view} />}
                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
                 </div>
