@@ -1,9 +1,9 @@
-import { PluginsServerConfig } from './types'
+import { PluginsServerConfig, PluginsServerConfigKey } from './types'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
 
-function getDefaultConfig(): PluginsServerConfig {
+export function getDefaultConfig(): PluginsServerConfig {
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
         DATABASE_URL: 'postgres://localhost:5432/posthog',
@@ -20,7 +20,7 @@ function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-function getConfigHelp(): Record<string, string> {
+export function getConfigHelp(): Record<PluginsServerConfigKey, string> {
     return {
         CELERY_DEFAULT_QUEUE: 'celery outgoing queue',
         DATABASE_URL: 'url for postgres',
@@ -37,12 +37,23 @@ function getConfigHelp(): Record<string, string> {
     }
 }
 
-function overrideWithEnv(config: PluginsServerConfig): PluginsServerConfig {
-    const newConfig: Record<string, any> = { ...config }
-    for (const [key, value] of Object.entries(config)) {
-        if (process.env[key]) {
-            newConfig[key] = process.env[key]
+export function overrideWithEnv(
+    config: PluginsServerConfig,
+    env: Record<string, string | undefined> = process.env
+): PluginsServerConfig {
+    const defaultConfig = getDefaultConfig()
+
+    const newConfig: Record<PluginsServerConfigKey, any> = { ...config }
+    for (const key of Object.keys(config) as PluginsServerConfigKey[]) {
+        if (typeof env[key] !== 'undefined') {
+            if (typeof defaultConfig[key] === 'number') {
+                newConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+            } else if (typeof defaultConfig[key] === 'boolean') {
+                newConfig[key] = env[key] === 'true' || env[key] === 'True' || env[key] === '1'
+            } else {
+                newConfig[key] = env[key]
+            }
         }
     }
-    return newConfig as PluginsServerConfig
+    return newConfig
 }
