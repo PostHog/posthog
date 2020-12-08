@@ -63,3 +63,19 @@ class TestUpdateCache(BaseTest):
         self.assertIsNotNone(DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh)
         self.assertEqual(cache.get(item_key)["result"][0]["count"], 0)
         self.assertEqual(cache.get(funnel_key)["result"][0]["count"], 0)
+
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_refresh_dashboard_cache_types(
+        self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock
+    ) -> None:
+
+        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+        trend_to_cache = DashboardItem.objects.create(
+            dashboard=dashboard_to_cache,
+            filters=Filter(data={"insight": "TRENDS", "events": [{"id": "cache this"}]}).to_dict(),
+            team=self.team,
+        )
+        update_cached_items()
+        for call_item in patch_update_cache_item.call_args_list:
+            print(*call_item[0])

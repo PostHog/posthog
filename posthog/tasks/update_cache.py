@@ -73,8 +73,8 @@ def update_cached_items() -> None:
     for item in (
         items.filter(filters__isnull=False)
         .exclude(filters={})
-        .distinct("filters")
-        .order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]
+        .order_by("filters", "last_refresh")
+        .distinct("filters")[0:PARALLEL_DASHBOARD_ITEM_CACHE]
     ):
         filter = Filter(data=item.filters)
         cache_type = get_cache_type(filter)
