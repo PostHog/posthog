@@ -348,7 +348,7 @@ def load_data_from_request(request):
     )
     compression = compression.lower()
 
-    if compression == "gzip":
+    if compression == "gzip" or compression == "gzip-js":
         data = gzip.decompress(data)
 
     if compression == "lz64":
