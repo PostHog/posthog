@@ -182,7 +182,7 @@ def log_event(
     sent_at: Optional[datetime.datetime],
 ) -> None:
     if kafka_producer is None:
-        raise Exception("Kafka is unavailable, because EE even processing is not in use!")
+        raise Exception("Kafka is unavailable, because ClickHouse event processing is not in use!")
     kafka_producer.produce(
         topic=KAFKA_EVENTS_WAL,
         data={
