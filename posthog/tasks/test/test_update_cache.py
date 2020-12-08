@@ -7,6 +7,8 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Dashboard, DashboardItem, Filter, Funnel
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import BaseTest
 from posthog.utils import generate_cache_key
@@ -65,27 +67,55 @@ class TestUpdateCache(BaseTest):
         self.assertEqual(cache.get(item_key)["result"][0]["count"], 0)
         self.assertEqual(cache.get(funnel_key)["result"][0]["count"], 0)
 
+    def _test_refresh_dashboard_cache_types(
+        self, filter, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock
+    ) -> None:
+
+        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+
+        DashboardItem.objects.create(
+            dashboard=dashboard_to_cache,
+            filters=filter.to_dict(),
+            team=self.team,
+            last_refresh=now() - timedelta(days=30),
+        )
+        update_cached_items()
+
+        item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
+
+        self.assertIsNotNone(cache.get(item_key))
+
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache_types(
         self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock
     ) -> None:
 
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
-        for i in range(10):
+        self._test_refresh_dashboard_cache_types(
+            RetentionFilter(
+                data={"insight": "RETENTION", "events": [{"id": "cache this"}], "date_to": now().isoformat()}
+            ),
+            patch_update_cache_item,
+            patch_apply_async,
+        )
 
-            trend_to_cache = DashboardItem.objects.create(
-                dashboard=dashboard_to_cache,
-                filters=Filter(data={"insight": "TRENDS", "events": [{"id": "cache this {}".format(i)}]}).to_dict(),
+        self._test_refresh_dashboard_cache_types(
+            Filter(data={"insight": "PATHS", "dummy": "dummy"}), patch_update_cache_item, patch_apply_async
+        )
+
+        self._test_refresh_dashboard_cache_types(
+            StickinessFilter(
+                data={
+                    "insight": "TRENDS",
+                    "shown_as": "Stickiness",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                    "events": [{"id": "watched movie"}],
+                },
                 team=self.team,
-                last_refresh=now() - timedelta(days=i),
-            )
-        # retention_to_cache = DashboardItem.objects.create(
-        #     dashboard=dashboard_to_cache,
-        #     filters=Filter(data={"insight": "RETENTION", "events": [{"id": "cache this"}]}).to_dict(),
-        #     team=self.team,
-        #     last_refresh=now()
-        # )
-        update_cached_items()
-        for call_item in patch_update_cache_item.call_args_list:
-            print(*call_item[0])
+            ),
+            patch_update_cache_item,
+            patch_apply_async,
+        )

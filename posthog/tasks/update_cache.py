@@ -53,7 +53,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         filter = TYPE_TO_FILTER[cache_type](data=filter_dict, team=team)
         result = _calculate_by_filter(filter, key, int(payload["team_id"]), cache_type)
 
-    if result:
+    if result is not None:
         cache.set(key, {"result": result, "details": payload, "type": cache_type}, CACHED_RESULTS_TTL)
 
 
@@ -76,12 +76,11 @@ def update_cached_items() -> None:
         filter = Filter(data=item.filters)
         cache_type = get_cache_type(filter)
         team = Team(pk=item.team_id)
-        filter = TYPE_TO_FILTER[cache_type](data=item.filters, team=team)
 
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
-        curr_data = cache.get(cache_key)
+        new_filter = TYPE_TO_FILTER[cache_type](data=item.filters, team=team)
+        cache_key = generate_cache_key("{}_{}".format(new_filter.toJSON(), item.team_id))
 
-        payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+        payload = {"filter": new_filter.toJSON(), "team_id": item.team_id}
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))

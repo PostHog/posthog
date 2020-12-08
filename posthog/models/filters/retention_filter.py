@@ -48,7 +48,8 @@ class RetentionFilter(Filter):
             self._date_from = "-11d"
 
         tdelta, t1 = RetentionFilter.determine_time_delta(self.total_intervals, self.period)
-        self._date_to = (self.date_to + t1).isoformat()
+        if not self.date_to:
+            self._date_to = (self.date_to + t1).isoformat()
 
         if self.period == "Hour":
             date_to = self.date_to
