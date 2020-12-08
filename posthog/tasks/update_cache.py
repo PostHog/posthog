@@ -1,6 +1,7 @@
 import importlib
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from celery import group
@@ -8,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
+from django.db.models.expressions import F
 from django.utils import timezone
 
 from posthog.celery import update_cache_item_task
@@ -20,6 +22,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.funnel import Funnel
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.utils import generate_cache_key
+
+PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 3))
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,12 @@ def update_cached_items() -> None:
         .distinct("filters_hash")
     )
 
-    for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
+    for item in (
+        items.filter(filters__isnull=False)
+        .exclude(filters={})
+        .distinct("filters")
+        .order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]
+    ):
         filter = Filter(data=item.filters)
         cache_type = get_cache_type(filter)
         team = Team(pk=item.team_id)
