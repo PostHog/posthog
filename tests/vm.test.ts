@@ -3,6 +3,7 @@ import { PluginConfig, PluginsServer, Plugin } from '../src/types'
 import { PluginEvent } from 'posthog-plugins'
 import { createServer } from '../src/server'
 import * as fetch from 'node-fetch'
+import { delay } from '../src/utils'
 
 const defaultEvent = {
     distinct_id: 'my_id',
@@ -412,7 +413,7 @@ test('meta.cache expire', async () => {
     await vm.methods.processEvent(event)
     expect(event.properties!['counter']).toEqual(2)
 
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    await delay(1200)
 
     await vm.methods.processEvent(event)
     expect(event.properties!['counter']).toEqual(1)
@@ -440,7 +441,7 @@ test('meta.cache set ttl', async () => {
     await vm.methods.processEvent(event)
     expect(event.properties!['counter']).toEqual(2)
 
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    await delay(1200)
 
     await vm.methods.processEvent(event)
     expect(event.properties!['counter']).toEqual(1)
