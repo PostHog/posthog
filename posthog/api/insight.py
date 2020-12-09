@@ -180,25 +180,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
-    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = self.team
-
-        filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
-
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
-
-        # add pagination
-        if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
-
-        return result
-
     def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
         result["result"] = [
