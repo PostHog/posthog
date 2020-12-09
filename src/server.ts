@@ -19,15 +19,15 @@ export async function createServer(
         ...config,
     }
 
+    const redis = new Redis(serverConfig.REDIS_URL, { maxRetriesPerRequest: -1 })
+    redis.on('error', (error) => {
+        console.error('🔴 Redis error! Trying to reconnect.')
+        console.error(error)
+    })
+    await redis.info()
+
     const db = new Pool({
         connectionString: serverConfig.DATABASE_URL,
-    })
-
-    const redis = new Redis(serverConfig.REDIS_URL)
-
-    redis.on('error', (error) => {
-        console.error('🔴 Redis error!', error)
-        process.kill(process.pid, 'SIGTERM')
     })
 
     const server: PluginsServer = {
