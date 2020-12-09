@@ -10,6 +10,7 @@ from posthog.queries.session_recording import DistinctId
 from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.session_recording import Snapshots
 from posthog.queries.session_recording import add_session_recording_ids as _add_session_recording_ids
+from posthog.queries.session_recording import matches
 
 SINGLE_RECORDING_QUERY = """
     SELECT distinct_id, snapshot_data
@@ -99,11 +100,3 @@ def query_sessions_in_range(
     )
 
     return [dict(zip(SESSIONS_RECORING_LIST_QUERY_COLUMNS, row)) for row in results]
-
-
-def matches(session: Any, session_recording: Any) -> bool:
-    return (
-        session["distinct_id"] == session_recording["distinct_id"]
-        and session["start_time"] <= session_recording["end_time"]
-        and session["end_time"] >= session_recording["start_time"]
-    )
