@@ -25,9 +25,8 @@ class ClickhouseSessionsList:
         result = self._parse_list_results(query_result)
 
         self._add_person_properties(team, result)
-        add_session_recording_ids(team, result)
 
-        return result
+        return add_session_recording_ids(team, result)
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}
