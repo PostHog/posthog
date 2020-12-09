@@ -150,17 +150,8 @@ KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
-try:
-    from ee.apps import EnterpriseConfig  # noqa: F401
-except ImportError:
-    pass
-else:
-    HOOK_EVENTS: Dict[str, str] = {}
-    EE_AVAILABLE = True
 
-EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == RDBMS.CLICKHOUSE
-
-if EE_ENABLED:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
@@ -231,14 +222,21 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
 ]
 
-if EE_AVAILABLE:
-    INSTALLED_APPS.append("rest_hooks")
-    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
-
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
+
+# Append Enterprise Edition as an app if available
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    EE_AVAILABLE = True
+    HOOK_EVENTS: Dict[str, str] = {}
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
 
 # Use django-extensions if it exists
 try:
@@ -378,7 +376,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if EE_ENABLED:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
