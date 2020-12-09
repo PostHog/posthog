@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from loginas.utils import is_impersonated_session
 
-from posthog.ee import is_ch_enabled
+from posthog.ee import is_ee_enabled
 
 
 class CHQueries(object):
@@ -19,7 +19,7 @@ class CHQueries(object):
         from ee.clickhouse import client
 
         if (
-            is_ch_enabled()
+            is_ee_enabled()
             and request.user.pk
             and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)
         ):

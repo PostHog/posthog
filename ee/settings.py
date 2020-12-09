@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict
 
-from django.conf import settings
+from posthog.settings import EE_ENABLED, TEST
 
 # Zapier
 HOOK_EVENTS: Dict[str, str] = {
@@ -16,7 +16,7 @@ HOOK_EVENTS: Dict[str, str] = {
 HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
 HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
-KAFKA_ENABLED = settings.EE_ENABLED and not settings.TEST
+KAFKA_ENABLED = EE_ENABLED and not TEST
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")

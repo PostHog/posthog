@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_ch_enabled
+from posthog.ee import is_ee_enabled
 
 from . import (
     action,
@@ -51,7 +51,7 @@ organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
 )
 
-if is_ch_enabled():
+if is_ee_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
