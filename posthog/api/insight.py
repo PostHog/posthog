@@ -225,11 +225,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_funnel(request)
+        result = self._calculate_funnel(request)
 
         return Response(result)
 
-    def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
+    def _calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = request.GET.get("refresh", None)
 
