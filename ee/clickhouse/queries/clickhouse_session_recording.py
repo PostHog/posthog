@@ -9,8 +9,7 @@ from posthog.queries.base import BaseQuery
 from posthog.queries.session_recording import DistinctId
 from posthog.queries.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.session_recording import Snapshots
-from posthog.queries.session_recording import add_session_recording_ids as _add_session_recording_ids
-from posthog.queries.session_recording import matches
+from posthog.queries.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
 
 SINGLE_RECORDING_QUERY = """
     SELECT distinct_id, snapshot_data
@@ -54,27 +53,8 @@ class SessionRecording(BaseSessionRecording):
         return response[0][0], [json.loads(snapshot_data) for _, snapshot_data in response]
 
 
-def add_session_recording_ids(team: Team, sessions_results: List[Any]) -> List[Any]:
-    return _add_session_recording_ids(team, sessions_results, query=query_sessions_in_range)
-
-
 def filter_sessions_by_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:
-    if len(sessions_results) == 0:
-        return sessions_results
-
-    min_ts = min(it["start_time"] for it in sessions_results)
-    max_ts = max(it["end_time"] for it in sessions_results)
-
-    session_recordings = query_sessions_in_range(team, min_ts, max_ts, filter)
-
-    for session in sessions_results:
-        session["session_recording_ids"] = [
-            recording["session_id"] for recording in session_recordings if matches(session, recording)
-        ]
-
-    if filter.limit_by_recordings:
-        sessions_results = [session for session in sessions_results if len(session["session_recording_ids"]) > 0]
-    return sessions_results
+    return _filter_sessions_by_recordings(team, sessions_results, filter, query=query_sessions_in_range)
 
 
 def query_sessions_in_range(

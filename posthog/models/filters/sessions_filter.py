@@ -24,7 +24,7 @@ class SessionsFilter(Filter):
 
         self.distinct_id = data.get(DISTINCT_ID_FILTER)
         if "duration" in data:
-            self.duration = json.loads(data.get("duration"))
+            self.duration = json.loads(data["duration"])
         else:
             self.duration = None
 

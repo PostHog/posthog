@@ -12,7 +12,7 @@ from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import ElementGroup, Event, Filter, Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
-from posthog.queries.session_recording import add_session_recording_ids
+from posthog.queries.session_recording import filter_sessions_by_recordings
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -198,7 +198,7 @@ class Sessions(BaseQuery):
                         )
                     except IndexError:
                         event.update({"elements": []})
-        return add_session_recording_ids(team, sessions)
+        return filter_sessions_by_recordings(team, sessions, filter)
 
     def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
