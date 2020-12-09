@@ -7,9 +7,12 @@ import * as os from 'os'
 import { LogLevel } from '../src/types'
 
 jest.mock('../src/sql')
-jest.setTimeout(300000) // 300 sec timeout
+jest.setTimeout(600000) // 600 sec timeout
 
-function processOneEvent(processEvent: (event: PluginEvent) => Promise<PluginEvent>): Promise<PluginEvent> {
+function processOneEvent(
+    processEvent: (event: PluginEvent) => Promise<PluginEvent>,
+    index: number
+): Promise<PluginEvent> {
     const defaultEvent = {
         distinct_id: 'my_id',
         ip: '127.0.0.1',
@@ -17,38 +20,45 @@ function processOneEvent(processEvent: (event: PluginEvent) => Promise<PluginEve
         team_id: 2,
         now: new Date().toISOString(),
         event: 'default event',
-        properties: { key: 'value' },
+        properties: { key: 'value', index },
     }
 
     return processEvent(defaultEvent)
 }
 
-async function processCountEvents(count: number, piscina: ReturnType<typeof makePiscina>) {
+function processOneBatch(
+    processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>,
+    batchSize: number,
+    batchIndex: number
+): Promise<PluginEvent[]> {
+    const events = [...Array(batchSize)].map((_, i) => ({
+        distinct_id: 'my_id',
+        ip: '127.0.0.1',
+        site_url: 'http://localhost',
+        team_id: 2,
+        now: new Date().toISOString(),
+        event: 'default event',
+        properties: { key: 'value', batchIndex, indexInBatch: i },
+    }))
+
+    return processEventBatch(events)
+}
+
+async function processCountEvents(piscina: ReturnType<typeof makePiscina>, count: number, batchSize = 1) {
     const maxPromises = 1000
-    const startTime = performance.now()
     const promises = Array(maxPromises)
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
+    const processEventBatch = (batch: PluginEvent[]) => piscina.runTask({ task: 'processEventBatch', args: { batch } })
 
     const groups = Math.ceil(count / maxPromises)
     for (let j = 0; j < groups; j++) {
-        const groupCount = j === groups - 1 ? count % maxPromises : maxPromises
+        const groupCount = groups === 1 ? count : j === groups - 1 ? count % maxPromises : maxPromises
         for (let i = 0; i < groupCount; i++) {
-            promises[i] = processOneEvent(processEvent)
+            promises[i] =
+                batchSize === 1 ? processOneEvent(processEvent, i) : processOneBatch(processEventBatch, batchSize, i)
         }
         await Promise.all(promises)
     }
-
-    const ms = Math.round((performance.now() - startTime) * 1000) / 1000
-
-    const log = {
-        eventsPerSecond: 1000 / (ms / count),
-        events: count,
-        concurrency: piscina.threads.length,
-        totalMs: ms,
-        averageEventMs: ms / count,
-    }
-
-    return log
 }
 
 function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
@@ -62,10 +72,15 @@ function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
 }
 
 test('piscina worker test', async () => {
-    const coreCount = os.cpus().length
+    // Uncomment this to become a 10x developer and make the test run just as fast!
+    // Reduces events by 10x and limits threads to max 8 for quicker development
+    const isLightDevRun = false
 
-    const workers = [1, 2, 4, 8, 12, 16].filter((cores) => cores <= coreCount)
-    const rounds = 5
+    const coreCount = os.cpus().length
+    const workerThreads = [1, 2, 4, 8, 12, 16].filter((threads) =>
+        isLightDevRun ? threads <= 8 : threads <= coreCount
+    )
+    const rounds = 1
 
     const tests: { testName: string; events: number; testCode: string }[] = [
         {
@@ -91,7 +106,7 @@ test('piscina worker test', async () => {
         },
         {
             testName: 'timeout100ms',
-            events: 2000,
+            events: 10000,
             testCode: `
                 async function processEvent (event, meta) {
                     await new Promise(resolve => __jestSetTimeout(() => resolve(), 100))
@@ -103,28 +118,35 @@ test('piscina worker test', async () => {
     ]
 
     const results: Array<Record<string, string | number>> = []
-    for (const { testName, events, testCode } of tests) {
-        const result: Record<string, any> = {
-            testName,
-            coreCount,
-        }
-        for (const cores of workers) {
-            const piscina = setupPiscina(cores, testCode, 100)
-
-            // warmup
-            await processCountEvents(cores * 4, piscina)
-
-            // start
-            let throughput = 0
-            for (let i = 0; i < rounds; i++) {
-                const { eventsPerSecond } = await processCountEvents(events, piscina)
-                throughput += eventsPerSecond
+    for (const { testName, events: _events, testCode } of tests) {
+        const events = isLightDevRun ? _events / 10 : _events
+        for (const batchSize of [1, 10, 100].filter((size) => size <= events)) {
+            const result: Record<string, any> = {
+                testName,
+                coreCount,
+                events,
+                batchSize,
             }
-            result[`${cores} cores`] = Math.round(throughput / rounds)
-            await piscina.destroy()
+            for (const threads of workerThreads) {
+                const piscina = setupPiscina(threads, testCode, 100)
+
+                // warmup
+                await processCountEvents(piscina, threads * 4)
+
+                // start
+                const startTime = performance.now()
+                for (let i = 0; i < rounds; i++) {
+                    await processCountEvents(piscina, events / batchSize, batchSize)
+                }
+                result[`${threads} thread${threads === 1 ? '' : 's'}`] = Math.round(
+                    1000 / ((startTime - performance.now()) / events / rounds)
+                )
+
+                await piscina.destroy()
+            }
+            results.push(result)
+            console.log(JSON.stringify({ result }, null, 2))
         }
-        results.push(result)
-        console.log(JSON.stringify({ result }, null, 2))
     }
     console.table(results)
 })

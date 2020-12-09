@@ -1,6 +1,6 @@
 import * as path from 'path'
 import * as fs from 'fs'
-import { createPluginConfigVM, prepareForRun } from './vm'
+import { createPluginConfigVM } from './vm'
 import { PluginsServer, PluginConfig, PluginJsonConfig, TeamId } from './types'
 import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
@@ -180,26 +180,21 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
 }
 
 export async function runPlugins(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
-    const pluginsToRun = server.pluginConfigsPerTeam.get(event.team_id) || server.defaultConfigs
-
+    const pluginsToRun = getPluginsForTeam(server, event.team_id)
     let returnedEvent: PluginEvent | null = event
 
     for (const pluginConfig of pluginsToRun.reverse()) {
-        if (pluginConfig.vm) {
-            const processEvent = prepareForRun(server, event.team_id, pluginConfig, 'processEvent', event)
-
-            if (processEvent) {
-                const startTime = performance.now()
-                try {
-                    returnedEvent = (await processEvent(returnedEvent)) || null
-                    const ms = Math.round((performance.now() - startTime) * 1000) / 1000
-                    logTime(pluginConfig.plugin?.name || 'noname', ms)
-                } catch (error) {
-                    await processError(server, pluginConfig, error, returnedEvent)
-                    const ms = Math.round((performance.now() - startTime) * 1000) / 1000
-                    logTime(pluginConfig.plugin?.name || 'noname', ms, true)
-                }
+        if (pluginConfig.vm?.methods?.processEvent) {
+            let errored = false
+            const { processEvent } = pluginConfig.vm.methods
+            const startTime = performance.now()
+            try {
+                returnedEvent = (await processEvent(returnedEvent)) || null
+            } catch (error) {
+                errored = true
+                await processError(server, pluginConfig, error, returnedEvent)
             }
+            logTime(pluginConfig.plugin?.name || 'noname', performance.now() - startTime, errored)
 
             if (!returnedEvent) {
                 return null
@@ -208,4 +203,47 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
     }
 
     return returnedEvent
+}
+
+export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEvent[]): Promise<PluginEvent[]> {
+    const eventsByTeam = new Map<number, PluginEvent[]>()
+
+    for (const event of batch) {
+        if (eventsByTeam.has(event.team_id)) {
+            eventsByTeam.get(event.team_id)!.push(event)
+        } else {
+            eventsByTeam.set(event.team_id, [event])
+        }
+    }
+
+    let allReturnedEvents: PluginEvent[] = []
+
+    for (const [teamId, teamEvents] of eventsByTeam.entries()) {
+        const pluginsToRun = getPluginsForTeam(server, teamId)
+
+        let returnedEvents: PluginEvent[] = teamEvents
+
+        for (const pluginConfig of pluginsToRun.reverse()) {
+            const { processEventBatch } = pluginConfig.vm?.methods || {}
+            if (processEventBatch && returnedEvents.length > 0) {
+                const startTime = performance.now()
+                let errored = false
+                try {
+                    returnedEvents = (await processEventBatch(returnedEvents)) || []
+                } catch (error) {
+                    errored = true
+                    await processError(server, pluginConfig, error, returnedEvents[0])
+                }
+                logTime(pluginConfig.plugin?.name || 'noname', performance.now() - startTime, errored)
+            }
+        }
+
+        allReturnedEvents = allReturnedEvents.concat(returnedEvents)
+    }
+
+    return allReturnedEvents
+}
+
+function getPluginsForTeam(server: PluginsServer, teamId: number): PluginConfig[] {
+    return server.pluginConfigsPerTeam.get(teamId) || server.defaultConfigs
 }

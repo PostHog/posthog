@@ -65,9 +65,32 @@ export function createPluginConfigVM(
         // run the plugin setup script, if present
         __callWithMeta('setupPlugin');
         
+        // we have processEvent, but not processEventBatch
+        if (!__getExported('processEventBatch') && __getExported('processEvent')) {
+            exports.processEventBatch = async function processEventBatch (batch, meta) {
+                const processEvent = __getExported('processEvent');
+                let waitFor = false
+                const processedEvents = batch.map(event => {
+                    const e = processEvent(event, meta)
+                    if (e && typeof e.then !== 'undefined') {
+                        waitFor = true
+                    }
+                    return e
+                })
+                const response = waitFor ? (await Promise.all(processedEvents)) : processedEvents;
+                return response.filter(r => r)
+            }
+        // we have processEventBatch, but not processEvent
+        } else if (!__getExported('processEvent') && __getExported('processEventBatch')) {
+            exports.processEvent = async function processEvent (event, meta) {
+                return (await (__getExported('processEventBatch'))([event], meta))?.[0]
+            }
+        }
+        
         // export various functions
         const __methods = {
-            processEvent: __bindMeta('processEvent')
+            processEvent: __bindMeta('processEvent'),
+            processEventBatch: __bindMeta('processEventBatch')
         };
         `
     )
@@ -76,34 +99,4 @@ export function createPluginConfigVM(
         vm,
         methods: vm.run('__methods'),
     }
-}
-
-export function prepareForRun(
-    server: PluginsServer,
-    teamId: number,
-    pluginConfig: PluginConfig, // might have team_id=0
-    method: 'processEvent',
-    event?: PluginEvent
-): null | ((event: PluginEvent) => Promise<PluginEvent>) | (() => Promise<void>) {
-    if (!pluginConfig.vm?.methods[method]) {
-        return null
-    }
-
-    const { vm } = pluginConfig.vm
-
-    if (event?.properties?.token) {
-        // TODO: this should be nicer... and it's not optimised for batch processing
-        const posthog = createInternalPostHogInstance(
-            event.properties.token,
-            { apiHost: event.site_url, fetch },
-            {
-                performance: performance,
-            }
-        )
-        vm.freeze(posthog, 'posthog')
-    } else {
-        vm.freeze(null, 'posthog')
-    }
-
-    return pluginConfig.vm.methods[method]
 }
