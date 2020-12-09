@@ -73,7 +73,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         resp = self.calculate_paths(request)
         return Response(resp)
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function(cache_type=CacheType.PATHS)
     def calculate_paths(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
@@ -85,7 +85,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         result = self.calculate_funnel(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
     def calculate_funnel(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
@@ -97,7 +96,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function(cache_type=CacheType.RETENTION)
     def calculate_retention(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)

@@ -135,7 +135,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         filter = Filter(request=request)
         if filter.shown_as == TRENDS_STICKINESS:
-            result = self.calculate_stickiness(request)
+            result = self._calculate_stickiness(request)
         else:
             result = self._calculate_trend(request)
         self._refresh_dashboard(request=request)
@@ -150,7 +150,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return result
 
     @cached_function(cache_type=CacheType.STICKINESS)
-    def calculate_stickiness(self, request: request.Request) -> List[Dict[str, Any]]:
+    def _calculate_stickiness(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=Event.objects.earliest_timestamp)
         result = stickiness.Stickiness().run(filter, team)
