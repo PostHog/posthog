@@ -10,7 +10,7 @@ interface Props {
 export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Element {
     const onOperatorChange = (value: '' | 'lt' | 'gt'): void => {
         if (value) {
-            onChange([value, duration ? duration[1] : null])
+            onChange([value, duration?.[1] || 0])
         } else {
             onChange(null)
         }
@@ -25,7 +25,7 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
                 onChange={onOperatorChange}
                 placeholder="Filter by recording duration"
             >
-                <Select.Option value="">Filter by recording duration</Select.Option>
+                <Select.Option value="">No filter</Select.Option>
                 <Select.Option value="gt">Recording longer than</Select.Option>
                 <Select.Option value="lt">Recording shorter than</Select.Option>
             </Select>
@@ -34,6 +34,7 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
                     style={{ width: 150, marginLeft: 8 }}
                     type="number"
                     value={duration[1] || undefined}
+                    placeholder="0"
                     min={0}
                     addonAfter="sec"
                     step={1}
