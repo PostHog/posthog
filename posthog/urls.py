@@ -19,20 +19,20 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
-from posthog.demo import demo
-from posthog.email import is_email_available
-from posthog.models.organization import Organization
-
-from .api import (
+from posthog.api import (
     api_not_found,
     capture,
     dashboard,
     decide,
+    organization,
     projects_router,
     router,
-    team,
     user,
 )
+from posthog.demo import demo
+from posthog.email import is_email_available
+from posthog.models.organization import Organization
+
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats, system_status
@@ -313,7 +313,7 @@ urlpatterns = [
     opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", team.TeamSignupViewset.as_view()),
+    opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
