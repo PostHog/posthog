@@ -61,8 +61,6 @@ def filter_sessions_by_recordings(team: Team, sessions_results: List[Any], filte
     if len(sessions_results) == 0:
         return sessions_results
 
-    print([filter])
-
     min_ts = min(it["start_time"] for it in sessions_results)
     max_ts = max(it["end_time"] for it in sessions_results)
 
@@ -83,10 +81,11 @@ def query_sessions_in_range(
 ) -> List[dict]:
     filter_query, filter_params = "", {}
 
-    if filter.min_recording_duration:
-        filter_query = "AND duration >= %(min_recording_duration)s"
+    if filter.duration:
+        operator = {"lt": "<", "gt": "> "}[filter.duration[0]]
+        filter_query = f"AND duration {operator} %(min_recording_duration)s"
         filter_params = {
-            "min_recording_duration": filter.min_recording_duration,
+            "min_recording_duration": filter.duration[1],
         }
 
     results = sync_execute(
