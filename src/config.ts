@@ -15,7 +15,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WEB_PORT: 3008,
         WEB_HOSTNAME: '0.0.0.0',
         WORKER_CONCURRENCY: 0, // use all cores
-        TASKS_PER_WORKER: 100,
+        TASKS_PER_WORKER: 10,
         LOG_LEVEL: LogLevel.Info,
     }
 }
