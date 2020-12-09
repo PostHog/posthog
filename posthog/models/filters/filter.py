@@ -72,15 +72,18 @@ class ShownAsMixin:
 class BreakdownMixin:
     _data: Dict
 
-    @cached_property
-    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
-        breakdown = self._data.get(BREAKDOWN)
+    def _process_breakdown_param(self, breakdown: Optional[str]) -> Optional[Union[str, List[Union[str, int]]]]:
         if not isinstance(breakdown, str):
             return breakdown
         try:
             return json.loads(breakdown)
         except (TypeError, json.decoder.JSONDecodeError):
             return breakdown
+
+    @cached_property
+    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
+        breakdown = self._data.get(BREAKDOWN)
+        return self._process_breakdown_param(breakdown)
 
 
 class BreakdownTypeMixin:
@@ -143,11 +146,11 @@ class OffsetMixin:
 class CompareMixin:
     _data: Dict
 
-    def _process_compare(self, _compare: Optional[str]) -> bool:
-        if isinstance(_compare, bool):
-            return _compare
-        elif isinstance(_compare, str):
-            return bool(strtobool(_compare))
+    def _process_compare(self, compare: Optional[str]) -> bool:
+        if isinstance(compare, bool):
+            return compare
+        elif isinstance(compare, str):
+            return bool(strtobool(compare))
         else:
             return False
 
