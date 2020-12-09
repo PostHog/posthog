@@ -26,7 +26,7 @@ class ClickhouseTrendsNormal:
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id, prepend="_props")
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
 
         aggregate_operation, join_condition, math_params = process_math(entity)
 
