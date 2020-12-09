@@ -16,7 +16,7 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.api.insight import InsightViewSet
-from posthog.constants import TRENDS_STICKINESS
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, TRENDS_STICKINESS
 from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -44,7 +44,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_SESSIONS})
 
         limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(request.GET.get("offset", 0))
@@ -68,7 +68,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_PATHS})
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
 
@@ -76,7 +76,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
         response = ClickhouseFunnel(team=team, filter=filter).run()
         return Response(response)
 

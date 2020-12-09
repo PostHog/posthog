@@ -31,7 +31,7 @@ class RetentionFilter(Filter):
     selected_interval: int = 0
     date_from: datetime.datetime
 
-    def __init__(self, data: Optional[Dict[str, Any]] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
         super().__init__(data, request)
         if request:

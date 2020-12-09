@@ -91,9 +91,7 @@ class Filter(PropertyMixin):
         self.path_type = data.get(PATH_TYPE)
         self.start_point = data.get(START_POINT)
         self._offset = data.get(OFFSET)
-        self.display = data.get(DISPLAY)
-        if not self.display:
-            self.display = INSIGHT_TO_DISPLAY[self.insight]
+        self.display = data[DISPLAY] if data.get(DISPLAY) else INSIGHT_TO_DISPLAY[self.insight]
 
         if data.get(ACTIONS):
             self.entities.extend(
