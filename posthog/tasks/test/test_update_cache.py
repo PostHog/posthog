@@ -85,10 +85,13 @@ class TestUpdateCache(BaseTest):
         )
         update_cached_items()
 
-        item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])
 
+        # mocks a user selecting the date_to to be the same day but not necessarily the same hour/minute
+        # this ensures that the cache filter is built on the properly rounded datetimes
+        filter._date_to = now().isoformat()
+        item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         self.assertIsNotNone(cache.get(item_key))
 
     @patch("posthog.tasks.update_cache.group.apply_async")
@@ -115,7 +118,6 @@ class TestUpdateCache(BaseTest):
                     "insight": "TRENDS",
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
-                    "date_to": "2020-01-08",
                     "events": [{"id": "watched movie"}],
                 },
                 team=self.team,
