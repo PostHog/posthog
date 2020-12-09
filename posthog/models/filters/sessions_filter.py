@@ -6,8 +6,6 @@ from django.http import HttpRequest
 from posthog.constants import DISTINCT_ID_FILTER
 from posthog.models import Filter
 
-RETENTION_DEFAULT_INTERVALS = 11
-
 
 class SessionsFilter(Filter):
     distinct_id: Optional[str]
