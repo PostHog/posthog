@@ -120,21 +120,25 @@ class Filter(PropertyMixin):
 
     def to_dict(self) -> Dict[str, Any]:
 
-        date_to = self.date_to or timezone.now()
-        if self.interval == "hour" or self.interval == "minute":
-            date_to = date_to
-        else:
-            date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_to = self.date_to
+        if date_to:
+            if self.interval == "hour" or self.interval == "minute":
+                date_to = date_to
+            else:
+                date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_to = date_to.isoformat()
 
-        date_from = self.date_from or relative_date_parse("-11d")
-        if self.interval == "hour" or self.interval == "minute":
-            date_from = date_from
-        else:
-            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_from = self.date_from
+        if date_from:
+            if self.interval == "hour" or self.interval == "minute":
+                date_from = date_from
+            else:
+                date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = date_from.isoformat()
 
         full_dict = {
-            DATE_FROM: date_from.isoformat(),
-            DATE_TO: date_to.isoformat(),
+            DATE_FROM: date_from,
+            DATE_TO: date_to,
             PROPERTIES: [prop.to_dict() for prop in self.properties],
             INTERVAL: self.interval,
             EVENTS: [entity.to_dict() for entity in self.events],
@@ -223,6 +227,7 @@ class Filter(PropertyMixin):
 
 
 def json_serializer(o):
+    print(o)
     if isinstance(o, (datetime.date, datetime.datetime)):
         return o.isoformat()
     else:
