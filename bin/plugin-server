@@ -1,4 +1,17 @@
 #!/bin/bash
 KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
 CONF=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
+
+FLAGS=()
+
+# On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
+# Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
+# Thus instead of using this env directly, calculate the real concurrency from $DYNO_RAM.
+# Python: https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
+# NodeJS: https://devcenter.heroku.com/articles/node-concurrency#common-runtime
+if [[ -n "${DYNO_RAM}" ]]; then
+  # One worker for 512MB of RAM, rounding up
+  export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
+fi
+
 cd plugins && yarn --frozen-lockfile --silent && yarn --silent start --config "$CONF"
