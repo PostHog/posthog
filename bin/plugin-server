@@ -1,8 +1,8 @@
 #!/bin/bash
 KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
 
-# Export $CONFIG_JSON to posthog-plugin-server
-export CONFIG_JSON=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
+# Export $CONFIG to posthog-plugin-server
+export CONFIG=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
 
 # On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
 # Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
