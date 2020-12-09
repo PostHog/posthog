@@ -23,6 +23,7 @@ import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -58,6 +59,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -174,10 +176,12 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
 
-            <SessionRecordingFilters
-                duration={duration}
-                onChange={(duration) => setFilters(properties, selectedDate, duration)}
-            />
+            {featureFlags['filter_by_session_props'] && (
+                <SessionRecordingFilters
+                    duration={duration}
+                    onChange={(duration) => setFilters(properties, selectedDate, duration)}
+                />
+            )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
 
             <Table
