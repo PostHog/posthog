@@ -49,3 +49,8 @@ STICKINESS_DAYS = "stickiness_days"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
+
+
+class RDBMS(str, Enum):
+    POSTGRES = "postgres"
+    CLICKHOUSE = "clickhouse"

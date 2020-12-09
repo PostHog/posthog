@@ -237,24 +237,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return [{"name": convert_property_value(value.value)} for value in values]
 
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request, **kwargs) -> response.Response:
-        from posthog.queries.sessions import Sessions
-
-        team = self.team
-
-        filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
-
-        # add pagination
-        if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
-        return response.Response(result)
-
     # ******************************************
     # /event/session_recording
     # params:
