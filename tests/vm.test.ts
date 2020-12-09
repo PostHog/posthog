@@ -240,6 +240,88 @@ test('meta.cache set/get', async () => {
     expect(event.properties!['counter']).toEqual(3)
 })
 
+test('meta.cache expire', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            const counter = await meta.cache.get('counter', 0)
+            await meta.cache.set('counter', counter + 1)
+            await meta.cache.expire('counter', 1)
+            event.properties['counter'] = counter + 1
+            return event
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(2)
+
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
+})
+
+test('meta.cache set ttl', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            const counter = await meta.cache.get('counter', 0)
+            await meta.cache.set('counter', counter + 1, 1)
+            event.properties['counter'] = counter + 1
+            return event
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(2)
+
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
+})
+
+test('meta.cache incr', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            const counter = await meta.cache.incr('counter')
+            event.properties['counter'] = counter
+            return event
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(1)
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(2)
+
+    await vm.methods.processEvent(event)
+    expect(event.properties!['counter']).toEqual(3)
+})
+
 test('lib.js (deprecated)', async () => {
     const indexJs = `
         async function processEvent (event, meta) {

@@ -34,7 +34,7 @@
         "pg": "^8.4.2",
         "piscina": "^2.1.0",
         "posthog-js-lite": "^0.0.5",
-        "posthog-plugins": "^0.2.3",
+        "posthog-plugins": "0.2.4",
         "tar-stream": "^2.1.4",
         "uuid": "^8.3.1",
         "vm2": "^3.9.2",
