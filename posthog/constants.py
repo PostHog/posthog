@@ -50,6 +50,8 @@ STICKINESS_DAYS = "stickiness_days"
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
 
+DISTINCT_ID_FILTER = "distinct_id"
+
 
 class RDBMS(str, Enum):
     POSTGRES = "postgres"

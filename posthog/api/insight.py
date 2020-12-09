@@ -17,6 +17,7 @@ from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
@@ -162,12 +163,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         team = self.team
 
-        filter = Filter(request=request)
+        filter = SessionsFilter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
+        if filter.distinct_id:
+            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
 
         if filter.session_type is None:
             offset = filter.offset + limit - 1
