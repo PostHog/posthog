@@ -8,6 +8,8 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.constants import (
+    DATE_FROM,
+    DATE_TO,
     PERIOD,
     RETENTION_RECURRING,
     RETENTION_TYPE,
@@ -120,6 +122,8 @@ class RetentionFilter(Filter):
         common_vals = super().to_dict()
         full_dict = {
             **common_vals,
+            DATE_FROM: self.date_from,
+            DATE_TO: self.date_to,
             RETENTION_TYPE: self.retention_type,
             TOTAL_INTERVALS: self.total_intervals,
             SELECTED_INTERVAL: self.selected_interval,
