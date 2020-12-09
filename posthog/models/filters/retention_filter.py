@@ -122,25 +122,27 @@ class RetentionFilter(Filter):
         common_vals = super().to_dict()
 
         date_to = super().date_to
+        _date_to: Optional[str] = None
         if date_to:
             if self.period == "Hour":
                 date_to = date_to
             else:
                 date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_to = date_to.isoformat()
+            _date_to = date_to.isoformat()
 
         date_from = super().date_from
+        _date_from: Optional[str] = None
         if date_from:
             if self.period == "Hour":
                 date_from = date_from
             else:
                 date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_from = date_from.isoformat()
+            _date_from = date_from.isoformat()
 
         full_dict = {
             **common_vals,
-            DATE_FROM: date_from,
-            DATE_TO: date_to,
+            DATE_FROM: _date_from,
+            DATE_TO: _date_to,
             RETENTION_TYPE: self.retention_type,
             TOTAL_INTERVALS: self.total_intervals,
             SELECTED_INTERVAL: self.selected_interval,
