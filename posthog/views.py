@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -54,7 +54,7 @@ def system_status(request):
     redis_alive = is_redis_alive()
     postgres_alive = is_postgres_alive()
 
-    metrics = []
+    metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
     metrics.append(
         {
