@@ -57,3 +57,8 @@ FUNNELS = "FUNNELS"
 PATHS = "PATHS"
 RETENTION = "RETENTION"
 STICKINESS = "Stickiness"
+
+
+class RDBMS(str, Enum):
+    POSTGRES = "postgres"
+    CLICKHOUSE = "clickhouse"

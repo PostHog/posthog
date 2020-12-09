@@ -27,6 +27,8 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
+from posthog.constants import RDBMS
+
 
 def get_env(key):
     try:
@@ -157,13 +159,11 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
+PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
-POSTGRES = "postgres"
-CLICKHOUSE = "clickhouse"
+EE_AVAILABLE = False
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
-
-if PRIMARY_DB == CLICKHOUSE:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
@@ -238,8 +238,6 @@ MIDDLEWARE = [
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
-
-EE_AVAILABLE = False
 
 # Append Enterprise Edition as an app if available
 try:
@@ -391,7 +389,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == CLICKHOUSE:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:

@@ -4666,6 +4666,11 @@ fb-watchman@^2.0.0:
   dependencies:
     bser "2.1.1"
 
+fflate@^0.4.1:
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/fflate/-/fflate-0.4.2.tgz#90be9712dae6e874ce9d61f9678355da15ec7011"
+  integrity sha512-othuEXeiFBIaYC8crEkvcYjLw4tAFD4WypT7iyivcT6NxAN1Ib+w/pmeM1SyvwxlsbWPAvoUiMmfClaxq/yVow==
+
 figgy-pudding@^3.5.1:
   version "3.5.2"
   resolved "https://registry.yarnpkg.com/figgy-pudding/-/figgy-pudding-3.5.2.tgz#b4eee8148abb01dcf1d1ac34367d59e12fa61d6e"
@@ -8215,10 +8220,12 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.7.3-beta.9:
-  version "1.7.3-beta.9"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.9.tgz#cde92533426685e6f93a53fefa1b85f1f2e09562"
-  integrity sha512-VfMmJmhAsgolt58YrglZUctw4nFY+VqB+6haoiIrhbr6X0k5JzVD9CKC9G5TqJ8nK44/2Si/nDuxRc2DWywB6Q==
+posthog-js@1.7.3-beta.11:
+  version "1.7.3-beta.11"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.7.3-beta.11.tgz#3521b532f1a2cfc30d67b6073fb9d56d0ae38f8f"
+  integrity sha512-HUpXg6BZRgKDvbJuAso2q7q2CpwCeEb73OOV21qc4jJC1yaJpZ8SN3Xo5eSdGyZJ+c2QEyRY8RV2AH2YpYU1gQ==
+  dependencies:
+    fflate "^0.4.1"
 
 posthog-plugins@0.1.3:
   version "0.1.3"
