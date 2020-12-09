@@ -52,7 +52,7 @@ test('setupPlugins and runPlugins', async () => {
         },
     })
     expect(pluginConfig.vm).toBeDefined()
-    expect(Object.keys(pluginConfig.vm!.methods)).toEqual(['processEvent'])
+    expect(Object.keys(pluginConfig.vm!.methods)).toEqual(['processEvent', 'processEventBatch'])
 
     expect(setError).toHaveBeenCalled()
     expect(setError.mock.calls[0][0]).toEqual(mockServer)

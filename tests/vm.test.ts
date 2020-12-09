@@ -1,4 +1,4 @@
-import { createPluginConfigVM, prepareForRun } from '../src/vm'
+import { createPluginConfigVM } from '../src/vm'
 import { PluginConfig, PluginsServer, Plugin } from '../src/types'
 import { PluginEvent } from 'posthog-plugins'
 import { createServer } from '../src/server'
@@ -55,8 +55,9 @@ test('empty plugins', async () => {
     const vm = createPluginConfigVM(mockServer, mockConfig, indexJs, libJs)
 
     expect(Object.keys(vm).sort()).toEqual(['methods', 'vm'])
-    expect(Object.keys(vm.methods).sort()).toEqual(['processEvent'])
+    expect(Object.keys(vm.methods).sort()).toEqual(['processEvent', 'processEventBatch'])
     expect(vm.methods.processEvent).toEqual(undefined)
+    expect(vm.methods.processEventBatch).toEqual(undefined)
 })
 
 test('processEvent', async () => {
@@ -68,17 +69,165 @@ test('processEvent', async () => {
     `
     const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
+    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
     }
-
     const newEvent = await vm.methods.processEvent(event)
-
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
+
+    const batch: PluginEvent[] = [
+        {
+            ...defaultEvent,
+            event: 'original event',
+        },
+    ]
+    const newBatch = await vm.methods.processEventBatch(batch)
+    expect(batch[0].event).toEqual('changed event')
+    expect(newBatch[0].event).toEqual('changed event')
+    expect(newBatch[0]).toBe(batch[0])
+})
+
+test('async processEvent', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.event = 'changed event'
+            return event
+        }  
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    expect(vm.methods.processEvent).not.toEqual(undefined)
+    expect(vm.methods.processEventBatch).not.toEqual(undefined)
+
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+    const newEvent = await vm.methods.processEvent(event)
+    expect(event.event).toEqual('changed event')
+    expect(newEvent.event).toEqual('changed event')
+    expect(newEvent).toBe(event)
+
+    const batch: PluginEvent[] = [
+        {
+            ...defaultEvent,
+            event: 'original event',
+        },
+    ]
+    const newBatch = await vm.methods.processEventBatch(batch)
+    expect(batch[0].event).toEqual('changed event')
+    expect(newBatch[0].event).toEqual('changed event')
+    expect(newBatch[0]).toBe(batch[0])
+})
+
+test('processEventBatch', async () => {
+    const indexJs = `
+        function processEventBatch (events, meta) {
+            return events.map(event => {
+                event.event = 'changed event'
+                return event
+            })
+        }  
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    expect(vm.methods.processEvent).not.toEqual(undefined)
+    expect(vm.methods.processEventBatch).not.toEqual(undefined)
+
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+    const newEvent = await vm.methods.processEvent(event)
+    expect(event.event).toEqual('changed event')
+    expect(newEvent.event).toEqual('changed event')
+    expect(newEvent).toBe(event)
+
+    const batch: PluginEvent[] = [
+        {
+            ...defaultEvent,
+            event: 'original event',
+        },
+    ]
+    const newBatch = await vm.methods.processEventBatch(batch)
+    expect(batch[0].event).toEqual('changed event')
+    expect(newBatch[0].event).toEqual('changed event')
+    expect(newBatch[0]).toBe(batch[0])
+})
+
+test('async processEventBatch', async () => {
+    const indexJs = `
+        async function processEventBatch (events, meta) {
+            return events.map(event => {
+                event.event = 'changed event'
+                return event
+            })
+        }  
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    expect(vm.methods.processEvent).not.toEqual(undefined)
+    expect(vm.methods.processEventBatch).not.toEqual(undefined)
+
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+    const newEvent = await vm.methods.processEvent(event)
+    expect(event.event).toEqual('changed event')
+    expect(newEvent.event).toEqual('changed event')
+    expect(newEvent).toBe(event)
+
+    const batch: PluginEvent[] = [
+        {
+            ...defaultEvent,
+            event: 'original event',
+        },
+    ]
+    const newBatch = await vm.methods.processEventBatch(batch)
+    expect(batch[0].event).toEqual('changed event')
+    expect(newBatch[0].event).toEqual('changed event')
+    expect(newBatch[0]).toBe(batch[0])
+})
+
+test('processEvent && processEventBatch', async () => {
+    const indexJs = `
+        function processEvent (event, meta) {
+            event.event = 'changed event 1'
+            return event
+        }  
+        function processEventBatch (events, meta) {
+            return events.map(event => {
+                event.event = 'changed event 2'
+                return event
+            })
+        }  
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+    expect(vm.methods.processEvent).not.toEqual(undefined)
+    expect(vm.methods.processEventBatch).not.toEqual(undefined)
+
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+    }
+    const newEvent = await vm.methods.processEvent(event)
+    expect(event.event).toEqual('changed event 1')
+    expect(newEvent.event).toEqual('changed event 1')
+    expect(newEvent).toBe(event)
+
+    const batch: PluginEvent[] = [
+        {
+            ...defaultEvent,
+            event: 'original event',
+        },
+    ]
+    const newBatch = await vm.methods.processEventBatch(batch)
+    expect(batch[0].event).toEqual('changed event 2')
+    expect(newBatch[0].event).toEqual('changed event 2')
+    expect(newBatch[0]).toBe(batch[0])
 })
 
 test('processEvent without returning', async () => {
@@ -424,91 +573,4 @@ test('attachments', async () => {
     await vm.methods.processEvent(event)
 
     expect(event.properties).toEqual(attachments)
-})
-
-test('prepareForRun without token', async () => {
-    const indexJs = `
-        async function processEvent (event, meta) {
-            event.properties = {
-                posthog: posthog
-            }
-            return event
-        }
-    `
-    const pluginConfig = { ...mockConfig }
-    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
-    pluginConfig.vm = vm
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'prepareForRun event',
-        properties: {},
-    }
-    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
-
-    expect(processEvent).toBeDefined()
-
-    await processEvent!(event)
-
-    expect(event.properties!.posthog).toEqual(null)
-})
-
-test('prepareForRun with token gets posthog', async () => {
-    const indexJs = `
-        async function processEvent (event, meta) {
-            event.properties = {
-                posthog: posthog
-            }
-            return event
-        }
-    `
-    const pluginConfig = { ...mockConfig }
-    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
-    pluginConfig.vm = vm
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'prepareForRun event',
-        properties: {
-            token: 'posthog-token',
-        },
-    }
-    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
-    expect(processEvent).toBeDefined()
-
-    await processEvent!(event)
-
-    expect(event.properties!.posthog.capture).toBeDefined()
-    expect(event.properties!.posthog.identify).toBeDefined()
-})
-
-test('posthog.capture', async () => {
-    const indexJs = `
-        async function processEvent (event, meta) {
-            posthog.capture('random-event', { prop: 'value' })
-            return event
-        }
-    `
-    const pluginConfig = { ...mockConfig }
-    const vm = createPluginConfigVM(mockServer, pluginConfig, indexJs)
-    pluginConfig.vm = vm
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'prepareForRun event',
-        properties: {
-            // needs a token in the event
-            token: 'posthog-token',
-        },
-    }
-    const processEvent = prepareForRun(mockServer, pluginConfig.team_id, pluginConfig, 'processEvent', event)
-    expect(processEvent).toBeDefined()
-    await processEvent!(event)
-
-    expect((fetch as any).mock.calls[0][0]).toContain('http://localhost/e/?ip=1&_=')
-    expect((fetch as any).mock.calls[0][1].body).toContain('data=')
-    expect((fetch as any).mock.calls[0][1].body).toContain('&compression=lz64')
-    expect((fetch as any).mock.calls[0][1]).toMatchObject({
-        credentials: 'omit',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        method: 'POST',
-        mode: 'no-cors',
-    })
 })
