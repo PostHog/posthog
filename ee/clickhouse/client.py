@@ -15,8 +15,8 @@ from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
 from posthog import redis
+from posthog.constants import RDBMS
 from posthog.settings import (
-    CLICKHOUSE,
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
     CLICKHOUSE_DATABASE,
@@ -32,7 +32,7 @@ CACHE_TTL = 60  # seconds
 
 _save_query_user_id = False
 
-if PRIMARY_DB != CLICKHOUSE:
+if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
     ch_sync_pool = None  # type: ChPool
 

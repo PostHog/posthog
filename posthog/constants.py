@@ -51,6 +51,6 @@ RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
 
 
-class DatabaseType(str, Enum):
+class RDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"

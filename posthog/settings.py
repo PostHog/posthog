@@ -27,7 +27,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
-from posthog.constants import DatabaseType
+from posthog.constants import RDBMS
 
 
 def get_env(key):
@@ -147,7 +147,7 @@ KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS = ",".join((urlparse(host).netloc for host in KAFKA_URL.split(",")))
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", DatabaseType.POSTGRES)  # type: str
+PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
 EE_AVAILABLE = False
 try:
@@ -158,7 +158,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     EE_AVAILABLE = True
 
-EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == DatabaseType.CLICKHOUSE
+EE_ENABLED = EE_AVAILABLE and PRIMARY_DB == RDBMS.CLICKHOUSE
 
 if EE_ENABLED:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
