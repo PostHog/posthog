@@ -68,6 +68,7 @@ class Filter(PropertyMixin):
         if request:
             data = {
                 **request.GET.dict(),
+                **(data if data else {}),
                 **({PROPERTIES: json.loads(request.GET[PROPERTIES])} if request.GET.get(PROPERTIES) else {}),
                 ACTIONS: json.loads(request.GET.get(ACTIONS, "[]")),
                 EVENTS: json.loads(request.GET.get(EVENTS, "[]")),
