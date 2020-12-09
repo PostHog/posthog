@@ -1,5 +1,6 @@
 import { PluginsServer } from '../types'
 import { PluginEvent } from 'posthog-plugins'
+import * as Sentry from '@sentry/node'
 
 import Worker from '../celery/worker'
 import Client from '../celery/client'
@@ -23,18 +24,22 @@ export function startQueue(
             sent_at?: string
         ) => {
             const event = { distinct_id, ip, site_url, team_id, now, sent_at, ...data } as PluginEvent
-            const processedEvent = await processEvent(event)
-            if (processedEvent) {
-                const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
-                client.sendTask('posthog.tasks.process_event.process_event', [], {
-                    distinct_id,
-                    ip,
-                    site_url,
-                    data,
-                    team_id,
-                    now,
-                    sent_at,
-                })
+            try {
+                const processedEvent = await processEvent(event)
+                if (processedEvent) {
+                    const { distinct_id, ip, site_url, team_id, now, sent_at, ...data } = processedEvent
+                    client.sendTask('posthog.tasks.process_event.process_event', [], {
+                        distinct_id,
+                        ip,
+                        site_url,
+                        data,
+                        team_id,
+                        now,
+                        sent_at,
+                    })
+                }
+            } catch (e) {
+                Sentry.captureException(e)
             }
         }
     )
