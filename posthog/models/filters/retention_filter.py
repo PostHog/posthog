@@ -1,4 +1,5 @@
 import datetime
+import json
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -64,6 +65,12 @@ class RetentionFilter(Filter):
         self._date_from = date_from.isoformat()
         self._date_to = date_to.isoformat()
         self.period_increment = t1
+
+    def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
+        if target_entity_data:
+            data = json.loads(target_entity_data)
+            return Entity({"id": data["id"], "type": data["type"]})
+        return None
 
     @property
     def returning_entity(self) -> Entity:
