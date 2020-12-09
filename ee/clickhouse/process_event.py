@@ -12,7 +12,7 @@ from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.kafka_client.client import KafkaProducer, _KafkaProducer
+from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
@@ -20,8 +20,6 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.tasks.process_event import handle_identify_or_alias, store_names_and_properties
-
-kafka_producer: Optional[_KafkaProducer] = None
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -110,7 +108,6 @@ def handle_timestamp(data: dict, now: datetime.datetime, sent_at: Optional[datet
 
 
 if is_ee_enabled():
-    kafka_producer = KafkaProducer()
 
     def process_event_ee(
         distinct_id: str,
@@ -181,9 +178,7 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
 ) -> None:
-    if kafka_producer is None:
-        raise Exception("Kafka is unavailable, because ClickHouse event processing is not in use!")
-    kafka_producer.produce(
+    KafkaProducer().produce(
         topic=KAFKA_EVENTS_WAL,
         data={
             "distinct_id": distinct_id,
