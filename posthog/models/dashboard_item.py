@@ -41,4 +41,5 @@ class DashboardItem(models.Model):
 def dashboard_item_saved(sender, instance: DashboardItem, **kwargs):
     if instance.filters and instance.filters != {}:
         filter = Filter(data=instance.filters)
+        instance.filters = filter.to_dict()
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
