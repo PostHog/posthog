@@ -1,7 +1,5 @@
 #!/bin/bash
-# this makes the script exit if `yarn --frozen-lockfile` fails
-set -e
-
+# Keys to export from django settings.py
 KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
 
 # Export $CONFIG to posthog-plugin-server
@@ -18,9 +16,19 @@ if [[ -n "${DYNO_RAM}" ]]; then
 fi
 
 cd plugins
+
 yarn --frozen-lockfile --silent
+if [ $? -ne 0 ]; then
+    echo "Yarn failed!"
+    exit 1
+fi
 
 while true; do
-  # break loop if exiting normally (incl CTRL+C)
-  yarn --silent start && break
+  # Run: posthog-plugin-server
+  yarn --silent start
+  echo ""
+  echo "🔴 Plugin server crashed!"
+  echo "⌛️ Waiting 2 seconds before restarting!"
+  echo ""
+  sleep 2
 done
