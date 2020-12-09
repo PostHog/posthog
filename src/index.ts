@@ -1,9 +1,9 @@
 import * as yargs from 'yargs'
-import { PluginsServerConfig, PluginsServerConfigKey } from './types'
+import { PluginsServerConfig } from './types'
 import { startPluginsServer } from './server'
 import { makePiscina } from './worker/piscina'
 import { defaultConfig, configHelp } from './config'
-import { setLogLevel } from './utils'
+import { initApp } from './init'
 
 type Argv = {
     config: string
@@ -20,14 +20,14 @@ let app: any = yargs
 
 for (const [key, value] of Object.entries(defaultConfig)) {
     app = app.option(key.toLowerCase().split('_').join('-'), {
-        describe: `${configHelp[key as PluginsServerConfigKey] || key} [${value}]`,
+        describe: `${configHelp[key] || key} [${value}]`,
         type: typeof value,
     })
 }
 
-const { config, ...otherArgs }: Argv = app.help().argv
+const { config: configArgv, ...otherArgs }: Argv = app.help().argv
 
-const parsedConfig: Record<string, any> = config ? JSON.parse(config) : {}
+const config: PluginsServerConfig = { ...defaultConfig, ...(configArgv ? JSON.parse(configArgv) : {}) }
 for (const [key, value] of Object.entries(otherArgs)) {
     if (typeof value !== 'undefined') {
         // convert camelCase argument keys to under_score
@@ -36,9 +36,10 @@ for (const [key, value] of Object.entries(otherArgs)) {
             .replace(/^_/, '')
             .toUpperCase()
         if (newKey in defaultConfig) {
-            parsedConfig[newKey] = value
+            config[newKey] = value
         }
     }
 }
-setLogLevel(parsedConfig.LOG_LEVEL || defaultConfig.LOG_LEVEL)
-startPluginsServer(parsedConfig as PluginsServerConfig, makePiscina)
+
+initApp(config)
+startPluginsServer(config, makePiscina)

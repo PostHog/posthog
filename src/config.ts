@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig, PluginsServerConfigKey } from './types'
+import { LogLevel, PluginsServerConfig } from './types'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -17,10 +17,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: 0, // use all cores
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: LogLevel.Info,
+        SENTRY_DSN: null,
     }
 }
 
-export function getConfigHelp(): Record<PluginsServerConfigKey, string> {
+export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     return {
         CELERY_DEFAULT_QUEUE: 'celery outgoing queue',
         DATABASE_URL: 'url for postgres',
@@ -34,6 +35,7 @@ export function getConfigHelp(): Record<PluginsServerConfigKey, string> {
         WORKER_CONCURRENCY: 'number of concurrent worker threads',
         TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
         LOG_LEVEL: 'minimum log level',
+        SENTRY_DSN: 'sentry ingestion url',
     }
 }
 
@@ -43,8 +45,8 @@ export function overrideWithEnv(
 ): PluginsServerConfig {
     const defaultConfig = getDefaultConfig()
 
-    const newConfig: Record<PluginsServerConfigKey, any> = { ...config }
-    for (const key of Object.keys(config) as PluginsServerConfigKey[]) {
+    const newConfig: PluginsServerConfig = { ...config }
+    for (const key of Object.keys(config)) {
         if (typeof env[key] !== 'undefined') {
             if (typeof defaultConfig[key] === 'number') {
                 newConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)

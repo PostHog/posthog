@@ -1,3 +1,5 @@
+const Sentry = require('@sentry/node')
+
 const { isMainThread } = require('worker_threads')
 
 if (isMainThread) {
@@ -7,6 +9,7 @@ if (isMainThread) {
         makePiscina: (serverConfig) => {
             const piscina = new Piscina(createConfig(serverConfig, __filename))
             piscina.on('error', (error) => {
+                Sentry.captureException(error)
                 console.error('🔴 Piscina Worker Error!')
                 console.error(error)
             })

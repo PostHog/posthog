@@ -1,6 +1,7 @@
 import { PluginConfig, PluginError, PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
 import { setError } from './sql'
+import * as Sentry from '@sentry/node'
 
 export async function processError(
     server: PluginsServer,
@@ -8,6 +9,7 @@ export async function processError(
     error: Error | string,
     event?: PluginEvent | null
 ): Promise<void> {
+    Sentry.captureException(error)
     console.error(error)
 
     const errorJson: PluginError =
