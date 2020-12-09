@@ -12,11 +12,19 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import update_cache_item_task
-from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
+from posthog.constants import (
+    DATE_FROM,
+    FROM_DASHBOARD,
+    INSIGHT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_TRENDS,
+    OFFSET,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Person, Team
-from posthog.models.action import Action
-from posthog.models.filters import RetentionFilter
+from posthog.models import DashboardItem, Event, Person, Team
+from posthog.models.filters import Filter, RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
@@ -162,7 +170,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         team = self.team
 
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_TRENDS})
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
@@ -225,7 +233,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         refresh = request.GET.get("refresh", None)
 
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         result = {"loading": True}
 
@@ -282,7 +290,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
 

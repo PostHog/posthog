@@ -148,11 +148,11 @@ export function DashboardItem({
     onRefresh,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
-    const className = typeMap[item.type].className
-    const Element = typeMap[item.type].element
-    const Icon = typeMap[item.type].icon
-    const viewText = typeMap[item.type].viewText
-    const link = typeMap[item.type].link(item)
+    const className = typeMap[item.filters.display].className
+    const Element = typeMap[item.filters.display].element
+    const Icon = typeMap[item.filters.display].icon
+    const viewText = typeMap[item.filters.display].viewText
+    const link = typeMap[item.filters.display].link(item)
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 

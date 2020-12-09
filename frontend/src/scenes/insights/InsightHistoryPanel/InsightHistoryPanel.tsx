@@ -245,10 +245,10 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                 <List.Item>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
                                         <Row justify="space-between" align="middle">
-                                            {insight.type && (
+                                            {insight.filters.insight && (
                                                 <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.type.charAt(0).toUpperCase() +
-                                                        insight.type.slice(1).toLowerCase()}
+                                                    {insight.filters.insight.charAt(0).toUpperCase() +
+                                                        insight.filters.insight.slice(1).toLowerCase()}
                                                 </Link>
                                             )}
                                             {insight.saved ? (
@@ -271,7 +271,9 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 </Tooltip>
                                             )}
                                         </Row>
-                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                        <span>
+                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
+                                        </span>
                                     </Col>
                                 </List.Item>
                             )
@@ -292,7 +294,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                 <List.Item key={insight.id}>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
                                         <Row justify="space-between" align="middle">
-                                            {insight.type && (
+                                            {insight.filters.insight && (
                                                 <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
                                                     {insight.name}
                                                 </Link>
@@ -306,7 +308,9 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 style={{ cursor: 'pointer' }}
                                             />
                                         </Row>
-                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                        <span>
+                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
+                                        </span>
                                     </Col>
                                 </List.Item>
                             )
@@ -327,13 +331,15 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                 <List.Item key={insight.id}>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
                                         <Row justify="space-between" align="middle">
-                                            {insight.type && (
+                                            {insight.filters.insight && (
                                                 <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
                                                     {insight.name}
                                                 </Link>
                                             )}
                                         </Row>
-                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                        <span>
+                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
+                                        </span>
                                     </Col>
                                 </List.Item>
                             )
