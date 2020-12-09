@@ -107,10 +107,6 @@ class User(AbstractUser):
     objects: UserManager = UserManager()  # type: ignore
 
     @property
-    def ee_available(self) -> bool:
-        return settings.EE_AVAILABLE
-
-    @property
     def is_superuser(self) -> bool:  # type: ignore
         return self.is_staff
 

@@ -8,6 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.ee import is_ee_enabled
 from posthog.models import User
 from posthog.settings import TEST
 from posthog.utils import (
@@ -53,7 +54,15 @@ def system_status(request):
     redis_alive = is_redis_alive()
     postgres_alive = is_postgres_alive()
 
-    metrics = list()
+    metrics = []
+
+    metrics.append(
+        {
+            "key": "analytics_database",
+            "metric": "Analytics database in use",
+            "value": "ClickHouse" if is_ee_enabled() else "Postgres",
+        }
+    )
 
     metrics.append({"key": "db_alive", "metric": "Postgres database alive", "value": postgres_alive})
     if postgres_alive:
