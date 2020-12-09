@@ -69,13 +69,13 @@ function PreflightCheck() {
 
     const checks = [
         {
-            id: 'database',
+            id: 'db',
             name: 'Database (Postgres)',
             status: preflight.db,
         },
         {
-            id: 'backend',
-            name: 'Backend server (Django)',
+            id: 'django',
+            name: 'Backend Server (Django)',
             status: preflight.django,
         },
         {
@@ -84,25 +84,23 @@ function PreflightCheck() {
             status: preflight.redis,
         },
         {
-            id: 'redis',
+            id: 'celery',
             name: 'Background Jobs (Celery)',
             status: preflight.celery,
         },
         {
-            id: 'redis',
-            name: 'Posthog Plugin Server',
+            id: 'plugins',
+            name: 'Ingestion Server (posthog-plugin-server)',
             status: preflight.plugins,
-            caption: 'Not required if not using plugins',
-            failedState: 'not-required',
         },
         {
             id: 'frontend',
-            name: 'Frontend built (Webpack)',
-            status: true, // If this code is run, the front-end is already built
+            name: 'Frontend Build (Webpack)',
+            status: true, // If this code is ran, the frontend bas been built
         },
         {
             id: 'tls',
-            name: 'SSL/TLS certificate',
+            name: 'TLS Certificate (https://)',
             status: window.location.protocol === 'https:',
             caption:
                 state.mode === 'Experimentation'
