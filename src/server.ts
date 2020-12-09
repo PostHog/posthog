@@ -10,6 +10,7 @@ import { version } from '../package.json'
 import { PluginEvent } from 'posthog-plugins'
 import { defaultConfig } from './config'
 import Piscina from 'piscina'
+import * as Sentry from '@sentry/node'
 
 export async function createServer(
     config: Partial<PluginsServerConfig> = {}
@@ -21,6 +22,7 @@ export async function createServer(
 
     const redis = new Redis(serverConfig.REDIS_URL, { maxRetriesPerRequest: -1 })
     redis.on('error', (error) => {
+        Sentry.captureException(error)
         console.error('🔴 Redis error! Trying to reconnect.')
         console.error(error)
     })
@@ -82,6 +84,9 @@ export async function startPluginsServer(
         }
         await piscina?.destroy()
         await closeServer()
+
+        // wait an extra second for any misc async task to finish
+        await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
@@ -112,7 +117,7 @@ export async function startPluginsServer(
                 await queue?.stop()
                 await piscina?.destroy()
 
-                piscina = makePiscina(config)
+                piscina = makePiscina(serverConfig!)
                 queue = startQueue(server!, processEvent)
             }
         })
@@ -124,8 +129,11 @@ export async function startPluginsServer(
         })
         console.info(`🚀 All systems go.`)
     } catch (error) {
+        Sentry.captureException(error)
         console.error(`💥 Launchpad failure!\n${error.stack}`)
+        Sentry.flush().then(() => true) // flush in the background
         await closeJobs()
+
         process.exit(1)
     }
 }
