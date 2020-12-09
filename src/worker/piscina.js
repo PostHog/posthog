@@ -7,9 +7,8 @@ if (isMainThread) {
         makePiscina: (serverConfig) => {
             const piscina = new Piscina(createConfig(serverConfig, __filename))
             piscina.on('error', (error) => {
-                console.error('🔴 Piscina Worker Error! Sending SIGTERM!')
+                console.error('🔴 Piscina Worker Error!')
                 console.error(error)
-                process.kill(process.pid, 'SIGTERM')
             })
             return piscina
         },
