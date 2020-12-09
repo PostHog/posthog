@@ -5,6 +5,7 @@ import { ViewType } from '../insightLogic'
 import { toast } from 'react-toastify'
 import { InsightHistory } from '~/types'
 import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
+import { prompt } from 'lib/logic/prompt'
 
 const typeToInsightMap: Record<string, string> = {
     ActionsLineGraph: ViewType.TRENDS,
@@ -65,9 +66,9 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                         })
                 )
 
-                const parsed = response.results.map((result: any) => parseSavedInsight(result))
+                // const parsed = response.results.map((result: any) => parseSavedInsight(result))
                 actions.setSavedInsightsNext(response.next)
-                return parsed
+                return response.results
             },
         },
         teamInsights: {
@@ -193,6 +194,17 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             const parsed = response.results.map((result: any) => parseSavedInsight(result))
             actions.setTeamInsightsNext(response.next)
             actions.updateTeamInsights(parsed)
+        },
+        renameInsight: async ({ id }) => {
+            prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
+                title: 'Rename panel',
+                placeholder: 'Please enter the new name',
+                value: values.savedInsights.find((item) => item.id === id)?.name,
+                error: 'You must enter name',
+                success: async (name: string) => {
+                    actions.saveInsight({ insight: { id } }, name)
+                },
+            })
         },
     }),
     events: ({ actions }) => ({

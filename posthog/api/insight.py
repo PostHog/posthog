@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from django.core.cache import cache
 from django.db.models import QuerySet
+from django.db.models.query_utils import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -108,7 +109,10 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+                if strtobool(str(request.GET["saved"])):
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
+                else:
+                    queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == INSIGHT:

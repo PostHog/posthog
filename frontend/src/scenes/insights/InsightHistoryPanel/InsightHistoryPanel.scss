@@ -1,0 +1,30 @@
+.insight-history-panel {
+    .dashboard-item {
+        border: 1px solid transparent;
+        padding-bottom: 10px;
+        cursor: pointer;
+
+        .dashboard-item-content {
+            transform: scale(0.333);
+            transform-origin: top left;
+            overflow: inherit;
+            position: inherit;
+        }
+        .graph-container {
+            height: 300%;
+            width: 300%;
+        }
+        &:hover {
+            border-color: var(--primary);
+        }
+    }
+    .dashboard-item-footer {
+        bottom: 0;
+        position: absolute;
+        background: #fff;
+        padding: 0.25rem;
+        border-top: 1px solid var(--muted);
+        width: 100%;
+        font-size: 11px;
+    }
+}

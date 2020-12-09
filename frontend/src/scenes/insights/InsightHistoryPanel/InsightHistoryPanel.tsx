@@ -1,17 +1,15 @@
 import React, { useState } from 'react'
-import { Tabs, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
-import { toParams, dateFilterToText } from 'lib/utils'
+import { Tabs, Button, List, Col, Spin, Row, Tooltip } from 'antd'
+import { toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
+import { PushpinOutlined, PushpinFilled } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
-import { ViewType } from '../insightLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { formatPropertyLabel } from 'lib/utils'
-import { cohortsModel } from '~/models'
-import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
+import { InsightHistory } from '~/types'
 import SaveModal from '../SaveModal'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { DashboardItem } from 'scenes/dashboard/DashboardItem'
+import './insightHistoryPanel.scss'
+import moment from 'moment'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -20,139 +18,6 @@ const InsightHistoryType = {
 }
 
 const { TabPane } = Tabs
-
-const columns = [
-    {
-        render: function renderKey(item) {
-            return <b style={{ marginLeft: -8 }}>{item.key}</b>
-        },
-        width: 110,
-    },
-    {
-        render: function renderValue(item) {
-            return <span>{item.value}</span>
-        },
-    },
-]
-
-export const determineFilters = (
-    viewType: string,
-    filters: Record<string, any>,
-    cohorts: CohortType[]
-): JSX.Element => {
-    const result = []
-    if (viewType === ViewType.TRENDS) {
-        let count = 0
-        if (filters.events) {
-            count += filters.events.length
-        }
-        if (filters.actions) {
-            count += filters.actions.length
-        }
-        if (count > 0) {
-            const entity: string[] = []
-            if (filters.events) {
-                filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
-            }
-            if (filters.actions) {
-                filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
-            }
-            result.push({ key: 'Entities', value: entity })
-        }
-        if (filters.interval) {
-            result.push({ key: 'Interval', value: `${filters.interval}` })
-        }
-        if (filters.shown_as) {
-            result.push({ key: 'Shown As', value: `${filters.shown_as}` })
-        }
-        if (filters.breakdown) {
-            result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
-        }
-        if (filters.compare) {
-            result.push({ key: 'Compare', value: `${filters.compare}` })
-        }
-    } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) {
-            result.push({ key: 'Session', value: `${filters.session}` })
-        }
-        if (filters.interval) {
-            result.push({ key: 'Interval', value: `${filters.interval}` })
-        }
-        if (filters.compare) {
-            result.push({ key: 'Compare', value: `${filters.compare}` })
-        }
-    } else if (viewType === ViewType.RETENTION) {
-        if (filters.display) {
-            result.push({
-                key: 'Display',
-                value: `${filters.display === ACTIONS_LINE_GRAPH_LINEAR ? 'Graph' : 'Table'}`,
-            })
-        }
-        if (filters.startEntity) {
-            if (filters.startEntity.events) {
-                result.push({ key: 'Target', value: `${filters.startEntity.events[0].name}` })
-            } else if (filters.startEntity.actions) {
-                result.push({ key: 'Target', value: `${filters.startEntity.actions[0].name}` })
-            }
-        }
-        if (filters.returningEntity) {
-            if (filters.returningEntity.events) {
-                result.push({ key: 'Returning Event', value: `${filters.returningEntity.events[0].name}` })
-            } else if (filters.returningEntity.actions) {
-                result.push({ key: 'Returning Event', value: `${filters.returningEntity.actions[0].name}` })
-            }
-        }
-        if (filters.selectedDate) {
-            result.push({ key: 'Current Date', value: `${filters.selectedDate}\n` })
-        }
-    } else if (viewType === ViewType.PATHS) {
-        if (filters.type) {
-            result.push({ key: 'Path Type', value: `${filters.type || filters.path_type}` })
-        }
-        if (filters.start) {
-            result.push({ key: 'Start Point', value: `Specified` })
-        }
-    } else if (viewType === ViewType.FUNNELS) {
-        let count = 0
-        if (filters.events) {
-            count += filters.events.length
-        }
-        if (filters.actions) {
-            count += filters.actions.length
-        }
-        if (count > 0) {
-            const entity: string[] = []
-            if (filters.events) {
-                filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
-            }
-            if (filters.actions) {
-                filters.actions.forEach((action: Entity) =>
-                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
-                )
-            }
-            result.push({ key: 'Entities', value: entity })
-        }
-    }
-    if (filters.properties && filters.properties.length > 0) {
-        const properties: string[] = []
-        filters.properties.forEach((prop: PropertyFilter) =>
-            properties.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
-        )
-        result.push({ key: 'Properties', value: properties })
-    }
-    if (filters.date_from || filters.date_to) {
-        result.push({ key: 'Date Range', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
-    }
-    return (
-        <Table
-            showHeader={false}
-            size={'small'}
-            dataSource={result}
-            columns={columns}
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-        />
-    )
-}
 
 interface InsightHistoryPanelProps {
     onChange: () => void
@@ -163,23 +28,17 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         insights,
         insightsLoading,
         savedInsights,
-        savedInsightsLoading,
         teamInsights,
         teamInsightsLoading,
         insightsNext,
-        savedInsightsNext,
         teamInsightsNext,
         loadingMoreInsights,
-        loadingMoreSavedInsights,
         loadingMoreTeamInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(
-        insightHistoryLogic
-    )
-    const { cohorts } = useValues(cohortsModel)
+    const { saveInsight, loadNextInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
 
     const [visible, setVisible] = useState(false)
-    const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
+    const [activeTab, setActiveTab] = useState(InsightHistoryType.SAVED)
     const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
 
     const loadMoreInsights = insightsNext ? (
@@ -195,18 +54,18 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         </div>
     ) : null
 
-    const loadMoreSavedInsights = savedInsightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
-        </div>
-    ) : null
+    // const loadMoreSavedInsights = savedInsightsNext ? (
+    //     <div
+    //         style={{
+    //             textAlign: 'center',
+    //             marginTop: 12,
+    //             height: 32,
+    //             lineHeight: '32px',
+    //         }}
+    //     >
+    //         {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
+    //     </div>
+    // ) : null
 
     const loadMoreTeamInsights = teamInsightsNext ? (
         <div
@@ -222,7 +81,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
     ) : null
 
     return (
-        <div data-attr="insight-history-panel">
+        <div data-attr="insight-history-panel" className="insight-history-panel">
             <Tabs
                 style={{
                     overflow: 'visible',
@@ -271,9 +130,6 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 </Tooltip>
                                             )}
                                         </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
                                     </Col>
                                 </List.Item>
                             )
@@ -285,37 +141,21 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     key={InsightHistoryType.SAVED}
                     data-attr="insight-saved-pane"
                 >
-                    <List
-                        loading={savedInsightsLoading}
-                        dataSource={savedInsights}
-                        loadMore={loadMoreSavedInsights}
-                        renderItem={(insight: InsightHistory) => {
-                            return (
-                                <List.Item key={insight.id}>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.name}
-                                                </Link>
-                                            )}
-                                            <DeleteOutlined
-                                                className="clickable button-border"
-                                                key="insight-action-delete"
-                                                onClick={() => {
-                                                    deleteInsight(insight)
-                                                }}
-                                                style={{ cursor: 'pointer' }}
-                                            />
-                                        </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
-                    />
+                    <Row gutter={[16, 16]}>
+                        {savedInsights.map((insight: InsightHistory) => (
+                            <Col xs={8} key={insight.id} style={{ height: 270 }}>
+                                <DashboardItem
+                                    item={insight}
+                                    options={<div className="dashboard-item-settings">hi</div>}
+                                    footer={
+                                        <div className="dashboard-item-footer">
+                                            Last saved {moment(insight.created_at).fromNow()}
+                                        </div>
+                                    }
+                                />
+                            </Col>
+                        ))}
+                    </Row>
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Team</span>}
@@ -337,9 +177,6 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 </Link>
                                             )}
                                         </Row>
-                                        <span>
-                                            {determineFilters(insight.filters.insight, insight.filters, cohorts)}
-                                        </span>
                                     </Col>
                                 </List.Item>
                             )

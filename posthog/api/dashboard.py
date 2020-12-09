@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, cast
 import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Model, Prefetch, QuerySet
+from django.db.models.query_utils import Q
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -17,6 +18,7 @@ from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
+from posthog.constants import TRENDS_FUNNEL
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -235,7 +237,10 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+                if strtobool(str(request.GET["saved"])):
+                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
+                else:
+                    queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "insight":

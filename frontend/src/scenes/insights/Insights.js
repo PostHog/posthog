@@ -13,7 +13,7 @@ import { PersonModal } from './PersonModal'
 import { PageHeader } from 'lib/components/PageHeader'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Button, Drawer, Tooltip, Card } from 'antd'
+import { Tabs, Row, Col, Tooltip, Card } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -120,7 +120,6 @@ function _Insights() {
     const { user } = useValues(userLogic)
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
-    const [openHistory, setOpenHistory] = useState(false)
 
     return (
         user?.team && (
@@ -144,125 +143,130 @@ function _Insights() {
                             key={ViewType.RETENTION}
                         />
                         <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
+                        <TabPane
+                            className="pull-right"
+                            tab={<span data-attr="insight-history-button">History</span>}
+                            key="history"
+                        />
                     </Tabs>
-                    <div className="ant-tabs ant-tabs-top">
-                        <div className="ant-tabs-nav">
-                            <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
-                                History
-                            </Button>
-                        </div>
-                    </div>
                 </Row>
                 <Row gutter={16}>
-                    <Col xs={24} xl={7}>
-                        <Card className="" style={{ overflow: 'visible' }}>
-                            <div>
+                    {activeView === 'history' ? (
+                        <Col xs={24} xl={24}>
+                            <Card className="" style={{ overflow: 'visible' }}>
+                                <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
+                            </Card>
+                        </Col>
+                    ) : (
+                        <>
+                            <Col xs={24} xl={7}>
+                                <Card className="" style={{ overflow: 'visible' }}>
+                                    <div>
+                                        {/* 
+                                These are insight specific filters. 
+                                They each have insight specific logics
+                                */}
+                                        {
+                                            {
+                                                [`${ViewType.TRENDS}`]: <TrendTab />,
+                                                [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                                [`${ViewType.FUNNELS}`]: <FunnelTab />,
+                                                [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                                [`${ViewType.PATHS}`]: <PathTab />,
+                                            }[activeView]
+                                        }
+                                    </div>
+                                </Card>
+                                {activeView === ViewType.FUNNELS && (
+                                    <Card
+                                        title={
+                                            <Row align="middle">
+                                                <span>Saved Funnels</span>
+                                                <Tooltip
+                                                    key="1"
+                                                    getPopupContainer={(trigger) => trigger.parentElement}
+                                                    placement="right"
+                                                    title="These consist of funnels by you and the rest of the team"
+                                                >
+                                                    <InfoCircleOutlined className="info-indicator" />
+                                                </Tooltip>
+                                            </Row>
+                                        }
+                                        style={{ marginTop: 16 }}
+                                    >
+                                        <SavedFunnels />
+                                    </Card>
+                                )}
+                            </Col>
+                            <Col xs={24} xl={17}>
                                 {/* 
-                            These are insight specific filters. 
-                            They each have insight specific logics
-                            */}
-                                {
-                                    {
-                                        [`${ViewType.TRENDS}`]: <TrendTab />,
-                                        [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                        [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                        [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                        [`${ViewType.PATHS}`]: <PathTab />,
-                                    }[activeView]
-                                }
-                            </div>
-                        </Card>
-                        {activeView === ViewType.FUNNELS && (
-                            <Card
-                                title={
-                                    <Row align="middle">
-                                        <span>Saved Funnels</span>
-                                        <Tooltip
-                                            key="1"
-                                            getPopupContainer={(trigger) => trigger.parentElement}
-                                            placement="right"
-                                            title="These consist of funnels by you and the rest of the team"
-                                        >
-                                            <InfoCircleOutlined className="info-indicator" />
-                                        </Tooltip>
-                                    </Row>
-                                }
-                                style={{ marginTop: 16 }}
-                            >
-                                <SavedFunnels />
-                            </Card>
-                        )}
-                    </Col>
-                    <Col xs={24} xl={17}>
-                        {/* 
-                    These are filters that are reused between insight features. 
-                    They each have generic logic that updates the url
-                    */}
-                        <Card
-                            title={
-                                <div className="float-right">
-                                    {showIntervalFilter[activeView] && (
-                                        <IntervalFilter filters={allFilters} view={activeView} />
-                                    )}
-                                    {showChartFilter[activeView] && (
-                                        <ChartFilter
-                                            onChange={(display) => {
-                                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                                    clearAnnotationsToCreate()
-                                                }
-                                            }}
-                                            displayMap={displayMap}
-                                            filters={allFilters}
-                                        />
-                                    )}
+                        These are filters that are reused between insight features. 
+                        They each have generic logic that updates the url
+                        */}
+                                <Card
+                                    title={
+                                        <div className="float-right">
+                                            {showIntervalFilter[activeView] && (
+                                                <IntervalFilter filters={allFilters} view={activeView} />
+                                            )}
+                                            {showChartFilter[activeView] && (
+                                                <ChartFilter
+                                                    onChange={(display) => {
+                                                        if (
+                                                            display === ACTIONS_TABLE ||
+                                                            display === ACTIONS_PIE_CHART
+                                                        ) {
+                                                            clearAnnotationsToCreate()
+                                                        }
+                                                    }}
+                                                    displayMap={displayMap}
+                                                    filters={allFilters}
+                                                />
+                                            )}
 
-                                    {showDateFilter[activeView] && (
-                                        <DateFilter
-                                            disabled={activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)}
-                                        />
-                                    )}
+                                            {showDateFilter[activeView] && (
+                                                <DateFilter
+                                                    disabled={
+                                                        activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+                                                    }
+                                                />
+                                            )}
 
-                                    {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
-                                    <SaveToDashboard
-                                        item={{
-                                            type: determineInsightType(activeView, allFilters.display),
-                                            entity: {
-                                                filters: allFilters,
-                                                annotations: annotationsToCreate,
-                                            },
-                                        }}
-                                    />
-                                </div>
-                            }
-                            headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
-                        >
-                            <div>
-                                {
-                                    {
-                                        [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                        [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                        [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                        [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                        [`${ViewType.PATHS}`]: <Paths />,
-                                    }[activeView]
-                                }
-                            </div>
-                        </Card>
-                        {activeView === ViewType.FUNNELS && (
-                            <Card>
-                                <FunnelPeople />
-                            </Card>
-                        )}
-                    </Col>
+                                            {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
+                                            <SaveToDashboard
+                                                item={{
+                                                    type: determineInsightType(activeView, allFilters.display),
+                                                    entity: {
+                                                        filters: allFilters,
+                                                        annotations: annotationsToCreate,
+                                                    },
+                                                }}
+                                            />
+                                        </div>
+                                    }
+                                    headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
+                                >
+                                    <div>
+                                        {
+                                            {
+                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                [`${ViewType.PATHS}`]: <Paths />,
+                                            }[activeView]
+                                        }
+                                    </div>
+                                </Card>
+                                {activeView === ViewType.FUNNELS && (
+                                    <Card>
+                                        <FunnelPeople />
+                                    </Card>
+                                )}
+                            </Col>
+                        </>
+                    )}
                 </Row>
-                <Drawer
-                    title={'Insights History'}
-                    width={350}
-                    onClose={() => setOpenHistory(false)}
-                    visible={openHistory}
-                >
-                    <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
-                </Drawer>
             </div>
         )
     )
