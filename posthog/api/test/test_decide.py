@@ -1,6 +1,5 @@
 import base64
 import json
-from unittest.mock import patch
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
 
@@ -29,6 +28,7 @@ class TestDecide(BaseTest):
         self.team.save()
         response = self.client.get("/decide/", HTTP_ORIGIN="https://example.com").json()
         self.assertEqual(response["isAuthenticated"], True)
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
 
     def test_user_on_own_site_disabled(self):
@@ -66,6 +66,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["isAuthenticated"], True)
         self.assertEqual(response["sessionRecording"], False)
         self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
@@ -77,6 +78,7 @@ class TestDecide(BaseTest):
 
         response = self._post_decide()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_evil_site(self):
         self.team.app_urls = ["https://example.com"]
