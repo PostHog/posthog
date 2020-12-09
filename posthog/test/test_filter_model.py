@@ -30,9 +30,10 @@ class TestFilter(BaseTest):
                 "compare": True,
                 "interval": "",
                 "actions": [],
+                "date_from": "all",
             }
         ).to_dict()
-        self.assertEqual(list(filter.keys()), ["events", "display", "compare"])
+        self.assertEqual(list(filter.keys()), ["date_from", "date_to", "events", "display", "compare"])
 
 
 class TestSelectors(BaseTest):
