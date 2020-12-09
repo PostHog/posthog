@@ -7,7 +7,7 @@ export function buildFastifyInstance(): FastifyInstance {
 
 export async function stopFastifyInstance(fastifyInstance: FastifyInstance): Promise<void> {
     await fastifyInstance.close()
-    console.info(`🛑 Web server cleaned up!`)
+    console.info(`🛑 Web server closed!`)
 }
 
 export async function startFastifyInstance(

@@ -78,7 +78,7 @@ export class Worker extends Base {
 
         return () => {
             const result = this.broker.subscribe(queue, onMessage)
-            console.info(`✅ Celery worker subscribed to ${Object.keys(this.handlers).join(', ')}`)
+            console.info(`✅ Celery worker subscribed to ${Object.keys(this.handlers).join(', ')}!`)
             return result
         }
     }
@@ -184,14 +184,14 @@ export class Worker extends Base {
             console.info(
                 `⌛ ${taskCount} ${taskCount === 1 ? 'task' : 'tasks'} in progress, waiting for ${
                     taskCount === 1 ? 'it' : 'them'
-                } to finish before cleaning Celery up...`
+                } to finish before disconnecting Celery...`
             )
             await this.whenCurrentJobsFinished()
         } else {
-            console.info(`👍 No tasks in progress, cleaning Celery up...`)
+            console.info(`👍 No tasks in progress, disconnecting Celery...`)
         }
         await this.disconnect()
-        console.info(`🛑 Celery worker cleaned up!`)
+        console.info(`🛑 Celery worker disconnected!`)
     }
 }
 
