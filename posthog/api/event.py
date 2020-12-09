@@ -245,7 +245,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
 
         return response.Response({"result": session_recording})
