@@ -1,5 +1,7 @@
 .idea
 .clinic
-node_modules
+node_modules/
 yarn-error.log
-dist
+dist/
+.yalc/
+yalc.lock

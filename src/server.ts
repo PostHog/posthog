@@ -114,7 +114,7 @@ export async function startPluginsServer(
         pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
         pubSub.on('message', async (channel, message) => {
             if (channel === server!.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
-                console.log('⚡ Reloading plugins!')
+                console.info('⚡ Reloading plugins!')
                 await queue?.stop()
                 await stopPiscina(piscina!)
                 piscina = makePiscina(serverConfig!)

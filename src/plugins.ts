@@ -133,7 +133,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
 
             try {
                 pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs)
-                console.log(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
+                console.info(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
                 await clearError(server, pluginConfig)
                 return true
             } catch (error) {
