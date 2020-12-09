@@ -41,7 +41,7 @@ class DisplayMixin:
     _data: Dict
 
     @cached_property
-    def display(self):
+    def display(self) -> Optional[str]:
         return self._data.get(DISPLAY, None)
 
 
@@ -49,7 +49,7 @@ class IntervalMixin:
     _data: Dict
 
     @cached_property
-    def interval(self):
+    def interval(self) -> Optional[str]:
         return self._data.get(INTERVAL, None)
 
 
@@ -57,7 +57,7 @@ class SelectorMixin:
     _data: Dict
 
     @cached_property
-    def selector(self):
+    def selector(self) -> Optional[str]:
         return self._data.get(SELECTOR, None)
 
 
@@ -65,7 +65,7 @@ class ShownAsMixin:
     _data: Dict
 
     @cached_property
-    def shown_as(self) -> str:
+    def shown_as(self) -> Optional[str]:
         return self._data.get(SHOWN_AS, None)
 
 
@@ -87,7 +87,7 @@ class BreakdownTypeMixin:
     _data: Dict
 
     @cached_property
-    def breakdown_type(self) -> str:
+    def breakdown_type(self) -> Optional[str]:
         return self._data.get(BREAKDOWN_TYPE, None)
 
 
@@ -95,7 +95,7 @@ class BreakdownValueMixin:
     _data: Dict
 
     @cached_property
-    def breakdown_value(self) -> str:
+    def breakdown_value(self) -> Optional[str]:
         return self._data.get(BREAKDOWN_VALUE, None)
 
 
@@ -103,7 +103,7 @@ class InsightMixin:
     _data: Dict
 
     @cached_property
-    def insight(self) -> str:
+    def insight(self) -> Optional[str]:
         return self._data.get(INSIGHT, None)
 
 
@@ -111,7 +111,7 @@ class SessionTypeMixin:
     _data: Dict
 
     @cached_property
-    def session_type(self) -> str:
+    def session_type(self) -> Optional[str]:
         return self._data.get(SESSION, None)
 
 
@@ -119,7 +119,7 @@ class PathTypeMixin:
     _data: Dict
 
     @cached_property
-    def path_type(self) -> str:
+    def path_type(self) -> Optional[str]:
         return self._data.get(PATH_TYPE, None)
 
 
@@ -127,7 +127,7 @@ class StartPointMixin:
     _data: Dict
 
     @cached_property
-    def start_point(self) -> str:
+    def start_point(self) -> Optional[str]:
         return self._data.get(START_POINT, None)
 
 
@@ -143,15 +143,18 @@ class OffsetMixin:
 class CompareMixin:
     _data: Dict
 
-    @cached_property
-    def compare(self):
-        _compare = self._data.get(COMPARE, None)
+    def _process_compare(self, _compare: Optional[str]) -> bool:
         if isinstance(_compare, bool):
             return _compare
         elif isinstance(_compare, str):
             return bool(strtobool(_compare))
         else:
             return False
+
+    @cached_property
+    def compare(self) -> bool:
+        _compare = self._data.get(COMPARE, None)
+        return self._process_compare(_compare)
 
 
 class EntitiesMixin:
