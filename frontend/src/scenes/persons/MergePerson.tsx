@@ -22,10 +22,6 @@ export function MergePersonButton({
     const { persons } = useValues(personsLogic)
     useEffect(() => {
         loadPersons()
-    }, [])
-
-    useEffect(() => {
-        loadPersons()
     }, [person.distinct_ids, person.id])
     return (
         <>
@@ -67,7 +63,7 @@ export function MergePersonButton({
                             persons.results
                                 .filter((p) => p.uuid !== person.uuid)
                                 .map((person) => (
-                                    <Select.Option value={person.id} key={persons.id}>
+                                    <Select.Option value={person.id} key={person.id}>
                                         {person.name}
                                     </Select.Option>
                                 ))}
