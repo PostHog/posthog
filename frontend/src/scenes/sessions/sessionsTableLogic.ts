@@ -69,7 +69,8 @@ export const sessionsTableLogic = kea<
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.properties,
-                    duration: values.duration,
+                    duration_operator: values.duration ? values.duration[0] : undefined,
+                    duration: values.duration ? values.duration[1] || 0 : undefined,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
