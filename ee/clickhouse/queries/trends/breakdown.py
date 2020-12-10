@@ -103,7 +103,6 @@ class ClickhouseTrendsBreakdown:
                 null_sql = NULL_SQL
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
             else:
-                print(breakdown)
                 _params, breakdown_filter, _breakdown_filter_params = self._breakdown_cohort_params(breakdown, team_id)
         elif filter.breakdown_type == "person":
             _params, breakdown_filter, _breakdown_filter_params = self._breakdown_person_params(filter, team_id)
