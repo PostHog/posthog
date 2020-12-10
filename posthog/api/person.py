@@ -221,6 +221,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             return response.Response({})
 
+    @action(methods=["POST"], detail=True)
+    def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
+        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person.merge_people([p for p in people])
+
+        return response.Response(PersonSerializer(person).data, status=201)
+
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
 
