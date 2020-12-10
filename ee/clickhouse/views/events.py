@@ -11,8 +11,7 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
-from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
-from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT
+from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
@@ -108,7 +107,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(request.GET.get("offset", 0))
 
-        response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+        response = ClickhouseSessionsList().run(team=team, filter=filter, limit=limit + 1, offset=offset)
 
         if filter.distinct_id:
             try:
