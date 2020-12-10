@@ -253,7 +253,11 @@ class Sessions(BaseQuery):
         avg_split = avg_formatted.split(" ")
 
         time_series_data.update(
-            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
+            {
+                "label": "Average Duration of Session ({})".format(avg_split[1]),
+                "count": int(avg_split[0]),
+                "aggregated_value": int(avg_split[0]),
+            }
         )
         time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
         result = [time_series_data]
@@ -278,7 +282,10 @@ class Sessions(BaseQuery):
         cursor = connection.cursor()
         cursor.execute(distribution, params)
         calculated = cursor.fetchall()
-        result = [{"label": DIST_LABELS[index], "count": calculated[0][index]} for index in range(len(DIST_LABELS))]
+        result = [
+            {"label": DIST_LABELS[index], "count": calculated[0][index], "aggregated_value": calculated[0][index]}
+            for index in range(len(DIST_LABELS))
+        ]
         return result
 
     def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
