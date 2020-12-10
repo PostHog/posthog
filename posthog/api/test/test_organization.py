@@ -7,9 +7,8 @@ import pytz
 from django.test import tag
 from rest_framework import status
 
-from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User, organization
+from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
 from posthog.models.organization import OrganizationInvite
-from posthog.settings import MULTI_TENANCY
 from posthog.test.base import APIBaseTest
 
 
@@ -255,7 +254,7 @@ class TestInviteSignup(APIBaseTest):
             target_email="test+19@posthog.com", organization=self.organization,
         )
 
-        response = self.client.get(f"/api/signup/{invite.id}")
+        response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data, {"target_email": "test+19@posthog.com"},
@@ -269,14 +268,14 @@ class TestInviteSignup(APIBaseTest):
         )
 
         self.client.force_login(user)
-        response = self.client.get(f"/api/signup/{invite.id}")
+        response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data, {"target_email": "test+29@posthog.com"},
         )
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
-        response = self.client.get(f"/api/signup/{uuid.uuid4()}")
+        response = self.client.get(f"/api/signup/{uuid.uuid4()}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
@@ -295,7 +294,7 @@ class TestInviteSignup(APIBaseTest):
         )
 
         self.client.force_login(user)
-        response = self.client.get(f"/api/signup/{invite.id}")
+        response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
@@ -314,7 +313,7 @@ class TestInviteSignup(APIBaseTest):
         invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=pytz.UTC)
         invite.save()
 
-        response = self.client.get(f"/api/signup/{invite.id}")
+        response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
@@ -336,7 +335,7 @@ class TestInviteSignup(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/signup/{invite.id}", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -393,7 +392,7 @@ class TestInviteSignup(APIBaseTest):
         count = User.objects.count()
 
         with self.settings(MULTI_TENANCY=True):
-            response = self.client.post(f"/api/signup/{invite.id}")
+            response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
             response.data,
@@ -446,7 +445,7 @@ class TestInviteSignup(APIBaseTest):
 
         self.client.force_login(user)
 
-        response = self.client.post(f"/api/signup/{invite.id}", {"first_name": "Bob", "password": "new_password"})
+        response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Bob", "password": "new_password"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
             response.data,
@@ -494,7 +493,7 @@ class TestInviteSignup(APIBaseTest):
             }
             body.pop(attribute)
 
-            response = self.client.post(f"/api/signup/{invite.id}", body)
+            response = self.client.post(f"/api/signup/{invite.id}/", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
                 response.data,
@@ -519,7 +518,7 @@ class TestInviteSignup(APIBaseTest):
             target_email="test+799@posthog.com", organization=self.organization,
         )
 
-        response = self.client.post(f"/api/signup/{invite.id}", {"first_name": "Charlie", "password": "123"})
+        response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
@@ -541,7 +540,7 @@ class TestInviteSignup(APIBaseTest):
         org_count: int = Organization.objects.count()
 
         response = self.client.post(
-            f"/api/signup/{uuid.uuid4()}", {"first_name": "Charlie", "password": "test_password"}
+            f"/api/signup/{uuid.uuid4()}/", {"first_name": "Charlie", "password": "test_password"}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -569,7 +568,7 @@ class TestInviteSignup(APIBaseTest):
         invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=pytz.UTC)
         invite.save()
 
-        response = self.client.post(f"/api/signup/{invite.id}", {"first_name": "Charlie", "password": "test_password"})
+        response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data,
