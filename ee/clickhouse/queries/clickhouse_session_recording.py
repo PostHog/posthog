@@ -21,7 +21,7 @@ SINGLE_RECORDING_QUERY = """
         AND session_id = %(session_id)s
 """
 
-SESSIONS_RECORING_LIST_QUERY = """
+SESSIONS_IN_RANGE_QUERY = """
     SELECT
         session_id,
         distinct_id,
@@ -44,7 +44,7 @@ SESSIONS_RECORING_LIST_QUERY = """
     )
     WHERE full_snapshots > 0 {filter_query}
 """
-SESSIONS_RECORING_LIST_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "end_time", "duration"]
+SESSIONS_IN_RANGE_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "end_time", "duration"]
 
 
 class SessionRecording(BaseSessionRecording):
@@ -71,7 +71,7 @@ def query_sessions_in_range(
         }
 
     results = sync_execute(
-        SESSIONS_RECORING_LIST_QUERY.format(filter_query=filter_query),
+        SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query),
         {
             "team_id": team.id,
             "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
@@ -80,4 +80,4 @@ def query_sessions_in_range(
         },
     )
 
-    return [dict(zip(SESSIONS_RECORING_LIST_QUERY_COLUMNS, row)) for row in results]
+    return [dict(zip(SESSIONS_IN_RANGE_QUERY_COLUMNS, row)) for row in results]

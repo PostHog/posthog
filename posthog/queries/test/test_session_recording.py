@@ -1,5 +1,3 @@
-import datetime
-
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -10,7 +8,7 @@ from posthog.queries.session_recording import SessionRecording, filter_sessions_
 from posthog.test.base import BaseTest
 
 
-def session_recording_test_factory(session_recording, filter_sessions, event_factory, test_duration):
+def session_recording_test_factory(session_recording, filter_sessions, event_factory):
     class TestSessionRecording(BaseTest):
         def test_query_run(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -71,17 +69,11 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
         def test_filter_sessions_by_recordings(self):
             self._test_filter_sessions(SessionsFilter(data={"offset": 0}), [["1", "3"], [], ["2"], []])
 
-        if test_duration:
+        def test_filter_sessions_by_recording_duration_gt(self):
+            self._test_filter_sessions(SessionsFilter(data={"duration_operator": "gt", "duration": 15}), [["1", "3"]])
 
-            def test_filter_sessions_by_recording_duration_gt(self):
-                self._test_filter_sessions(
-                    SessionsFilter(data={"duration_operator": "gt", "duration": 15}), [["1", "3"]]
-                )
-
-            def test_filter_sessions_by_recording_duration_lt(self):
-                self._test_filter_sessions(
-                    SessionsFilter(data={"duration_operator": "lt", "duration": 30}), [["1"], ["2"]]
-                )
+        def test_filter_sessions_by_recording_duration_lt(self):
+            self._test_filter_sessions(SessionsFilter(data={"duration_operator": "lt", "duration": 30}), [["1"], ["2"]])
 
         def test_query_run_with_no_sessions(self):
             self.assertEqual(filter_sessions(self.team, [], SessionsFilter(data={"offset": 0})), [])
@@ -99,6 +91,6 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
 
 class DjangoSessionRecordingTest(
-    session_recording_test_factory(SessionRecording, filter_sessions_by_recordings, SessionRecordingEvent.objects.create, False)  # type: ignore
+    session_recording_test_factory(SessionRecording, filter_sessions_by_recordings, SessionRecordingEvent.objects.create)  # type: ignore
 ):
     pass
