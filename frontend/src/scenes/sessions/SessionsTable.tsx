@@ -179,7 +179,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {featureFlags['filter_by_session_props'] && (
                 <SessionRecordingFilters
                     duration={duration}
-                    onChange={(duration) => setFilters(properties, selectedDate, duration)}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
                 />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
