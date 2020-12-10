@@ -34,14 +34,6 @@ class Plugin(models.Model):
     from_web: models.BooleanField = models.BooleanField(default=False)
 
 
-class PluginSourceVersion(models.Model):
-    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    config_schema: JSONField = JSONField(default=dict)
-    source: models.TextField = models.TextField(blank=True, null=True)
-
-
 class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
