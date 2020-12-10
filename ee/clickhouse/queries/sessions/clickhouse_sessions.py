@@ -28,9 +28,6 @@ def set_default_dates(filter: Filter) -> None:
 
 class ClickhouseSessions(BaseQuery, ClickhouseSessionsList, ClickhouseSessionsAvg, ClickhouseSessionsDist):
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
-        offset = kwargs.get("offset", 0)
-
         result: List = []
 
         set_default_dates(filter)
@@ -50,6 +47,8 @@ class ClickhouseSessions(BaseQuery, ClickhouseSessionsList, ClickhouseSessionsAv
         elif filter.session_type == SESSION_DIST:
             result = self.calculate_dist(filter, team)
         else:
+            limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
+            offset = kwargs.get("offset", 0)
             result = self.calculate_list(filter, team, limit, offset)
 
         return result
