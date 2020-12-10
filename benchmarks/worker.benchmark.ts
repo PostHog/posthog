@@ -2,7 +2,7 @@ import { makePiscina } from '../src/worker/piscina'
 import { defaultConfig } from '../src/config'
 import { PluginEvent } from 'posthog-plugins/src/types'
 import { performance } from 'perf_hooks'
-import { mockJestWithIndex } from './helpers/plugins'
+import { mockJestWithIndex } from '../tests/helpers/plugins'
 import * as os from 'os'
 import { LogLevel } from '../src/types'
 
@@ -71,7 +71,7 @@ function setupPiscina(workers: number, code: string, tasksPerWorker: number) {
     })
 }
 
-test('piscina worker test', async () => {
+test('piscina worker benchmark', async () => {
     // Uncomment this to become a 10x developer and make the test run just as fast!
     // Reduces events by 10x and limits threads to max 8 for quicker development
     const isLightDevRun = false
