@@ -158,11 +158,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-
-        filter = SessionsFilter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=self.team, limit=limit)}
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=Filter(request=request), team=self.team)}
 
         return Response(result)
 

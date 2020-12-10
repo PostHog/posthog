@@ -258,7 +258,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         filter = SessionsFilter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
+        result: Dict[str, Any] = {"result": sessions.SessionsList().run(filter=filter, team=team, limit=limit)}
 
         if filter.distinct_id:
             result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
