@@ -2,12 +2,10 @@ import { kea } from 'kea'
 import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
-
-type PluginInstallationType = 'local' | 'custom' | 'repository'
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
