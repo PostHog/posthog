@@ -11,7 +11,7 @@ from posthog.models.team import Team
 
 
 def parse_prop_clauses(
-    filters: List[Property], team_id: int, prepend: str = "", table_name: str = ""
+    filters: List[Property], team_id: int, prepend: str = "global", table_name: str = ""
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {"team_id": team_id}

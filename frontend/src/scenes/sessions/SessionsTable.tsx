@@ -22,6 +22,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -52,10 +54,12 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         selectedDate,
         properties,
         sessionRecordingId,
+        duration,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -164,10 +168,22 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {!isPersonPage && <PageHeader title="Sessions By Day" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
-                <DatePicker value={selectedDate} onChange={(date) => setFilters(properties, date)} allowClear={false} />
+                <DatePicker
+                    value={selectedDate}
+                    onChange={(date) => setFilters(properties, date, duration)}
+                    allowClear={false}
+                />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
+
+            {featureFlags['filter_by_session_props'] && (
+                <SessionRecordingFilters
+                    duration={duration}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
+                />
+            )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
