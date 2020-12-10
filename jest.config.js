@@ -4,5 +4,5 @@ module.exports = {
     clearMocks: true,
     coverageProvider: 'v8',
     setupFilesAfterEnv: ['./jest.setup.pg-mock.js', './jest.setup.redis-mock.js', './jest.setup.fetch-mock.js'],
-    testMatch: ['<rootDir>/tests/**/*.test.ts'],
+    testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/benchmarks/**/*.benchmark.ts'],
 }
