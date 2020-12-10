@@ -102,28 +102,17 @@ class ClickhouseTrendsBreakdown:
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
                 breakdown_query = BREAKDOWN_DEFAULT_SQL
             else:
-                cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team_id)
-                params = {**params, "values": cohort_ids, **cohort_params}
-                breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
-                breakdown_filter_params = {**breakdown_filter_params, "cohort_queries": cohort_queries}
-                breakdown_query = BREAKDOWN_QUERY_SQL
+                _params, breakdown_filter, _breakdown_filter_params, breakdown_query = self._breakdown_cohort_params(
+                    breakdown, team_id
+                )
+                params = {**params, **_params}
+                breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
         elif filter.breakdown_type == "person":
-            elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
-                parsed_date_from=parsed_date_from,
-                parsed_date_to=parsed_date_to,
-                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            _params, breakdown_filter, _breakdown_filter_params, breakdown_query = self._breakdown_cohort_params(
+                filter, team_id
             )
-            top_elements_array = self._get_top_elements(elements_query, filter, team_id)
-            params = {
-                **params,
-                "values": top_elements_array,
-            }
-            breakdown_filter = BREAKDOWN_PERSON_PROP_JOIN_SQL
-            breakdown_filter_params = {
-                **breakdown_filter_params,
-                "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
-            }
-            breakdown_query = BREAKDOWN_QUERY_SQL
+            params = {**params, **_params}
+            breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
         else:
 
             elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -148,69 +137,100 @@ class ClickhouseTrendsBreakdown:
             )
 
             result = sync_execute(content_sql, params)
-            parsed_results = []
-            for idx, stats in enumerate(result):
-                breakdown_value = stats[1] if not filter.breakdown_type == "cohort" else ""
-                stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
-
-                extra_label = self._determine_breakdown_label(
-                    idx, filter.breakdown_type, filter.breakdown, stripped_value
-                )
-                label = "{} - {}".format(entity.name, extra_label)
-                additional_values = {
-                    "label": label,
-                    "breakdown_value": filter.breakdown[idx]
-                    if isinstance(filter.breakdown, list)
-                    else filter.breakdown
-                    if filter.breakdown_type == "cohort"
-                    else stripped_value,
-                }
-                parsed_result = {"aggregated_value": stats[0], **additional_values}
-                parsed_results.append(parsed_result)
+            parsed_results = self._parse_single_aggregate_result(result, filter, entity)
 
             return parsed_results
 
-        null_sql = null_sql.format(
-            interval=interval_annotation,
-            seconds_in_interval=seconds_in_interval,
-            num_intervals=num_intervals,
-            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-        breakdown_query = breakdown_query.format(
-            null_sql=null_sql,
-            breakdown_filter=breakdown_filter,
-            event_join=join_condition,
-            aggregate_operation=aggregate_operation,
-            interval_annotation=interval_annotation,
-        )
+        else:
 
-        try:
-            result = sync_execute(breakdown_query, params)
-        except:
-            result = []
+            null_sql = null_sql.format(
+                interval=interval_annotation,
+                seconds_in_interval=seconds_in_interval,
+                num_intervals=num_intervals,
+                date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
+            breakdown_query = breakdown_query.format(
+                null_sql=null_sql,
+                breakdown_filter=breakdown_filter,
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
+                interval_annotation=interval_annotation,
+            )
 
+            try:
+                result = sync_execute(breakdown_query, params)
+            except:
+                result = []
+
+            parsed_results = self._parse_trend_result(result, filter, entity)
+
+            return parsed_results
+
+    def _breakdown_cohort_params(self, breakdown, team_id: int):
+        cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team_id)
+        params = {"values": cohort_ids, **cohort_params}
+        breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
+        breakdown_filter_params = {"cohort_queries": cohort_queries}
+        breakdown_query = BREAKDOWN_QUERY_SQL
+
+        return params, breakdown_filter, breakdown_filter_params, breakdown_query
+
+    def _breakdown_person_params(self, filter: Filter, team_id: int):
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+
+        elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+        )
+        top_elements_array = self._get_top_elements(elements_query, filter, team_id)
+        params = {
+            "values": top_elements_array,
+        }
+        breakdown_filter = BREAKDOWN_PERSON_PROP_JOIN_SQL
+        breakdown_filter_params = {
+            "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
+        }
+        breakdown_query = BREAKDOWN_QUERY_SQL
+
+        return params, breakdown_filter, breakdown_filter_params, breakdown_query
+
+    def _parse_single_aggregate_result(self, result, filter: Filter, entity: Entity):
         parsed_results = []
-
         for idx, stats in enumerate(result):
+            breakdown_value = stats[1] if not filter.breakdown_type == "cohort" else ""
+            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity)
+            parsed_result = {"aggregated_value": stats[0], **additional_values}
+            parsed_results.append(parsed_result)
 
+        return parsed_results
+
+    def _parse_trend_result(self, result, filter: Filter, entity: Entity):
+        parsed_results = []
+        for idx, stats in enumerate(result):
             breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
-            stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
-
-            extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
-            label = "{} - {}".format(entity.name, extra_label)
-            additional_values = {
-                "label": label,
-                "breakdown_value": filter.breakdown[idx]
-                if isinstance(filter.breakdown, list)
-                else filter.breakdown
-                if filter.breakdown_type == "cohort"
-                else stripped_value,
-            }
+            additional_values = self._breakdown_result_descriptors(breakdown_value, idx, filter, entity)
             parsed_result = parse_response(stats, filter, additional_values)
             parsed_results.append(parsed_result)
 
         return parsed_results
+
+    def _breakdown_result_descriptors(self, breakdown_value, index, filter: Filter, entity: Entity):
+        stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+
+        extra_label = self._determine_breakdown_label(index, filter.breakdown_type, filter.breakdown, stripped_value)
+        label = "{} - {}".format(entity.name, extra_label)
+        additional_values = {
+            "label": label,
+            "breakdown_value": filter.breakdown[index]
+            if isinstance(filter.breakdown, list)
+            else filter.breakdown
+            if filter.breakdown_type == "cohort"
+            else stripped_value,
+        }
+
+        return additional_values
 
     def _determine_breakdown_label(
         self,
