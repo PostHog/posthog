@@ -320,7 +320,7 @@ class Trends(LifecycleTrend, BaseQuery):
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            formatted_data.update({"count": entity_total})
+            formatted_data.update({"aggregated_value": entity_total})
             formatted_entities.append(formatted_data)
         return formatted_entities
 
@@ -337,7 +337,7 @@ class Trends(LifecycleTrend, BaseQuery):
         formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            new_dict.update({"count": entity_total})
+            new_dict.update({"aggregated_value": entity_total})
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
             formatted_entities.append(new_dict)

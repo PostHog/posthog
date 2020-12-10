@@ -144,15 +144,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 daily_response = trends().run(
                     Filter(data={"interval": "week", "events": [{"id": "sign up", "math": "dau"}]}), self.team
                 )
-            print(daily_response)
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
                     Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}]}), self.team
                 )
-            print(weekly_response)
 
-            self.assertEqual(daily_response[0]["count"], weekly_response[0]["count"])
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
         def test_trends_single_aggregate_math(self):
             person = person_factory(
@@ -205,8 +203,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
-            self.assertEqual(daily_response[0]["count"], 2.0)
-            self.assertEqual(daily_response[0]["count"], weekly_response[0]["count"])
+            self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
         def test_trends_compare(self):
             self._create_events()
