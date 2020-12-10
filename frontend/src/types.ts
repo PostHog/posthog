@@ -164,6 +164,10 @@ export interface Entity {
     type: 'actions' | 'events'
 }
 
+export interface EntityWithProperties extends Entity {
+    properties: Record<string, any>
+}
+
 export interface PersonType {
     id: number
     uuid: string

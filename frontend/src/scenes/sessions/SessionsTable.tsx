@@ -58,6 +58,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         sessionRecordingId,
         duration,
         firstRecordingId,
+        actionFilter,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
@@ -180,7 +181,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, duration)}
+                    onChange={(date) => setFilters(properties, date, duration, actionFilter)}
                     allowClear={false}
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
@@ -189,7 +190,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             {featureFlags['filter_by_session_props'] && (
                 <SessionRecordingFilters
                     duration={duration}
-                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration, actionFilter)}
                 />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
