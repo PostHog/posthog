@@ -85,6 +85,7 @@ class Cohort(models.Model):
 
                 self.is_calculating = False
                 self.last_calculation = timezone.now()
+                self.errors_calculating = 0
                 self.save()
         except:
             self.is_calculating = False
