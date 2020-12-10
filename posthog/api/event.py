@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
@@ -15,7 +16,9 @@ from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.queries import sessions
 from posthog.queries.session_recording import SessionRecording
 from posthog.utils import convert_property_value
 
@@ -236,6 +239,43 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return [{"name": convert_property_value(value.value)} for value in values]
+
+    # ******************************************
+    # /event/sessions
+    #
+    # params:
+    # - offset: (number) offset query param for paginated list of user sessions
+    # - **shared filter types
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
+
+        team = self.team
+
+        filter = SessionsFilter(request=request)
+        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
+
+        if filter.distinct_id:
+            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
+
+        if filter.session_type is None:
+            offset = filter.offset + limit - 1
+            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
+                result["result"].pop()
+                date_from = result["result"][0]["start_time"].isoformat()
+                result.update({OFFSET: offset})
+                result.update({DATE_FROM: date_from})
+
+        return Response(result)
+
+    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
+        result["result"] = [
+            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
+        ]
+        return result
 
     # ******************************************
     # /event/session_recording
