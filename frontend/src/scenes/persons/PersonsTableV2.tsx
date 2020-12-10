@@ -70,13 +70,15 @@ export function PersonsTable({
             render: function Render(_: string, person: PersonType) {
                 return (
                     <div>
-                        <CopyToClipboardInline
-                            explicitValue={person.distinct_ids[0]}
-                            tooltipMessage=""
-                            iconStyle={{ color: 'var(--primary)' }}
-                        >
-                            {midEllipsis(person.distinct_ids[0], 32)}
-                        </CopyToClipboardInline>
+                        {person.distinct_ids.length && (
+                            <CopyToClipboardInline
+                                explicitValue={person.distinct_ids[0]}
+                                tooltipMessage=""
+                                iconStyle={{ color: 'var(--primary)' }}
+                            >
+                                {midEllipsis(person.distinct_ids[0], 32)}
+                            </CopyToClipboardInline>
+                        )}
                     </div>
                 )
             },
