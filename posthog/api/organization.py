@@ -219,3 +219,27 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
 class OrganizationInviteSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationInviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Pre-validates an invite code.
+        """
+
+        invite_id = kwargs.get("invite_id")
+
+        if not invite_id:
+            raise exceptions.ValidationError("Please provide an invite ID to continue.")
+
+        try:
+            invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
+        except (OrganizationInvite.DoesNotExist):
+            raise serializers.ValidationError("The provided invite ID is not valid.")
+
+        user = request.user if request.user.is_authenticated else None
+
+        try:
+            invite.validate(user=user)
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
+
+        return response.Response({"target_email": invite.target_email})

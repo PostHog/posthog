@@ -1,10 +1,14 @@
+import datetime
+import uuid
 from typing import cast
 from unittest.mock import patch
 
+import pytz
 from django.test import tag
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
+from posthog.models.organization import OrganizationInvite
 from posthog.test.base import APIBaseTest
 
 
@@ -60,6 +64,7 @@ class TestSignup(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         team = cast(Team, user.team)
         organization = cast(Organization, user.organization)
+
         self.assertEqual(
             response.data,
             {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com"},
@@ -233,3 +238,138 @@ class TestSignup(APIBaseTest):
         self.assertEqual(
             dashboard.items.all()[0].description, "Shows the number of unique users that use your app everyday."
         )
+
+
+class TestInviteSignup(APIBaseTest):
+    """
+    Tests the sign up process for users with an invite.
+    """
+
+    CONFIG_USER_EMAIL = None
+
+    def test_api_invite_sign_up_prevalidate(self):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+19@posthog.com", organization=self.organization,
+        )
+
+        response = self.client.get(f"/api/signup/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data, {"target_email": "test+19@posthog.com"},
+        )
+
+    def test_api_invite_sign_up_prevalidate_for_existing_user(self):
+        user = self._create_user("test+29@posthog.com", "test_password")
+        new_org = Organization.objects.create(name="TestCo")
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+29@posthog.com", organization=new_org,
+        )
+
+        self.client.force_login(user)
+        response = self.client.get(f"/api/signup/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data, {"target_email": "test+29@posthog.com"},
+        )
+
+    def test_api_invite_sign_up_prevalidate_invalid_invite(self):
+        response = self.client.get(f"/api/signup/{uuid.uuid4()}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "The provided invite ID is not valid.",
+                "attr": None,
+            },
+        )
+
+    def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
+        user = self._create_user("test+39@posthog.com", "test_password")
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+49@posthog.com", organization=self.organization,
+        )
+
+        self.client.force_login(user)
+        response = self.client.get(f"/api/signup/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This invite is intended for another email address.",
+                "attr": None,
+            },
+        )
+
+    def test_api_invite_sign_up_prevalidate_expired_invite(self):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+59@posthog.com", organization=self.organization,
+        )
+        invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=pytz.UTC)
+        invite.save()
+
+        response = self.client.get(f"/api/signup/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This invite has expired. Please ask your admin for a new one.",
+                "attr": None,
+            },
+        )
+
+    @patch("posthoganalytics.identify")
+    @patch("posthoganalytics.capture")
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
+    def test_api_invite_sign_up(self, mock_capture, mock_identify):
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+99@posthog.com", organization=self.organization,
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(
+            response.data,
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Alice", "email": "test+99@posthog.com"},
+        )
+
+        # User is now a member of the organization
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization_memberships.first().organization, self.organization)
+
+        # Defaults are set correctly
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+
+        # Assert that the user was properly created
+        self.assertEqual(user.first_name, "Alice")
+        self.assertEqual(user.email, "test+99@posthog.com")
+        self.assertEqual(user.email_opt_in, True)
+
+        # Assert that the sign up event & identify calls were sent to PostHog analytics
+        mock_capture.assert_called_once_with(
+            user.distinct_id,
+            "user signed up",
+            properties={"is_first_user": False, "is_organization_first_user": False},
+        )
+
+        mock_identify.assert_called_once_with(
+            user.distinct_id, properties={"email": "test+99@posthog.com", "realm": "hosted", "ee_available": True},
+        )
+
+    def test_cant_claim_invalid_invite(self):
+        # TODO
+        pass
+
+    def test_cant_claim_expired_invite(self):
+        # TODO
+        pass

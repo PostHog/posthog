@@ -164,8 +164,8 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
-        email = email or user.email
+    def validate(self, *, user: Optional[Any] = None, email: Optional[str] = None) -> None:
+        email = email or (hasattr(user, "email") and user.email)
         if email and email != self.target_email:
             raise ValueError("This invite is intended for another email address.")
 
