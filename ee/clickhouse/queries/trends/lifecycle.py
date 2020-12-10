@@ -9,7 +9,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import get_earliest_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
@@ -38,7 +38,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         date_from = filter.date_from
 
         if not date_from:
-            raise ValueError("Starting date must be provided")
+            date_from = get_earliest_timestamp(team_id)
 
         interval = filter.interval or "day"
         num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
@@ -101,7 +101,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         date_from = filter.date_from
 
         if not date_from:
-            raise ValueError("Starting date must be provided")
+            date_from = get_earliest_timestamp(team_id)
 
         interval = filter.interval or "day"
         num_intervals, seconds_in_interval = get_time_diff(interval, filter.date_from, filter.date_to, team_id=team_id)

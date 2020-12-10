@@ -10,7 +10,6 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
-from .personal_api_key import PersonalAPIKey
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}

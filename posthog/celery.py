@@ -50,12 +50,15 @@ def setup_periodic_tasks(sender, **kwargs):
     )
 
     if getattr(settings, "MULTI_TENANCY", False) or os.environ.get("SESSION_RECORDING_RETENTION_CRONJOB", False):
-
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
+
+    # Cloud (posthog-production) cron jobs
+    if getattr(settings, "MULTI_TENANCY", False):
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
 
     # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
@@ -206,3 +209,13 @@ def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
     calculate_event_property_usage()
+
+
+@app.task(ignore_result=True)
+def calculate_billing_daily_usage():
+    try:
+        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        compute_daily_usage_for_organizations()

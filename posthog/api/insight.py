@@ -25,6 +25,7 @@ from posthog.constants import (
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Person, Team
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, sessions, stickiness, trends
@@ -170,12 +171,12 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         team = self.team
 
-        filter = Filter(request=request, data={"insight": INSIGHT_TRENDS})
+        filter = SessionsFilter(request=request, data={"insight": INSIGHT_TRENDS})
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
         result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
 
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
+        if filter.distinct_id:
+            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
 
         if filter.session_type is None:
             offset = filter.offset + limit - 1
@@ -186,25 +187,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 result.update({DATE_FROM: date_from})
 
         return Response(result)
-
-    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        team = self.team
-
-        filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
-
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
-            result = self._filter_sessions_by_distinct_id(request.GET["distinct_id"], result)
-
-        # add pagination
-        if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
-
-        return result
 
     def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids

@@ -10,9 +10,10 @@ from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models import ElementGroup, Event, Filter, Team
+from posthog.models import ElementGroup, Event, Team
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
-from posthog.queries.session_recording import add_session_recording_ids
+from posthog.queries.session_recording import filter_sessions_by_recordings
 from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
@@ -31,7 +32,7 @@ DIST_LABELS = [
 
 
 class Sessions(BaseQuery):
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
@@ -52,7 +53,7 @@ class Sessions(BaseQuery):
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
-                events.filter(compare_filter.date_filter_Q), compare_filter, team, limit, offset
+                events.filter(compare_filter.date_filter_Q), compare_filter, team, limit, offset  # type: ignore
             )
             converted_compared_calculated = convert_to_comparison(compared_calculated, filter, "previous")
             calculated.extend(converted_compared_calculated)
@@ -65,7 +66,7 @@ class Sessions(BaseQuery):
         return calculated
 
     def calculate_sessions(
-        self, events: QuerySet, filter: Filter, team: Team, limit: int, offset: int
+        self, events: QuerySet, filter: SessionsFilter, team: Team, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
 
         # format date filter for session view
@@ -128,7 +129,7 @@ class Sessions(BaseQuery):
         return result
 
     def _session_list(
-        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: Filter, limit: int, offset: int
+        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: SessionsFilter, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
 
         session_list = """
@@ -198,9 +199,9 @@ class Sessions(BaseQuery):
                         )
                     except IndexError:
                         event.update({"elements": []})
-        return add_session_recording_ids(team, sessions)
+        return filter_sessions_by_recordings(team, sessions, filter)
 
-    def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: Filter) -> List[Dict[str, Any]]:
+    def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: SessionsFilter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
             if interval == "minute":
                 return (
