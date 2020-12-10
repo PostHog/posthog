@@ -3,6 +3,19 @@ from django.db import models
 
 
 class Plugin(models.Model):
+    LOCAL = "local"
+    CUSTOM = "custom"
+    REPOSITORY = "repository"
+    SOURCE = "source"
+    PLUGIN_TYPE_CHOICES = [
+        (LOCAL, LOCAL),  # url starts with "file:"
+        (CUSTOM, CUSTOM),  # github or npm url downloaded as zip or tar.gz into field "archive"
+        (REPOSITORY, REPOSITORY),  # same, but originating from our plugins.json repository
+        (SOURCE, SOURCE),  # coded inside the browser (versioned via plugin_source_version)
+    ]
+    plugin_type: models.CharField = models.CharField(
+        max_length=200, null=True, blank=True, choices=PLUGIN_TYPE_CHOICES, default=None
+    )
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
@@ -11,6 +24,7 @@ class Plugin(models.Model):
     config_schema: JSONField = JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
+    source: models.TextField = models.TextField(blank=True, null=True)
     # Error installing or configuring this plugin (frontend: PluginErrorType)
     # - e.g: "could not find plugin.json" / "syntax error in index.js")
     # - error = { message: "Could not find plugin.json", time: "iso-string", ...meta }
@@ -18,6 +32,14 @@ class Plugin(models.Model):
     # DEPRECATED: these were used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
+
+
+class PluginSourceVersion(models.Model):
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    config_schema: JSONField = JSONField(default=dict)
+    source: models.TextField = models.TextField(blank=True, null=True)
 
 
 class PluginConfig(models.Model):
