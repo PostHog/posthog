@@ -9,7 +9,7 @@ from posthog.models import Filter
 class SessionsFilter(Filter):
     distinct_id: Optional[str]
     duration_operator: Optional[str]  # lt, gt
-    duration: Optional[int]
+    _duration: Optional[str]
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
@@ -22,8 +22,12 @@ class SessionsFilter(Filter):
 
         self.distinct_id = data.get(DISTINCT_ID_FILTER)
         self.duration_operator = data.get("duration_operator")
-        self.duration = float(data.get("duration", 0))
+        self._duration = data.get("duration")
 
     @property
-    def limit_by_recordings(self):
+    def duration(self) -> float:
+        return float(self._duration or 0)
+
+    @property
+    def limit_by_recordings(self) -> bool:
         return self.duration_operator is not None
