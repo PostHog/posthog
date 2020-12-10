@@ -1,6 +1,6 @@
 ---
 name: Imperfection report
-about: Not quite a bug or a feature, but something to be improved
+about: Not quite a bug or a feature, but we could do better
 labels: enhancement, imperfection
 ---
 
@@ -15,9 +15,8 @@ labels: enhancement, imperfection
 
 ## Environment
 
-- PostHog Cloud or self-hosted?
-- PostHog plan (free, growth, enterprise etc.)?
-- PostHog version/commit?
+- [ ] PostHog Cloud
+- [ ] self-hosted PostHog, version/commit: _please provide_
 
 ## Additional context
 

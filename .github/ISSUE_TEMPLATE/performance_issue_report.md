@@ -1,6 +1,6 @@
 ---
 name: Performance issue report
-about: Scalability is our top priority
+about: Long response times, high resource usage? Ensuring PostHog's scalable is our top priority
 labels: performance
 ---
 
@@ -16,9 +16,8 @@ labels: performance
 
 ## Environment
 
-- PostHog Cloud or self-hosted?
-- PostHog plan (free, growth, enterprise etc.)?
-- PostHog version/commit?
+- [ ] PostHog Cloud
+- [ ] self-hosted PostHog, version/commit: _please provide_
 
 ## Additional context
 

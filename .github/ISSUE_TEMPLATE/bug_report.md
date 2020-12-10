@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Tell us where it is, we'll squash it
+about: Something not working as expected? Let us look into it
 labels: bug
 ---
 
@@ -21,9 +21,8 @@ labels: bug
 
 ## Environment
 
-- PostHog Cloud or self-hosted?
-- PostHog plan (free, growth, enterprise etc.)?
-- PostHog version/commit?
+- [ ] PostHog Cloud
+- [ ] self-hosted PostHog, version/commit: _please provide_
 
 ## Additional context
 
