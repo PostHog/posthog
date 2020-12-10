@@ -1,8 +1,9 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import login, password_validation
+from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import (
@@ -18,13 +19,14 @@ from rest_framework import (
 
 from posthog.api.user import UserSerializer
 from posthog.models import Organization, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     UninitiatedOrCloudOnly,
 )
+from posthog.utils import get_instance_realm
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -123,7 +125,6 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create(self, validated_data, **kwargs):
         is_first_user: bool = not User.objects.exists()
-        realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
 
         company_name = validated_data.pop("company_name", validated_data["first_name"])
         self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
@@ -139,7 +140,8 @@ class OrganizationSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
+            user.distinct_id,
+            properties={"email": user.email, "realm": get_instance_realm(), "ee_available": settings.EE_AVAILABLE},
         )
 
         return user
@@ -151,4 +153,69 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
-    permission_classes = [UninitiatedOrCloudOnly]
+    permission_classes = (UninitiatedOrCloudOnly,)
+
+
+class OrganizationInviteSignupSerializer(serializers.Serializer):
+    first_name: serializers.Field = serializers.CharField(max_length=128)
+    password: serializers.Field = serializers.CharField()
+    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+
+    def validate_password(self, value):
+        password_validation.validate_password(value)
+        return value
+
+    def to_representation(self, instance):
+        serializer = UserSerializer(instance=instance)
+        return serializer.data
+
+    def create(self, validated_data, **kwargs):
+        if "view" not in self.context or not self.context["view"].kwargs.get("invite_id"):
+            raise serializers.ValidationError("Please provide an invite ID to continue.")
+
+        user = cast(User, self.context["request"].user)
+
+        invite_id = self.context["view"].kwargs.get("invite_id")
+
+        try:
+            invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+        except (OrganizationInvite.DoesNotExist):
+            raise serializers.ValidationError("The provided invite ID is not valid.")
+
+        should_log_in: bool = False
+
+        with transaction.atomic():
+            if not user.is_authenticated:
+                should_log_in = True
+                user = User.objects.create_user(
+                    invite.target_email,
+                    validated_data.pop("password"),
+                    validated_data.pop("first_name"),
+                    **validated_data,
+                )
+                user.set_password
+
+            invite.use(user)
+
+        posthoganalytics.capture(
+            user.distinct_id,
+            "user signed up",
+            properties={"is_first_user": False, "is_organization_first_user": False},
+        )
+
+        posthoganalytics.identify(
+            user.distinct_id,
+            properties={"email": user.email, "realm": get_instance_realm(), "ee_available": settings.EE_AVAILABLE},
+        )
+
+        if should_log_in:
+            login(
+                self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+            )
+
+        return user
+
+
+class OrganizationInviteSignupViewset(generics.CreateAPIView):
+    serializer_class = OrganizationInviteSignupSerializer
+    permission_classes = (permissions.AllowAny,)

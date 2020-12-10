@@ -165,17 +165,18 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     def validate(self, *, user: Optional[Any], email: Optional[str] = None) -> None:
-        if not email:
-            assert user is not None, "Either user or email must be provided!"
-            email = user.email
+        email = email or user.email
+        if email and email != self.target_email:
+            raise ValueError("This invite is intended for another email address.")
+
         if self.is_expired():
             raise ValueError("This invite has expired. Please ask your admin for a new one.")
-        if email != self.target_email:
-            raise ValueError("This invite is intended for another email address.")
+
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise ValueError("User already is a member of the organization.")
+
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
+            organization=self.organization, user__email=self.target_email,
         ).exists():
             raise ValueError("A user with this email address already belongs to the organization.")
 

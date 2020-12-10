@@ -462,3 +462,10 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     for idx, param in enumerate(params):
         named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params
+
+
+def get_instance_realm() -> str:
+    """
+    Returns the realm for the current instance. `cloud` or `hosted`.
+    """
+    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
