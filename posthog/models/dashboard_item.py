@@ -2,6 +2,7 @@ from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
+from django_deprecate_fields import deprecate_field
 
 from posthog.models.filters import Filter
 from posthog.utils import generate_cache_key
@@ -25,7 +26,7 @@ class DashboardItem(models.Model):
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
-    funnel: models.ForeignKey = models.ForeignKey("Funnel", on_delete=models.CASCADE, null=True, blank=True)
+    funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     is_sample: models.BooleanField = models.BooleanField(
         default=False

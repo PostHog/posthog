@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import base64
 import os
 import shutil
 import sys
@@ -25,6 +26,8 @@ from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
+
+from posthog.constants import RDBMS
 
 
 def get_env(key):
@@ -144,6 +147,8 @@ KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
 
 
+# Kafka Configs
+
 _kafka_hosts = KAFKA_URL.split(",")
 
 KAFKA_HOSTS_LIST = []
@@ -152,12 +157,13 @@ for host in _kafka_hosts:
     KAFKA_HOSTS_LIST.append(url.netloc)
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 
-POSTGRES = "postgres"
-CLICKHOUSE = "clickhouse"
+KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
-PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)  # type: str
+PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
-if PRIMARY_DB == CLICKHOUSE:
+EE_AVAILABLE = False
+
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "ee.clickhouse.clickhouse_test_runner.ClickhouseTestRunner")
 else:
     TEST_RUNNER = os.environ.get("TEST_RUNNER", "django.test.runner.DiscoverRunner")
@@ -197,6 +203,7 @@ AXES_META_PRECEDENCE_ORDER = [
 # Application definition
 
 INSTALLED_APPS = [
+    "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -232,8 +239,6 @@ if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-EE_AVAILABLE = False
-
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig  # noqa: F401
@@ -243,6 +248,7 @@ else:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
     EE_AVAILABLE = True
 
 # Use django-extensions if it exists
@@ -309,16 +315,13 @@ SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
 SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "company_name", "email_opt_in"]
 
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY", "")
-SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET", "")
+SOCIAL_AUTH_GITHUB_KEY = os.environ.get("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY", "")
-SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET", "")
+SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
-
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -386,7 +389,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == CLICKHOUSE:
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
@@ -488,6 +491,14 @@ if TEST:
 
     celery.current_app.conf.CELERY_ALWAYS_EAGER = True
     celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+
+
+def add_recorder_js_headers(headers, path, url):
+    if url.endswith("/recorder.js"):
+        headers["Cache-Control"] = "max-age=31536000, public"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if DEBUG and not TEST:
     print_warning(

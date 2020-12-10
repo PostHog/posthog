@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 import posthoganalytics
 from django.contrib.postgres.fields import ArrayField, JSONField
@@ -8,11 +8,8 @@ from django.utils import timezone
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
-from .action import Action
-from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
-from .personal_api_key import PersonalAPIKey
 from .utils import UUIDT, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
@@ -21,11 +18,6 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 class TeamManager(models.Manager):
     def create_with_data(self, user=None, **kwargs) -> "Team":
         team = Team.objects.create(**kwargs)
-
-        if not user or not posthoganalytics.feature_enabled("actions-ux-201012", user.distinct_id):
-            # Don't create default `Pageviews` action on actions-ux-201012 feature flag
-            action = Action.objects.create(team=team, name="Pageviews")
-            ActionStep.objects.create(action=action, event="$pageview")
 
         # Create default dashboard
         if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
@@ -71,28 +63,13 @@ class TeamManager(models.Manager):
 
         return team
 
-    def get_team_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
-        if not is_personal_api_key:
-            try:
-                team = Team.objects.get(api_token=token)
-            except Team.DoesNotExist:
-                return None
-        else:
-            try:
-                personal_api_key = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .select_related("team")
-                    .filter(user__is_active=True)
-                    .get(value=token)
-                )
-            except PersonalAPIKey.DoesNotExist:
-                return None
-            else:
-                assert personal_api_key.team is not None
-                team = personal_api_key.team
-                personal_api_key.last_used_at = timezone.now()
-                personal_api_key.save()
-        return team
+    def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
+        if not token:
+            return None
+        try:
+            return Team.objects.get(api_token=token)
+        except Team.DoesNotExist:
+            return None
 
 
 class Team(models.Model):

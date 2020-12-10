@@ -13,6 +13,7 @@ import {
 } from 'scenes/retention/retentionTableLogic'
 import { Button, DatePicker, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
+import { CloseButton } from 'lib/components/CloseButton'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
@@ -148,6 +149,14 @@ export function RetentionTab(): JSX.Element {
                         onChange={(date): void => setFilters({ selectedDate: date })}
                         allowClear={false}
                     />
+                    {selectedDate && (
+                        <CloseButton
+                            onClick={() => setFilters({ selectedDate: null })}
+                            style={{
+                                marginLeft: 8,
+                            }}
+                        />
+                    )}
                 </div>
                 <hr />
                 <h4 className="secondary">Period</h4>

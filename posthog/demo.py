@@ -17,7 +17,6 @@ from posthog.models import (
     DashboardItem,
     Element,
     Event,
-    Funnel,
     Person,
     PersonDistinctId,
     Team,

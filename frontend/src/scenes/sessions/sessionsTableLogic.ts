@@ -11,13 +11,20 @@ type Moment = moment.Moment
 
 type SessionRecordingId = string
 
-type Params = {
+interface Params {
     date?: string
     properties?: any
+    duration?: any
     sessionRecordingId?: SessionRecordingId
 }
 
-const buildURL = (selectedDateURLparam?: string, sessionRecordingId?: SessionRecordingId | null): [string, Params] => {
+export type RecordingDurationFilter = ['lt' | 'gt', number | null]
+
+const buildURL = (
+    selectedDateURLparam?: string,
+    sessionRecordingId?: SessionRecordingId | null,
+    duration?: RecordingDurationFilter | null
+): [string, Params] => {
     const today = moment().startOf('day').format('YYYY-MM-DD')
     const params: Params = {}
 
@@ -28,6 +35,9 @@ const buildURL = (selectedDateURLparam?: string, sessionRecordingId?: SessionRec
     if (properties) {
         params.properties = properties
     }
+    if (duration) {
+        params.duration = duration
+    }
     if (sessionRecordingId) {
         params.sessionRecordingId = sessionRecordingId
     }
@@ -36,7 +46,14 @@ const buildURL = (selectedDateURLparam?: string, sessionRecordingId?: SessionRec
 }
 
 export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Moment, SessionType, SessionRecordingId, eventWithTime, PropertyFilter>
+    sessionsTableLogicType<
+        Moment,
+        SessionType,
+        SessionRecordingId,
+        eventWithTime,
+        PropertyFilter,
+        RecordingDurationFilter
+    >
 >({
     props: {} as {
         personIds?: string[]
@@ -52,6 +69,7 @@ export const sessionsTableLogic = kea<
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.properties,
+                    duration: values.duration,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
@@ -62,13 +80,6 @@ export const sessionsTableLogic = kea<
                 return response.result
             },
         },
-        sessionPlayerData: {
-            loadSessionPlayer: async (sessionRecordingId: SessionRecordingId): Promise<eventWithTime[]> => {
-                const params = toParams({ session_recording_id: sessionRecordingId })
-                const response = await api.get(`api/event/session_recording?${params}`)
-                return response.result.snapshots
-            },
-        },
     }),
     actions: () => ({
         setNextOffset: (nextOffset: number | null) => ({ nextOffset }),
@@ -76,9 +87,13 @@ export const sessionsTableLogic = kea<
         appendNewSessions: (sessions) => ({ sessions }),
         previousDay: true,
         nextDay: true,
-        setFilters: (properties: Array<PropertyFilter>, selectedDate: Moment | null) => ({ properties, selectedDate }),
+        setFilters: (
+            properties: Array<PropertyFilter>,
+            selectedDate: Moment | null,
+            duration: RecordingDurationFilter | null
+        ) => ({ properties, selectedDate, duration }),
+        setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
-        setPlayerSpeed: (speed: number) => ({ speed }),
     }),
     reducers: {
         sessions: {
@@ -94,6 +109,12 @@ export const sessionsTableLogic = kea<
             },
         ],
         selectedDate: [null as null | Moment, { setFilters: (_, { selectedDate }) => selectedDate }],
+        duration: [
+            null as RecordingDurationFilter | null,
+            {
+                setFilters: (_, { duration }) => duration,
+            },
+        ],
         properties: [
             [] as PropertyFilter[],
             {
@@ -103,21 +124,8 @@ export const sessionsTableLogic = kea<
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                loadSessionPlayer: (_, sessionRecordingId) => sessionRecordingId,
+                setSessionRecordingId: (_, { sessionRecordingId }) => sessionRecordingId,
                 closeSessionPlayer: () => null,
-            },
-        ],
-        sessionPlayerData: [
-            null as null | eventWithTime[],
-            {
-                closeSessionPlayer: () => null,
-            },
-        ],
-        sessionsPlayerSpeed: [
-            1,
-            { persist: true },
-            {
-                setPlayerSpeed: (_, { speed }) => speed,
             },
         ],
     },
@@ -170,48 +178,33 @@ export const sessionsTableLogic = kea<
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(-1, 'day'), values.duration)
         },
         nextDay: () => {
-            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, moment(values.selectedDate).add(1, 'day'), values.duration)
         },
     }),
     actionToUrl: ({ values }) => ({
-        setFilters: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId),
-        loadSessionPlayer: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId),
-        closeSessionPlayer: () => buildURL(values.selectedDateURLparam, null),
+        setFilters: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId, values.duration),
+        setSessionRecordingId: () => buildURL(values.selectedDateURLparam, values.sessionRecordingId, values.duration),
+        closeSessionPlayer: () => buildURL(values.selectedDateURLparam, null, values.duration),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/sessions': (_: any, params: Params) => {
+        '*': (_: any, params: Params) => {
             const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
 
-            if (JSON.stringify(params.properties || []) !== JSON.stringify(values.properties)) {
-                actions.setFilters(params.properties || [], newDate)
+            if (
+                JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
+                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration) ||
+                (values.selectedDate && values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD'))
+            ) {
+                actions.setFilters(params.properties || [], newDate, params.duration || null)
             } else if (values.sessions.length === 0) {
                 actions.loadSessions(true)
             }
-            if (params.sessionRecordingId !== (values.sessionRecordingId || undefined)) {
-                if (params.sessionRecordingId) {
-                    actions.loadSessionPlayer(params.sessionRecordingId)
-                } else {
-                    actions.closeSessionPlayer()
-                }
-            }
-        },
-        '/person/*': (_: any, params: Params) => {
-            const newDate = params.date ? moment(params.date).startOf('day') : moment().startOf('day')
-            if (
-                !values.selectedDate ||
-                values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD') ||
-                params.sessionRecordingId !== values.sessionRecordingId
-            ) {
-                actions.setFilters(params.properties || [], newDate)
-            }
 
-            if (params.sessionRecordingId) {
-                actions.loadSessionPlayer(params.sessionRecordingId)
-            } else {
-                actions.closeSessionPlayer()
+            if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
+                actions.setSessionRecordingId(params.sessionRecordingId)
             }
         },
     }),

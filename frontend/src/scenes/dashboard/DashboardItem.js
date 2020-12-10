@@ -26,6 +26,7 @@ import {
     CopyOutlined,
     DeliveredProcedureOutlined,
     ReloadOutlined,
+    BarChartOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -49,6 +50,14 @@ const typeMap = {
         className: 'graph',
         element: ActionsLineGraph,
         icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBar: {
+        className: 'bar',
+        element: ActionsLineGraph,
+        icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }) =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,

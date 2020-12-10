@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -8,6 +8,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
+from posthog.ee import is_ee_enabled
 from posthog.models import User
 from posthog.settings import TEST
 from posthog.utils import (
@@ -53,18 +54,24 @@ def system_status(request):
     redis_alive = is_redis_alive()
     postgres_alive = is_postgres_alive()
 
-    metrics = list()
+    metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
-    metrics.append({"key": "db_alive", "metric": "Postgres DB alive", "value": postgres_alive})
+    metrics.append(
+        {
+            "key": "analytics_database",
+            "metric": "Analytics database in use",
+            "value": "ClickHouse" if is_ee_enabled() else "Postgres",
+        }
+    )
+
+    metrics.append({"key": "db_alive", "metric": "Postgres database alive", "value": postgres_alive})
     if postgres_alive:
         postgres_version = connection.cursor().connection.server_version
         metrics.append(
             {
                 "key": "pg_version",
-                "metric": "Postgres server version",
-                "value": "{}.{}.{}".format(
-                    int(postgres_version / 100 / 100), int(postgres_version / 100) % 100, postgres_version % 100
-                ),
+                "metric": "Postgres version",
+                "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
             }
         )
         event_table_count = get_table_approx_count(Event._meta.db_table)[0]["approx_count"]
@@ -74,9 +81,11 @@ def system_status(request):
         element_table_size = get_table_size(Element._meta.db_table)[0]["size"]
 
         metrics.append(
-            {"metric": "Postgres Element table", "value": f"ca {element_table_count} rows ({element_table_size})"}
+            {"metric": "Postgres elements table size", "value": f"~{element_table_count} rows (~{element_table_size})"}
         )
-        metrics.append({"metric": "Postgres Event table", "value": f"ca {event_table_count} rows ({event_table_size})"})
+        metrics.append(
+            {"metric": "Postgres events table size", "value": f"~{event_table_count} rows (~{event_table_size})"}
+        )
 
     metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
@@ -90,12 +99,14 @@ def system_status(request):
             metrics.append(
                 {"metric": "Redis connected client count", "value": f"{redis_info.get('connected_clients')}"}
             )
-            metrics.append({"metric": "Redis memory used", "value": f"{redis_info.get('used_memory_human', '?')}"})
-            metrics.append({"metric": "Redis memory peak", "value": f"{redis_info.get('used_memory_peak_human', '?')}"})
+            metrics.append({"metric": "Redis memory used", "value": f"{redis_info.get('used_memory_human', '?')}B"})
+            metrics.append(
+                {"metric": "Redis memory peak", "value": f"{redis_info.get('used_memory_peak_human', '?')}B"}
+            )
             metrics.append(
                 {
                     "metric": "Redis total memory available",
-                    "value": f"{redis_info.get('total_system_memory_human', '?')}",
+                    "value": f"{redis_info.get('total_system_memory_human', '?')}B",
                 }
             )
         except redis.exceptions.ConnectionError as e:

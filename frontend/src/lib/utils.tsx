@@ -233,7 +233,7 @@ export function formatProperty(property: Record<string, any>): string {
 export function formatLabel(label: string, action: Record<string, any>): string {
     if (action.math === 'dau') {
         label += ` (${action.math.toUpperCase()}) `
-    } else if (['sum', 'avg', 'min', 'max'].includes(action.math)) {
+    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math)) {
         label += ` (${action.math} of ${action.math_property}) `
     } else {
         label += ' (Total) '
@@ -653,4 +653,16 @@ export function colorForString(s: string): string {
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
     return lightColors[hashCodeForString(s) % lightColors.length]
+}
+
+export function midEllipsis(input: string, maxLength: number): string {
+    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
+     excluding the ... */
+    if (input.length <= maxLength) {
+        return input
+    }
+
+    const middle = Math.ceil(input.length / 2)
+    const excess = Math.ceil((input.length - maxLength) / 2)
+    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }

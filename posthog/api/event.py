@@ -1,10 +1,10 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Set, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.utils.timezone import now
-from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
@@ -12,16 +12,8 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import DATE_FROM, OFFSET
-from posthog.models import (
-    Action,
-    Element,
-    ElementGroup,
-    Event,
-    Filter,
-    Person,
-    PersonDistinctId,
-    Team,
-)
+from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
+from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
@@ -115,7 +107,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         order_by = ["-timestamp"] if not order_by else list(json.loads(order_by))
         return queryset.order_by(*order_by)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
         for key, value in request.GET.items():
             if key == "event":
                 queryset = queryset.filter(event=request.GET["event"])
@@ -138,17 +130,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 filter = Filter(data={"properties": json.loads(value)})
                 queryset = queryset.filter(filter.properties_to_Q(team_id=self.team_id))
         return queryset
-
-    @staticmethod
-    def serialize_actions(event: Event) -> Dict:
-        return {
-            "id": "{}-{}".format(event.action.pk, event.id),  # type: ignore
-            "event": EventSerializer(event).data,
-            "action": {
-                "name": event.action.name,  # type: ignore
-                "id": event.action.pk,  # type: ignore
-            },
-        }
 
     def _prefetch_events(self, events: List[Event]) -> List[Event]:
         team_id = self.team_id
@@ -256,24 +237,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return [{"name": convert_property_value(value.value)} for value in values]
 
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request, **kwargs) -> response.Response:
-        from posthog.queries.sessions import Sessions
-
-        team = self.team
-
-        filter = Filter(request=request)
-        result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
-
-        # add pagination
-        if filter.session_type is None:
-            offset = filter.offset + 50
-            if len(result["result"]) > 49:
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
-        return response.Response(result)
-
     # ******************************************
     # /event/session_recording
     # params:
@@ -282,7 +245,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
 
         return response.Response({"result": session_recording})

@@ -1,0 +1,38 @@
+.property-select {
+    cursor: pointer;
+    margin-top: 6px;
+    .ant-select-selector {
+        border-color: #d9d9d9 !important;
+        cursor: pointer !important;
+    }
+    .ant-select-arrow {
+        color: #2d2d2d;
+        font-size: 10px;
+    }
+
+    &:not(.ant-select-open) input {
+        cursor: pointer !important;
+    }
+    &:hover .ant-select-selection-placeholder,
+    &:hover .ant-select-arrow,
+    &:hover .ant-select-selection-item {
+        color: #7d9bff !important;
+    }
+    &:hover .ant-select-selector {
+        border-color: #7d9bff !important;
+    }
+
+    .ant-select-selector,
+    .ant-select-selection-placeholder,
+    .ant-select-selection-search-input {
+        font-size: 13px;
+        height: 28px !important;
+    }
+    .ant-select-selection-item {
+        line-height: 26px !important;
+    }
+    .ant-select-selection-placeholder {
+        line-height: 24px !important;
+        color: #2d2d2d;
+    }
+}

@@ -79,14 +79,14 @@ class Action(models.Model):
         self.save()
 
     def on_perform(self, event):
-        from posthog.api.event import EventViewSet
+        from posthog.api.event import EventSerializer
 
         event.action = self
         raw_hook_event.send(
             sender=None,
             event_name="action_performed",
             instance=self,
-            payload=EventViewSet.serialize_actions(event),
+            payload=EventSerializer(event).data,
             user=event.team,
         )
 
