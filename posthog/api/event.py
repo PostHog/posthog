@@ -18,7 +18,6 @@ from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries import sessions
 from posthog.queries.session_recording import SessionRecording
 from posthog.utils import convert_property_value
 
@@ -252,13 +251,11 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-
-        team = self.team
+        from posthog.queries.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT, SessionsList
 
         filter = SessionsFilter(request=request)
         limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": sessions.SessionsList().run(filter=filter, team=team, limit=limit)}
+        result: Dict[str, Any] = {"result": SessionsList().run(filter=filter, team=self.team, limit=limit)}
 
         if filter.distinct_id:
             result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
