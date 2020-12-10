@@ -20,6 +20,7 @@ from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
@@ -44,16 +45,16 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = SessionsFilter(request=request)
 
         limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(request.GET.get("offset", 0))
 
         response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
 
-        if "distinct_id" in request.GET and request.GET["distinct_id"]:
+        if filter.distinct_id:
             try:
-                person_ids = get_persons_by_distinct_ids(team.pk, [request.GET["distinct_id"]])[0].distinct_ids
+                person_ids = get_persons_by_distinct_ids(team.pk, [filter.distinct_id])[0].distinct_ids
                 response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
             except IndexError:
                 response = []

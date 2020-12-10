@@ -8,6 +8,7 @@ from ee.clickhouse.queries.sessions.distribution import ClickhouseSessionsDist
 from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
 from posthog.constants import SESSION_AVG, SESSION_DIST
 from posthog.models import Filter, Team
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
 from posthog.utils import relative_date_parse
 
@@ -26,7 +27,7 @@ class ClickhouseSessions(BaseQuery, ClickhouseSessionsList, ClickhouseSessionsAv
             if not filter._date_to:
                 filter._date_to = timezone.now()
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
         offset = kwargs.get("offset", 0)
 
