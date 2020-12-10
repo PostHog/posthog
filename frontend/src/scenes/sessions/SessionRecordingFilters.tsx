@@ -25,7 +25,7 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
                 onChange={onOperatorChange}
                 placeholder="Filter by recording duration"
             >
-                <Select.Option value="">No filter</Select.Option>
+                <Select.Option value="">Filter by recording duration</Select.Option>
                 <Select.Option value="gt">Recording longer than</Select.Option>
                 <Select.Option value="lt">Recording shorter than</Select.Option>
             </Select>
