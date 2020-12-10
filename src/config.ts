@@ -18,6 +18,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: LogLevel.Info,
         SENTRY_DSN: null,
+        STATSD_HOST: null,
+        STATSD_PORT: 8125,
+        STATSD_PREFIX: 'plugin-server.',
     }
 }
 
@@ -36,6 +39,9 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
         LOG_LEVEL: 'minimum log level',
         SENTRY_DSN: 'sentry ingestion url',
+        STATSD_HOST: 'StatsD host - integration disabled if not provided',
+        STATSD_PORT: 'StatsD port',
+        STATSD_PREFIX: 'StatsD prefix',
     }
 }
 
