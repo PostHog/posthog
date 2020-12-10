@@ -157,8 +157,8 @@ class OrganizationSignupViewset(generics.CreateAPIView):
 
 
 class OrganizationInviteSignupSerializer(serializers.Serializer):
-    first_name: serializers.Field = serializers.CharField(max_length=128)
-    password: serializers.Field = serializers.CharField()
+    first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
+    password: serializers.Field = serializers.CharField(required=False)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
     def validate_password(self, value):
@@ -182,11 +182,11 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         except (OrganizationInvite.DoesNotExist):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
-        should_log_in: bool = False
+        is_new_user: bool = False
 
         with transaction.atomic():
             if not user.is_authenticated:
-                should_log_in = True
+                is_new_user = True
                 user = User.objects.create_user(
                     invite.target_email,
                     validated_data.pop("password"),
@@ -197,20 +197,31 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
 
             invite.use(user)
 
-        posthoganalytics.capture(
-            user.distinct_id,
-            "user signed up",
-            properties={"is_first_user": False, "is_organization_first_user": False},
-        )
-
         posthoganalytics.identify(
             user.distinct_id,
             properties={"email": user.email, "realm": get_instance_realm(), "ee_available": settings.EE_AVAILABLE},
         )
 
-        if should_log_in:
+        if is_new_user:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "user signed up",
+                properties={"is_first_user": False, "is_organization_first_user": False},
+            )
+
             login(
                 self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+            )
+
+        else:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "user joined organization",
+                properties={
+                    "user_memberships_count": user.organization_memberships.count(),
+                    "organization_project_count": user.organization.teams.count(),
+                    "organization_users_count": user.organization.memberships.count(),
+                },
             )
 
         return user
