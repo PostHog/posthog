@@ -18,7 +18,7 @@ from posthog.constants import (
     START_POINT,
     STICKINESS_DAYS,
 )
-from posthog.models.filters.filter import DateMixin, IntervalMixin
+from posthog.models.filters.filter import BaseFilter, DateMixin, IntervalMixin
 from posthog.models.property import PropertyMixin
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -80,15 +80,13 @@ class TargetEventMixin(PropTypeMixin):
 
 
 class PathFilter(
-    StartPointMixin, TargetEventMixin, ComparatorMixin, PropTypeMixin, DateMixin, PropertyMixin, IntervalMixin
+    StartPointMixin,
+    TargetEventMixin,
+    ComparatorMixin,
+    PropTypeMixin,
+    DateMixin,
+    PropertyMixin,
+    IntervalMixin,
+    BaseFilter,
 ):
-    _data: Dict
-
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        if request:
-            data = {
-                **request.GET.dict(),
-            }
-        elif not data:
-            raise ValueError("You need to define either a data dict or a request")
-        self._data = data
+    pass
