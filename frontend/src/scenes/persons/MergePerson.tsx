@@ -35,7 +35,7 @@ export function MergePersonButton({
                             ids: selectedPeople,
                         })
                         if (newPerson.id) {
-                            toast('People succesfully merged into one.')
+                            toast('Persons succesfully merged.')
                             posthog.capture('merge person completed')
                             setIsModalOpen(false)
                             onPersonChange(newPerson)
