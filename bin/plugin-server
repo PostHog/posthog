@@ -1,8 +1,9 @@
 #!/bin/bash
+# Keys to export from django settings.py
 KEYS="DATABASE_URL REDIS_URL PLUGINS_CELERY_QUEUE CELERY_DEFAULT_QUEUE BASE_DIR PLUGINS_RELOAD_PUBSUB_CHANNEL"
-CONF=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
 
-FLAGS=()
+# Export $CONFIG to posthog-plugin-server
+export CONFIG=`python manage.py print_settings --format json --indent 0 $KEYS 2> /dev/null | tr -d '\n' | sed 's/\n$//'`
 
 # On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
 # Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
@@ -14,4 +15,20 @@ if [[ -n "${DYNO_RAM}" ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
-cd plugins && yarn --frozen-lockfile --silent && yarn --silent start --config "$CONF"
+cd plugins
+
+yarn --frozen-lockfile --silent
+if [ $? -ne 0 ]; then
+    echo "Yarn failed!"
+    exit 1
+fi
+
+while true; do
+  # Run: posthog-plugin-server
+  yarn --silent start
+  echo ""
+  echo "🔴 Plugin server crashed!"
+  echo "⌛️ Waiting 2 seconds before restarting!"
+  echo ""
+  sleep 2
+done

@@ -53,15 +53,18 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
     }),
-    actionToUrl: ({ values }) => ({
+    actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
-            if (router.values.location.pathname.indexOf('/persons') > -1) {
+            if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters]
             }
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/persons': (_, searchParams: Record<string, string>) => {
+            if (!props.updateURL) {
+                return
+            }
             actions.setListFilters(searchParams)
             if (!values.persons.results.length && !values.personsLoading) {
                 // Initial load

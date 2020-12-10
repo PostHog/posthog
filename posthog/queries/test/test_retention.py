@@ -187,6 +187,37 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["result"]), 50)
 
+        def test_retention_people_in_period(self):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                    ("person2", self._date(7)),
+                ]
+            )
+
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = retention().people_in_period(
+                RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
+            )
+
+            self.assertEqual(result[0]["person"]["id"], person2.pk)
+            self.assertEqual(result[0]["appearances"], [1, 1, 0, 0, 1, 1, 0, 0, 0])
+
+            self.assertEqual(result[1]["person"]["id"], person1.pk)
+            self.assertEqual(result[1]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
+
         def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])

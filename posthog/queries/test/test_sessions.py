@@ -1,7 +1,8 @@
 from freezegun import freeze_time
 
-from posthog.models import Event, Filter, Person, Team
+from posthog.models import Event, Person, Team
 from posthog.models.cohort import Cohort
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions import Sessions
 from posthog.test.base import BaseTest
 
@@ -27,14 +28,16 @@ def sessions_test_factory(sessions, event_factory):
             # Test team leakage
             Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
+                response = sessions().run(SessionsFilter(data={"events": [], "session": None}), self.team)
 
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["global_session_id"], 1)
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
-                    Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
+                    SessionsFilter(
+                        data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}
+                    ),
                     self.team,
                 )
             self.assertEqual(len(response), 1)
@@ -61,7 +64,7 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
             with freeze_time("2012-01-21T04:01:34.000Z"):
-                response = sessions().run(Filter(data={"session": "avg"}), self.team)
+                response = sessions().run(SessionsFilter(data={"session": "avg"}), self.team)
 
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
             # time series
@@ -97,7 +100,7 @@ def sessions_test_factory(sessions, event_factory):
 
             # month
             month_response = sessions().run(
-                Filter(
+                SessionsFilter(
                     data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}
                 ),
                 self.team,
@@ -112,7 +115,9 @@ def sessions_test_factory(sessions, event_factory):
 
             # # week
             week_response = sessions().run(
-                Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}),
+                SessionsFilter(
+                    data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}
+                ),
                 self.team,
             )
             self.assertEqual(week_response[0]["data"][1], 240.0)
@@ -124,7 +129,9 @@ def sessions_test_factory(sessions, event_factory):
 
             # # # hour
             hour_response = sessions().run(
-                Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}),
+                SessionsFilter(
+                    data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}
+                ),
                 self.team,
             )
             self.assertEqual(hour_response[0]["data"][3], 240.0)
@@ -136,7 +143,9 @@ def sessions_test_factory(sessions, event_factory):
 
         def test_no_events(self):
             response = sessions().run(
-                Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}),
+                SessionsFilter(
+                    data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}
+                ),
                 self.team,
             )
             self.assertEqual(response, [])
@@ -154,7 +163,7 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-25T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
-            filter = Filter(
+            filter = SessionsFilter(
                 data={
                     "date_from": "2012-01-20",
                     "date_to": "2012-01-30",
@@ -174,7 +183,7 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="1st action", distinct_id="2")
 
             with freeze_time("2012-01-21T01:25:30.000Z"):
-                response = sessions().run(Filter(data={"session": "dist"}), self.team)
+                response = sessions().run(SessionsFilter(data={"session": "dist"}), self.team)
                 for _, item in enumerate(response):
                     self.assertEqual(item["count"], 0)
 
@@ -235,9 +244,9 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-21T06:00:30.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
 
-            response = sessions().run(Filter(data={"date_from": "all", "session": "dist"}), self.team)
+            response = sessions().run(SessionsFilter(data={"date_from": "all", "session": "dist"}), self.team)
             compared_response = sessions().run(
-                Filter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
+                SessionsFilter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
             )
             for index, item in enumerate(response):
                 if item["label"] == "30-60 minutes" or item["label"] == "3-10 seconds":
@@ -269,7 +278,7 @@ def sessions_test_factory(sessions, event_factory):
             cohort.calculate_people()
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
-                    Filter(
+                    SessionsFilter(
                         data={
                             "events": [],
                             "session": None,

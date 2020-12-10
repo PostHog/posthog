@@ -4,16 +4,17 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_session_recording import add_session_recording_ids
+from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_by_recordings
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL
-from posthog.models import Filter, Person, Team
+from posthog.models import Person, Team
+from posthog.models.filters.sessions_filter import SessionsFilter
 
 SESSIONS_LIST_DEFAULT_LIMIT = 50
 
 
 class ClickhouseSessionsList:
-    def calculate_list(self, filter: Filter, team: Team, limit: int, offset: int):
+    def calculate_list(self, filter: SessionsFilter, team: Team, limit: int, offset: int):
         filters, params = parse_prop_clauses(filter.properties, team.pk)
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
@@ -25,9 +26,8 @@ class ClickhouseSessionsList:
         result = self._parse_list_results(query_result)
 
         self._add_person_properties(team, result)
-        add_session_recording_ids(team, result)
 
-        return result
+        return filter_sessions_by_recordings(team, result, filter)
 
     def _add_person_properties(self, team=Team, sessions=List[Tuple]):
         distinct_id_hash = {}
