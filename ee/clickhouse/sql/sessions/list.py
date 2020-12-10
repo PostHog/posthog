@@ -9,7 +9,8 @@ SESSION_SQL = """
         groupArray(properties) properties,
         groupArray(timestamp) timestamps,
         groupArray(elements_chain) elements_chain,
-        arrayReduce('max', groupArray(timestamp)) as end_time
+        arrayReduce('max', groupArray(timestamp)) as end_time,
+        groupArray(1)(action_filter_timestamp) as action_filter_timestamp
     FROM (
         SELECT
             distinct_id,
@@ -18,7 +19,8 @@ SESSION_SQL = """
             uuid,
             properties,
             elements_chain,
-            arraySum(arraySlice(gids, 1, idx)) AS gid
+            arraySum(arraySlice(gids, 1, idx)) AS gid,
+            ({action_filter_timestamp}) as action_filter_timestamp
         FROM (
             SELECT
                 groupArray(timestamp) as timestamps,
@@ -90,6 +92,8 @@ SESSION_SQL = """
     GROUP BY
         distinct_id,
         gid
+    HAVING
+        notEmpty(action_filter_timestamp)
     ORDER BY
         start_time DESC
     {sessions_limit}
