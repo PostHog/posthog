@@ -245,6 +245,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     #
     # params:
     # - offset: (number) offset query param for paginated list of user sessions
+    # - distinct_id: (string) filter sessions by distinct id
+    # - duration: (float) filter sessions by recording duration
+    # - duration_operator: (string: lt, gt)
     # - **shared filter types
     # ******************************************
     @action(methods=["GET"], detail=False)
