@@ -11,6 +11,8 @@ from posthog.queries.session_recording import SessionRecording as BaseSessionRec
 from posthog.queries.session_recording import Snapshots
 from posthog.queries.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
 
+OPERATORS = {"gt": ">", "lt": "<"}
+
 SINGLE_RECORDING_QUERY = """
     SELECT distinct_id, snapshot_data
     FROM session_recording_events
@@ -63,8 +65,7 @@ def query_sessions_in_range(
     filter_query, filter_params = "", {}
 
     if filter.duration:
-        operator = {"lt": "<", "gt": "> "}[filter.duration[0]]
-        filter_query = f"AND duration {operator} %(min_recording_duration)s"
+        filter_query = f"AND duration {OPERATORS[filter.duration[0]]} %(min_recording_duration)s"
         filter_params = {
             "min_recording_duration": filter.duration[1],
         }
