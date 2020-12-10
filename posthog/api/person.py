@@ -14,6 +14,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
 from posthog.models import Event, Filter, Person
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -255,6 +256,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
+
+        display = request.GET.get("display", None)
         team = request.user.team
         if not team:
             return response.Response(
@@ -262,7 +265,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         filter = RetentionFilter(request=request)
-        people = self.retention_class().people(filter, team)
+
+        if display == TRENDS_TABLE:
+            people = self.retention_class().people_in_period(filter, team)
+        else:
+            people = self.retention_class().people(filter, team)
+
         next_url = paginated_result(people, request, filter.offset)
 
         return response.Response({"result": people, "next": next_url})
