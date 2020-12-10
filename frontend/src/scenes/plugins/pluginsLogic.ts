@@ -7,21 +7,24 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 
-function capturePluginEvent(event: string, plugin: PluginType): void {
+type PluginInstallationType = 'local' | 'custom' | 'repository'
+
+function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
         plugin_url: plugin.url?.startsWith('file:') ? 'file://masked-local-path' : plugin.url,
         plugin_tag: plugin.tag,
+        ...(type && { plugin_installation_type: type }),
     })
 }
 
 export const pluginsLogic = kea<
-    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
+    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig, PluginInstallationType>
 >({
     actions: {
         editPlugin: (id: number | null) => ({ id }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, type: 'local' | 'custom' | 'repository') => ({ pluginUrl, type }),
+        installPlugin: (pluginUrl: string, type: PluginInstallationType) => ({ pluginUrl, type }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
@@ -44,7 +47,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl, type }) => {
                     const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create('api/plugin', { url })
-                    capturePluginEvent(`plugin installed`, response)
+                    capturePluginEvent(`plugin installed`, response, type)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
