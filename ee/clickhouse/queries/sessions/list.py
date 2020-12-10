@@ -23,7 +23,7 @@ class ClickhouseSessionsList(BaseQuery):
         filter = set_default_dates(filter)
 
         filters, params = parse_prop_clauses(filter.properties, team.pk)
-        action_filter_timestamp_sql, action_filter_params = format_action_filter_aggregate(filter)
+        action_filter_timestamp_sql, action_filter_params = format_action_filter_aggregate(filter, team.pk)
 
         date_from, date_to, _ = parse_timestamps(filter, team.pk)
         params = {
@@ -102,9 +102,14 @@ class ClickhouseSessionsList(BaseQuery):
         return final
 
 
-def format_action_filter_aggregate(filter: SessionsFilter):
+def format_action_filter_aggregate(filter: SessionsFilter, team_id: int):
     if filter.action_filter is None:
         return "timestamp", {}
 
     filter_sql, params = format_entity_filter(filter.action_filter)
+    if filter.action_filter.properties:
+        filters, filter_params = parse_prop_clauses(filter.action_filter.properties, team_id=None)
+        filter_sql += f" {filters}"
+        params = {**params, **filter_params}
+
     return f"({filter_sql}) ? timestamp : NULL", params
