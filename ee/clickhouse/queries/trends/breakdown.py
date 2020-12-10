@@ -85,7 +85,6 @@ class ClickhouseTrendsBreakdown:
             "event": entity.id,
             "key": filter.breakdown,
         }
-        top_elements_array = []
 
         breakdown_filter_params = {
             "parsed_date_from": parsed_date_from,
@@ -94,45 +93,29 @@ class ClickhouseTrendsBreakdown:
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters if props_to_filter else "",
         }
+        breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+        breakdown_query = self._get_breakdown_query(filter)
+
+        _params, _breakdown_filter_params = {}, {}
 
         if filter.breakdown_type == "cohort":
-            breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             if "all" in breakdown:
                 null_sql = NULL_SQL
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
-                breakdown_query = BREAKDOWN_DEFAULT_SQL
             else:
-                _params, breakdown_filter, _breakdown_filter_params, breakdown_query = self._breakdown_cohort_params(
-                    breakdown, team_id
-                )
-                params = {**params, **_params}
-                breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
+                print(breakdown)
+                _params, breakdown_filter, _breakdown_filter_params = self._breakdown_cohort_params(breakdown, team_id)
         elif filter.breakdown_type == "person":
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_query = self._breakdown_cohort_params(
-                filter, team_id
-            )
-            params = {**params, **_params}
-            breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
+            _params, breakdown_filter, _breakdown_filter_params = self._breakdown_person_params(filter, team_id)
         else:
+            _params, breakdown_filter, _breakdown_filter_params = self._breakdown_prop_params(filter, team_id)
 
-            elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
-            )
-
-            top_elements_array = self._get_top_elements(elements_query, filter, team_id)
-            params = {
-                **params,
-                "values": top_elements_array,
-            }
-            breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
-            breakdown_query = BREAKDOWN_QUERY_SQL
+        params = {**params, **_params}
+        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if filter.display == "ActionsTable" or filter.display == "ActionsPie":
-            breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            content_sql = (
-                BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
-            ).format(
+            content_sql = breakdown_query.format(
                 breakdown_filter=breakdown_filter, event_join=join_condition, aggregate_operation=aggregate_operation
             )
 
@@ -167,14 +150,23 @@ class ClickhouseTrendsBreakdown:
 
             return parsed_results
 
+    def _get_breakdown_query(self, filter: Filter):
+        breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+
+        if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+            return BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
+        elif filter.breakdown_type == "cohort" and "all" in breakdown:
+            return BREAKDOWN_DEFAULT_SQL
+
+        return BREAKDOWN_QUERY_SQL
+
     def _breakdown_cohort_params(self, breakdown, team_id: int):
         cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team_id)
         params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
-        breakdown_query = BREAKDOWN_QUERY_SQL
 
-        return params, breakdown_filter, breakdown_filter_params, breakdown_query
+        return params, breakdown_filter, breakdown_filter_params
 
     def _breakdown_person_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
@@ -192,9 +184,22 @@ class ClickhouseTrendsBreakdown:
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
-        breakdown_query = BREAKDOWN_QUERY_SQL
 
-        return params, breakdown_filter, breakdown_filter_params, breakdown_query
+        return params, breakdown_filter, breakdown_filter_params
+
+    def _breakdown_prop_params(self, filter: Filter, team_id: int):
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
+        elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
+        )
+
+        top_elements_array = self._get_top_elements(elements_query, filter, team_id)
+        params = {
+            "values": top_elements_array,
+        }
+        breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
+
+        return params, breakdown_filter, {}
 
     def _parse_single_aggregate_result(self, result, filter: Filter, entity: Entity):
         parsed_results = []
