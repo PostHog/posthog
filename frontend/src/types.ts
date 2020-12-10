@@ -161,7 +161,7 @@ export interface Entity {
     id: string | number
     name: string
     order: number
-    type: string
+    type: 'actions' | 'events'
 }
 
 export interface PersonType {
