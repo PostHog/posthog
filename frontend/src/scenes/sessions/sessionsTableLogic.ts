@@ -181,26 +181,17 @@ export const sessionsTableLogic = kea<
     actionToUrl: ({ values }) => {
         const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
             const today = moment().startOf('day').format('YYYY-MM-DD')
-            let params: Params = {}
 
             const { properties } = router.values.searchParams // eslint-disable-line
-            if (values.selectedDateURLparam !== today) {
-                params.date = values.selectedDateURLparam
-            }
-            if (properties) {
-                params.properties = properties
-            }
-            if (values.duration) {
-                params.duration = values.duration
-            }
-            if (values.sessionRecordingId) {
-                params.sessionRecordingId = values.sessionRecordingId
-            }
-            if (values.actionFilter) {
-                params.actionFilter = values.actionFilter
-            }
 
-            params = { ...params, ...overrides }
+            const params: Params = {
+                date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
+                properties: properties || undefined,
+                duration: values.duration || undefined,
+                sessionRecordingId: values.sessionRecordingId || undefined,
+                actionFilter: values.actionFilter || undefined,
+                ...overrides,
+            }
 
             return [router.values.location.pathname, params]
         }
