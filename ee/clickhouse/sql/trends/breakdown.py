@@ -49,6 +49,12 @@ SELECT groupArray(day_start), groupArray(count) FROM (
 ) 
 """
 
+BREAKDOWN_AGGREGATE_DEFAULT_SQL = """
+SELECT {aggregate_operation} as total
+FROM 
+events e {event_join} {breakdown_filter}
+"""
+
 BREAKDOWN_CONDITIONS_SQL = """
 WHERE team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
 """

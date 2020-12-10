@@ -12,6 +12,7 @@ from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_t
 from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
+    BREAKDOWN_AGGREGATE_DEFAULT_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CONDITIONS_SQL,
@@ -138,8 +139,11 @@ class ClickhouseTrendsBreakdown:
             breakdown_query = BREAKDOWN_QUERY_SQL
 
         if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+            breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+            content_sql = (
+                BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
+            ).format(
                 breakdown_filter=breakdown_filter, event_join=join_condition, aggregate_operation=aggregate_operation
             )
 
