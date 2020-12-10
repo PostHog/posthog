@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import statsd
 from dateutil import parser
@@ -16,7 +16,6 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 if settings.EE_AVAILABLE:
     from ee.clickhouse.process_event import log_event, process_event_ee
-    from ee.kafka_client.topics import KAFKA_EVENTS_HANDOFF, KAFKA_EVENTS_WAL
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -220,10 +219,6 @@ def get_event(request):
             )
 
         if is_ee_enabled():
-            topics: List[str] = [KAFKA_EVENTS_HANDOFF]  # hand off events to a separate topic for posthog-plugin-server
-            if settings.LOG_TO_WAL:
-                # log the event to Kafka write-ahead log topic
-                topics.append(KAFKA_EVENTS_WAL)
             log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
@@ -232,7 +227,6 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
-                topics=topics,
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

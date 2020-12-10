@@ -147,9 +147,7 @@ IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
-LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str
 
