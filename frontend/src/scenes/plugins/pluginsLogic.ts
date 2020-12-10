@@ -7,10 +7,10 @@ import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import posthog from 'posthog-js'
 
-function sendEvent(event: string, plugin: PluginType): void {
+function capturePluginEvent(event: string, plugin: PluginType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
-        plugin_url: plugin.url?.startsWith('file:') ? 'file:/masked_local_path/' : plugin.url,
+        plugin_url: plugin.url?.startsWith('file:') ? 'file://masked-local-path' : plugin.url,
         plugin_tag: plugin.tag,
     })
 }
@@ -44,7 +44,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl, type }) => {
                     const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create('api/plugin', { url })
-                    sendEvent(`plugin installed`, response)
+                    capturePluginEvent(`plugin installed`, response)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -53,7 +53,7 @@ export const pluginsLogic = kea<
                         return plugins
                     }
                     await api.delete(`api/plugin/${editingPlugin.id}`)
-                    sendEvent(`plugin uninstalled`, editingPlugin)
+                    capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
@@ -96,9 +96,9 @@ export const pluginsLogic = kea<
                         formData.append('order', '0')
                         response = await api.create(`api/plugin_config/`, formData)
                     }
-                    sendEvent(`plugin config updated`, editingPlugin)
+                    capturePluginEvent(`plugin config updated`, editingPlugin)
                     if (editingPlugin.pluginConfig.enabled !== response.enabled) {
-                        sendEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
+                        capturePluginEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
                     }
 
                     return { ...pluginConfigs, [response.plugin]: response }
@@ -110,7 +110,7 @@ export const pluginsLogic = kea<
                     if (pluginConfig) {
                         const plugin = plugins[pluginConfig.plugin]
                         if (plugin) {
-                            sendEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin)
+                            capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin)
                         }
                     }
                     const response = await api.update(`api/plugin_config/${id}`, {
