@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import statsd
 from dateutil import parser
@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from ee.kafka_client.topics import KAFKA_EVENTS_HANDOFF, KAFKA_EVENTS_WAL
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
 from posthog.models import Team, User
@@ -198,10 +199,11 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            celery_queue = settings.CELERY_DEFAULT_QUEUE
             if team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
+            else:
+                celery_queue = settings.CELERY_DEFAULT_QUEUE
 
             celery_app.send_task(
                 name=task_name,
@@ -217,8 +219,11 @@ def get_event(request):
                 ],
             )
 
-        if is_ee_enabled() and settings.LOG_TO_WAL:
-            # log the event to kafka write ahead log for processing
+        if is_ee_enabled():
+            topics: List[str] = [KAFKA_EVENTS_HANDOFF]  # hand off events to a separate topic for posthog-plugin-server
+            if settings.LOG_TO_WAL:
+                # log the event to Kafka write-ahead log topic
+                topics.append(KAFKA_EVENTS_WAL)
             log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),
@@ -227,6 +232,7 @@ def get_event(request):
                 team_id=team.id,
                 now=now,
                 sent_at=sent_at,
+                topics=topics,
             )
     timer.stop("event_endpoint")
     return cors_response(request, JsonResponse({"status": 1}))

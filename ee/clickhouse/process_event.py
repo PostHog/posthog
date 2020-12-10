@@ -1,10 +1,9 @@
 import datetime
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 from uuid import UUID
 
 import statsd
-from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -14,7 +13,6 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.kafka_client.client import KafkaProducer
-from ee.kafka_client.topics import KAFKA_EVENTS_WAL
 from posthog.ee import is_ee_enabled
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -178,6 +176,7 @@ def log_event(
     team_id: int,
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
+    topics: Sequence[str],
 ) -> None:
     data = {
         "distinct_id": distinct_id,
@@ -188,5 +187,6 @@ def log_event(
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
     }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_EVENTS_WAL, data=data)
+    kafka_producer = KafkaProducer()
+    for topic in topics:
+        kafka_producer.produce(topic=topic, data=data)
