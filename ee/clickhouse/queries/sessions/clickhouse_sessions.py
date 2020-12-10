@@ -13,29 +13,28 @@ from posthog.queries.base import BaseQuery, convert_to_comparison, determine_com
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseSessions(BaseQuery, ClickhouseSessionsList, ClickhouseSessionsAvg, ClickhouseSessionsDist):
-    def _set_default_dates(self, filter: Filter) -> None:
-        # format default dates
-        if filter.session_type != SESSION_AVG and filter.session_type != SESSION_DIST:
-            if not filter._date_from:
-                filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            if not filter._date_to and filter.date_from:
-                filter._date_to = filter.date_from + relativedelta(days=1)
-        else:
-            if not filter._date_from:
-                filter._date_from = relative_date_parse("-7d")
-            if not filter._date_to:
-                filter._date_to = timezone.now()
+def set_default_dates(filter: Filter) -> None:
+    if filter.session_type != SESSION_AVG and filter.session_type != SESSION_DIST:
+        if not filter._date_from:
+            filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if not filter._date_to and filter.date_from:
+            filter._date_to = filter.date_from + relativedelta(days=1)
+    else:
+        if not filter._date_from:
+            filter._date_from = relative_date_parse("-7d")
+        if not filter._date_to:
+            filter._date_to = timezone.now()
 
+
+class ClickhouseSessions(BaseQuery, ClickhouseSessionsList, ClickhouseSessionsAvg, ClickhouseSessionsDist):
     def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         limit = kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT)
         offset = kwargs.get("offset", 0)
 
         result: List = []
 
-        self._set_default_dates(filter)
+        set_default_dates(filter)
         if filter.session_type == SESSION_AVG:
-
             if filter.compare:
                 current_response = self.calculate_avg(filter, team)
                 parsed_response = convert_to_comparison(current_response, filter, "current")
