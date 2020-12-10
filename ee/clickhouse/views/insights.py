@@ -43,27 +43,14 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
     @action(methods=["GET"], detail=False)
     def session(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
-        team = self.team
         filter = SessionsFilter(request=request)
 
         limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
         offset = int(request.GET.get("offset", 0))
 
-        response = ClickhouseSessions().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+        response = ClickhouseSessions().run(team=self.team, filter=filter, limit=limit + 1, offset=offset)
 
-        if filter.distinct_id:
-            try:
-                person_ids = get_persons_by_distinct_ids(team.pk, [filter.distinct_id])[0].distinct_ids
-                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
-            except IndexError:
-                response = []
-
-        if len(response) > limit:
-            response.pop()
-            return Response({"result": response, "offset": offset + limit})
-        else:
-            return Response({"result": response,})
+        return Response({"result": response,})
 
     @action(methods=["GET"], detail=False)
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
