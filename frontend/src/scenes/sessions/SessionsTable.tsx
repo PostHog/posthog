@@ -211,6 +211,11 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 </Tooltip>
             </div>
 
+            {actionFilter && (
+                <p className="text-muted">
+                    Showing only sessions where <b>{actionFilter.name}</b> occurred
+                </p>
+            )}
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
