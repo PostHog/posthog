@@ -8,6 +8,7 @@ from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from posthog.api.paths import PathsViewSet
 from posthog.models import Event, Filter
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhousePathsViewSet(PathsViewSet):
@@ -28,6 +29,6 @@ class ClickhousePathsViewSet(PathsViewSet):
     def list(self, request, **kwargs):
 
         team = self.team
-        filter = Filter(request=request)
+        filter = PathFilter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

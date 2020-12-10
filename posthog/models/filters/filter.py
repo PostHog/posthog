@@ -118,14 +118,6 @@ class SessionTypeMixin:
         return self._data.get(SESSION, None)
 
 
-class PathTypeMixin:
-    _data: Dict
-
-    @cached_property
-    def path_type(self) -> Optional[str]:
-        return self._data.get(PATH_TYPE, None)
-
-
 class StartPointMixin:
     _data: Dict
 
@@ -158,6 +150,38 @@ class CompareMixin:
     def compare(self) -> bool:
         _compare = self._data.get(COMPARE, None)
         return self._process_compare(_compare)
+
+
+class DateMixin:
+    _data: Dict
+
+    @cached_property
+    def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
+        return self._data.get(DATE_FROM, None)
+
+    @cached_property
+    def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
+        return self._data.get(DATE_TO, None)
+
+    @cached_property
+    def date_from(self) -> Optional[datetime.datetime]:
+        if self._date_from:
+            if self._date_from == "all":
+                return None
+            elif isinstance(self._date_from, str):
+                return relative_date_parse(self._date_from)
+            else:
+                return self._date_from
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+
+    @cached_property
+    def date_to(self) -> datetime.datetime:
+        if self._date_to:
+            if isinstance(self._date_to, str):
+                return relative_date_parse(self._date_to)
+            else:
+                return self._date_to
+        return timezone.now()
 
 
 class EntitiesMixin:
@@ -198,7 +222,6 @@ class Filter(
     CompareMixin,
     InsightMixin,
     SessionTypeMixin,
-    PathTypeMixin,
     StartPointMixin,
     OffsetMixin,
 ):

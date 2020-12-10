@@ -17,6 +17,7 @@ from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -264,7 +265,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = Filter(request=request)
+        filter = PathFilter(request=request)
         resp = paths.Paths().run(filter=filter, team=team)
         return resp
 

@@ -5,8 +5,8 @@ from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 
-from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models import Event, Filter, Team
+from posthog.models.filters.path_filter import PathFilter
 from posthog.utils import request_to_date_query
 
 from .base import BaseQuery
@@ -15,32 +15,6 @@ from .base import BaseQuery
 class Paths(BaseQuery):
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
-
-    def _determine_path_type(self, requested_type=None):
-        # Default
-        event: Optional[str] = "$pageview"
-        event_filter = {"event": event}
-        path_type = "properties->> '$current_url'"
-        start_comparator = "{} =".format(path_type)
-
-        # determine requested type
-        if requested_type:
-            if requested_type == SCREEN_EVENT:
-                event = SCREEN_EVENT
-                event_filter = {"event": event}
-                path_type = "properties->> '$screen_name'"
-                start_comparator = "{} =".format(path_type)
-            elif requested_type == AUTOCAPTURE_EVENT:
-                event = AUTOCAPTURE_EVENT
-                event_filter = {"event": event}
-                path_type = "tag_name_source"
-                start_comparator = "group_id ="
-            elif requested_type == CUSTOM_EVENT:
-                event = None
-                event_filter = {}
-                path_type = "event"
-                start_comparator = "event ="
-        return event, path_type, event_filter, start_comparator
 
     def _apply_start_point(self, start_comparator: str, query_string: str, start_point: str) -> str:
         marked = "\
@@ -74,12 +48,12 @@ class Paths(BaseQuery):
         )
         return sessions_sql
 
-    def calculate_paths(self, filter: Filter, team: Team):
+    def calculate_paths(self, filter: PathFilter, team: Team):
         date_query = request_to_date_query({"date_from": filter._date_from, "date_to": filter._date_to}, exact=False)
         resp = []
-        event, path_type, event_filter, start_comparator = self._determine_path_type(
-            filter.path_type if filter else None
-        )
+        prop_type = filter.prop_type
+        event, event_filter = filter.target_event
+        start_comparator = filter.comparator
 
         sessions = (
             Event.objects.add_person_id(team.pk)
@@ -134,7 +108,7 @@ class Paths(BaseQuery):
                     ) AS event_number\
         FROM ({}) as sessionified\
         ".format(
-            path_type, sessionified
+            prop_type, sessionified
         )
 
         counts = "\
@@ -169,5 +143,5 @@ class Paths(BaseQuery):
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
         return resp
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: PathFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         return self.calculate_paths(filter=filter, team=team)

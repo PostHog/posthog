@@ -1,7 +1,10 @@
 import json
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Union
 
 from django.db.models import Exists, OuterRef, Q
+
+from posthog.constants import PROPERTIES
 
 from .person import Person
 
@@ -66,7 +69,11 @@ class Property:
 
 
 class PropertyMixin:
-    properties: List[Property] = []
+    _data: Dict
+
+    @cached_property
+    def properties(self) -> List[Property]:
+        return self._parse_properties(self._data.get(PROPERTIES))
 
     def properties_to_Q(self, team_id: int, is_person_query: bool = False) -> Q:
         """

@@ -19,6 +19,7 @@ from posthog.api.insight import InsightViewSet
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Event
 from posthog.models.filters import Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -69,7 +70,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
         team = self.team
-        filter = Filter(request=request)
+        filter = PathFilter(request=request)
         resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)
 
