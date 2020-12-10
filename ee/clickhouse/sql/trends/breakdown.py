@@ -23,6 +23,14 @@ SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
 ) GROUP BY breakdown_value
 """
 
+BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SELECT {aggregate_operation} as total, value as breakdown_value
+FROM 
+events e {event_join} {breakdown_filter}
+GROUP BY breakdown_value
+"""
+
+
 BREAKDOWN_DEFAULT_SQL = """
 SELECT groupArray(day_start), groupArray(count) FROM (
     SELECT SUM(total) as count, day_start FROM (

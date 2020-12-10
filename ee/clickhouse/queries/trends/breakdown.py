@@ -12,6 +12,7 @@ from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_t
 from ee.clickhouse.sql.events import NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
+    BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CONDITIONS_SQL,
     BREAKDOWN_DEFAULT_SQL,
@@ -135,6 +136,35 @@ class ClickhouseTrendsBreakdown:
             }
             breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
             breakdown_query = BREAKDOWN_QUERY_SQL
+
+        if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+            breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
+            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                breakdown_filter=breakdown_filter, event_join=join_condition, aggregate_operation=aggregate_operation
+            )
+
+            result = sync_execute(content_sql, params)
+            parsed_results = []
+            for idx, stats in enumerate(result):
+                breakdown_value = stats[1] if not filter.breakdown_type == "cohort" else ""
+                stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+
+                extra_label = self._determine_breakdown_label(
+                    idx, filter.breakdown_type, filter.breakdown, stripped_value
+                )
+                label = "{} - {}".format(entity.name, extra_label)
+                additional_values = {
+                    "label": label,
+                    "breakdown_value": filter.breakdown[idx]
+                    if isinstance(filter.breakdown, list)
+                    else filter.breakdown
+                    if filter.breakdown_type == "cohort"
+                    else stripped_value,
+                }
+                parsed_result = {"aggregated_value": stats[0], **additional_values}
+                parsed_results.append(parsed_result)
+
+            return parsed_results
 
         null_sql = null_sql.format(
             interval=interval_annotation,
