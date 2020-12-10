@@ -1,6 +1,7 @@
 import React from 'react'
 import { Input, Select } from 'antd'
 import { RecordingDurationFilter } from 'scenes/sessions/sessionsTableLogic'
+import { CloseButton } from 'lib/components/CloseButton'
 
 interface Props {
     duration: RecordingDurationFilter | null
@@ -17,7 +18,7 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
     }
 
     return (
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
             <Select
                 style={{ width: 212 }}
                 defaultValue={duration ? duration[0] : undefined}
@@ -30,16 +31,25 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
                 <Select.Option value="lt">Recording shorter than</Select.Option>
             </Select>
             {duration && (
-                <Input
-                    style={{ width: 150, marginLeft: 8 }}
-                    type="number"
-                    value={duration[1] || undefined}
-                    placeholder="0"
-                    min={0}
-                    addonAfter="sec"
-                    step={1}
-                    onChange={(event) => onChange([duration[0], parseFloat(event.target.value)])}
-                />
+                <>
+                    <Input
+                        style={{ width: 150, marginLeft: 8 }}
+                        type="number"
+                        value={duration[1] || undefined}
+                        placeholder="0"
+                        min={0}
+                        addonAfter="sec"
+                        step={1}
+                        onChange={(event) => onChange([duration[0], parseFloat(event.target.value)])}
+                    />
+                    <CloseButton
+                        onClick={() => onChange(null)}
+                        style={{
+                            float: 'none',
+                            marginLeft: 4,
+                        }}
+                    />
+                </>
             )}
         </div>
     )
