@@ -142,14 +142,29 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
                 daily_response = trends().run(
-                    Filter(data={"interval": "week", "events": [{"id": "sign up", "math": "dau"}]}), self.team
+                    Filter(
+                        data={
+                            "display": "ActionsTable",
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "dau"}],
+                        }
+                    ),
+                    self.team,
                 )
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
-                    Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}]}), self.team
+                    Filter(
+                        data={
+                            "display": "ActionsTable",
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "dau"}],
+                        }
+                    ),
+                    self.team,
                 )
 
+            self.assertEqual(daily_response[0]["aggregated_value"], 1)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
         def test_trends_single_aggregate_math(self):
@@ -185,6 +200,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 daily_response = trends().run(
                     Filter(
                         data={
+                            "display": "ActionsTable",
                             "interval": "week",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -196,6 +212,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 weekly_response = trends().run(
                     Filter(
                         data={
+                            "display": "ActionsTable",
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }

@@ -9,7 +9,7 @@ from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
-from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
+from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
@@ -63,6 +63,12 @@ class ClickhouseTrendsNormal:
         )
         content_sql = content_sql.format(**content_sql_params)
         final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
+        if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+            content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(**content_sql_params)
+
+            result = sync_execute(content_sql, params)
+            return [{"aggregated_value": result[0][0] if result and len(result) else 0}]
 
         try:
             result = sync_execute(final_query, params)
