@@ -18,7 +18,7 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
 }
 
-export type RecordingDurationFilter = ['lt' | 'gt', number | null]
+export type RecordingDurationFilter = ['lt' | 'gt', number | null, 's' | 'm' | 'h']
 
 const buildURL = (
     selectedDateURLparam?: string,
@@ -69,8 +69,7 @@ export const sessionsTableLogic = kea<
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.properties,
-                    duration_operator: values.duration ? values.duration[0] : undefined,
-                    duration: values.duration ? values.duration[1] || 0 : undefined,
+                    ...values.durationFilter,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/insight/session/?${params}`)
@@ -155,6 +154,18 @@ export const sessionsTableLogic = kea<
                     result.prev = recordings[index - 1]
                 }
                 return result
+            },
+        ],
+        durationFilter: [
+            (selectors) => [selectors.duration],
+            (duration: RecordingDurationFilter | null) => {
+                if (!duration) {
+                    return undefined
+                }
+
+                const multipliers = { s: 1, m: 60, h: 3600 }
+                const seconds = (duration[1] || 0) * multipliers[duration[2]]
+                return { duration_operator: duration[0], duration: seconds }
             },
         ],
     },

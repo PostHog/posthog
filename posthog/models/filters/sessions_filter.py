@@ -1,5 +1,4 @@
-import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
@@ -23,7 +22,7 @@ class SessionsFilter(Filter):
 
         self.distinct_id = data.get(DISTINCT_ID_FILTER)
         self.duration_operator = data.get("duration_operator")
-        self.duration = data.get("duration", 0)
+        self.duration = float(data.get("duration", 0))
 
     @property
     def limit_by_recordings(self):

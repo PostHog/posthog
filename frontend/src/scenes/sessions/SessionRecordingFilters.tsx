@@ -11,7 +11,7 @@ interface Props {
 export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Element {
     const onOperatorChange = (value: '' | 'lt' | 'gt'): void => {
         if (value) {
-            onChange([value, duration?.[1] || 0])
+            onChange([value, duration?.[1] || 0, duration?.[2] || 'm'])
         } else {
             onChange(null)
         }
@@ -33,14 +33,25 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
             {duration && (
                 <>
                     <Input
-                        style={{ width: 150, marginLeft: 8 }}
+                        style={{ width: 200, marginLeft: 8 }}
                         type="number"
                         value={duration[1] || undefined}
                         placeholder="0"
                         min={0}
-                        addonAfter="sec"
+                        addonAfter={
+                            <Select
+                                showArrow={false}
+                                showSearch={false}
+                                value={duration[2]}
+                                onChange={(value) => onChange([duration[0], duration[1], value])}
+                            >
+                                <Select.Option value="s">seconds</Select.Option>
+                                <Select.Option value="m">minutes</Select.Option>
+                                <Select.Option value="h">hours</Select.Option>
+                            </Select>
+                        }
                         step={1}
-                        onChange={(event) => onChange([duration[0], parseFloat(event.target.value)])}
+                        onChange={(event) => onChange([duration[0], parseFloat(event.target.value), duration[2]])}
                     />
                     <CloseButton
                         onClick={() => onChange(null)}
