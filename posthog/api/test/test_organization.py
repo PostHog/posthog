@@ -157,6 +157,7 @@ class TestSignup(APIBaseTest):
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
 
         required_attributes = [
             "first_name",
@@ -187,6 +188,7 @@ class TestSignup(APIBaseTest):
 
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
 
     def test_cant_sign_up_with_short_password(self):
         count: int = User.objects.count()
@@ -437,7 +439,7 @@ class TestInviteSignup(APIBaseTest):
         """
         user = self._create_user("test+189@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")
-        new_team = Team.objects.create(organization=new_org)
+        Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+189@posthog.com", organization=new_org,
         )
@@ -471,10 +473,114 @@ class TestInviteSignup(APIBaseTest):
             properties={"user_memberships_count": 2, "organization_project_count": 1, "organization_users_count": 1},
         )
 
+    def test_cant_claim_sign_up_invite_without_required_attributes(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        required_attributes = [
+            "first_name",
+            "password",
+        ]
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+799@posthog.com", organization=self.organization,
+        )
+
+        for attribute in required_attributes:
+            body = {
+                "first_name": "Charlie",
+                "password": "test_password",
+            }
+            body.pop(attribute)
+
+            response = self.client.post(f"/api/signup/{invite.id}", body)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data,
+                {
+                    "type": "validation_error",
+                    "code": "required",
+                    "detail": "This field is required.",
+                    "attr": attribute,
+                },
+            )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    def test_cant_claim_invite_sign_up_with_short_password(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+799@posthog.com", organization=self.organization,
+        )
+
+        response = self.client.post(f"/api/signup/{invite.id}", {"first_name": "Charlie", "password": "123"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "password_too_short",
+                "detail": "This password is too short. It must contain at least 8 characters.",
+                "attr": "password",
+            },
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
     def test_cant_claim_invalid_invite(self):
-        # TODO
-        pass
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        response = self.client.post(
+            f"/api/signup/{uuid.uuid4()}", {"first_name": "Charlie", "password": "test_password"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "The provided invite ID is not valid.",
+                "attr": None,
+            },
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
 
     def test_cant_claim_expired_invite(self):
-        # TODO
-        pass
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+799@posthog.com", organization=self.organization,
+        )
+        invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=pytz.UTC)
+        invite.save()
+
+        response = self.client.post(f"/api/signup/{invite.id}", {"first_name": "Charlie", "password": "test_password"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This invite has expired. Please ask your admin for a new one.",
+                "attr": None,
+            },
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)

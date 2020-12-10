@@ -169,6 +169,17 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         serializer = UserSerializer(instance=instance)
         return serializer.data
 
+    def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+
+        if "request" not in self.context or not self.context["request"].user.is_authenticated:
+            # If there's no authenticated user and we're creating a new one, attributes are required.
+
+            for attr in ["first_name", "password"]:
+                if not data.get(attr):
+                    raise serializers.ValidationError({attr: "This field is required."}, code="required")
+
+        return data
+
     def create(self, validated_data, **kwargs):
         if "view" not in self.context or not self.context["view"].kwargs.get("invite_id"):
             raise serializers.ValidationError("Please provide an invite ID to continue.")
@@ -195,7 +206,10 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
                 )
                 user.set_password
 
-            invite.use(user)
+            try:
+                invite.use(user)
+            except ValueError as e:
+                raise serializers.ValidationError(str(e))
 
         posthoganalytics.identify(
             user.distinct_id,
