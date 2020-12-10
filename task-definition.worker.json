@@ -83,6 +83,10 @@
                 {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "PARALLEL_COHORTS",
+                    "value": "0"
                 }
             ],
             "secrets": [
