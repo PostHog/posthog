@@ -6,7 +6,6 @@ import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
 import { performance } from 'perf_hooks'
-import { logTime } from './stats'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './sql'
 
 export async function setupPlugins(server: PluginsServer): Promise<void> {
@@ -185,6 +184,8 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
 
     for (const pluginConfig of pluginsToRun.reverse()) {
         if (pluginConfig.vm?.methods?.processEvent) {
+            const timer = new Date()
+
             let errored = false
             const { processEvent } = pluginConfig.vm.methods
             const startTime = performance.now()
@@ -194,7 +195,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
                 errored = true
                 await processError(server, pluginConfig, error, returnedEvent)
             }
-            logTime(pluginConfig.plugin?.name || 'noname', performance.now() - startTime, errored)
+            server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event`, timer)
 
             if (!returnedEvent) {
                 return null
@@ -224,6 +225,7 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
         let returnedEvents: PluginEvent[] = teamEvents
 
         for (const pluginConfig of pluginsToRun.reverse()) {
+            const timer = new Date()
             const { processEventBatch } = pluginConfig.vm?.methods || {}
             if (processEventBatch && returnedEvents.length > 0) {
                 const startTime = performance.now()
@@ -234,7 +236,7 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
                     errored = true
                     await processError(server, pluginConfig, error, returnedEvents[0])
                 }
-                logTime(pluginConfig.plugin?.name || 'noname', performance.now() - startTime, errored)
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event_batch`, timer)
             }
         }
 

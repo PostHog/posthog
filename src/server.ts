@@ -12,9 +12,11 @@ import { defaultConfig } from './config'
 import Piscina from 'piscina'
 import * as Sentry from '@sentry/node'
 import { delay } from './utils'
+import { StatsD } from 'hot-shots'
 
 export async function createServer(
-    config: Partial<PluginsServerConfig> = {}
+    config: Partial<PluginsServerConfig> = {},
+    threadId: number | null = null
 ): Promise<[PluginsServer, () => Promise<void>]> {
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -33,10 +35,26 @@ export async function createServer(
         connectionString: serverConfig.DATABASE_URL,
     })
 
+    let statsd: StatsD | undefined
+    if (serverConfig.STATSD_HOST) {
+        const statsd = new StatsD({
+            port: serverConfig.STATSD_PORT,
+            host: serverConfig.STATSD_HOST,
+            prefix: serverConfig.STATSD_PREFIX,
+        })
+        // don't repeat the same info in each thread
+        if (threadId === null) {
+            console.info(
+                `🪵 Sending metrics to statsd at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
+            )
+        }
+    }
+
     const server: PluginsServer = {
         ...serverConfig,
         db,
         redis,
+        statsd,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -62,7 +80,8 @@ export async function startPluginsServer(
     let pubSub: Redis.Redis | undefined
     let server: PluginsServer | undefined
     let fastifyInstance: FastifyInstance | undefined
-    let job: schedule.Job | undefined
+    let pingJob: schedule.Job | undefined
+    let statsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Worker | undefined
     let closeServer: () => Promise<void> | undefined
@@ -84,8 +103,11 @@ export async function startPluginsServer(
         }
         await queue?.stop()
         pubSub?.disconnect()
-        if (job) {
-            schedule.cancelJob(job)
+        if (pingJob) {
+            schedule.cancelJob(pingJob)
+        }
+        if (statsJob) {
+            schedule.cancelJob(statsJob)
         }
         await stopPiscina(piscina!)
         await closeServer()
@@ -103,7 +125,7 @@ export async function startPluginsServer(
             ...defaultConfig,
             ...config,
         }
-        ;[server, closeServer] = await createServer(serverConfig)
+        ;[server, closeServer] = await createServer(serverConfig, null)
 
         piscina = makePiscina(serverConfig)
         const processEvent = (event: PluginEvent) => piscina!.runTask({ task: 'processEvent', args: { event } })
@@ -127,9 +149,18 @@ export async function startPluginsServer(
         })
 
         // every 5 sec set a @posthog-plugin-server/ping redis key
-        job = schedule.scheduleJob('*/5 * * * * *', () => {
+        pingJob = schedule.scheduleJob('*/5 * * * * *', () => {
             server!.redis!.set('@posthog-plugin-server/ping', new Date().toISOString())
             server!.redis!.expire('@posthog-plugin-server/ping', 60)
+        })
+
+        // every 10 seconds sends stuff to statsd
+        statsJob = schedule.scheduleJob('*/10 * * * * *', () => {
+            if (piscina) {
+                server!.statsd?.gauge(`piscina.utilization`, (piscina?.utilization || 0) * 100)
+                server!.statsd?.gauge(`piscina.threads`, piscina?.threads.length)
+                server!.statsd?.gauge(`piscina.queue_size`, piscina?.queueSize)
+            }
         })
         console.info(`🚀 All systems go.`)
     } catch (error) {

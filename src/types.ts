@@ -2,6 +2,7 @@ import { Pool } from 'pg'
 import { Redis } from 'ioredis'
 import { PluginEvent, PluginAttachment, PluginConfigSchema } from 'posthog-plugins'
 import { VM, VMScript } from 'vm2'
+import { StatsD } from 'hot-shots'
 
 export enum LogLevel {
     Debug = 'debug',
@@ -26,6 +27,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     WEB_HOSTNAME: string
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
+    STATSD_HOST: string | null
+    STATSD_PORT: number
+    STATSD_PREFIX: string
 
     __jestMock?: {
         getPluginRows: Plugin[]
@@ -38,6 +42,7 @@ export interface PluginsServer extends PluginsServerConfig {
     // active connections to postgres and redis
     db: Pool
     redis: Redis
+    statsd: StatsD | undefined
 
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
