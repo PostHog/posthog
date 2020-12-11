@@ -12,6 +12,7 @@ import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { MergePerson } from './MergePerson'
+import { PersonProperty } from './PersonProperty'
 
 const { TabPane } = Tabs
 
@@ -126,6 +127,33 @@ function _PersonV2(): JSX.Element {
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 4 }} active />}
+                    </Card>
+                    <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
+                        <Tabs>
+                            <TabPane
+                                tab={<span data-attr="persons-properties-tab">Properties</span>}
+                                key="properties"
+                                disabled={personLoading}
+                            />
+                        </Tabs>
+                        {person && (
+                            <>
+                                {Object.keys(person.properties)
+                                    .sort((a, b) => {
+                                        // Case-insensitive sort; custom properties first, PostHog properties at the end
+                                        if (a[0] === '$' && b[0] !== '$') {
+                                            return 1
+                                        } else if (a[0] !== '$' && b[0] === '$') {
+                                            return -1
+                                        }
+                                        return a.toLowerCase() < b.toLowerCase() ? -1 : 1
+                                    })
+                                    .map((key) => {
+                                        return <PersonProperty key={key} name={key} value={person.properties[key]} />
+                                    })}
+                            </>
+                        )}
+                        {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>
                 </Col>
             </Row>

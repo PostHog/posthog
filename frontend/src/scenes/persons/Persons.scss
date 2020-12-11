@@ -47,3 +47,23 @@
         color: $primary;
     }
 }
+
+.person-property {
+    border-top: 1px solid $border_light;
+    padding-top: $default_spacing / 2;
+    padding-bottom: $default_spacing / 2;
+
+    label {
+        font-weight: bold;
+        display: flex;
+    }
+
+    .val {
+        text-decoration: underline dotted;
+        cursor: pointer;
+    }
+
+    .property-key-info {
+        width: unset;
+    }
+}
