@@ -22,6 +22,14 @@ from posthog.queries.session_recording import SessionRecording
 from posthog.utils import convert_property_value
 
 
+def flatten(l: List[Any]):
+    for el in l:
+        if isinstance(el, list):
+            yield from flatten(el)
+        else:
+            yield el
+
+
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -237,7 +245,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             params,
         )
 
-        return [{"name": convert_property_value(value.value)} for value in values]
+        values = flatten([value.value for value in values])
+        return [{"name": convert_property_value(value)} for value in values]
 
     # ******************************************
     # /event/sessions
