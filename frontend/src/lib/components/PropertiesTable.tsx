@@ -2,14 +2,16 @@ import React, { CSSProperties, useMemo, useState } from 'react'
 import moment from 'moment'
 import PropTypes from 'prop-types'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
-import { Dropdown, Input, Menu, Table, Tooltip } from 'antd'
-import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
+import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
+import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import './PropertiesTable.scss'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
+
+const keyMappingKeys = Object.keys(keyMapping.event)
 
 const iconStyle: CSSProperties = { marginRight: '0.5rem', opacity: 0.75 }
 
@@ -52,7 +54,6 @@ function EditTextValueComponent({
 
 function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
     const [editing, setEditing] = useState(false)
-    const keyMappingKeys = Object.keys(keyMapping.event)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
     const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
@@ -135,6 +136,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
+    onDelete?: (key: string) => void
 }
 
 export function PropertiesTable({
@@ -143,6 +145,7 @@ export function PropertiesTable({
     onEdit,
     sortProperties = false,
     nestingLevel = 0,
+    onDelete,
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
@@ -166,7 +169,23 @@ export function PropertiesTable({
         {
             title: 'key',
             render: function Key(item: any): JSX.Element {
-                return <PropertyKeyInfo value={item[0]} />
+                return (
+                    <div className="properties-table-key">
+                        {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
+                            <Popconfirm
+                                onConfirm={() => onDelete(item[0])}
+                                title={
+                                    <>
+                                        Are you sure you want to delete this property? <b>This cannot be undone.</b>
+                                    </>
+                                }
+                            >
+                                <DeleteOutlined className="cursor-pointer" />
+                            </Popconfirm>
+                        )}
+                        <PropertyKeyInfo value={item[0]} />
+                    </div>
+                )
             },
         },
         {

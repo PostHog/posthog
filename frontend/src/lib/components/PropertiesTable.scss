@@ -1,5 +1,15 @@
 @import '~/vars';
 
+.properties-table-key {
+    display: flex;
+    align-items: center;
+
+    .anticon-delete {
+        color: $primary;
+        margin-right: 4px;
+    }
+}
+
 .properties-table-value {
     display: 'flex';
     align-items: 'center';
