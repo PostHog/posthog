@@ -1,15 +1,16 @@
 import React, { useState } from 'react'
-import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu } from 'antd'
+import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { EventsTable } from 'scenes/events'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PersonHeader } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
+import moment from 'moment'
 
 const { TabPane } = Tabs
 
@@ -17,7 +18,8 @@ export const PersonV2 = hot(_PersonV2)
 function _PersonV2(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
 
-    const { person, personLoading } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
+    const { deletePerson } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -90,6 +92,34 @@ function _PersonV2(): JSX.Element {
                                             </Dropdown>
                                         )}
                                     </div>
+                                </div>
+                                <div className="item-group">
+                                    <label>First seen</label>
+                                    <div>{moment(person.created_at).fromNow()}</div>
+                                </div>
+                                <div className="text-center mt">
+                                    <a onClick={() => console.log(1)}>
+                                        <MergeCellsOutlined /> Merge persons
+                                    </a>
+                                </div>
+                                <div className="text-center mt">
+                                    <Popconfirm
+                                        title="Are you sure to delete this person and all associated data?"
+                                        onConfirm={deletePerson}
+                                        okText="Yes"
+                                        cancelText="No"
+                                    >
+                                        <Button
+                                            onClick={() => console.log(1)}
+                                            className="text-danger"
+                                            disabled={deletedPersonLoading}
+                                            data-attr="delete-person"
+                                            type="link"
+                                        >
+                                            {deletedPersonLoading ? <LoadingOutlined spin /> : <DeleteOutlined />}{' '}
+                                            Delete this person
+                                        </Button>
+                                    </Popconfirm>
                                 </div>
                             </>
                         )}

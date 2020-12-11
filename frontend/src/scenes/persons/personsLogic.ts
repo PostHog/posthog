@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { personsLogicType } from 'types/scenes/persons/personsLogicType'
 import { PersonType } from '~/types'
 
@@ -12,7 +13,7 @@ interface PersonPaginatedResponse {
 
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     actions: {
         setListFilters: (payload) => ({ payload }),
     },
@@ -33,6 +34,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
             },
         ],
     },
+    listeners: ({ actions }) => ({
+        deletePersonSuccess: () => {
+            toast('Person deleted successfully')
+            actions.loadPersons()
+            router.actions.push('/persons')
+        },
+    }),
     loaders: ({ values }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
@@ -60,8 +68,19 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
-                    console.log(response.results[0])
                     return response.results[0]
+                },
+            },
+        ],
+        deletedPerson: [
+            false,
+            {
+                deletePerson: async () => {
+                    if (!values.person) {
+                        return
+                    }
+                    await api.delete(`api/person/${values.person.id}`)
+                    return true
                 },
             },
         ],
