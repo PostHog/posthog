@@ -7,7 +7,7 @@ export function PluginImage({ url }: { url: string }): JSX.Element {
     const [state, setState] = useState({ image: imgPluginDefault })
 
     useEffect(() => {
-        if (url.includes('github.com')) {
+        if (url?.includes('github.com')) {
             const { user, repo } = parseGithubRepoURL(url)
             setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
         }

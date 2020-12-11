@@ -12,4 +12,4 @@ export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
 }
 
-export type PluginInstallationType = 'local' | 'custom' | 'repository'
+export type PluginInstallationType = 'local' | 'custom' | 'repository' | 'source'

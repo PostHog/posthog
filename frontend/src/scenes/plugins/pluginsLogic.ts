@@ -22,10 +22,11 @@ export const pluginsLogic = kea<
     actions: {
         editPlugin: (id: number | null) => ({ id }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, type: PluginInstallationType) => ({ pluginUrl, type }),
+        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
+        setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
         setPluginTab: (tab: string) => ({ tab }),
         resetPluginConfigError: (id: number) => ({ id }),
     },
@@ -42,10 +43,13 @@ export const pluginsLogic = kea<
                     }
                     return plugins
                 },
-                installPlugin: async ({ pluginUrl, type }) => {
-                    const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
-                    const response = await api.create('api/plugin', { url })
-                    capturePluginEvent(`plugin installed`, response, type)
+                installPlugin: async ({ pluginUrl, pluginType }) => {
+                    const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
+                    const response = await api.create(
+                        'api/plugin',
+                        pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
+                    )
+                    capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -164,6 +168,13 @@ export const pluginsLogic = kea<
             '',
             {
                 setLocalPluginUrl: (_, { localPluginUrl }) => localPluginUrl,
+                installPluginSuccess: () => '',
+            },
+        ],
+        sourcePluginName: [
+            '',
+            {
+                setSourcePluginName: (_, { sourcePluginName }) => sourcePluginName,
                 installPluginSuccess: () => '',
             },
         ],
