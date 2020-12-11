@@ -27,7 +27,7 @@ class ClickhouseStickiness(Stickiness):
         trunc_func = get_trunc_func_ch(filter.interval)
 
         params: Dict = {"team_id": team_id}
-        params = {**params, **prop_filter_params, "num_intervals": filter.num_intervals}
+        params = {**params, **prop_filter_params, "num_intervals": filter.total_intervals}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
@@ -81,7 +81,7 @@ class ClickhouseStickiness(Stickiness):
         params: Dict = {
             "team_id": team.pk,
             **prop_filter_params,
-            "stickiness_day": filter.stickiness_days,
+            "stickiness_day": filter.selected_interval,
             **entity_params,
             "offset": filter.offset,
         }

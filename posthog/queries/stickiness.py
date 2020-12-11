@@ -48,7 +48,7 @@ class Stickiness(BaseQuery):
             events.filter(filter_events(team_id, filter, entity))
             .values("person_id")
             .annotate(interval_count=Count(filter.trunc_func("timestamp"), distinct=True))
-            .filter(interval_count__lte=filter.num_intervals)
+            .filter(interval_count__lte=filter.total_intervals)
         )
 
         events_sql, events_sql_params = events.query.sql_with_params()
@@ -66,14 +66,14 @@ class Stickiness(BaseQuery):
 
         labels = []
         data = []
-        for day in range(1, filter.num_intervals):
+        for day in range(1, filter.total_intervals):
             label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
 
         return {
             "labels": labels,
-            "days": [day for day in range(1, filter.num_intervals)],
+            "days": [day for day in range(1, filter.total_intervals)],
             "data": data,
             "count": sum(data),
         }
@@ -117,7 +117,7 @@ class Stickiness(BaseQuery):
         events = (
             filtered_events.values("person_id")
             .annotate(day_count=Count(filter.trunc_func("timestamp"), distinct=True))
-            .filter(day_count=filter.stickiness_days)
+            .filter(day_count=filter.selected_interval)
         )
 
         people = Person.objects.filter(

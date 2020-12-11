@@ -41,8 +41,8 @@ class DisplayMixin(BaseParamMixin):
 
 class IntervalMixin(BaseParamMixin):
     @cached_property
-    def interval(self) -> Optional[str]:
-        return self._data.get(INTERVAL, None)
+    def interval(self) -> str:
+        return self._data.get(INTERVAL, "day")
 
 
 class SelectorMixin(BaseParamMixin):
