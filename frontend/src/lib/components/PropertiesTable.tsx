@@ -1,4 +1,4 @@
-import React, { CSSProperties, useState } from 'react'
+import React, { CSSProperties, useMemo, useState } from 'react'
 import moment from 'moment'
 import PropTypes from 'prop-types'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
@@ -132,9 +132,33 @@ function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element
 
 interface PropertiesTableType extends BasePropertyType {
     properties: any
+    sortProperties?: boolean
 }
 
-export function PropertiesTable({ properties, rootKey, onEdit }: PropertiesTableType): JSX.Element {
+export function PropertiesTable({
+    properties,
+    rootKey,
+    onEdit,
+    sortProperties = false,
+}: PropertiesTableType): JSX.Element {
+    const objectProperties = useMemo(() => {
+        if (!(properties instanceof Object)) {
+            return null
+        }
+        const entries = Object.entries(properties)
+        if (!sortProperties) {
+            return entries
+        }
+        return entries.sort((a, b) => {
+            if (a[0][0] === '$' && b[0][0] !== '$') {
+                return 1
+            } else if (a[0][0] !== '$' && b[0][0] === '$') {
+                return -1
+            }
+            return a[0].toLowerCase() < b[0].toLowerCase() ? -1 : 1
+        })
+    }, [properties, sortProperties])
+
     const columns = [
         {
             title: 'key',
@@ -170,7 +194,7 @@ export function PropertiesTable({ properties, rootKey, onEdit }: PropertiesTable
                 rowKey={(item) => item[0]}
                 size="small"
                 pagination={false}
-                dataSource={Object.entries(properties)}
+                dataSource={objectProperties}
             />
         )
     }

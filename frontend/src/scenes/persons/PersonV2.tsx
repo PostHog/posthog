@@ -136,7 +136,7 @@ function _PersonV2(): JSX.Element {
                         </Tabs>
                         {person && (
                             <>
-                                <PropertiesTable properties={person.properties} onEdit={editProperty} />
+                                <PropertiesTable properties={person.properties} onEdit={editProperty} sortProperties />
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
