@@ -179,6 +179,15 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
             } else {
                 await processError(server, pluginConfig, `Could not load index.js for plugin "${plugin.name}"!`)
             }
+        } else if (plugin.plugin_type === 'source' && plugin.source) {
+            try {
+                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, plugin.source)
+                console.info(`Loaded plugin "${plugin.name}"!`)
+                await clearError(server, pluginConfig)
+                return true
+            } catch (error) {
+                await processError(server, pluginConfig, error)
+            }
         } else {
             await processError(
                 server,
