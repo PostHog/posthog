@@ -12,6 +12,7 @@ import {
     LIFECYCLE,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
@@ -22,7 +23,7 @@ export function ChartFilter(props) {
     const cumulativeDisabled = filters.session || filters.shown_as === STICKINESS || filters.retentionType
     const linearDisabled = filters.session && filters.session === 'dist'
     const tableDisabled = false
-    const pieDisabled = filters.session || filters.retentionType
+    const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
     const defaultDisplay = filters.retentionType ? ACTIONS_TABLE : ACTIONS_LINE_GRAPH_LINEAR
 
     return [

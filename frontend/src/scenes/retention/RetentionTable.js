@@ -6,7 +6,6 @@ import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import './RetentionTable.scss'
 import moment from 'moment'
-import posthog from 'posthog-js'
 
 export function RetentionTable({ dashboardItemId = null }) {
     const {
@@ -62,7 +61,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                 size="small"
                 className="retention-table"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName={posthog.isFeatureEnabled('ch-retention-endpoint') ? '' : 'cursor-pointer'}
+                rowClassName={'cursor-pointer'}
                 dataSource={retention.data}
                 columns={columns}
                 rowKey="date"
@@ -70,10 +69,6 @@ export function RetentionTable({ dashboardItemId = null }) {
                 onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            if (posthog.isFeatureEnabled('ch-retention-endpoint')) {
-                                return
-                            }
-
                             !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -130,18 +125,20 @@ export function RetentionTable({ dashboardItemId = null }) {
                                                         </td>
                                                     ))}
                                             </tr>
-                                            {people[selectedRow] &&
-                                                people[selectedRow].map((person) => (
-                                                    <tr key={person.id}>
+                                            {people.result &&
+                                                people.result.map((personAppearances) => (
+                                                    <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                                {personAppearances.person.name}
+                                                            </Link>
                                                         </td>
-                                                        {retention.data[selectedRow].values.map((step, index) => {
+                                                        {personAppearances.appearances.map((appearance, index) => {
                                                             return (
                                                                 <td
                                                                     key={index}
                                                                     className={
-                                                                        step.people.indexOf(person.id) > -1
+                                                                        appearance
                                                                             ? 'retention-success'
                                                                             : 'retention-dropped'
                                                                     }
@@ -158,7 +155,7 @@ export function RetentionTable({ dashboardItemId = null }) {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        {retention.data[selectedRow].values.some((element) => element.next) && (
+                                        {people.next && (
                                             <Button type="primary" onClick={() => loadMore(selectedRow)}>
                                                 {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>

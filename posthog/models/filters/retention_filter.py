@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.constants import (
     DATE_FROM,
     DATE_TO,
+    INSIGHT_RETENTION,
     PERIOD,
     RETENTION_RECURRING,
     RETENTION_TYPE,
@@ -34,7 +35,8 @@ class RetentionFilter(Filter):
     total_increment: Union[timedelta, relativedelta] = timedelta(days=total_intervals)
     selected_interval: int = 0
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Dict[str, Any] = {}, request: Optional[HttpRequest] = None, **kwargs) -> None:
+        data["insight"] = INSIGHT_RETENTION
         super().__init__(data, request)
         if request:
             data = {

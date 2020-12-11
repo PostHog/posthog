@@ -23,12 +23,8 @@ import {
     PIE_CHART_LABEL,
     ACTIONS_TABLE,
     ACTIONS_PIE_CHART,
-    RETENTION_TABLE,
-    PATHS_VIZ,
-    FUNNEL_VIZ,
     ACTIONS_BAR_CHART,
     BAR_CHART_LABEL,
-    RETENTION_GRAPH,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
@@ -93,22 +89,6 @@ const showComparePrevious = {
     [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: false,
-}
-
-function determineInsightType(activeView, display) {
-    if (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) {
-        return display || ACTIONS_LINE_GRAPH_LINEAR
-    } else if (activeView === ViewType.FUNNELS) {
-        return FUNNEL_VIZ
-    } else if (activeView === ViewType.RETENTION && display !== ACTIONS_LINE_GRAPH_LINEAR) {
-        return RETENTION_TABLE
-    } else if (activeView === ViewType.RETENTION && display === ACTIONS_LINE_GRAPH_LINEAR) {
-        return RETENTION_GRAPH
-    } else if (activeView === ViewType.PATHS) {
-        return PATHS_VIZ
-    } else {
-        return null
-    }
 }
 
 export const Insights = hot(_Insights)
@@ -225,7 +205,6 @@ function _Insights() {
                                     {showComparePrevious[activeView] && <CompareFilter filters={allFilters} />}
                                     <SaveToDashboard
                                         item={{
-                                            type: determineInsightType(activeView, allFilters.display),
                                             entity: {
                                                 filters: allFilters,
                                                 annotations: annotationsToCreate,

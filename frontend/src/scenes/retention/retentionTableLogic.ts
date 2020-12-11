@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import moment, { Moment } from 'moment'
+import { Moment } from 'moment'
 import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 
@@ -33,7 +33,6 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
-        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH:00'),
         properties: properties,
         insight: ViewType.RETENTION,
     }
@@ -48,7 +47,7 @@ function cleanFilters(filters): any {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
-        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : null,
+        date_to: filters.date_to,
         period: filters.period || 'Day',
         display: filters.display || 'ActionsTable',
     }
@@ -57,9 +56,6 @@ function cleanFilters(filters): any {
 function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): str {
     let params: Record<string, any> = { ...values.filters }
     params['properties'] = values.properties
-    if (values.selectedDate) {
-        params['date_to'] = values.selectedDate.toISOString()
-    }
     if (values.period) {
         params['period'] = dateOptions[values.period]
     }
@@ -108,19 +104,10 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
 
                     return res
                 } else {
-                    const people = values.retention.data[rowIndex].values[0].people
+                    const urlParams = toUrlParams(values, { selected_interval: rowIndex })
+                    const res = await api.get(`api/person/retention/?${urlParams}`)
 
-                    if (people.length === 0) {
-                        return []
-                    }
-                    const results = (await api.get('api/person/?id=' + people.join(','))).results
-                    results.sort(function (a, b) {
-                        return people.indexOf(a.id) - people.indexOf(b.id)
-                    })
-                    return {
-                        ...values.people,
-                        [`${rowIndex}`]: results,
-                    }
+                    return res
                 }
             },
         },
@@ -131,11 +118,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         setFilters: (filters) => ({ filters }),
-        loadMore: (selectedIndex) => ({ selectedIndex }),
-        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
-        loadMoreGraphPeople: true,
-        updateGraphPeople: (people) => ({ people }),
-        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        loadMorePeople: true,
+        updatePeople: (people) => ({ people }),
         updateRetention: (retention) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
@@ -156,11 +140,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                       startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
-                      selectedDate: moment(props.filters.selectedDate),
                       returningEntity: props.filters.returningEntity || {
                           events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                           actions: [],
                       },
+                      date_to: props.filters.date_to,
                       period: props.filters.period || 'Day',
                       retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
                       display: props.filters.display || ACTIONS_TABLE,
@@ -172,11 +156,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         ],
         people: {
             clearPeople: () => ({}),
-            updatePeople: (state, { selectedIndex, people }) => ({
-                ...state,
-                [`${selectedIndex}`]: [...state[selectedIndex], ...people],
-            }),
-            updateGraphPeople: (_, { people }) => people,
+            updatePeople: (_, { people }) => people,
         },
         retention: {
             updateRetention: (_, { retention }) => retention,
@@ -185,10 +165,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         loadingMore: [
             false,
             {
-                loadMore: () => true,
+                loadMorePeople: () => true,
                 updatePeople: () => false,
-                updateGraphPeople: () => false,
-                loadMoreGraphPeople: () => true,
             },
         ],
     }),
@@ -219,12 +197,6 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
-        selectedDate: [
-            () => [selectors.filters],
-            (filters) => {
-                return filters.selectedDate
-            },
-        ],
         retentionType: [
             () => [selectors.filters],
             (filters) => {
@@ -246,13 +218,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
@@ -290,49 +262,14 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             actions.createInsight(cleanRetentionParams(values.filters, values.properties))
         },
-        loadMore: async ({ selectedIndex }) => {
-            let peopleToAdd = []
-            for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
-                if (next) {
-                    const params = toParams({ id: next, offset })
-                    const referenceResults = await api.get(`api/person/references/?${params}`)
-                    const retentionCopy = { ...values.retention }
-                    if (referenceResults.offset) {
-                        retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
-                    } else {
-                        retentionCopy.data[selectedIndex].values[index].next = null
-                    }
-                    retentionCopy.data[selectedIndex].values[index].people = [
-                        ...retentionCopy.data[selectedIndex].values[index].people,
-                        ...referenceResults.result,
-                    ]
-                    actions.updateRetention(retentionCopy)
-                    if (index === 0) {
-                        peopleToAdd = referenceResults.result
-                    }
-                }
-            }
-
-            actions.loadMorePeople(selectedIndex, peopleToAdd)
-        },
-        loadMorePeople: async ({ selectedIndex, peopleIds }) => {
-            if (peopleIds.length === 0) {
-                actions.updatePeople(selectedIndex, [])
-            }
-            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
-            peopleResult.sort(function (a, b) {
-                return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
-            })
-            actions.updatePeople(selectedIndex, peopleResult)
-        },
-        loadMoreGraphPeople: async () => {
+        loadMorePeople: async () => {
             if (values.people.next) {
                 const peopleResult = await api.get(values.people.next)
                 const newPeople = {
                     result: [...values.people.result, ...peopleResult['result']],
                     next: peopleResult['next'],
                 }
-                actions.updateGraphPeople(newPeople)
+                actions.updatePeople(newPeople)
             }
         },
     }),

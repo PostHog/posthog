@@ -20,6 +20,8 @@ from posthog.constants import (
     ENTITIES,
     EVENTS,
     INSIGHT,
+    INSIGHT_TO_DISPLAY,
+    INSIGHT_TRENDS,
     INTERVAL,
     OFFSET,
     PATH_TYPE,
@@ -48,7 +50,7 @@ class Filter(PropertyMixin):
     properties: List[Property] = []
     interval: Optional[str] = None
     entities: List[Entity] = []
-    display: Optional[str] = None
+    display: str
     selector: Optional[str] = None
     shown_as: Optional[str] = None
     breakdown: Optional[Union[str, List[Union[str, int]]]] = None
@@ -56,7 +58,7 @@ class Filter(PropertyMixin):
     breakdown_value: Optional[str] = None
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
-    insight: Optional[str] = None
+    insight: str
     session_type: Optional[str] = None
     path_type: Optional[str] = None
     start_point: Optional[str] = None
@@ -66,6 +68,7 @@ class Filter(PropertyMixin):
         if request:
             data = {
                 **request.GET.dict(),
+                **(data if data else {}),
                 **({PROPERTIES: json.loads(request.GET[PROPERTIES])} if request.GET.get(PROPERTIES) else {}),
                 ACTIONS: json.loads(request.GET.get(ACTIONS, "[]")),
                 EVENTS: json.loads(request.GET.get(EVENTS, "[]")),
@@ -78,18 +81,18 @@ class Filter(PropertyMixin):
         self.properties = self._parse_properties(data.get(PROPERTIES))
         self.selector = data.get(SELECTOR, [])
         self.interval = data.get(INTERVAL)
-        self.display = data.get(DISPLAY)
         self.selector = data.get(SELECTOR)
         self.shown_as = data.get(SHOWN_AS)
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get(BREAKDOWN_TYPE)
         self.breakdown_value = data.get(BREAKDOWN_VALUE)
         self._compare = data.get(COMPARE, "false")
-        self.insight = data.get(INSIGHT)
+        self.insight = data.get(INSIGHT, INSIGHT_TRENDS)
         self.session_type = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
         self.start_point = data.get(START_POINT)
         self._offset = data.get(OFFSET)
+        self.display = data[DISPLAY] if data.get(DISPLAY) else INSIGHT_TO_DISPLAY[self.insight]
 
         if data.get(ACTIONS):
             self.entities.extend(

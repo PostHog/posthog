@@ -42,7 +42,8 @@ export const eventsTableLogic = kea({
         (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all') +
         '-' +
         (props.apiUrl || 'events') +
-        (props.live ? '-live' : ''),
+        (props.live ? '-live' : '') +
+        props.key,
 
     actions: () => ({
         setProperties: (properties) => ({ properties }),

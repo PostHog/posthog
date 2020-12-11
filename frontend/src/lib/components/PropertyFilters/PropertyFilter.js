@@ -49,7 +49,7 @@ function PropertyPaneContents({
                             setThisFilter(
                                 newKey.value.replace(/^(event_|person_|element_)/gi, ''),
                                 undefined,
-                                operator,
+                                newKey.value === 'event_$active_feature_flags' ? 'icontains' : operator,
                                 newKey.type
                             )
                         }

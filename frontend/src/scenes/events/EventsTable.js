@@ -16,8 +16,8 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { hot } from 'react-hot-loader/root'
 
 export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true }) {
-    const logic = eventsTableLogic({ fixedFilters })
+function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey })
     const {
         properties,
         eventsFormatted,

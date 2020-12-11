@@ -11,3 +11,5 @@ export interface PluginRepositoryEntry {
 export interface PluginTypeWithConfig extends PluginType {
     pluginConfig: PluginConfigType
 }
+
+export type PluginInstallationType = 'local' | 'custom' | 'repository'
