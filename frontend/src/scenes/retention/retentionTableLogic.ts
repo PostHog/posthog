@@ -221,13 +221,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
