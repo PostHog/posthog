@@ -28,6 +28,7 @@ export const pluginsLogic = kea<
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
         setPluginTab: (tab: string) => ({ tab }),
+        setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
     },
 
@@ -155,6 +156,13 @@ export const pluginsLogic = kea<
                 savePluginConfigSuccess: () => null,
                 uninstallPluginSuccess: () => null,
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
+            },
+        ],
+        editingSource: [
+            false,
+            {
+                setEditingSource: (_, { editingSource }) => editingSource,
+                editPlugin: () => false,
             },
         ],
         customPluginUrl: [
