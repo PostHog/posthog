@@ -17,7 +17,7 @@ from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.utils import convert_property_value
+from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
@@ -91,12 +91,12 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
-
         key = request.GET.get("key")
         team = self.team
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
+            result = flatten(result)
         return Response([{"name": convert_property_value(value[0])} for value in result])
 
     @action(methods=["GET"], detail=False)

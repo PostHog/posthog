@@ -19,15 +19,7 @@ from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
-from posthog.utils import convert_property_value
-
-
-def flatten(l: List[Any]):
-    for el in l:
-        if isinstance(el, list):
-            yield from flatten(el)
-        else:
-            yield el
+from posthog.utils import convert_property_value, flatten
 
 
 class ElementSerializer(serializers.ModelSerializer):
