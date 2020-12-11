@@ -674,10 +674,10 @@ posthog-js-lite@^0.0.5:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
   integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
 
-posthog-plugin-server@0.5.0:
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.5.0.tgz#adc7f8e151320d237010236437b064efaca69f71"
-  integrity sha512-QsMllTwwZX55KF/nghPX6j03QgL1v/XvleSusglTrgePM31GJyF0BHdoXeioZZ0wTyHfczt63LPDBFm6Ckt7jg==
+posthog-plugin-server@0.5.1-beta.2:
+  version "0.5.1-beta.2"
+  resolved "https://registry.yarnpkg.com/posthog-plugin-server/-/posthog-plugin-server-0.5.1-beta.2.tgz#b4f5ac580cecf5cf9663971ed4643989680cbd2c"
+  integrity sha512-uUgUcEGiBdK07SLgLwyQbDxeJhCPYCziMcVoBCcyFOoGekJsodmtfawBDg3/4Qlen//sAXwN2z0SxpuuphMEqQ==
   dependencies:
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
