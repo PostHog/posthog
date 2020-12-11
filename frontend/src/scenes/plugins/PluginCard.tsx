@@ -116,7 +116,7 @@ export function PluginCard({
                                 </div>
                             </Popconfirm>
                         )}
-                        {!pluginConfig && (
+                        {!pluginConfig && url && (
                             <>
                                 <Link to={url} target="_blank" rel="noopener noreferrer">
                                     Learn more
@@ -130,7 +130,7 @@ export function PluginCard({
                             <Button
                                 type="primary"
                                 loading={loading}
-                                onClick={() => installPlugin(url, 'repository')}
+                                onClick={() => (url ? installPlugin(url, 'repository') : null)}
                                 icon={<PlusOutlined />}
                             >
                                 Install
