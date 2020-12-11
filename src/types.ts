@@ -60,11 +60,13 @@ export type TeamId = number
 export interface Plugin {
     id: PluginId
     name: string
+    plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
     url?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
+    source?: string
     error?: PluginError
 }
 
