@@ -12,6 +12,7 @@ import { UploadField } from 'scenes/plugins/UploadField'
 import { getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
+import { PluginSource } from 'scenes/plugins/PluginSource'
 
 function EnabledDisabledSwitch({
     value,
@@ -195,7 +196,7 @@ export function PluginDrawer(): JSX.Element {
                         </>
                     }
                 >
-                    <textarea />
+                    <PluginSource />
                 </Drawer>
             ) : null}
         </>
