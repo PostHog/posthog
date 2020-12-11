@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Input } from 'antd'
+import { Button, Form, Input } from 'antd'
 import MonacoEditor from 'react-monaco-editor'
+import { Drawer } from 'lib/components/Drawer'
 
 const defaultCode = `// Write your plugin here!
 function processEvent(event) {
@@ -14,15 +15,13 @@ function processEvent(event) {
 
 export function PluginSource(): JSX.Element {
     const { editingPlugin, editingSource } = useValues(pluginsLogic)
+    const { setEditingSource } = useActions(pluginsLogic)
     const [form] = Form.useForm()
-
-    console.log(editingPlugin)
 
     useEffect(() => {
         if (editingPlugin) {
-            console.log('!!')
             form.setFieldsValue({
-                name: editingPlugin.name,
+                name: editingPlugin.name || '',
                 source: editingPlugin.source || defaultCode,
                 configSchema: JSON.stringify(editingPlugin.config_schema, null, 2),
             })
@@ -41,18 +40,39 @@ export function PluginSource(): JSX.Element {
     }
 
     return (
-        <>
+        <Drawer
+            forceRender={true}
+            visible={editingSource}
+            onClose={() => setEditingSource(false)}
+            width={'min(90vw, 820px)'}
+            title={`Edit Plugin: ${editingPlugin?.name}`}
+            placement="left"
+            footer={
+                <div style={{ textAlign: 'right' }}>
+                    <Button onClick={() => setEditingSource(false)} style={{ marginRight: 16 }}>
+                        Cancel
+                    </Button>
+                    <Button type="primary" loading={false} onClick={form.submit}>
+                        Save
+                    </Button>
+                </div>
+            }
+        >
             <Form form={form} layout="vertical" onFinish={savePluginSource}>
-                <Form.Item label="Name" name="name" required rules={[requiredRule]}>
-                    <Input />
-                </Form.Item>
-                <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
-                    <MonacoEditor language="javascript" theme="vs-dark" height={600} />
-                </Form.Item>
-                <Form.Item label="Config Schema JSON" name="configSchema" required rules={[requiredRule]}>
-                    <MonacoEditor language="json" theme="vs-dark" height={200} />
-                </Form.Item>
+                {editingSource ? (
+                    <>
+                        <Form.Item label="Name" name="name" required rules={[requiredRule]}>
+                            <Input />
+                        </Form.Item>
+                        <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
+                            <MonacoEditor language="javascript" theme="vs-dark" height={600} />
+                        </Form.Item>
+                        <Form.Item label="Config Schema JSON" name="configSchema" required rules={[requiredRule]}>
+                            <MonacoEditor language="json" theme="vs-dark" height={200} />
+                        </Form.Item>
+                    </>
+                ) : null}
             </Form>
-        </>
+        </Drawer>
     )
 }

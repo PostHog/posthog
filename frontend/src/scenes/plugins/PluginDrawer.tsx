@@ -177,28 +177,7 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? (
-                <Drawer
-                    forceRender={true}
-                    visible={editingSource}
-                    onClose={() => setEditingSource(false)}
-                    width={'min(90vw, 820px)'}
-                    title={`Edit Plugin: ${editingPlugin?.name}`}
-                    placement="left"
-                    footer={
-                        <>
-                            <Button onClick={() => setEditingSource(false)} style={{ marginRight: 16 }}>
-                                Cancel
-                            </Button>
-                            <Button type="primary" loading={loading} onClick={() => console.log('haha')}>
-                                Save
-                            </Button>
-                        </>
-                    }
-                >
-                    <PluginSource />
-                </Drawer>
-            ) : null}
+            {editingPlugin?.plugin_type === 'source' ? <PluginSource /> : null}
         </>
     )
 }
