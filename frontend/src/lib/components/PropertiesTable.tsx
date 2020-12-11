@@ -26,6 +26,7 @@ const typeToIcon: Record<string, JSX.Element> = {
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
     onEdit?: (key: string | undefined, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
+    nestingLevel?: number
 }
 
 interface ValueDisplayType extends BasePropertyType {
@@ -49,10 +50,11 @@ function EditTextValueComponent({
     )
 }
 
-function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element {
+function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
     const [editing, setEditing] = useState(false)
     const keyMappingKeys = Object.keys(keyMapping.event)
-    const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && onEdit
+    // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
+    const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
@@ -140,10 +142,11 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = false,
+    nestingLevel = 0,
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
-            return null
+            return []
         }
         const entries = Object.entries(properties)
         if (!sortProperties) {
@@ -169,7 +172,14 @@ export function PropertiesTable({
         {
             title: 'value',
             render: function Value(item: any): JSX.Element {
-                return <PropertiesTable properties={item[1]} rootKey={item[0]} onEdit={onEdit} />
+                return (
+                    <PropertiesTable
+                        properties={item[1]}
+                        rootKey={item[0]}
+                        onEdit={onEdit}
+                        nestingLevel={nestingLevel + 1}
+                    />
+                )
             },
         },
     ]
@@ -179,7 +189,7 @@ export function PropertiesTable({
             <div>
                 {properties.map((item, index) => (
                     <span key={index}>
-                        <PropertiesTable properties={item} />
+                        <PropertiesTable properties={item} nestingLevel={nestingLevel + 1} />
                         <br />
                     </span>
                 ))}
@@ -199,7 +209,7 @@ export function PropertiesTable({
         )
     }
     // if none of above, it's a value
-    return <ValueDisplay value={properties} rootKey={rootKey} onEdit={onEdit} />
+    return <ValueDisplay value={properties} rootKey={rootKey} onEdit={onEdit} nestingLevel={nestingLevel} />
 }
 
 PropertiesTable.propTypes = {
