@@ -50,6 +50,7 @@ export const entityFilterLogic = kea({
         updateFilterProperty: (filter) => ({ properties: filter.properties, index: filter.index }),
         setFilters: (filters) => ({ filters }),
         setLocalFilters: (filters) => ({ filters }),
+        setEntityFilterVisibility: (index, value) => ({ index, value }),
     }),
 
     reducers: ({ props }) => ({
@@ -63,6 +64,12 @@ export const entityFilterLogic = kea({
             toLocalFilters(props.filters),
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
+            },
+        ],
+        entityFilterVisible: [
+            {},
+            {
+                setEntityFilterVisibility: (state, { index, value }) => ({ ...state, [index]: value }),
             },
         ],
     }),
@@ -103,9 +110,11 @@ export const entityFilterLogic = kea({
         addFilter: () => {
             if (values.localFilters.length > 0) {
                 const lastFilter = values.localFilters[values.localFilters.length - 1]
-                actions.setFilters([...values.localFilters, { ...lastFilter, order: values.localFilters.length }])
+                const order = lastFilter.order + 1
+                actions.setFilters([...values.localFilters, { ...lastFilter, order }])
+                actions.setEntityFilterVisibility(order, values.entityFilterVisible[lastFilter.order])
             } else {
-                actions.setFilters([{ id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }])
+                actions.setFilters([{ id: null, type: EntityTypes.NEW_ENTITY, order: 0 }])
             }
         },
         setFilters: ({ filters }) => {
