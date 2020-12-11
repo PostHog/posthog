@@ -71,6 +71,9 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
+                return state.map((i) => (i.id === item.id ? item : i))
+            },
         },
         insightsNext: [
             null as null | string,

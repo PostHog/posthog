@@ -152,11 +152,11 @@ export function DashboardItem({
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const _type = item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display
-    const className = typeMap[_type].className
-    const Element = typeMap[_type].element
-    const Icon = typeMap[_type].icon
-    const viewText = typeMap[_type].viewText
-    const link = typeMap[_type].link(item)
+    const className = displayMap[_type].className
+    const Element = displayMap[_type].element
+    const Icon = displayMap[_type].icon
+    const viewText = displayMap[_type].viewText
+    const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)

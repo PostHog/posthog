@@ -1,8 +1,6 @@
 import React, { useState } from 'react'
-import { Tabs, Button, List, Col, Spin, Row, Tooltip } from 'antd'
-import { Loading, toParams } from 'lib/utils'
-import { Link } from 'lib/components/Link'
-import { PushpinOutlined, PushpinFilled } from '@ant-design/icons'
+import { Tabs, Col, Row } from 'antd'
+import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType, InsightHistory } from '~/types'
@@ -24,8 +22,43 @@ interface InsightHistoryPanelProps {
     onChange: () => void
 }
 
-export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChange }: InsightHistoryPanelProps) => {
+function InsightPane({ data, loading }: { data: DashboardItemType[]; loading: boolean }): JSX.Element {
+    const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
     const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
+
+    return (
+        <Row gutter={[16, 16]}>
+            {loading && <Loading />}
+            {data &&
+                data.map((insight: DashboardItemType) => (
+                    <Col xs={8} key={insight.id} style={{ height: 270 }}>
+                        <DashboardItem
+                            item={{ ...insight, color: undefined }}
+                            options={<div className="dashboard-item-settings">hi</div>}
+                            key={insight.id + '_user'}
+                            loadDashboardItems={() => {
+                                loadInsights()
+                                loadSavedInsights()
+                                loadTeamInsights()
+                            }}
+                            renameDashboardItem={renameDashboardItem}
+                            moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
+                                duplicateDashboardItem(item, dashboardId)
+                            }
+                            preventLoading={true}
+                            footer={
+                                <div className="dashboard-item-footer">
+                                    Last saved {moment(insight.created_at).fromNow()}
+                                </div>
+                            }
+                        />
+                    </Col>
+                ))}
+        </Row>
+    )
+}
+
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
     const {
         insights,
         insightsLoading,
@@ -33,27 +66,25 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         savedInsightsLoading,
         teamInsights,
         teamInsightsLoading,
-        insightsNext,
-        loadingMoreInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, loadTeamInsights, loadNextInsights, loadSavedInsights } = useActions(insightHistoryLogic)
+    const { saveInsight } = useActions(insightHistoryLogic)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.SAVED)
     const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
 
-    const loadMoreInsights = insightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreInsights ? <Spin /> : <Button onClick={loadNextInsights}>Load more</Button>}
-        </div>
-    ) : null
+    // const loadMoreInsights = insightsNext ? (
+    //     <div
+    //         style={{
+    //             textAlign: 'center',
+    //             marginTop: 12,
+    //             height: 32,
+    //             lineHeight: '32px',
+    //         }}
+    //     >
+    //         {loadingMoreInsights ? <Spin /> : <Button onClick={loadNextInsights}>Load more</Button>}
+    //     </div>
+    // ) : null
 
     // const loadMoreSavedInsights = savedInsightsNext ? (
     //     <div
@@ -96,104 +127,21 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     key={InsightHistoryType.RECENT}
                     data-attr="insight-history-pane"
                 >
-                    <List
-                        loading={insightsLoading}
-                        dataSource={insights}
-                        loadMore={loadMoreInsights}
-                        renderItem={(insight: DashboardItemType) => {
-                            return (
-                                <List.Item>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.filters.insight.charAt(0).toUpperCase() +
-                                                        insight.filters.insight.slice(1).toLowerCase()}
-                                                </Link>
-                                            )}
-                                            {insight.saved ? (
-                                                <Tooltip
-                                                    title="This configuration has already been saved"
-                                                    placement="left"
-                                                >
-                                                    <PushpinFilled className="button-border" />
-                                                </Tooltip>
-                                            ) : (
-                                                <Tooltip title="Save insight configuration" placement="left">
-                                                    <PushpinOutlined
-                                                        className="clickable button-border"
-                                                        onClick={() => {
-                                                            setVisible(true)
-                                                            setSelectedInsight(insight)
-                                                        }}
-                                                        style={{ cursor: 'pointer' }}
-                                                    />
-                                                </Tooltip>
-                                            )}
-                                        </Row>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
-                    />
+                    <InsightPane data={insights} loading={insightsLoading} />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Saved</span>}
                     key={InsightHistoryType.SAVED}
                     data-attr="insight-saved-pane"
                 >
-                    <Row gutter={[16, 16]}>
-                        {savedInsightsLoading && <Loading />}
-                        {savedInsights.map((insight: DashboardItemType) => (
-                            <Col xs={8} key={insight.id} style={{ height: 270 }}>
-                                <DashboardItem
-                                    item={{ ...insight, color: undefined }}
-                                    options={<div className="dashboard-item-settings">hi</div>}
-                                    key={insight.id + '_user'}
-                                    loadDashboardItems={loadSavedInsights}
-                                    renameDashboardItem={renameDashboardItem}
-                                    moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
-                                        duplicateDashboardItem(item, dashboardId)
-                                    }
-                                    preventLoading={true}
-                                    footer={
-                                        <div className="dashboard-item-footer">
-                                            Last saved {moment(insight.created_at).fromNow()}
-                                        </div>
-                                    }
-                                />
-                            </Col>
-                        ))}
-                    </Row>
+                    <InsightPane data={savedInsights} loading={savedInsightsLoading} />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Team</span>}
                     key={InsightHistoryType.TEAM}
                     data-attr="insight-team-panel"
                 >
-                    <Row gutter={[16, 16]}>
-                        {teamInsightsLoading && <Loading />}
-                        {teamInsights.map((insight: DashboardItemType) => (
-                            <Col xs={8} key={insight.id} style={{ height: 270 }}>
-                                <DashboardItem
-                                    item={{ ...insight, color: undefined }}
-                                    key={insight.id + '_team'}
-                                    options={<div className="dashboard-item-settings">hi</div>}
-                                    loadDashboardItems={loadTeamInsights}
-                                    renameDashboardItem={renameDashboardItem}
-                                    moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
-                                        duplicateDashboardItem(item, dashboardId)
-                                    }
-                                    preventLoading={true}
-                                    footer={
-                                        <div className="dashboard-item-footer">
-                                            Last saved {moment(insight.created_at).fromNow()}
-                                        </div>
-                                    }
-                                />
-                            </Col>
-                        ))}
-                    </Row>
+                    <InsightPane data={teamInsights} loading={teamInsightsLoading} />
                 </TabPane>
             </Tabs>
             <SaveModal
