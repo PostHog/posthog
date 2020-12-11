@@ -74,10 +74,14 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
         if test_duration:
 
             def test_filter_sessions_by_recording_duration_gt(self):
-                self._test_filter_sessions(SessionsFilter(data={"duration": '["gt", 15]'}), [["1", "3"]])
+                self._test_filter_sessions(
+                    SessionsFilter(data={"duration_operator": "gt", "duration": 15}), [["1", "3"]]
+                )
 
             def test_filter_sessions_by_recording_duration_lt(self):
-                self._test_filter_sessions(SessionsFilter(data={"duration": '["lt", 30]'}), [["1"], ["2"]])
+                self._test_filter_sessions(
+                    SessionsFilter(data={"duration_operator": "lt", "duration": 30}), [["1"], ["2"]]
+                )
 
         def test_query_run_with_no_sessions(self):
             self.assertEqual(filter_sessions(self.team, [], SessionsFilter(data={"offset": 0})), [])
