@@ -1,8 +1,6 @@
 import datetime
 import json
-from distutils.util import strtobool
-from functools import cached_property
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -13,213 +11,34 @@ from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
     BREAKDOWN_TYPE,
-    BREAKDOWN_VALUE,
     COMPARE,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
-    ENTITIES,
     EVENTS,
     INSIGHT,
     INTERVAL,
-    OFFSET,
-    PATH_TYPE,
     PROPERTIES,
     SELECTOR,
     SESSION,
     SHOWN_AS,
-    START_POINT,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity
-from posthog.models.property import Property, PropertyMixin
+from posthog.models.filters.mixins.common import (
+    BreakdownMixin,
+    BreakdownTypeMixin,
+    BreakdownValueMixin,
+    CompareMixin,
+    DisplayMixin,
+    EntitiesMixin,
+    InsightMixin,
+    IntervalMixin,
+    OffsetMixin,
+    SelectorMixin,
+    SessionTypeMixin,
+    ShownAsMixin,
+)
+from posthog.models.property import PropertyMixin
 from posthog.utils import relative_date_parse
-
-
-class DisplayMixin:
-    _data: Dict
-
-    @cached_property
-    def display(self) -> Optional[str]:
-        return self._data.get(DISPLAY, None)
-
-
-class IntervalMixin:
-    _data: Dict
-
-    @cached_property
-    def interval(self) -> Optional[str]:
-        return self._data.get(INTERVAL, None)
-
-
-class SelectorMixin:
-    _data: Dict
-
-    @cached_property
-    def selector(self) -> Optional[str]:
-        return self._data.get(SELECTOR, None)
-
-
-class ShownAsMixin:
-    _data: Dict
-
-    @cached_property
-    def shown_as(self) -> Optional[str]:
-        return self._data.get(SHOWN_AS, None)
-
-
-class BreakdownMixin:
-    _data: Dict
-
-    def _process_breakdown_param(self, breakdown: Optional[str]) -> Optional[Union[str, List[Union[str, int]]]]:
-        if not isinstance(breakdown, str):
-            return breakdown
-        try:
-            return json.loads(breakdown)
-        except (TypeError, json.decoder.JSONDecodeError):
-            return breakdown
-
-    @cached_property
-    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
-        breakdown = self._data.get(BREAKDOWN)
-        return self._process_breakdown_param(breakdown)
-
-
-class BreakdownTypeMixin:
-    _data: Dict
-
-    @cached_property
-    def breakdown_type(self) -> Optional[str]:
-        return self._data.get(BREAKDOWN_TYPE, None)
-
-
-class BreakdownValueMixin:
-    _data: Dict
-
-    @cached_property
-    def breakdown_value(self) -> Optional[str]:
-        return self._data.get(BREAKDOWN_VALUE, None)
-
-
-class InsightMixin:
-    _data: Dict
-
-    @cached_property
-    def insight(self) -> Optional[str]:
-        return self._data.get(INSIGHT, None)
-
-
-class SessionTypeMixin:
-    _data: Dict
-
-    @cached_property
-    def session_type(self) -> Optional[str]:
-        return self._data.get(SESSION, None)
-
-
-class StartPointMixin:
-    _data: Dict
-
-    @cached_property
-    def start_point(self) -> Optional[str]:
-        return self._data.get(START_POINT, None)
-
-
-class OffsetMixin:
-    _data: Dict
-
-    @cached_property
-    def offset(self) -> int:
-        _offset = self._data.get(OFFSET)
-        return int(_offset or "0")
-
-
-class CompareMixin:
-    _data: Dict
-
-    def _process_compare(self, compare: Optional[str]) -> bool:
-        if isinstance(compare, bool):
-            return compare
-        elif isinstance(compare, str):
-            return bool(strtobool(compare))
-        else:
-            return False
-
-    @cached_property
-    def compare(self) -> bool:
-        _compare = self._data.get(COMPARE, None)
-        return self._process_compare(_compare)
-
-
-class DateMixin:
-    _data: Dict
-
-    @cached_property
-    def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
-        return self._data.get(DATE_FROM, None)
-
-    @cached_property
-    def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
-        return self._data.get(DATE_TO, None)
-
-    @cached_property
-    def date_from(self) -> Optional[datetime.datetime]:
-        if self._date_from:
-            if self._date_from == "all":
-                return None
-            elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
-            else:
-                return self._date_from
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-
-    @cached_property
-    def date_to(self) -> datetime.datetime:
-        if self._date_to:
-            if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
-            else:
-                return self._date_to
-        return timezone.now()
-
-
-class EntitiesMixin:
-    _data: Dict
-
-    @cached_property
-    def entities(self) -> List[Entity]:
-        _entities: List[Entity] = []
-        if self._data.get(ACTIONS):
-            _entities.extend(
-                [Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in self._data.get(ACTIONS, [])]
-            )
-        if self._data.get(EVENTS):
-            _entities.extend(
-                [Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in self._data.get(EVENTS, [])]
-            )
-        return sorted(_entities, key=lambda entity: entity.order if entity.order else -1)
-
-    @cached_property
-    def actions(self) -> List[Entity]:
-        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
-
-    @cached_property
-    def events(self) -> List[Entity]:
-        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
-
-
-class BaseFilter:
-    _data: Dict
-
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
-        if request:
-            data = {
-                **request.GET.dict(),
-            }
-        elif not data:
-            raise ValueError("You need to define either a data dict or a request")
-        self._data = data
 
 
 class Filter(
@@ -235,7 +54,6 @@ class Filter(
     CompareMixin,
     InsightMixin,
     SessionTypeMixin,
-    StartPointMixin,
     OffsetMixin,
 ):
     """
@@ -246,7 +64,6 @@ class Filter(
 
     _date_from: Optional[Union[str, datetime.datetime]] = None
     _date_to: Optional[Union[str, datetime.datetime]] = None
-    properties: List[Property] = []
     funnel_id: Optional[int] = None
     _data: Dict
 
@@ -264,7 +81,6 @@ class Filter(
         self._data = data
         self._date_from = data.get(DATE_FROM)
         self._date_to = data.get(DATE_TO)
-        self.properties = self._parse_properties(data.get(PROPERTIES))
 
     def to_dict(self) -> Dict[str, Any]:
         full_dict = {
