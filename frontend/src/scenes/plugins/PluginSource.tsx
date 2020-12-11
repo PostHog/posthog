@@ -68,7 +68,7 @@ export function PluginSource(): JSX.Element {
                             <Input />
                         </Form.Item>
                         <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
-                            <MonacoEditor language="javascript" theme="vs-dark" height={600} />
+                            <MonacoEditor language="javascript" theme="vs-dark" height={400} />
                         </Form.Item>
                         <Form.Item
                             label="Config Schema JSON"
