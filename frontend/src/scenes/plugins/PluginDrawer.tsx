@@ -11,6 +11,7 @@ import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
 import { UploadField } from 'scenes/plugins/UploadField'
 import { getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
+import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 
 function EnabledDisabledSwitch({
     value,
@@ -93,13 +94,15 @@ export function PluginDrawer(): JSX.Element {
                             <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                 {editingPlugin.description}
                                 <div style={{ marginTop: 5 }}>
-                                    {editingPlugin.url?.startsWith('file:') ? (
+                                    {editingPlugin.plugin_type === 'local' && editingPlugin.url ? (
                                         <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
-                                    ) : (
+                                    ) : editingPlugin.plugin_type === 'source' ? (
+                                        <SourcePluginTag title="Source Plugin" />
+                                    ) : editingPlugin.url ? (
                                         <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
                                             View plugin <ArrowRightOutlined />
                                         </Link>
-                                    )}
+                                    ) : null}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                     <Form.Item
@@ -112,6 +115,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             </div>
                         </div>
+
                         <h3 className="l3" style={{ marginTop: 32 }}>
                             Configuration
                         </h3>

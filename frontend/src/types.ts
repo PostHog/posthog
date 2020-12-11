@@ -1,5 +1,6 @@
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PluginConfigSchema } from 'posthog-plugins'
+import { PluginInstallationType } from 'scenes/plugins/types'
 export interface UserType {
     anonymize_data: boolean
     distinct_id: string
@@ -267,6 +268,7 @@ export interface OrganizationInviteType {
 
 export interface PluginType {
     id: number
+    plugin_type: PluginInstallationType
     name: string
     description?: string
     url?: string

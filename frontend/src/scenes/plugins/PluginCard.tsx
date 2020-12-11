@@ -9,17 +9,28 @@ import { Link } from 'lib/components/Link'
 import { PluginImage } from './PluginImage'
 import { PluginError } from 'scenes/plugins/PluginError'
 import { LocalPluginTag } from 'scenes/plugins/LocalPluginTag'
+import { PluginInstallationType } from 'scenes/plugins/types'
+import { SourcePluginTag } from 'scenes/plugins/SourcePluginTag'
 
 interface PluginCardProps {
     name: string
-    description: string
-    url: string
+    description?: string
+    url?: string
     pluginConfig?: PluginConfigType
+    pluginType?: PluginInstallationType
     pluginId?: number
     error?: PluginErrorType
 }
 
-export function PluginCard({ name, description, url, pluginConfig, pluginId, error }: PluginCardProps): JSX.Element {
+export function PluginCard({
+    name,
+    description,
+    url,
+    pluginType,
+    pluginConfig,
+    pluginId,
+    error,
+}: PluginCardProps): JSX.Element {
     const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError } = useActions(pluginsLogic)
     const { loading } = useValues(pluginsLogic)
 
@@ -49,6 +60,12 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                 style={{ height: '100%', display: 'flex', marginBottom: 20 }}
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
+                {pluginType === 'source' ? (
+                    <SourcePluginTag
+                        title="Source"
+                        style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }}
+                    />
+                ) : null}
                 {url?.startsWith('file:') ? (
                     <LocalPluginTag
                         url={url}
@@ -64,7 +81,7 @@ export function PluginCard({ name, description, url, pluginConfig, pluginId, err
                 ) : error ? (
                     <PluginError error={error} />
                 ) : null}
-                <PluginImage url={url} />
+                <PluginImage pluginType={pluginType} url={url} />
                 <div className="text-center mb" style={{ marginBottom: 16 }}>
                     <b>{name}</b>
                 </div>
