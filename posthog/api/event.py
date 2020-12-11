@@ -19,7 +19,7 @@ from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.session_recording import SessionRecording
-from posthog.utils import convert_property_value
+from posthog.utils import convert_property_value, flatten
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -237,7 +237,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             params,
         )
 
-        return [{"name": convert_property_value(value.value)} for value in values]
+        flattened = flatten([value.value for value in values])
+        return [{"name": convert_property_value(value)} for value in flattened]
 
     # ******************************************
     # /event/sessions

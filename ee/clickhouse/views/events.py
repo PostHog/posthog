@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from rest_framework import viewsets
@@ -17,7 +18,7 @@ from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.utils import convert_property_value
+from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
@@ -91,13 +92,19 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
-
         key = request.GET.get("key")
         team = self.team
         result = []
+        flattened = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
-        return Response([{"name": convert_property_value(value[0])} for value in result])
+            for value in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append(json.loads(value[0]))
+                except json.decoder.JSONDecodeError:
+                    flattened.append(value[0])
+        return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
