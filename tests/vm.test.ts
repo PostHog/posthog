@@ -18,6 +18,7 @@ let mockServer: PluginsServer
 
 const mockPlugin: Plugin = {
     id: 4,
+    plugin_type: 'custom',
     name: 'mock-plugin',
     description: 'Mock Plugin in Tests',
     url: 'http://plugins.posthog.com/mock-plugin',

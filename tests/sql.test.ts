@@ -49,6 +49,7 @@ test('getPluginConfigRows', async () => {
 test('getPluginRows', async () => {
     const plugin60: Plugin = {
         id: 60,
+        plugin_type: 'custom',
         name: 'posthog-test-plugin',
         description: 'Ingest GeoIP data via MaxMind',
         url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
