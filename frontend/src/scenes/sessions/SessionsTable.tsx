@@ -14,6 +14,7 @@ import {
     PoweroffOutlined,
     QuestionCircleOutlined,
     ArrowLeftOutlined,
+    PlaySquareOutlined,
 } from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -60,6 +61,13 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const sessionRecordingCTA = (
+        <>
+            Session recording is turned off for this project. Go to{' '}
+            <Link to="/project/settings#session-recording"> project settings</Link> to enable.
+        </>
+    )
 
     const columns = [
         {
@@ -140,14 +148,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             </span>
                         </Tooltip>
                     ) : (
-                        <Tooltip
-                            title={
-                                <>
-                                    Session recording is turned off for this project. Go to{' '}
-                                    <Link to="/project/settings#session-recording"> project settings</Link> to enable.
-                                </>
-                            }
-                        >
+                        <Tooltip title={sessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
                                 Play session
@@ -165,7 +166,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <PageHeader title="Sessions By Day" />}
+            {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
@@ -183,6 +184,19 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+
+            <div className="text-right mb">
+                <Tooltip title={!user?.team?.session_recording_opt_in ? sessionRecordingCTA : ''}>
+                    <Button
+                        icon={<PlaySquareOutlined />}
+                        type="primary"
+                        data-attr="play-all-recordings"
+                        disabled={!user?.team?.session_recording_opt_in}
+                    >
+                        Play all
+                    </Button>
+                </Tooltip>
+            </div>
 
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
