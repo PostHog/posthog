@@ -2,6 +2,15 @@ import React, { useEffect } from 'react'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Form, Input } from 'antd'
+import MonacoEditor from 'react-monaco-editor'
+
+const defaultCode = `// Write your plugin here!
+function processEvent(event) {
+    if (event.properties) {
+        event.properties['changed'] = true
+    }
+}
+`
 
 export function PluginSource(): JSX.Element {
     const { editingPlugin, editingSource } = useValues(pluginsLogic)
@@ -14,7 +23,7 @@ export function PluginSource(): JSX.Element {
             console.log('!!')
             form.setFieldsValue({
                 name: editingPlugin.name,
-                source: editingPlugin.source,
+                source: editingPlugin.source || defaultCode,
                 configSchema: JSON.stringify(editingPlugin.config_schema, null, 2),
             })
         } else {
@@ -37,17 +46,11 @@ export function PluginSource(): JSX.Element {
                 <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                     <Input />
                 </Form.Item>
-                <Form.Item
-                    label="Source Code"
-                    extra="Write all the JavaScript here!"
-                    name="source"
-                    required
-                    rules={[requiredRule]}
-                >
-                    <Input.TextArea autoSize />
+                <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
+                    <MonacoEditor language="javascript" theme="vs-dark" height={600} />
                 </Form.Item>
                 <Form.Item label="Config Schema JSON" name="configSchema" required rules={[requiredRule]}>
-                    <Input.TextArea autoSize />
+                    <MonacoEditor language="json" theme="vs-dark" height={200} />
                 </Form.Item>
             </Form>
         </>
