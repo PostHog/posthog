@@ -1,8 +1,8 @@
-from functools import cached_property
 from typing import Dict, Optional, Tuple
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, PAGEVIEW_EVENT, PATH_TYPE, SCREEN_EVENT, START_POINT
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.filters.mixins.utils import cached_property
 
 
 class PathTypeMixin(BaseParamMixin):

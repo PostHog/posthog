@@ -1,5 +1,4 @@
 import json
-from functools import cached_property
 from typing import Any, Dict, List, Optional, Union
 
 from django.db.models import Exists, OuterRef, Q
