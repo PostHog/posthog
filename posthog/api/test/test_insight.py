@@ -74,7 +74,7 @@ def insight_test_factory(event_factory, person_factory):
 
             response = DashboardItem.objects.all()
             self.assertEqual(len(response), 1)
-            self.assertListEqual(response[0].filters["events"], [{"id": "$pageview"}])
+            self.assertEqual(response[0].filters["events"][0]["id"], "$pageview")
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 

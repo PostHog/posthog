@@ -31,7 +31,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Daily Active Users (DAUs)",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -44,7 +43,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Weekly revenue (from Order Completed)",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
                 {"id": "Order Completed", "math": "sum", "type": TREND_FILTER_TYPE_EVENTS, "math_property": "revenue"}
@@ -62,7 +60,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Cumulative DAUs",
-        type=TRENDS_CUMULATIVE,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -78,7 +75,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Repeat users over time",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
@@ -94,7 +90,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Sample - Purchase conversion funnel",
-        type=TRENDS_FUNNEL,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
                 {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 0},
@@ -133,7 +128,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by browser (last 2 weeks)",
-        type=TRENDS_PIE,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             DATE_FROM: "-14d",
@@ -150,7 +144,6 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
         team=dashboard.team,
         dashboard=dashboard,
         name="Users by traffic source",
-        type=TRENDS_LINEAR,
         filters={
             TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}],
             INTERVAL: "day",
