@@ -56,7 +56,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin upgrades via the web are disabled!")
-        if validated_data.get("plugin_type", None) != Plugin.SOURCE:
+        if plugin.plugin_type != Plugin.SOURCE:
             validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()

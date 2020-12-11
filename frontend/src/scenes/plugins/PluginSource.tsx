@@ -14,8 +14,8 @@ function processEvent(event) {
 `
 
 export function PluginSource(): JSX.Element {
-    const { editingPlugin, editingSource } = useValues(pluginsLogic)
-    const { setEditingSource } = useActions(pluginsLogic)
+    const { editingPlugin, editingSource, loading } = useValues(pluginsLogic)
+    const { setEditingSource, editPluginSource } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
     useEffect(() => {
@@ -31,7 +31,9 @@ export function PluginSource(): JSX.Element {
     }, [editingPlugin?.id, editingSource])
 
     function savePluginSource(values: any): void {
-        console.log(values)
+        if (editingPlugin) {
+            editPluginSource({ ...values, id: editingPlugin.id, configSchema: JSON.parse(values.configSchema) })
+        }
     }
 
     const requiredRule = {
@@ -52,7 +54,7 @@ export function PluginSource(): JSX.Element {
                     <Button onClick={() => setEditingSource(false)} style={{ marginRight: 16 }}>
                         Cancel
                     </Button>
-                    <Button type="primary" loading={false} onClick={form.submit}>
+                    <Button type="primary" loading={loading} onClick={form.submit}>
                         Save
                     </Button>
                 </div>
@@ -67,7 +69,24 @@ export function PluginSource(): JSX.Element {
                         <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
                             <MonacoEditor language="javascript" theme="vs-dark" height={600} />
                         </Form.Item>
-                        <Form.Item label="Config Schema JSON" name="configSchema" required rules={[requiredRule]}>
+                        <Form.Item
+                            label="Config Schema JSON"
+                            name="configSchema"
+                            required
+                            rules={[
+                                requiredRule,
+                                {
+                                    validator(_, value: string) {
+                                        try {
+                                            JSON.parse(value)
+                                            return Promise.resolve()
+                                        } catch (error) {
+                                            return Promise.reject('Not valid JSON!')
+                                        }
+                                    },
+                                },
+                            ]}
+                        >
                             <MonacoEditor language="json" theme="vs-dark" height={200} />
                         </Form.Item>
                     </>

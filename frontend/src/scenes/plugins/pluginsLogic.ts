@@ -30,6 +30,8 @@ export const pluginsLogic = kea<
         setPluginTab: (tab: string) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
+        editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
+            values,
     },
 
     loaders: ({ values }) => ({
@@ -62,6 +64,12 @@ export const pluginsLogic = kea<
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
+                },
+                editPluginSource: async ({ id, name, source, configSchema }) => {
+                    const { plugins } = values
+                    const response = await api.update(`api/plugin/${id}`, { name, source, config_schema: configSchema })
+                    capturePluginEvent(`plugin source edited`, response)
+                    return { ...plugins, [id]: response }
                 },
             },
         ],
