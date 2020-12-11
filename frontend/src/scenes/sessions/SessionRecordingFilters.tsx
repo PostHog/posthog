@@ -20,13 +20,12 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
     return (
         <div style={{ display: 'flex', alignItems: 'center' }}>
             <Select
-                style={{ width: 212 }}
+                style={{ width: 233 }}
                 defaultValue={duration ? duration[0] : undefined}
                 value={duration ? duration[0] : undefined}
                 onChange={onOperatorChange}
                 placeholder="Filter by recording duration"
             >
-                <Select.Option value="">Filter by recording duration</Select.Option>
                 <Select.Option value="gt">Recording longer than</Select.Option>
                 <Select.Option value="lt">Recording shorter than</Select.Option>
             </Select>
