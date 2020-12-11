@@ -10,6 +10,7 @@ function processEvent(event) {
     if (event.properties) {
         event.properties['changed'] = true
     }
+    return event
 }
 `
 
