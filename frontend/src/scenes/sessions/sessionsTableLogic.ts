@@ -72,7 +72,7 @@ export const sessionsTableLogic = kea<
                     ...values.durationFilter,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/insight/session/?${params}`)
+                const response = await api.get(`api/event/sessions/?${params}`)
                 breakpoint()
                 if (response.offset) {
                     actions.setNextOffset(response.offset)
@@ -176,7 +176,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
             })
-            const response = await api.get(`api/insight/session/?${params}`)
+            const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
             if (response.offset) {
                 actions.setNextOffset(response.offset)
