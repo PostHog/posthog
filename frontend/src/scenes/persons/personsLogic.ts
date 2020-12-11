@@ -63,14 +63,14 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         person: [
             null as PersonType | null,
             {
-                loadPerson: async (id) => {
+                loadPerson: async (id: string): Promise<PersonType> => {
                     const response = await api.get(`api/person/?distinct_id=${id}`)
                     if (!response.results.length) {
                         router.actions.push('/404')
                     }
                     return response.results[0]
                 },
-                setPerson: (person: PersonType) => {
+                setPerson: (person: PersonType): PersonType => {
                     // Used after merging persons to update the view without an additional request
                     return person
                 },
@@ -81,7 +81,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             {
                 deletePerson: async () => {
                     if (!values.person) {
-                        return
+                        return false
                     }
                     await api.delete(`api/person/${values.person.id}`)
                     return true

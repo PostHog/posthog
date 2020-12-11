@@ -32,7 +32,9 @@ export function PersonsTable({
     cohort,
 }: PersonsTableType): JSX.Element {
     const linkToPerson = (person: PersonType): string => {
-        const backTo = cohort ? `#backTo=Cohorts&backToURL=/cohorts/${cohort.id}` : '#backTo=Persons&backToURL=/persons'
+        const backTo = cohort
+            ? `#backTo=Cohorts&backToURL=${window.location.pathname}`
+            : `#backTo=Persons&backToURL=${window.location.pathname}`
         return `/person/${encodeURIComponent(person.distinct_ids[0])}${backTo}`
     }
 

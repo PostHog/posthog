@@ -1,5 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React from 'react'
+import React, { CSSProperties } from 'react'
 
 export function IconMenu(): JSX.Element {
     // FontAwesome
@@ -278,9 +278,9 @@ export function IconExternalLink(): JSX.Element {
     )
 }
 
-export function IconText(): JSX.Element {
+export function IconText({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             <g clipPath="url(#clip0)">
                 <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
                 <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />

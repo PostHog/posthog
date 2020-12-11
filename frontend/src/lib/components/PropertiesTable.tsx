@@ -3,8 +3,9 @@ import moment from 'moment'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 import { Table, Tooltip } from 'antd'
-import { EditOutlined, NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
+import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
+import { IconText } from 'lib/components/icons'
 
 type HandledType = 'string' | 'string, parsable as datetime' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -12,7 +13,7 @@ type Type = HandledType | 'symbol' | 'object' | 'function'
 const iconStyle: CSSProperties = { marginRight: '0.5rem', opacity: 0.75 }
 
 const typeToIcon: Record<string, JSX.Element> = {
-    string: <EditOutlined style={iconStyle} />,
+    string: <IconText style={iconStyle} />,
     'string, parsable as datetime': <CalendarOutlined style={iconStyle} />,
     number: <NumberOutlined style={iconStyle} />,
     bigint: <NumberOutlined style={iconStyle} />,
@@ -47,13 +48,13 @@ function ValueDisplay({ value }: { value: any }): JSX.Element {
 const columns = [
     {
         title: 'key',
-        render: function Key(item): JSX.Element {
+        render: function Key(item: string): JSX.Element {
             return <PropertyKeyInfo value={item[0]} />
         },
     },
     {
         title: 'value',
-        render: function Value(item): JSX.Element {
+        render: function Value(item: any): JSX.Element {
             return <PropertiesTable properties={item[1]} />
         },
     },

@@ -12,7 +12,7 @@ import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { MergePerson } from './MergePerson'
-import { PersonProperty } from './PersonProperty'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 
 const { TabPane } = Tabs
 
@@ -26,19 +26,17 @@ function _PersonV2(): JSX.Element {
 
     const ids = (
         <Menu>
-            {person?.distinct_ids.map((distinct_id: string) => {
-                return (
-                    <Menu.Item key={distinct_id}>
-                        <CopyToClipboardInline
-                            explicitValue={distinct_id}
-                            tooltipMessage=""
-                            iconStyle={{ color: 'var(--primary)' }}
-                        >
-                            {midEllipsis(distinct_id, 32)}
-                        </CopyToClipboardInline>
-                    </Menu.Item>
-                )
-            })}
+            {person?.distinct_ids.map((distinct_id: string) => (
+                <Menu.Item key={distinct_id}>
+                    <CopyToClipboardInline
+                        explicitValue={distinct_id}
+                        tooltipMessage=""
+                        iconStyle={{ color: 'var(--primary)' }}
+                    >
+                        {midEllipsis(distinct_id, 32)}
+                    </CopyToClipboardInline>
+                </Menu.Item>
+            ))}
         </Menu>
     )
 
@@ -66,7 +64,7 @@ function _PersonV2(): JSX.Element {
                                 <SessionsTable
                                     key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                     personIds={person.distinct_ids}
-                                    isPersonPage={true}
+                                    isPersonPage
                                 />
                             )}
                         </div>
@@ -138,19 +136,7 @@ function _PersonV2(): JSX.Element {
                         </Tabs>
                         {person && (
                             <>
-                                {Object.keys(person.properties)
-                                    .sort((a, b) => {
-                                        // Case-insensitive sort; custom properties first, PostHog properties at the end
-                                        if (a[0] === '$' && b[0] !== '$') {
-                                            return 1
-                                        } else if (a[0] !== '$' && b[0] === '$') {
-                                            return -1
-                                        }
-                                        return a.toLowerCase() < b.toLowerCase() ? -1 : 1
-                                    })
-                                    .map((key) => {
-                                        return <PersonProperty key={key} name={key} value={person.properties[key]} />
-                                    })}
+                                <PropertiesTable properties={person.properties} />
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}

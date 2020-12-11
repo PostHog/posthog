@@ -45,6 +45,8 @@ export function MergePerson({
             <br />
             <br />
             Note: If there is a conflict, the properties of <strong>{person.name}</strong> will take precedence.
+            <br />
+            <br />
             <Select
                 mode="multiple"
                 allowClear
@@ -67,6 +69,7 @@ export function MergePerson({
                             </Select.Option>
                         ))}
             </Select>
+            <div className="mt text-danger">This action is not reversible. Please be sure before continuing.</div>
         </Modal>
     )
 }
