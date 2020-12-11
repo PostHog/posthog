@@ -32,24 +32,25 @@ class ClickhouseTrendsBreakdown:
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int):
         if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
             result = []
-            filter.breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
-            filter.breakdown.remove("all")
+            _breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            _breakdown.remove("all")
 
             # handle breakdown by all and by specific props separately
             if filter.breakdown:
-                result.extend(self._format_breakdown_query(entity, filter, team_id))
+                result.extend(self._format_breakdown_query(entity, filter, _breakdown, team_id))
 
-            filter.breakdown = ["all"]
-            all_result = self._format_breakdown_query(entity, filter, team_id)
+            _breakdown = ["all"]
+            all_result = self._format_breakdown_query(entity, filter, _breakdown, team_id)
 
             result.extend(all_result)
         else:
-            result = self._format_breakdown_query(entity, filter, team_id)
+            result = self._format_breakdown_query(entity, filter, filter.breakdown, team_id)
 
         return result
 
-    def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-
+    def _format_breakdown_query(
+        self, entity: Entity, filter: Filter, breakdown: Union[str, List], team_id: int
+    ) -> List[Dict[str, Any]]:
         # process params
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
@@ -94,7 +95,7 @@ class ClickhouseTrendsBreakdown:
         }
 
         if filter.breakdown_type == "cohort":
-            breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
+            breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
             if "all" in breakdown:
                 null_sql = NULL_SQL
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
@@ -163,13 +164,13 @@ class ClickhouseTrendsBreakdown:
             breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
             stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
 
-            extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
+            extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, breakdown, stripped_value)
             label = "{} - {}".format(entity.name, extra_label)
             additional_values = {
                 "label": label,
-                "breakdown_value": filter.breakdown[idx]
-                if isinstance(filter.breakdown, list)
-                else filter.breakdown
+                "breakdown_value": breakdown[idx]
+                if isinstance(breakdown, list)
+                else breakdown
                 if filter.breakdown_type == "cohort"
                 else stripped_value,
             }
