@@ -1,10 +1,9 @@
 import datetime
 import json
 from distutils.util import strtobool
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from posthog.constants import (
@@ -20,7 +19,6 @@ from posthog.constants import (
     INSIGHT,
     INTERVAL,
     OFFSET,
-    PROPERTIES,
     SELECTOR,
     SESSION,
     SHOWN_AS,
