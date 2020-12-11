@@ -1,11 +1,11 @@
-import { PluginConfig, PluginError, PluginsServer } from './types'
+import { PluginConfig, PluginConfigId, PluginError, PluginsServer } from './types'
 import { PluginEvent } from 'posthog-plugins'
 import { setError } from './sql'
 import * as Sentry from '@sentry/node'
 
 export async function processError(
     server: PluginsServer,
-    pluginConfig: PluginConfig,
+    pluginConfig: PluginConfig | PluginConfigId,
     error: Error | string,
     event?: PluginEvent | null
 ): Promise<void> {
@@ -29,6 +29,6 @@ export async function processError(
     await setError(server, errorJson, pluginConfig)
 }
 
-export async function clearError(server: PluginsServer, pluginConfig: PluginConfig): Promise<void> {
+export async function clearError(server: PluginsServer, pluginConfig: PluginConfig | PluginConfigId): Promise<void> {
     await setError(server, null, pluginConfig)
 }

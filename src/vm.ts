@@ -42,7 +42,10 @@ export function createPluginConfigVM(
         // two ways packages could export themselves (plus "global")
         const module = { exports: {} };
         let exports = {};
-        const __getExported = (key) => exports[key] || module.exports[key] || global[key]; 
+        
+        // helpers to get globals
+        const __getExportDestinations = () => [exports, module.exports, global]
+        const __getExported = (key) => __getExportDestinations().find(a => a[key])?.[key];
         
         // the plugin JS code        
         ${libJs};
@@ -92,11 +95,26 @@ export function createPluginConfigVM(
             processEvent: __bindMeta('processEvent'),
             processEventBatch: __bindMeta('processEventBatch')
         };
+        
+        // gather the runEveryX commands and export in __tasks
+        const __tasks = {};
+        for (const exportDestination of __getExportDestinations().reverse()) {
+            for (const [name, value] of Object.entries(exportDestination)) {
+                if (name.startsWith("runEvery") && typeof value === 'function') {
+                    __tasks[name] = {
+                        name: name,
+                        type: 'runEvery',
+                        exec: __bindMeta(value)
+                    }
+                }
+            }
+        }
         `
     )
 
     return {
         vm,
         methods: vm.run('__methods'),
+        tasks: vm.run('__tasks'),
     }
 }

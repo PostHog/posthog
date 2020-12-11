@@ -1,4 +1,4 @@
-import { runPlugins, runPluginsOnBatch, setupPlugins } from '../plugins'
+import { runPlugins, runPluginsOnBatch, runPluginTask, setupPlugins } from '../plugins'
 import { cloneObject } from '../utils'
 import { createServer } from '../server'
 import { PluginsServerConfig } from '../types'
@@ -7,9 +7,9 @@ import { initApp } from '../init'
 type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
 export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<TaskWorker> {
-    console.info(`🧵 Starting Piscina worker thread ${threadId}…`)
-
     initApp(config)
+
+    console.info(`🧵 Starting Piscina worker thread ${threadId}…`)
 
     const [server, closeServer] = await createServer(config, threadId)
     await setupPlugins(server)
@@ -37,6 +37,13 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
             const processedEvents = await runPluginsOnBatch(server, args.batch)
             // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
             response = cloneObject(processedEvents as any[])
+        }
+        if (task === 'getPluginSchedule') {
+            response = cloneObject(server.pluginSchedule)
+        }
+        if (task.startsWith('runEvery')) {
+            const { pluginConfigId } = args
+            response = cloneObject(await runPluginTask(server, task, pluginConfigId))
         }
         server.statsd?.timing(`piscina_task.${task}`, timer)
         return response

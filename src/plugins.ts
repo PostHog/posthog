@@ -1,7 +1,7 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { createPluginConfigVM } from './vm'
-import { PluginsServer, PluginConfig, PluginJsonConfig, TeamId } from './types'
+import { PluginsServer, PluginConfig, PluginJsonConfig, TeamId, PluginTask } from './types'
 import { PluginEvent, PluginAttachment } from 'posthog-plugins'
 import { clearError, processError } from './error'
 import { getFileFromArchive } from './utils'
@@ -73,6 +73,16 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
         }
     }
 
+    // gather runEvery* tasks into a schedule
+    server.pluginSchedule = { runEveryMinute: [], runEveryHour: [], runEveryDay: [] }
+    for (const [id, pluginConfig] of server.pluginConfigs) {
+        for (const [taskName, task] of Object.entries(pluginConfig.vm?.tasks ?? {})) {
+            if (task && taskName in server.pluginSchedule) {
+                server.pluginSchedule[taskName].push(pluginConfig.id)
+            }
+        }
+    }
+
     if (server.defaultConfigs.length > 0) {
         server.defaultConfigs.sort((a, b) => a.order - b.order)
         for (const teamId of Object.keys(server.pluginConfigsPerTeam).map((key: string) => parseInt(key))) {
@@ -93,7 +103,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
     }
 
     try {
-        if (plugin.url.startsWith('file:')) {
+        if (plugin.url?.startsWith('file:')) {
             const pluginPath = path.resolve(server.BASE_DIR, plugin.url.substring(5))
             const configPath = path.resolve(pluginPath, 'plugin.json')
 
@@ -170,7 +180,11 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
                 await processError(server, pluginConfig, `Could not load index.js for plugin "${plugin.name}"!`)
             }
         } else {
-            await processError(server, pluginConfig, 'Un-downloaded remote plugins not supported!')
+            await processError(
+                server,
+                pluginConfig,
+                `Un-downloaded remote plugins not supported! Plugin: "${plugin.name}"`
+            )
         }
     } catch (error) {
         await processError(server, pluginConfig, error)
@@ -186,14 +200,12 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
         if (pluginConfig.vm?.methods?.processEvent) {
             const timer = new Date()
 
-            let errored = false
             const { processEvent } = pluginConfig.vm.methods
-            const startTime = performance.now()
             try {
                 returnedEvent = (await processEvent(returnedEvent)) || null
             } catch (error) {
-                errored = true
                 await processError(server, pluginConfig, error, returnedEvent)
+                server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event.ERROR`)
             }
             server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event`, timer)
 
@@ -228,13 +240,11 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
             const timer = new Date()
             const { processEventBatch } = pluginConfig.vm?.methods || {}
             if (processEventBatch && returnedEvents.length > 0) {
-                const startTime = performance.now()
-                let errored = false
                 try {
                     returnedEvents = (await processEventBatch(returnedEvents)) || []
                 } catch (error) {
-                    errored = true
                     await processError(server, pluginConfig, error, returnedEvents[0])
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event_batch.ERROR`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event_batch`, timer)
             }
@@ -244,6 +254,21 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
     }
 
     return allReturnedEvents
+}
+
+export async function runPluginTask(server: PluginsServer, taskName: string, pluginConfigId: number): Promise<any> {
+    const timer = new Date()
+    let response
+    try {
+        const pluginConfig = server.pluginConfigs.get(pluginConfigId)
+        const task = pluginConfig?.vm?.tasks[taskName]
+        response = await task?.exec()
+    } catch (error) {
+        await processError(server, pluginConfigId, error)
+        server.statsd?.increment(`plugin.task.${taskName}.${pluginConfigId}.ERROR`)
+    }
+    server.statsd?.timing(`plugin.task.${taskName}.${pluginConfigId}`, timer)
+    return response
 }
 
 function getPluginsForTeam(server: PluginsServer, teamId: number): PluginConfig[] {
