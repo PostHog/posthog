@@ -1,10 +1,9 @@
 import React, { useState } from 'react'
-import { Tabs, Col, Row } from 'antd'
+import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
-import { DashboardItemType, InsightHistory } from '~/types'
-import SaveModal from '../SaveModal'
+import { DashboardItemType } from '~/types'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import './insightHistoryPanel.scss'
 import moment from 'moment'
@@ -22,8 +21,20 @@ interface InsightHistoryPanelProps {
     onChange: () => void
 }
 
-function InsightPane({ data, loading }: { data: DashboardItemType[]; loading: boolean }): JSX.Element {
-    const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
+function InsightPane({
+    data,
+    loading,
+    loadMore,
+    loadingMore,
+    footer,
+}: {
+    data: DashboardItemType[]
+    loading: boolean
+    loadMore: CallableFunction
+    loadingMore: boolean
+    footer: (item: DashboardItemType) => JSX.Element
+}): JSX.Element {
+    const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
     const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     return (
@@ -34,26 +45,32 @@ function InsightPane({ data, loading }: { data: DashboardItemType[]; loading: bo
                     <Col xs={8} key={insight.id} style={{ height: 270 }}>
                         <DashboardItem
                             item={{ ...insight, color: undefined }}
-                            options={<div className="dashboard-item-settings">hi</div>}
                             key={insight.id + '_user'}
                             loadDashboardItems={() => {
                                 loadInsights()
                                 loadSavedInsights()
                                 loadTeamInsights()
                             }}
+                            saveDashboardItem={updateInsight}
                             renameDashboardItem={renameDashboardItem}
                             moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
                                 duplicateDashboardItem(item, dashboardId)
                             }
                             preventLoading={true}
-                            footer={
-                                <div className="dashboard-item-footer">
-                                    Last saved {moment(insight.created_at).fromNow()}
-                                </div>
-                            }
+                            footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
                         />
                     </Col>
                 ))}
+            <div
+                style={{
+                    textAlign: 'center',
+                    margin: '12px auto',
+                    height: 32,
+                    lineHeight: '32px',
+                }}
+            >
+                {loadingMore ? <Spin /> : <Button onClick={loadMore}>Load more</Button>}
+            </div>
         </Row>
     )
 }
@@ -62,55 +79,17 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
     const {
         insights,
         insightsLoading,
+        loadingMoreInsights,
         savedInsights,
         savedInsightsLoading,
+        loadingMoreSavedInsights,
         teamInsights,
         teamInsightsLoading,
+        loadingMoreTeamInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight } = useActions(insightHistoryLogic)
+    const { loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
 
-    const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.SAVED)
-    const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
-
-    // const loadMoreInsights = insightsNext ? (
-    //     <div
-    //         style={{
-    //             textAlign: 'center',
-    //             marginTop: 12,
-    //             height: 32,
-    //             lineHeight: '32px',
-    //         }}
-    //     >
-    //         {loadingMoreInsights ? <Spin /> : <Button onClick={loadNextInsights}>Load more</Button>}
-    //     </div>
-    // ) : null
-
-    // const loadMoreSavedInsights = savedInsightsNext ? (
-    //     <div
-    //         style={{
-    //             textAlign: 'center',
-    //             marginTop: 12,
-    //             height: 32,
-    //             lineHeight: '32px',
-    //         }}
-    //     >
-    //         {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
-    //     </div>
-    // ) : null
-
-    // const loadMoreTeamInsights = teamInsightsNext ? (
-    //     <div
-    //         style={{
-    //             textAlign: 'center',
-    //             marginTop: 12,
-    //             height: 32,
-    //             lineHeight: '32px',
-    //         }}
-    //     >
-    //         {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
-    //     </div>
-    // ) : null
 
     return (
         <div data-attr="insight-history-panel" className="insight-history-panel">
@@ -127,41 +106,46 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                     key={InsightHistoryType.RECENT}
                     data-attr="insight-history-pane"
                 >
-                    <InsightPane data={insights} loading={insightsLoading} />
+                    <InsightPane
+                        data={insights.map((insight) => ({ ...insight, name: insight.name || 'Unsaved insight' }))}
+                        loadMore={loadNextInsights}
+                        loadingMore={loadingMoreInsights}
+                        footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}
+                        loading={insightsLoading}
+                    />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Saved</span>}
                     key={InsightHistoryType.SAVED}
                     data-attr="insight-saved-pane"
                 >
-                    <InsightPane data={savedInsights} loading={savedInsightsLoading} />
+                    <InsightPane
+                        data={savedInsights}
+                        loadMore={loadNextSavedInsights}
+                        loadingMore={loadingMoreSavedInsights}
+                        footer={(item) => <>Saved {moment(item.created_at).fromNow()}</>}
+                        loading={savedInsightsLoading}
+                    />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Team</span>}
                     key={InsightHistoryType.TEAM}
                     data-attr="insight-team-panel"
                 >
-                    <InsightPane data={teamInsights} loading={teamInsightsLoading} />
+                    <InsightPane
+                        data={teamInsights}
+                        loadMore={loadNextTeamInsights}
+                        loadingMore={loadingMoreTeamInsights}
+                        footer={(item) => (
+                            <>
+                                Saved {moment(item.created_at).fromNow()} by{' '}
+                                {item.created_by?.first_name || item.created_by?.email || 'unknown'}
+                            </>
+                        )}
+                        loading={teamInsightsLoading}
+                    />
                 </TabPane>
             </Tabs>
-            <SaveModal
-                title="Save Chart"
-                prompt="Name of Chart"
-                textLabel="Name"
-                textPlaceholder="DAUs Last 14 days"
-                visible={visible}
-                onCancel={(): void => {
-                    setVisible(false)
-                    setSelectedInsight(null)
-                }}
-                onSubmit={(text): void => {
-                    if (selectedInsight) {
-                        saveInsight(selectedInsight, text)
-                    }
-                    setVisible(false)
-                    setSelectedInsight(null)
-                }}
-            />
         </div>
     )
 }

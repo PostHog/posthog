@@ -4,8 +4,12 @@ import { toParams, deleteWithUndo } from 'lib/utils'
 import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
-import { prompt } from 'lib/logic/prompt'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+
+const updateInsightState = (state, { item, insight }): DashboardItemType[] => {
+    item = item || insight
+    return state.map((i) => (i.id === item.id ? item : i))
+}
 
 export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
     loaders: ({ actions }) => ({
@@ -59,21 +63,18 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
     reducers: () => ({
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
-                return state.map((i) => (i.id === item.id ? item : i))
-            },
+            updateInsightSuccess: updateInsightState,
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
-                return state.map((i) => (i.id === item.id ? item : i))
-            },
+            updateInsightSuccess: updateInsightState,
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
-                return state.map((i) => (i.id === item.id ? item : i))
-            },
+            updateInsightSuccess: updateInsightState,
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [
             null as null | string,
@@ -117,7 +118,8 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
     }),
     actions: {
         createInsight: (filters: Record<string, any>) => ({ filters }),
-        saveInsight: (insight: DashboardItemType, name: string) => ({ insight, name }),
+        updateInsight: (insight: DashboardItemType) => ({ insight }),
+        updateInsightSuccess: (insight: DashboardItemType) => ({ insight }),
         deleteInsight: (insight: DashboardItemType) => ({ insight }),
         loadNextInsights: true,
         loadNextSavedInsights: true,
@@ -125,7 +127,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         setInsightsNext: (next: string) => ({ next }),
         setSavedInsightsNext: (next: string) => ({ next }),
         setTeamInsightsNext: (next: string) => ({ next }),
-        renameInsight: (id: number) => ({ id }),
         updateInsights: (insights: DashboardItemType[]) => ({ insights }),
         updateSavedInsights: (insights: DashboardItemType[]) => ({ insights }),
         updateTeamInsights: (insights: DashboardItemType[]) => ({ insights }),
@@ -136,14 +137,10 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                 filters,
             })
         },
-        saveInsight: async ({ insight: { id }, name }) => {
-            await api.update(`api/insight/${id}`, {
-                name,
-                saved: true,
-            })
-            actions.loadInsights()
-            actions.loadSavedInsights()
+        updateInsight: async ({ insight }) => {
+            await api.update(`api/insight/${insight.id}`, insight)
             toast('Saved Insight')
+            actions.updateInsightSuccess(insight)
         },
         deleteInsight: ({ insight }) => {
             deleteWithUndo({
@@ -167,17 +164,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             const response = await api.get(values.teamInsightsNext)
             actions.setTeamInsightsNext(response.next)
             actions.updateTeamInsights(response.results)
-        },
-        renameInsight: async ({ id }) => {
-            prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
-                title: 'Rename panel',
-                placeholder: 'Please enter the new name',
-                value: values.savedInsights.find((item) => item.id === id)?.name,
-                error: 'You must enter name',
-                success: async (name: string) => {
-                    actions.saveInsight({ id }, name)
-                },
-            })
         },
     }),
     events: ({ actions }) => ({

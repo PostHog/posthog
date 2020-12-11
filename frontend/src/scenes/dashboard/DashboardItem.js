@@ -26,6 +26,7 @@ import {
     DeliveredProcedureOutlined,
     ReloadOutlined,
     BarChartOutlined,
+    SaveOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -36,6 +37,7 @@ import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import SaveModal from 'scenes/insights/SaveModal'
 
 export const displayMap = {
     ActionsLineGraph: {
@@ -146,11 +148,13 @@ export function DashboardItem({
     onRefresh,
     footer,
     onClick,
-    options,
     preventLoading,
     moveDashboardItem,
+    saveDashboardItem,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
+    const [showSaveModal, setShowSaveModal] = useState(false)
+
     const _type = item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
@@ -225,10 +229,40 @@ export function DashboardItem({
                                 {item.name}
                             </Link>
                         )}
-                        {options}
                     </div>
                     {!inSharedMode && (
                         <div className="dashboard-item-settings">
+                            {saveDashboardItem &&
+                                (!item.saved && item.dashboard ? (
+                                    <Link to={'/dashboard/' + item.dashboard}>
+                                        <small>dashboard</small>
+                                    </Link>
+                                ) : (
+                                    <Tooltip title="Save insight">
+                                        <SaveOutlined
+                                            style={{
+                                                cursor: 'pointer',
+                                                marginTop: -3,
+                                                ...(item.saved
+                                                    ? {
+                                                          background: 'var(--primary)',
+                                                          color: 'white',
+                                                      }
+                                                    : {}),
+                                            }}
+                                            onClick={() => {
+                                                if (item.saved) {
+                                                    return saveDashboardItem({ ...item, saved: false })
+                                                }
+                                                if (item.name) {
+                                                    // If item already has a name we don't have to ask for it again
+                                                    return saveDashboardItem({ ...item, saved: true })
+                                                }
+                                                setShowSaveModal(true)
+                                            }}
+                                        />
+                                    </Tooltip>
+                                ))}
                             <Tooltip
                                 title={
                                     <i>
@@ -411,6 +445,22 @@ export function DashboardItem({
                 </div>
                 {footer}
             </div>
+            {showSaveModal && (
+                <SaveModal
+                    title="Save Chart"
+                    prompt="Name of Chart"
+                    textLabel="Name"
+                    textPlaceholder="DAUs Last 14 days"
+                    visible={true}
+                    onCancel={() => {
+                        setShowSaveModal(false)
+                    }}
+                    onSubmit={(text) => {
+                        saveDashboardItem({ ...item, name: text, saved: true })
+                        setShowSaveModal(false)
+                    }}
+                />
+            )}
         </div>
     )
 }

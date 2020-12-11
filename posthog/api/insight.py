@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.user import UserSerializer
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     DATE_FROM,
@@ -36,6 +37,7 @@ from posthog.utils import generate_cache_key
 
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
+    created_by = UserSerializer(required=False, read_only=True)
 
     class Meta:
         model = DashboardItem
