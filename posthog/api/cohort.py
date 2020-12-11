@@ -26,6 +26,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "last_calculation",
+            "errors_calculating",
             "count",
         ]
 
