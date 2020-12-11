@@ -2,7 +2,7 @@ import React, { CSSProperties, useState } from 'react'
 import moment from 'moment'
 import PropTypes from 'prop-types'
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
-import { Input, Table, Tooltip } from 'antd'
+import { Dropdown, Input, Menu, Table, Tooltip } from 'antd'
 import { NumberOutlined, CalendarOutlined, BulbOutlined, StopOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
@@ -32,26 +32,20 @@ interface ValueDisplayType extends BasePropertyType {
     value: any
 }
 
-function EditValueComponent({
+function EditTextValueComponent({
     value,
-    valueType,
     onChange,
 }: {
     value: any
-    valueType: string
     onChange: (newValue: any, save: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            {(valueType === 'string' || valueType === 'number') && (
-                <Input
-                    defaultValue={value}
-                    autoFocus
-                    onBlur={() => onChange(null, false)}
-                    onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
-                />
-            )}
-        </>
+        <Input
+            defaultValue={value}
+            autoFocus
+            onBlur={() => onChange(null, false)}
+            onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+        />
     )
 }
 
@@ -60,12 +54,35 @@ function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element
     const keyMappingKeys = Object.keys(keyMapping.event)
     const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && onEdit
 
+    const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
+    const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
+
     let valueType: Type = typeof value
     if (value === null) {
         valueType = 'null'
     } else if (valueType === 'string' && moment(value).isValid()) {
         valueType = 'string, parsable as datetime'
     }
+
+    const boolNullSelect = (
+        <Menu
+            onClick={({ key }) => {
+                let val = null
+                if (key === 't') {
+                    val = true
+                } else if (key === 'f') {
+                    val = false
+                }
+                handleValueChange(val, true)
+            }}
+        >
+            <Menu.Item key="t">true</Menu.Item>
+            <Menu.Item key="f">false</Menu.Item>
+            <Menu.Item key="n" danger>
+                null
+            </Menu.Item>
+        </Menu>
+    )
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
@@ -74,6 +91,15 @@ function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element
         }
     }
 
+    const valueComponent = (
+        <span
+            className={canEdit ? `editable` : ''}
+            onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
+        >
+            {String(value)}
+        </span>
+    )
+
     return (
         <div className="properties-table-value">
             {typeToIcon[valueType] ? (
@@ -81,9 +107,12 @@ function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element
                     {!editing ? (
                         <>
                             <Tooltip title={`Property of type ${valueType}.`}>{typeToIcon[valueType]}</Tooltip>
-                            <span className={canEdit ? `editable` : ''} onClick={() => canEdit && setEditing(true)}>
-                                {String(value)}
-                            </span>
+                            {canEdit && boolNullTypes.includes(valueType) ? (
+                                <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
+                            ) : (
+                                <> {valueComponent}</>
+                            )}
+
                             {isURL(value) && (
                                 <a href={value} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>
                                     <IconExternalLink />
@@ -91,7 +120,7 @@ function ValueDisplay({ value, rootKey, onEdit }: ValueDisplayType): JSX.Element
                             )}
                         </>
                     ) : (
-                        <EditValueComponent value={value} valueType={valueType} onChange={handleValueChange} />
+                        <EditTextValueComponent value={value} onChange={handleValueChange} />
                     )}
                 </>
             ) : (
