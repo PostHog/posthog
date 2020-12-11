@@ -32,12 +32,11 @@ def parse_timestamps(filter: Filter, team_id: int, table: str = "") -> Tuple[str
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(timestamp: datetime, filter: Filter, default_hour_min: str = " 00:00:00"):
-    return timestamp.strftime(
-        "%Y-%m-%d{}".format(
-            " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else default_hour_min
-        )
+def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
+    is_hour_or_min = (filter.interval and filter.interval.lower() == "hour") or (
+        filter.interval and filter.interval.lower() == "minute"
     )
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:

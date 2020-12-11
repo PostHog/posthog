@@ -11,10 +11,12 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
+from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
+from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.utils import convert_property_value
 
 
@@ -96,6 +98,29 @@ class ClickhouseEventsViewSet(EventViewSet):
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
         return Response([{"name": convert_property_value(value[0])} for value in result])
+
+    @action(methods=["GET"], detail=False)
+    def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = SessionsFilter(request=request)
+
+        limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
+        offset = int(request.GET.get("offset", 0))
+
+        response = ClickhouseSessionsList().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+
+        if filter.distinct_id:
+            try:
+                person_ids = get_persons_by_distinct_ids(team.pk, [filter.distinct_id])[0].distinct_ids
+                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
+            except IndexError:
+                response = []
+
+        if len(response) > limit:
+            response.pop()
+            return Response({"result": response, "offset": offset + limit})
+        else:
+            return Response({"result": response,})
 
     # ******************************************
     # /event/session_recording

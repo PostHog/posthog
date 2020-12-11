@@ -53,9 +53,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
     }),
-    actionToUrl: ({ values }) => ({
+    actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
-            if (router.values.location.pathname.indexOf('/persons') > -1) {
+            if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters]
             }
         },
