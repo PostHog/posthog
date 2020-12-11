@@ -22,7 +22,7 @@ function _PersonV2(): JSX.Element {
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
     const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
-    const { deletePerson, setPerson } = useActions(personsLogic)
+    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -136,7 +136,7 @@ function _PersonV2(): JSX.Element {
                         </Tabs>
                         {person && (
                             <>
-                                <PropertiesTable properties={person.properties} />
+                                <PropertiesTable properties={person.properties} onEdit={editProperty} />
                             </>
                         )}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}

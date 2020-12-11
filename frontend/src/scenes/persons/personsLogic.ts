@@ -16,6 +16,7 @@ const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     actions: {
         setListFilters: (payload) => ({ payload }),
+        editProperty: (key, newValue) => ({ key, newValue }),
     },
     reducers: {
         listFilters: [
@@ -34,11 +35,18 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
             toast('Person deleted successfully')
             actions.loadPersons()
             router.actions.push('/persons')
+        },
+        editProperty: async ({ key, newValue }) => {
+            const person = values.person
+            person.properties[key] = newValue
+            actions.setPerson(person) // To update the UI immediately while the request is being processed
+            const response = await api.update(`api/person/${person.id}`, person)
+            actions.setPerson(response)
         },
     }),
     loaders: ({ values }) => ({

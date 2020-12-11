@@ -1,0 +1,12 @@
+@import '~/vars';
+
+.properties-table-value {
+    display: 'flex';
+    align-items: 'center';
+
+    .editable {
+        text-decoration: underline dotted;
+        text-decoration-color: $primary;
+        cursor: pointer;
+    }
+}
