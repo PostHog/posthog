@@ -1,5 +1,4 @@
-import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
@@ -9,7 +8,8 @@ from posthog.models import Filter
 
 class SessionsFilter(Filter):
     distinct_id: Optional[str]
-    duration: Optional[Tuple[str, int]]
+    duration_operator: Optional[str]  # lt, gt
+    _duration: Optional[str]
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
@@ -21,11 +21,13 @@ class SessionsFilter(Filter):
             raise ValueError("You need to define either a data dict or a request")
 
         self.distinct_id = data.get(DISTINCT_ID_FILTER)
-        if "duration" in data:
-            self.duration = json.loads(data["duration"])
-        else:
-            self.duration = None
+        self.duration_operator = data.get("duration_operator")
+        self._duration = data.get("duration")
 
     @property
-    def limit_by_recordings(self):
-        return self.duration is not None
+    def duration(self) -> float:
+        return float(self._duration or 0)
+
+    @property
+    def limit_by_recordings(self) -> bool:
+        return self.duration_operator is not None

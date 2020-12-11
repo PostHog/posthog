@@ -154,38 +154,13 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     #
     # params:
     # - session: (string: avg, dist) specifies session type
-    # - offset: (number) offset query param for paginated list of user sessions
     # - **shared filter types
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions import SESSIONS_LIST_DEFAULT_LIMIT
-
-        team = self.team
-
-        filter = SessionsFilter(request=request)
-        limit = SESSIONS_LIST_DEFAULT_LIMIT + 1
-        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=filter, team=team, limit=limit)}
-
-        if filter.distinct_id:
-            result = self._filter_sessions_by_distinct_id(filter.distinct_id, result)
-
-        if filter.session_type is None:
-            offset = filter.offset + limit - 1
-            if len(result["result"]) > SESSIONS_LIST_DEFAULT_LIMIT:
-                result["result"].pop()
-                date_from = result["result"][0]["start_time"].isoformat()
-                result.update({OFFSET: offset})
-                result.update({DATE_FROM: date_from})
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter=Filter(request=request), team=self.team)}
 
         return Response(result)
-
-    def _filter_sessions_by_distinct_id(self, distinct_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
-        person_ids = Person.objects.get(persondistinctid__distinct_id=distinct_id).distinct_ids
-        result["result"] = [
-            session for i, session in enumerate(result["result"]) if result["result"][i]["distinct_id"] in person_ids
-        ]
-        return result
 
     # ******************************************
     # /insight/funnel
