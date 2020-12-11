@@ -11,11 +11,21 @@ import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
 import { MergePersonButton } from './MergePerson'
+import { PersonV2 } from './PersonV2'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 const { TabPane } = Tabs
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
-function _Person({ _: distinctId, id }) {
+
+function _Person(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['persons-2353'] ? <PersonV2 /> : <PersonV1 {...props} />
+}
+
+function PersonV1({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
     const { push } = router.actions

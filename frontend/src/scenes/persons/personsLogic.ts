@@ -12,7 +12,7 @@ interface PersonPaginatedResponse {
 
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType>>({
     actions: {
         setListFilters: (payload) => ({ payload }),
     },
@@ -52,6 +52,19 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 },
             },
         ],
+        person: [
+            null as PersonType | null,
+            {
+                loadPerson: async (id) => {
+                    const response = await api.get(`api/person/?distinct_id=${id}`)
+                    if (!response.results.length) {
+                        router.actions.push('/404')
+                    }
+                    console.log(response.results[0])
+                    return response.results[0]
+                },
+            },
+        ],
     }),
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
@@ -67,6 +80,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 // Initial load
                 actions.loadPersons()
             }
+        },
+        '/person/:id': ({ id }: { id: string }) => {
+            actions.loadPerson(id)
         },
     }),
 })
