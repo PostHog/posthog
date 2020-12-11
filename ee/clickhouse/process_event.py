@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional
 from uuid import UUID
 
 import statsd
@@ -178,6 +178,8 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
 ) -> None:
+    if settings.DEBUG:
+        print(f'Logging event {data["event"]} to WAL')
     KafkaProducer().produce(
         topic=KAFKA_EVENTS_WAL,
         data={
