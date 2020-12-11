@@ -11,19 +11,21 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
 import moment from 'moment'
+import { MergePerson } from './MergePerson'
 
 const { TabPane } = Tabs
 
 export const PersonV2 = hot(_PersonV2)
 function _PersonV2(): JSX.Element {
     const [activeTab, setActiveTab] = useState('events')
+    const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
     const { person, personLoading, deletedPersonLoading } = useValues(personsLogic)
-    const { deletePerson } = useActions(personsLogic)
+    const { deletePerson, setPerson } = useActions(personsLogic)
 
     const ids = (
         <Menu>
-            {person?.distinct_ids.map((distinct_id) => {
+            {person?.distinct_ids.map((distinct_id: string) => {
                 return (
                     <Menu.Item key={distinct_id}>
                         <CopyToClipboardInline
@@ -98,8 +100,8 @@ function _PersonV2(): JSX.Element {
                                     <div>{moment(person.created_at).fromNow()}</div>
                                 </div>
                                 <div className="text-center mt">
-                                    <a onClick={() => console.log(1)}>
-                                        <MergeCellsOutlined /> Merge persons
+                                    <a onClick={() => setMergeModalOpen(true)}>
+                                        <MergeCellsOutlined /> Merge person
                                     </a>
                                 </div>
                                 <div className="text-center mt">
@@ -127,6 +129,9 @@ function _PersonV2(): JSX.Element {
                     </Card>
                 </Col>
             </Row>
+            {mergeModalOpen && (
+                <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
+            )}
         </div>
     )
 }

@@ -70,6 +70,10 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                     }
                     return response.results[0]
                 },
+                setPerson: (person: PersonType) => {
+                    // Used after merging persons to update the view without an additional request
+                    return person
+                },
             },
         ],
         deletedPerson: [
