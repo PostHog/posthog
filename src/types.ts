@@ -49,6 +49,8 @@ export interface PluginsServer extends PluginsServerConfig {
     pluginConfigs: Map<PluginConfigId, PluginConfig>
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     defaultConfigs: PluginConfig[]
+    pluginSchedule: Record<string, PluginConfigId[]>
+    pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
 }
 
 export type PluginId = number
@@ -58,10 +60,10 @@ export type TeamId = number
 export interface Plugin {
     id: PluginId
     name: string
-    description: string
-    url: string
+    description?: string
+    url?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    tag: string
+    tag?: string
     archive: Buffer | null
     error?: PluginError
 }
@@ -107,11 +109,10 @@ export interface PluginAttachmentDB {
     contents: Buffer | null
 }
 
-export interface PluginScript {
-    plugin: Plugin
-    script: VMScript
-    processEvent: boolean
-    setupTeam: boolean
+export interface PluginTask {
+    name: string
+    type: 'runEvery'
+    exec: () => Promise<any>
 }
 
 export interface PluginConfigVMReponse {
@@ -120,4 +121,5 @@ export interface PluginConfigVMReponse {
         processEvent: (event: PluginEvent) => Promise<PluginEvent>
         processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>
     }
+    tasks: Record<string, PluginTask>
 }

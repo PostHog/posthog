@@ -55,7 +55,7 @@ test('empty plugins', async () => {
     const libJs = ''
     const vm = createPluginConfigVM(mockServer, mockConfig, indexJs, libJs)
 
-    expect(Object.keys(vm).sort()).toEqual(['methods', 'vm'])
+    expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual(['processEvent', 'processEventBatch'])
     expect(vm.methods.processEvent).toEqual(undefined)
     expect(vm.methods.processEventBatch).toEqual(undefined)
@@ -366,8 +366,11 @@ test('meta.config', async () => {
 
 test('meta.cache set/get', async () => {
     const indexJs = `
+        async function setupPlugin (meta) {
+            await meta.cache.set('counter', 0)
+        }
         async function processEvent (event, meta) {
-            const counter = await meta.cache.get('counter', 0)
+            const counter = await meta.cache.get('counter', 999)
             meta.cache.set('counter', counter + 1)
             event.properties['counter'] = counter + 1
             return event
@@ -574,4 +577,40 @@ test('attachments', async () => {
     await vm.methods.processEvent(event)
 
     expect(event.properties).toEqual(attachments)
+})
+
+test('runEvery', async () => {
+    const indexJs = `
+        function runEveryMinute(meta) {
+            
+        }
+        function runEveryHour(meta) {
+            
+        }
+        function runEveryDay(meta) {
+            
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+
+    expect(Object.keys(vm.tasks)).toEqual(['runEveryMinute', 'runEveryHour', 'runEveryDay'])
+    expect(Object.values(vm.tasks).map((v) => v?.name)).toEqual(['runEveryMinute', 'runEveryHour', 'runEveryDay'])
+    expect(Object.values(vm.tasks).map((v) => v?.type)).toEqual(['runEvery', 'runEvery', 'runEvery'])
+    expect(Object.values(vm.tasks).map((v) => typeof v?.exec)).toEqual(['function', 'function', 'function'])
+})
+
+test('runEvery must be a function', async () => {
+    const indexJs = `
+        function runEveryMinute(meta) {
+            
+        }
+        const runEveryHour = false
+        const runEveryDay = { some: 'object' }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+
+    expect(Object.keys(vm.tasks)).toEqual(['runEveryMinute'])
+    expect(Object.values(vm.tasks).map((v) => v?.name)).toEqual(['runEveryMinute'])
+    expect(Object.values(vm.tasks).map((v) => v?.type)).toEqual(['runEvery'])
+    expect(Object.values(vm.tasks).map((v) => typeof v?.exec)).toEqual(['function'])
 })

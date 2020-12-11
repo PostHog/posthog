@@ -231,7 +231,9 @@ test('plugin with http urls must have an archive', async () => {
     expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
     expect(setError).toHaveBeenCalled()
     expect(setError.mock.calls[0][0]).toEqual(mockServer)
-    expect(setError.mock.calls[0][1]!.message).toEqual('Un-downloaded remote plugins not supported!')
+    expect(setError.mock.calls[0][1]!.message).toEqual(
+        'Un-downloaded remote plugins not supported! Plugin: "test-maxmind-plugin"'
+    )
     expect(setError.mock.calls[0][1]!.time).toBeDefined()
     expect(pluginConfigs.get(39)!.vm).toEqual(null)
 })
