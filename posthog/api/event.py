@@ -237,8 +237,8 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             params,
         )
 
-        values = flatten([value.value for value in values])
-        return [{"name": convert_property_value(value)} for value in values]
+        flattened = flatten([value.value for value in values])
+        return [{"name": convert_property_value(value)} for value in flattened]
 
     # ******************************************
     # /event/sessions

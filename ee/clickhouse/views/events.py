@@ -96,8 +96,8 @@ class ClickhouseEventsViewSet(EventViewSet):
         result = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
-            result = flatten(result)
-        return Response([{"name": convert_property_value(value[0])} for value in result])
+            flattened = flatten(result)
+        return Response([{"name": convert_property_value(value[0])} for value in flattened])
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
