@@ -4,15 +4,19 @@
         padding-bottom: 10px;
         cursor: pointer;
 
-        .dashboard-item-content {
+        .dashboard-item-container:not(.funnel) .dashboard-item-content {
             transform: scale(0.333);
             transform-origin: top left;
             overflow: inherit;
             position: inherit;
+            & > div {
+                height: 300% !important;
+                width: 300% !important;
+            }
         }
-        .graph-container {
-            height: 300%;
-            width: 300%;
+
+        .svg-funnel-js__label * {
+            font-size: 8px;
         }
         &:hover {
             border-color: var(--primary);

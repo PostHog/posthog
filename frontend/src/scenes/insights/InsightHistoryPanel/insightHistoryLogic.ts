@@ -1,43 +1,16 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import { ViewType } from '../insightLogic'
 import { toast } from 'react-toastify'
-import { InsightHistory } from '~/types'
+import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
 import { prompt } from 'lib/logic/prompt'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-const typeToInsightMap: Record<string, string> = {
-    ActionsLineGraph: ViewType.TRENDS,
-    ActionsTable: ViewType.TRENDS,
-    ActionsPie: ViewType.TRENDS,
-    FunnelViz: ViewType.FUNNELS,
-}
-
-const parseInsight = (result: Record<string, any>): InsightHistory => {
-    return {
-        filters: result.filters,
-        id: result.id,
-        createdAt: result.created_at,
-        saved: result.saved,
-    }
-}
-
-const parseSavedInsight = (result: Record<string, any>): InsightHistory => {
-    return {
-        filters: result.filters,
-        type: result.filters.insight || typeToInsightMap[result.type],
-        id: result.id,
-        createdAt: result.created_at,
-        name: result.name,
-        saved: result.saved,
-    }
-}
-
-export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>({
+export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
     loaders: ({ actions }) => ({
         insights: {
-            __default: [] as InsightHistory[],
+            __default: [] as DashboardItemType[],
             loadInsights: async () => {
                 const response = await api.get(
                     'api/insight/?' +
@@ -47,14 +20,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                             user: true,
                         })
                 )
-
-                const parsed = response.results.map((result: any) => parseInsight(result))
                 actions.setInsightsNext(response.next)
-                return parsed
+                return response.results
             },
         },
         savedInsights: {
-            __default: [] as InsightHistory[],
+            __default: [] as DashboardItemType[],
             loadSavedInsights: async () => {
                 const response = await api.get(
                     'api/insight/?' +
@@ -65,14 +36,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                             user: true,
                         })
                 )
-
-                // const parsed = response.results.map((result: any) => parseSavedInsight(result))
                 actions.setSavedInsightsNext(response.next)
                 return response.results
             },
         },
         teamInsights: {
-            __default: [] as InsightHistory[],
+            __default: [] as DashboardItemType[],
             loadTeamInsights: async () => {
                 const response = await api.get(
                     'api/insight/?' +
@@ -82,20 +51,23 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                             limit: 100,
                         })
                 )
-
-                const parsed = response.results.map((result: any) => parseSavedInsight(result))
                 actions.setTeamInsightsNext(response.next)
-
-                return parsed
+                return response.results
             },
         },
     }),
-    reducers: {
+    reducers: () => ({
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
+                return state.map((i) => (i.id === item.id ? item : i))
+            },
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
+                return state.map((i) => (i.id === item.id ? item : i))
+            },
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
@@ -139,27 +111,27 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 setTeamInsightsNext: () => false,
             },
         ],
-    },
+    }),
     actions: {
         createInsight: (filters: Record<string, any>) => ({ filters }),
-        saveInsight: (insight: InsightHistory, name: string) => ({ insight, name }),
-        deleteInsight: (insight: InsightHistory) => ({ insight }),
+        saveInsight: (insight: DashboardItemType, name: string) => ({ insight, name }),
+        deleteInsight: (insight: DashboardItemType) => ({ insight }),
         loadNextInsights: true,
         loadNextSavedInsights: true,
         loadNextTeamInsights: true,
         setInsightsNext: (next: string) => ({ next }),
         setSavedInsightsNext: (next: string) => ({ next }),
         setTeamInsightsNext: (next: string) => ({ next }),
-        updateInsights: (insights: InsightHistory[]) => ({ insights }),
-        updateSavedInsights: (insights: InsightHistory[]) => ({ insights }),
-        updateTeamInsights: (insights: InsightHistory[]) => ({ insights }),
+        renameInsight: (id: number) => ({ id }),
+        updateInsights: (insights: DashboardItemType[]) => ({ insights }),
+        updateSavedInsights: (insights: DashboardItemType[]) => ({ insights }),
+        updateTeamInsights: (insights: DashboardItemType[]) => ({ insights }),
     },
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
             await api.create('api/insight', {
                 filters,
             })
-            actions.loadInsights()
         },
         saveInsight: async ({ insight: { id }, name }) => {
             await api.update(`api/insight/${id}`, {
@@ -176,24 +148,22 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })
+            console.log('loadSavedInsight')
         },
         loadNextInsights: async () => {
             const response = await api.get(values.insightsNext)
-            const parsed = response.results.map((result: any) => parseInsight(result))
             actions.setInsightsNext(response.next)
-            actions.updateInsights(parsed)
+            actions.updateInsights(response.results)
         },
         loadNextSavedInsights: async () => {
             const response = await api.get(values.savedInsightsNext)
-            const parsed = response.results.map((result: any) => parseSavedInsight(result))
             actions.setSavedInsightsNext(response.next)
-            actions.updateSavedInsights(parsed)
+            actions.updateSavedInsights(response.results)
         },
         loadNextTeamInsights: async () => {
             const response = await api.get(values.teamInsightsNext)
-            const parsed = response.results.map((result: any) => parseSavedInsight(result))
             actions.setTeamInsightsNext(response.next)
-            actions.updateTeamInsights(parsed)
+            actions.updateTeamInsights(response.results)
         },
         renameInsight: async ({ id }) => {
             prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
@@ -202,7 +172,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 value: values.savedInsights.find((item) => item.id === id)?.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    actions.saveInsight({ insight: { id } }, name)
+                    actions.saveInsight({ id }, name)
                 },
             })
         },
@@ -212,6 +182,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             actions.loadInsights()
             actions.loadSavedInsights()
             actions.loadTeamInsights()
+            console.log('mounted!')
         },
     }),
 })

@@ -80,7 +80,7 @@ export const pathsLogic = kea({
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setProperties: () => {
             actions.loadPaths()
         },
@@ -89,7 +89,9 @@ export const pathsLogic = kea({
         },
         loadPaths: () => {
             actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
-            actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+            if (!props.dashboardItemId) {
+                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+            }
         },
     }),
     selectors: {

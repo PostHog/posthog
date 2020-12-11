@@ -94,6 +94,9 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
                         duplicateDashboardItem={duplicateDashboardItem}
+                        moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
+                            duplicateDashboardItem(item, dashboardId, true)
+                        }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         inSharedMode={inSharedMode}

@@ -89,10 +89,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         retention: {
             __default: ({} as Record<string, unknown>) || Array,
             loadRetention: async (_: any, breakpoint) => {
+                if (props.cachedResults || props.preventLoading) {
+                    return props.cachedResults
+                }
                 const urlParams = toUrlParams(values)
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
@@ -278,7 +281,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             }
         },
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setProperties: () => {
             actions.loadRetention(true)
         },
@@ -288,7 +291,9 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         loadRetention: () => {
             actions.clearPeople()
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
-            actions.createInsight(cleanRetentionParams(values.filters, values.properties))
+            if (!props.dashboardItemId) {
+                actions.createInsight(cleanRetentionParams(values.filters, values.properties))
+            }
         },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []

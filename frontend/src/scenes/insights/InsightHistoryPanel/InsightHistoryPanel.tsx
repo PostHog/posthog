@@ -1,15 +1,16 @@
 import React, { useState } from 'react'
 import { Tabs, Button, List, Col, Spin, Row, Tooltip } from 'antd'
-import { toParams } from 'lib/utils'
+import { Loading, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
-import { InsightHistory } from '~/types'
+import { DashboardItemType, InsightHistory } from '~/types'
 import SaveModal from '../SaveModal'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import './insightHistoryPanel.scss'
 import moment from 'moment'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -24,18 +25,18 @@ interface InsightHistoryPanelProps {
 }
 
 export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChange }: InsightHistoryPanelProps) => {
+    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
     const {
         insights,
         insightsLoading,
         savedInsights,
+        savedInsightsLoading,
         teamInsights,
         teamInsightsLoading,
         insightsNext,
-        teamInsightsNext,
         loadingMoreInsights,
-        loadingMoreTeamInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, loadNextInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
+    const { saveInsight, loadTeamInsights, loadNextInsights, loadSavedInsights } = useActions(insightHistoryLogic)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.SAVED)
@@ -67,18 +68,18 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
     //     </div>
     // ) : null
 
-    const loadMoreTeamInsights = teamInsightsNext ? (
-        <div
-            style={{
-                textAlign: 'center',
-                marginTop: 12,
-                height: 32,
-                lineHeight: '32px',
-            }}
-        >
-            {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
-        </div>
-    ) : null
+    // const loadMoreTeamInsights = teamInsightsNext ? (
+    //     <div
+    //         style={{
+    //             textAlign: 'center',
+    //             marginTop: 12,
+    //             height: 32,
+    //             lineHeight: '32px',
+    //         }}
+    //     >
+    //         {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
+    //     </div>
+    // ) : null
 
     return (
         <div data-attr="insight-history-panel" className="insight-history-panel">
@@ -99,7 +100,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={insightsLoading}
                         dataSource={insights}
                         loadMore={loadMoreInsights}
-                        renderItem={(insight: InsightHistory) => {
+                        renderItem={(insight: DashboardItemType) => {
                             return (
                                 <List.Item>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
@@ -142,11 +143,19 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     data-attr="insight-saved-pane"
                 >
                     <Row gutter={[16, 16]}>
-                        {savedInsights.map((insight: InsightHistory) => (
+                        {savedInsightsLoading && <Loading />}
+                        {savedInsights.map((insight: DashboardItemType) => (
                             <Col xs={8} key={insight.id} style={{ height: 270 }}>
                                 <DashboardItem
-                                    item={insight}
+                                    item={{ ...insight, color: undefined }}
                                     options={<div className="dashboard-item-settings">hi</div>}
+                                    key={insight.id + '_user'}
+                                    loadDashboardItems={loadSavedInsights}
+                                    renameDashboardItem={renameDashboardItem}
+                                    moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
+                                        duplicateDashboardItem(item, dashboardId)
+                                    }
+                                    preventLoading={true}
                                     footer={
                                         <div className="dashboard-item-footer">
                                             Last saved {moment(insight.created_at).fromNow()}
@@ -160,28 +169,31 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                 <TabPane
                     tab={<span data-attr="insight-saved-tab">Team</span>}
                     key={InsightHistoryType.TEAM}
-                    data-attr="insight-team-pane"
+                    data-attr="insight-team-panel"
                 >
-                    <List
-                        loading={teamInsightsLoading}
-                        dataSource={teamInsights}
-                        loadMore={loadMoreTeamInsights}
-                        renderItem={(insight: InsightHistory) => {
-                            return (
-                                <List.Item key={insight.id}>
-                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
-                                        <Row justify="space-between" align="middle">
-                                            {insight.filters.insight && (
-                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
-                                                    {insight.name}
-                                                </Link>
-                                            )}
-                                        </Row>
-                                    </Col>
-                                </List.Item>
-                            )
-                        }}
-                    />
+                    <Row gutter={[16, 16]}>
+                        {teamInsightsLoading && <Loading />}
+                        {teamInsights.map((insight: DashboardItemType) => (
+                            <Col xs={8} key={insight.id} style={{ height: 270 }}>
+                                <DashboardItem
+                                    item={{ ...insight, color: undefined }}
+                                    key={insight.id + '_team'}
+                                    options={<div className="dashboard-item-settings">hi</div>}
+                                    loadDashboardItems={loadTeamInsights}
+                                    renameDashboardItem={renameDashboardItem}
+                                    moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
+                                        duplicateDashboardItem(item, dashboardId)
+                                    }
+                                    preventLoading={true}
+                                    footer={
+                                        <div className="dashboard-item-footer">
+                                            Last saved {moment(insight.created_at).fromNow()}
+                                        </div>
+                                    }
+                                />
+                            </Col>
+                        ))}
+                    </Row>
                 </TabPane>
             </Tabs>
             <SaveModal

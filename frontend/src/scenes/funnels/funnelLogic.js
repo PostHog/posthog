@@ -120,7 +120,7 @@ export const funnelLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
@@ -137,7 +137,9 @@ export const funnelLogic = kea({
             const cleanedParams = cleanFunnelParams(values.filters)
 
             actions.setAllFilters(cleanedParams)
-            actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
+            if (!props.dashboardItemId) {
+                actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
+            }
 
             const result = await pollFunnel(cleanedParams)
             actions.setSteps(result)

@@ -162,6 +162,7 @@ export function DashboardItem({
     onClick,
     options,
     preventLoading,
+    moveDashboardItem,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const className = displayMap[item.filters.display].className
@@ -185,6 +186,7 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: item.result,
+        preventLoading,
     }
 
     const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
@@ -203,7 +205,9 @@ export function DashboardItem({
     return (
         <div
             key={item.id}
-            className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${layout?.h || 0}`}
+            className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
+                layout?.h || 0
+            } ph-no-capture`}
             onClick={onClick}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
@@ -266,7 +270,7 @@ export function DashboardItem({
                                         <Menu.Item
                                             data-attr={'dashboard-item-' + index + '-dropdown-rename'}
                                             icon={<EditOutlined />}
-                                            onClick={() => renameDashboardItem(item.id)}
+                                            onClick={() => renameDashboardItem(item)}
                                         >
                                             Rename
                                         </Menu.Item>
@@ -307,7 +311,7 @@ export function DashboardItem({
                                                 )}
                                             </Menu.SubMenu>
                                         )}
-                                        {otherDashboards.length > 0 ? (
+                                        {duplicateDashboardItem && otherDashboards.length > 0 && (
                                             <Menu.SubMenu
                                                 data-attr={'dashboard-item-' + index + '-dropdown-copy'}
                                                 key="copy"
@@ -320,7 +324,7 @@ export function DashboardItem({
                                                             'dashboard-item-' + index + '-dropdown-copy-' + copyIndex
                                                         }
                                                         key={dashboard.id}
-                                                        onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
+                                                        onClick={() => duplicateDashboardItem(item, dashboard.id)}
                                                     >
                                                         <span
                                                             style={{
@@ -338,7 +342,7 @@ export function DashboardItem({
                                                     </Menu.Item>
                                                 ))}
                                             </Menu.SubMenu>
-                                        ) : null}
+                                        )}
                                         {otherDashboards.length > 0 ? (
                                             <Menu.SubMenu
                                                 data-attr={'dashboard-item-' + index + '-dropdown-move'}
@@ -352,9 +356,7 @@ export function DashboardItem({
                                                             'dashboard-item-' + index + '-dropdown-move-' + moveIndex
                                                         }
                                                         key={dashboard.id}
-                                                        onClick={() =>
-                                                            duplicateDashboardItem(item.id, dashboard.id, true)
-                                                        }
+                                                        onClick={() => moveDashboardItem(item, dashboard.id)}
                                                     >
                                                         {dashboard.name}
                                                     </Menu.Item>
@@ -365,7 +367,7 @@ export function DashboardItem({
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
                                                 icon={<BlockOutlined />}
-                                                onClick={() => duplicateDashboardItem(item.id)}
+                                                onClick={() => duplicateDashboardItem(item)}
                                             >
                                                 Duplicate
                                             </Menu.Item>
@@ -413,7 +415,6 @@ export function DashboardItem({
                                     color={color}
                                     theme={color === 'white' ? 'light' : 'dark'}
                                     inSharedMode={inSharedMode}
-                                    funnelId={item.funnel}
                                 />
                             )}
                         </Alert.ErrorBoundary>
