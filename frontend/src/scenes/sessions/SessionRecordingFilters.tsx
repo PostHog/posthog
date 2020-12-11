@@ -2,7 +2,6 @@ import React from 'react'
 import { Input, Select } from 'antd'
 import { RecordingDurationFilter } from 'scenes/sessions/sessionsTableLogic'
 import { CloseButton } from 'lib/components/CloseButton'
-
 interface Props {
     duration: RecordingDurationFilter | null
     onChange: (duration: RecordingDurationFilter | null) => void
@@ -39,7 +38,6 @@ export function SessionRecordingFilters({ duration, onChange }: Props): JSX.Elem
                         min={0}
                         addonAfter={
                             <Select
-                                showArrow={false}
                                 showSearch={false}
                                 value={duration[2]}
                                 onChange={(value) => onChange([duration[0], duration[1], value])}
