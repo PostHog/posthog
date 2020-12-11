@@ -28,25 +28,14 @@ class SessionsList(BaseSessions):
         self, events: QuerySet, filter: SessionsFilter, team: Team, limit: int, offset: int
     ) -> List[Dict[str, Any]]:
 
-        # format date filter for session view
-        _date_gte = Q()
-        if filter.session_type is None:
-            # if _date_from is not explicitely set we only want to get the last day worth of data
-            # otherwise the query is very slow
-            if filter._date_from and filter.date_to:
-                _date_gte = Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
-            else:
-                dt = now()
-                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
+        # if _date_from is not explicitely set we only want to get the last day worth of data
+        # otherwise the query is very slow
+        if filter._date_from and filter.date_to:
+            _date_gte = Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
         else:
-            if not filter.date_from:
-                filter._date_from = (
-                    Event.objects.filter(team_id=team)
-                    .order_by("timestamp")[0]
-                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                    .isoformat()
-                )
+            dt = now()
+            dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
 
         all_sessions, sessions_sql_params = self.build_all_sessions_query(events, _date_gte)
         return self._session_list(all_sessions, sessions_sql_params, team, filter, limit, offset)
