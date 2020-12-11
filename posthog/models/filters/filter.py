@@ -33,11 +33,11 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     IntervalMixin,
     OffsetMixin,
+    PropertyMixin,
     SelectorMixin,
     SessionTypeMixin,
     ShownAsMixin,
 )
-from posthog.models.property import PropertyMixin
 from posthog.utils import relative_date_parse
 
 

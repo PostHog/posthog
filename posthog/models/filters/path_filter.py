@@ -1,7 +1,6 @@
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import DateMixin, IntervalMixin
+from posthog.models.filters.mixins.common import DateMixin, IntervalMixin, PropertyMixin
 from posthog.models.filters.mixins.paths import ComparatorMixin, PropTypeMixin, StartPointMixin, TargetEventMixin
-from posthog.models.property import PropertyMixin
 
 
 class PathFilter(
