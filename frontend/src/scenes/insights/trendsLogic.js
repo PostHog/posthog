@@ -288,7 +288,7 @@ export const trendsLogic = kea({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters]
+            return ['/insights', values.filters, router.values.hashParams]
         },
     }),
 
