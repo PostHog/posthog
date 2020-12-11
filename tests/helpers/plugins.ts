@@ -6,6 +6,7 @@ import AdmZip from 'adm-zip'
 
 export const plugin60: Plugin = {
     id: 60,
+    plugin_type: 'custom',
     name: 'test-maxmind-plugin',
     description: 'Ingest GeoIP data via MaxMind',
     url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
