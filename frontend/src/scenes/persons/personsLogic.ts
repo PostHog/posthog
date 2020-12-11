@@ -60,11 +60,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             }
         },
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/persons': (_, searchParams: Record<string, string>) => {
-            if (!props.updateURL) {
-                return
-            }
             actions.setListFilters(searchParams)
             if (!values.persons.results.length && !values.personsLoading) {
                 // Initial load
