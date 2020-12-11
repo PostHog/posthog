@@ -170,6 +170,7 @@ export const pluginsLogic = kea<
             false,
             {
                 setEditingSource: (_, { editingSource }) => editingSource,
+                editPluginSourceSuccess: () => false,
                 editPlugin: () => false,
             },
         ],
