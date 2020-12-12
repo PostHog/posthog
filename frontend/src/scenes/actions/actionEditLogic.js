@@ -48,7 +48,7 @@ export const actionEditLogic = kea({
             action.steps = action.steps
                 .map((step) => {
                     const localStep = { ...step }
-                    if (localStep.event == '$pageview' || localStep.event == '$autocapture') {
+                    if (localStep.event == '$pageview') {
                         localStep.selection = ['url', 'url_matching', 'properties']
                     }
                     if (localStep.event != '$pageview' && localStep.event != '$autocapture') {
