@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -16,9 +16,24 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { ItemsSelectorModal } from 'lib/components/ItemsSelectorModal'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
+
+const tableColumnToCheckboxOption = (e) => ({
+    label: e.title,
+    value: e.key,
+})
+const eventPropertyToCheckboxOption = (e) => {
+    const eventInfo = keyMapping['event'][e.value]
+    const label = eventInfo ? eventInfo.label : e.value
+    return {
+        label,
+        value: e.value,
+    }
+}
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
@@ -31,35 +46,20 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         isLoadingNext,
         newEvents,
         eventFilter,
+        eventProperties,
+        columnConfig,
     } = useValues(logic)
-    const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, setColumnConfig } = useActions(logic)
+    const [choosingColumns, setChoosingColumns] = useState(false)
+    const closeColumnChooser = () => setChoosingColumns(false)
+    const openColumnChooser = () => setChoosingColumns(true)
+    const onColumnChooserConfirm = (selectedColumns) => {
+        setColumnConfig(selectedColumns)
+        closeColumnChooser()
+    }
 
     const showLinkToPerson = !fixedFilters?.person_id
-    let columns = [
-        {
-            title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
-            key: 'event',
-            rowKey: 'id',
-            render: function renderEvent(item) {
-                if (!item.event) {
-                    return {
-                        children: item.date_break
-                            ? item.date_break
-                            : newEvents.length === 1
-                            ? `There is 1 new event. Click here to load it.`
-                            : `There are ${newEvents.length} new events. Click here to load them.`,
-                        props: {
-                            colSpan: 6,
-                            style: {
-                                cursor: 'pointer',
-                            },
-                        },
-                    }
-                }
-                let { event } = item
-                return eventToName(event)
-            },
-        },
+    const defaultColumns = [
         {
             title: 'Person',
             key: 'person',
@@ -80,6 +80,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'URL / Screen',
             key: 'url',
+            eventProperties: ['$current_url', '$screen_name'],
             render: function renderURL({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -102,6 +103,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
         {
             title: 'Source',
             key: 'source',
+            eventProperties: ['$lib'],
             render: function renderSource({ event }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
@@ -157,6 +159,69 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
             },
         },
     ]
+    const otherEventProperties = eventProperties.filter(
+        (e) => defaultColumns.find((d) => d.eventProperties && d.eventProperties.includes(e.value)) === undefined
+    )
+    const availableConfigsOptions = [
+        ...defaultColumns.map(tableColumnToCheckboxOption),
+        ...otherEventProperties.map(eventPropertyToCheckboxOption),
+    ]
+    let selectedConfigOptions = columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig
+
+    const columnsToRenderFromConfig =
+        columnConfig === 'DEFAULT'
+            ? defaultColumns
+            : columnConfig.map(
+                  (e) =>
+                      defaultColumns.find((d) => d.key === e) || {
+                          title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
+                          key: e,
+                          render: function renderURL({ event }) {
+                              if (!event) {
+                                  return { props: { colSpan: 0 } }
+                              }
+                              if (filtersEnabled) {
+                                  return (
+                                      <FilterPropertyLink
+                                          className="ph-no-capture "
+                                          property={e}
+                                          value={event.properties[e]}
+                                          filters={{ properties }}
+                                      />
+                                  )
+                              }
+                              return <Property value={event.properties[e]} />
+                          },
+                          ellipsis: true,
+                      }
+              )
+    let columns = [
+        {
+            title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
+            key: 'event',
+            rowKey: 'id',
+            render: function renderEvent(item) {
+                if (!item.event) {
+                    return {
+                        children: item.date_break
+                            ? item.date_break
+                            : newEvents.length === 1
+                            ? `There is 1 new event. Click here to load it.`
+                            : `There are ${newEvents.length} new events. Click here to load them.`,
+                        props: {
+                            colSpan: 6,
+                            style: {
+                                cursor: 'pointer',
+                            },
+                        },
+                    }
+                }
+                let { event } = item
+                return eventToName(event)
+            },
+        },
+        ...columnsToRenderFromConfig,
+    ]
 
     return (
         <div className="events" data-attr="events-table">
@@ -178,6 +243,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     </Button>
                 </Col>
                 <Col span={pageKey === 'events' ? 2 : 4}>
+                    <Button onClick={openColumnChooser} type="secondary">
+                        Change columns
+                    </Button>
                     <Tooltip title="Up to 100,000 latest events.">
                         <Button
                             type="default"
@@ -193,6 +261,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                             Export
                         </Button>
                     </Tooltip>
+                    <ItemsSelectorModal
+                        options={availableConfigsOptions}
+                        selectedItems={selectedConfigOptions}
+                        title={'Choose Columns to display'}
+                        visible={choosingColumns}
+                        onCancel={closeColumnChooser}
+                        onConfirm={onColumnChooserConfirm}
+                    />
                 </Col>
             </Row>
             <div>

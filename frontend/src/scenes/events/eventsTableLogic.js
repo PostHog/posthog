@@ -3,6 +3,7 @@ import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
+import { userLogic } from 'scenes/userLogic'
 
 const POLL_TIMEOUT = 5000
 
@@ -47,6 +48,7 @@ export const eventsTableLogic = kea({
 
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        setColumnConfig: (columnConfig) => ({ columnConfig }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
@@ -157,6 +159,8 @@ export const eventsTableLogic = kea({
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
+        columnConfig: [() => [userLogic.selectors.user], (user) => user.events_column_config.active],
+        eventProperties: [() => [userLogic.selectors.eventProperties], (eventProperties) => eventProperties],
     }),
 
     events: ({ values }) => ({
@@ -192,6 +196,8 @@ export const eventsTableLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
+        setColumnConfig: ({ columnConfig }) =>
+            userLogic.actions.userUpdateRequest({ user: { events_column_config: { active: columnConfig } } }),
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),

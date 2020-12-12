@@ -20,6 +20,7 @@ export interface UserType {
     email_opt_in: boolean
     id: number
     name: string
+    events_column_config: Record<string, string[] | 'DEFAULT'>
     posthog_version: string
     organization: OrganizationType | null
     team: TeamType | null
