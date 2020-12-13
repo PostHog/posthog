@@ -168,14 +168,26 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
-                const eventTag = event.event[0] == '$' ? event.event.slice(1) : event.event
-                const eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24${eventTag}%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
 
-                if (event.event[0] != '$') {
-                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22${eventTag}%22%2C%22name%22%3A%22Order%20Completed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&new_entity=%5B%5D`
+                if (event.event === '$autocapture') {
+                    return <></>
                 }
+
+                let eventLink = ''
+
+                if (event.event === '$pageview') {
+                    const currentUrl = encodeURIComponent(event.properties.$current_url)
+                    eventLink = `/insights?interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22properties%22%3A%5B%7B%22key%22%3A%22%24current_url%22%2C%22value%22%3A%22${currentUrl}%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D`
+                } else {
+                    const eventTag = encodeURIComponent(event.event)
+                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22${eventTag}%22%2C%22name%22%3A%22${eventTag}%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+                }
+
                 return (
-                    <Link to={eventLink} data-attr="events-table-usage">
+                    <Link
+                        to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
+                        data-attr="events-table-usage"
+                    >
                         Insights <ExportOutlined />
                     </Link>
                 )
