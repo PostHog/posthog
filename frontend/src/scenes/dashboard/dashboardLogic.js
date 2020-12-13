@@ -7,7 +7,8 @@ import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
 import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
-import { RETENTION_TABLE, PATHS_VIZ } from 'lib/constants'
+import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
@@ -135,8 +136,11 @@ export const dashboardLogic = kea({
                     const layouts = items
                         .filter((i) => !i.deleted)
                         .map((item) => {
-                            const defaultWidth = item.type === RETENTION_TABLE || item.type === PATHS_VIZ ? 8 : 6
-                            const defaultHeight = item.type === RETENTION_TABLE ? 8 : item.type === PATHS_VIZ ? 12.5 : 5
+                            const isRetention =
+                                item.filters.insight === ViewType.RETENTION &&
+                                item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
+                            const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
+                            const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || defaultWidth, cols[col])

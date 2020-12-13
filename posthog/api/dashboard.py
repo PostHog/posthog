@@ -151,7 +151,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "description",
             "filters",
             "order",
-            "type",
             "deleted",
             "dashboard",
             "layouts",

@@ -17,7 +17,6 @@ from posthog.models import (
     DashboardItem,
     Element,
     Event,
-    Funnel,
     Person,
     PersonDistinctId,
     Team,
@@ -187,7 +186,6 @@ def _create_funnel(team: Team, base_url: str) -> None:
         team=team,
         dashboard=dashboard,
         name="HogFlix signup -> watching movie",
-        type="FunnelViz",
         filters={
             "actions": [
                 {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},

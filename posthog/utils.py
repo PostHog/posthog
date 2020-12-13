@@ -8,7 +8,17 @@ import re
 import subprocess
 import time
 import uuid
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from itertools import count
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urljoin, urlparse
 
 import lzstring
@@ -16,6 +26,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -24,6 +35,7 @@ from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.redis import get_client
+from posthog.settings import print_warning
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -177,8 +189,25 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["github_auth"] = True
     if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
         context["gitlab_auth"] = True
-    if settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY and settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
-        context["google_auth"] = True
+    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None
+    ):
+        if settings.MULTI_TENANCY:
+            context["google_auth"] = True
+        else:
+            google_login_paid_for = False
+            try:
+                from ee.models.license import License
+            except ImportError:
+                pass
+            else:
+                license = License.objects.first_valid()
+                if license is not None and "google_login" in license.available_features:
+                    google_login_paid_for = True
+            if google_login_paid_for:
+                context["google_auth"] = True
+            else:
+                print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -310,6 +339,8 @@ def load_data_from_request(request):
                 data_res["body"] = {**json.loads(request.body)}
             except:
                 pass
+        elif request.content_type == "text/plain":
+            data = request.body
         else:
             data = request.POST.get("data")
     else:
@@ -326,7 +357,7 @@ def load_data_from_request(request):
     )
     compression = compression.lower()
 
-    if compression == "gzip":
+    if compression == "gzip" or compression == "gzip-js":
         data = gzip.decompress(data)
 
     if compression == "lz64":
@@ -338,7 +369,10 @@ def load_data_from_request(request):
 
     #  Is it plain json?
     try:
-        data = json.loads(data)
+        # parse_constant gets called in case of NaN, Infinity etc
+        # default behaviour is to put those into the DB directly
+        # but we just want it to return None
+        data = json.loads(data, parse_constant=lambda x: None)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = base64_to_json(data)
@@ -426,3 +460,22 @@ def get_redis_info() -> Mapping[str, Any]:
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
+
+
+def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
+    raw, params = qs.query.sql_with_params()
+    arg_count = 0
+    counter = count(arg_count)
+    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
+    named_params = {}
+    for idx, param in enumerate(params):
+        named_params.update({f"{prepend}_arg_{idx}": param})
+    return new_string, named_params
+
+
+def flatten(l: List[Any]) -> Generator:
+    for el in l:
+        if isinstance(el, list):
+            yield from flatten(el)
+        else:
+            yield el

@@ -152,7 +152,7 @@ export function PersonalAPIKeys(): JSX.Element {
                 Try not to keep disused keys around. If you have any suspicion that one of these may be compromised,
                 delete it and use a new one.
                 <br />
-                <a href="https://posthog.com/docs/api/api#authentication">
+                <a href="https://posthog.com/docs/api/overview#authentication">
                     More about API authentication in PostHog Docs.
                 </a>
             </p>

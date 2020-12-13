@@ -10,6 +10,7 @@ import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
+import { MergePersonButton } from './MergePerson'
 const { TabPane } = Tabs
 
 const confirm = Modal.confirm
@@ -94,6 +95,7 @@ function _Person({ _: distinctId, id }) {
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
+            <MergePersonButton person={person} onPersonChange={setPerson} />
             <Button
                 className="float-right"
                 onClick={() => showConfirm('save', "Are you sure you want to update this person's properties?")}
@@ -102,7 +104,7 @@ function _Person({ _: distinctId, id }) {
             >
                 Save updated data
             </Button>
-            <PageHeader title={`Person ${person.properties.name?.first || person.name || person.properties.email}`} />
+            <PageHeader title={person.properties.name?.first || person.name || person.properties.email} />
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{
@@ -142,9 +144,17 @@ function _Person({ _: distinctId, id }) {
                 />
             </Tabs>
             {activeTab === 'events' ? (
-                <EventsTable isPersonPage={true} fixedFilters={{ person_id: person.id }} />
+                <EventsTable
+                    pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                    isPersonPage={true}
+                    fixedFilters={{ person_id: person.id }}
+                />
             ) : (
-                <SessionsTable personIds={person.distinct_ids} isPersonPage={true} />
+                <SessionsTable
+                    key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                    personIds={person.distinct_ids}
+                    isPersonPage={true}
+                />
             )}
         </div>
     ) : null

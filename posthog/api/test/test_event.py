@@ -6,6 +6,7 @@ from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team
 from posthog.test.base import BaseTest, TransactionBaseTest
+from posthog.utils import relative_date_parse
 
 
 def test_event_api_factory(event_factory, person_factory, action_factory):
@@ -148,15 +149,33 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
             )
             event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
+            event_factory(
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]}
+            )
+            event_factory(
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
+            )
+
             team2 = Team.objects.create()
             event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
             response = self.client.get("/api/event/values/?key=random_prop").json()
 
             keys = [resp["name"].replace(" ", "") for resp in response]
             self.assertCountEqual(
-                keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}']
+                keys,
+                [
+                    "asdf",
+                    "qwerty",
+                    "565",
+                    "false",
+                    "true",
+                    '{"first_name":"Mary","last_name":"Smith"}',
+                    "item1",
+                    "item2",
+                    "item3",
+                ],
             )
-            self.assertEqual(len(response), 6)
+            self.assertEqual(len(response), 9)
 
             response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
             self.assertEqual(response[0]["name"], "qwerty")
@@ -238,6 +257,68 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["event"], "sign up")
             self.assertEqual(response.json()["properties"], {"key": "test_val"})
+
+        def test_events_sessions_basic(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:34.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get("/api/event/sessions/",).json()
+
+            self.assertEqual(len(response["result"]), 2)
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-15",).json()
+            self.assertEqual(len(response["result"]), 4)
+
+            for i in range(46):
+                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
+                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(response.get("offset", None), None)
+
+            for i in range(2):
+                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i + 46)):
+                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
+            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(response["offset"], 50)
+
+            response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17&offset=50",).json()
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response.get("offset", None), None)
+
+        def test_event_sessions_by_id(self):
+            Person.objects.create(team=self.team, distinct_ids=["1"])
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+                event_factory(team=self.team, event="1st action", distinct_id="2")
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response_person_1 = self.client.get("/api/event/sessions/?distinct_id=1",).json()
+
+            self.assertEqual(len(response_person_1["result"]), 1)
 
     return TestEvents
 

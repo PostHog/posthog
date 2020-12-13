@@ -13,13 +13,15 @@ import {
 } from 'scenes/retention/retentionTableLogic'
 import { Button, DatePicker, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
+import { CloseButton } from 'lib/components/CloseButton'
+import moment from 'moment'
 
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const returningNode = useRef()
     const [open, setOpen] = useState<boolean>(false)
     const [returningOpen, setReturningOpen] = useState<boolean>(false)
-    const { filters, startEntity, selectedDate, period, retentionType, returningEntity } = useValues(
+    const { filters, startEntity, period, retentionType, returningEntity } = useValues(
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
@@ -144,10 +146,18 @@ export function RetentionTab(): JSX.Element {
                         use12Hours
                         format={filters.period === 'h' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-05"
-                        value={selectedDate}
-                        onChange={(date): void => setFilters({ selectedDate: date })}
+                        value={filters.date_to && moment(filters.date_to)}
+                        onChange={(date_to): void => setFilters({ date_to: moment(date_to).toISOString() })}
                         allowClear={false}
                     />
+                    {filters.date_to && (
+                        <CloseButton
+                            onClick={() => setFilters({ date_to: null })}
+                            style={{
+                                marginLeft: 8,
+                            }}
+                        />
+                    )}
                 </div>
                 <hr />
                 <h4 className="secondary">Period</h4>

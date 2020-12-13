@@ -19,7 +19,9 @@ def calculate_cohorts() -> None:
     # This task will be run every minute
     # Every minute, grab a few cohorts off the list and execute them
     for cohort in Cohort.objects.filter(
-        is_calculating=False, last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES)
+        is_calculating=False,
+        last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
+        errors_calculating__lte=2,
     ).order_by(F("last_calculation").asc(nulls_first=True))[0:PARALLEL_COHORTS]:
         calculate_cohort.delay(cohort.id)
 

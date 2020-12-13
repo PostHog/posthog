@@ -76,3 +76,14 @@ class TestCohort(BaseTest):
 
         cohort2.calculate_people()
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+    def test_error_while_calculating(self):
+        cohort2 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+        )
+
+        with patch("posthog.models.cohort.Cohort._postgres_persons_query") as pp:
+            pp.return_value = lambda x: Exception()
+            cohort2.calculate_people()
+        self.assertFalse(Cohort.objects.get().is_calculating)
+        self.assertEqual(Cohort.objects.get().errors_calculating, 1)

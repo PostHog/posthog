@@ -6,7 +6,6 @@ import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Spin, Table, Tooltip } from 'antd'
-import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
@@ -17,8 +16,8 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { hot } from 'react-hot-loader/root'
 
 export const EventsTable = hot(_EventsTable)
-function _EventsTable({ fixedFilters, filtersEnabled = true }) {
-    const logic = eventsTableLogic({ fixedFilters })
+function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey })
     const {
         properties,
         eventsFormatted,
@@ -30,9 +29,6 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
         eventFilter,
     } = useValues(logic)
     const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
-    const {
-        location: { search },
-    } = useValues(router)
 
     const showLinkToPerson = !fixedFilters?.person_id
     let columns = [
@@ -102,7 +98,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true }) {
                 }
                 return showLinkToPerson ? (
                     <Link
-                        to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
+                        to={`/person/${encodeURIComponent(event.distinct_id)}`}
                         className={'ph-no-capture ' + rrwebBlockClass}
                     >
                         {event.person}

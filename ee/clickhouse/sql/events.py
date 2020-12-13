@@ -216,7 +216,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events order by toDate(timestamp), timestamp limit 1
+SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

@@ -19,6 +19,9 @@ export interface UserType {
     plugin_access: PluginAccess
     has_password: boolean
     is_multi_tenancy: boolean
+    is_staff: boolean
+    is_debug: boolean
+    is_impersonated: boolean
     email_service_available: boolean
 }
 
@@ -98,13 +101,14 @@ export interface TeamType {
 
 export interface ActionType {
     count?: number
-    created_at?: string
+    created_at: string
     deleted?: boolean
-    id?: number
+    id: number
     is_calculating?: boolean
-    name?: string
+    name: string
     post_to_slack?: boolean
     steps?: ActionStepType[]
+    created_by: Record<string, any>
 }
 
 export interface ActionStepType {
@@ -165,6 +169,7 @@ export interface PersonType {
     name: string
     distinct_ids: string[]
     properties: Record<string, any>
+    is_identified: boolean
     created_at?: string
 }
 
@@ -177,12 +182,11 @@ export interface CohortType {
     is_calculating?: boolean
     last_calculation?: string
     name?: string
-    groups?: Record<string, any>[]
+    groups: Record<string, any>[]
 }
 
 export interface InsightHistory {
     id: number
-    type: string
     filters: Record<string, any>
     name?: string
     createdAt: string

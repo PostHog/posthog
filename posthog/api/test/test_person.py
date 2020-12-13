@@ -1,5 +1,6 @@
 import json
 
+from django.test.utils import freeze_time
 from django.utils import timezone
 from rest_framework import status
 
@@ -15,15 +16,25 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
                 team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
             )
             person_factory(
-                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+                team=self.team,
+                distinct_ids=["distinct_id_2"],
+                properties={"email": "another@gmail.com", "name": "james"},
             )
-            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={"name": "jane"})
 
             response = self.client.get("/api/person/?search=has:email")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 
             response = self.client.get("/api/person/?search=another@gm")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 1)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:invalid_property")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 0)
+
+            response = self.client.get("/api/person/?search=another@gm%20has:name")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
 
@@ -103,7 +114,10 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
         def test_filter_person_list(self):
 
             person1: Person = person_factory(
-                team=self.team, distinct_ids=["distinct_id", "another_one"], properties={"email": "someone@gmail.com"},
+                team=self.team,
+                distinct_ids=["distinct_id", "another_one"],
+                properties={"email": "someone@gmail.com"},
+                is_identified=True,
             )
             person2: Person = person_factory(
                 team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
@@ -114,6 +128,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["id"], person1.pk)
+            self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
             response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -184,7 +199,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
 
             # all
             response = self.client.get(
-                "/api/person"
+                "/api/person",
             )  # Make sure the endpoint works with and without the trailing slash
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 3)
@@ -206,6 +221,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["id"], person_anonymous.id)
+            self.assertEqual(response.json()["results"][0]["is_identified"], False)
 
             # identified
             response = self.client.get("/api/person/?is_identified=true")
@@ -213,6 +229,7 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(len(response.json()["results"]), 2)
             self.assertEqual(response.json()["results"][0]["id"], person_identified_using_event.id)
             self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
+            self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
         def test_delete_person(self):
             person = person_factory(
@@ -261,6 +278,30 @@ def test_person_factory(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), response_uuid.json())
             self.assertEqual(len(response.json()["results"]), 2)
+
+        def test_merge_people(self) -> None:
+            # created first
+            person3 = person_factory(team=self.team, distinct_ids=["3"], properties={"oh": "hello"})
+            person1 = person_factory(
+                team=self.team, distinct_ids=["1"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            )
+            person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
+
+            response = self.client.post(
+                "/api/person/%s/merge/" % person1.pk,
+                data=json.dumps({"ids": [person2.pk, person3.pk]}),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.json()["created_at"].replace("Z", "+00:00"), person3.created_at.isoformat())
+            self.assertEqual(response.json()["distinct_ids"], ["3", "1", "2"])
+
+            person = get_people()
+            self.assertEqual(len(person), 1)
+            self.assertEqual(
+                person[0].properties, {"$browser": "whatever", "$os": "Mac OS X", "random_prop": "asdf", "oh": "hello"}
+            )
+            self.assertEqual(person[0].created_at, person3.created_at)
 
     return TestPerson
 

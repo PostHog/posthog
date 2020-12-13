@@ -64,7 +64,7 @@ const submenuOverride = {
     organizationMembers: 'settings',
     organizationInvites: 'settings',
     billing: 'settings',
-    instanceStatus: 'settings',
+    systemStatus: 'settings',
     instanceLicenses: 'settings',
     mySettings: 'settings',
 }
@@ -256,7 +256,7 @@ function _Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         )}
 
                         {(!user.is_multi_tenancy || (user.is_multi_tenancy && user.is_staff)) && (
-                            <Menu.Item key="instanceStatus" style={itemStyle} data-attr="menu-item-instance-status">
+                            <Menu.Item key="systemStatus" style={itemStyle} data-attr="menu-item-instance-status">
                                 <DatabaseOutlined />
                                 <span className="sidebar-label">System Status</span>
                                 <Link to={'/instance/status'} onClick={collapseSidebar} />
