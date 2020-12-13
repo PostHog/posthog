@@ -126,6 +126,7 @@ def clickhouse_row_count():
 def clickhouse_part_count():
     if is_ee_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
+
         QUERY = """
             select table, count(1) freq
             from system.parts
@@ -133,7 +134,7 @@ def clickhouse_part_count():
             order by freq desc; 
         """
         rows = sync_execute(QUERY)
-        for (table, parts) in rows: 
+        for (table, parts) in rows:
             g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
             g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
     else:
