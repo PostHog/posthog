@@ -2,6 +2,7 @@ import React from 'react'
 import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function LocalPlugin(): JSX.Element {
     const { localPluginUrl, pluginError, loading } = useValues(pluginsLogic)
@@ -24,10 +25,10 @@ export function LocalPlugin(): JSX.Element {
                     </Col>
                     <Col>
                         <Button
-                            disabled={loading}
+                            disabled={loading || !localPluginUrl}
                             loading={loading}
                             type="default"
-                            onClick={() => installPlugin(localPluginUrl, 'local')}
+                            onClick={() => installPlugin(localPluginUrl, PluginInstallationType.Local)}
                         >
                             Install
                         </Button>
