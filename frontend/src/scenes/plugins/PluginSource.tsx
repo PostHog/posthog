@@ -64,6 +64,11 @@ export function PluginSource(): JSX.Element {
             <Form form={form} layout="vertical" onFinish={savePluginSource}>
                 {editingSource ? (
                     <>
+                        <p>
+                            <a href="https://posthog.com/docs/plugins/overview" target="_blank">
+                                Read the documentation.
+                            </a>
+                        </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />
                         </Form.Item>
