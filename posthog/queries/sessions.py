@@ -8,15 +8,11 @@ from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 from django.utils.timezone import now
 
-from posthog.api.element import ElementSerializer
-from posthog.constants import SESSION_AVG, SESSION_DIST
-from posthog.models import ElementGroup, Event, Team
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.constants import SESSION_AVG
+from posthog.models import Event, Filter, Team
 from posthog.queries.base import BaseQuery, convert_to_comparison, determine_compared_filter
-from posthog.queries.session_recording import filter_sessions_by_recordings
-from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
+from posthog.utils import append_data, friendly_time
 
-SESSIONS_LIST_DEFAULT_LIMIT = 50
 DIST_LABELS = [
     "0 seconds (1 event)",
     "0-3 seconds",
@@ -30,65 +26,20 @@ DIST_LABELS = [
     "1+ hours",
 ]
 
+Query = str
+QueryParams = Tuple[Any, ...]
 
-class Sessions(BaseQuery):
-    def run(self, filter: SessionsFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        events = (
+
+class BaseSessions(BaseQuery):
+    def events_query(self, filter: Filter, team: Team) -> QuerySet:
+        return (
             Event.objects.filter(team=team)
             .add_person_id(team.pk)
             .filter(filter.properties_to_Q(team_id=team.pk))
             .order_by("-timestamp")
         )
 
-        limit = int(kwargs.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
-        offset = filter.offset
-
-        calculated = []
-
-        # get compared period
-        if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
-
-            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team, limit, offset)
-            calculated = convert_to_comparison(calculated, filter, "current")
-
-            compare_filter = determine_compared_filter(filter)
-            compared_calculated = self.calculate_sessions(
-                events.filter(compare_filter.date_filter_Q), compare_filter, team, limit, offset  # type: ignore
-            )
-            converted_compared_calculated = convert_to_comparison(compared_calculated, filter, "previous")
-            calculated.extend(converted_compared_calculated)
-        else:
-            # if session_type is None, it's a list of sessions which shouldn't have any date filtering
-            if filter.session_type is not None:
-                events = events.filter(filter.date_filter_Q)
-            calculated = self.calculate_sessions(events, filter, team, limit, offset)
-
-        return calculated
-
-    def calculate_sessions(
-        self, events: QuerySet, filter: SessionsFilter, team: Team, limit: int, offset: int
-    ) -> List[Dict[str, Any]]:
-
-        # format date filter for session view
-        _date_gte = Q()
-        if filter.session_type is None:
-            # if _date_from is not explicitely set we only want to get the last day worth of data
-            # otherwise the query is very slow
-            if filter._date_from and filter.date_to:
-                _date_gte = Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
-            else:
-                dt = now()
-                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
-        else:
-            if not filter.date_from:
-                filter._date_from = (
-                    Event.objects.filter(team_id=team)
-                    .order_by("timestamp")[0]
-                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                    .isoformat()
-                )
-
+    def build_all_sessions_query(self, events: QuerySet, _date_gte=Q()) -> Tuple[Query, QueryParams]:
         sessions = (
             events.filter(_date_gte)
             .annotate(
@@ -118,90 +69,48 @@ class Sessions(BaseQuery):
             sessions_sql
         )
 
-        result: List = []
-        if filter.session_type == SESSION_AVG:
-            result = self._session_avg(all_sessions, sessions_sql_params, filter)
-        elif filter.session_type == SESSION_DIST:
-            result = self._session_dist(all_sessions, sessions_sql_params)
+        return all_sessions, sessions_sql_params
+
+
+class Sessions(BaseSessions):
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        events = self.events_query(filter, team)
+        calculated = []
+
+        # get compared period
+        if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
+
+            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team)
+            calculated = convert_to_comparison(calculated, filter, "current")
+
+            compare_filter = determine_compared_filter(filter)
+            compared_calculated = self.calculate_sessions(
+                events.filter(compare_filter.date_filter_Q), compare_filter, team
+            )
+            converted_compared_calculated = convert_to_comparison(compared_calculated, filter, "previous")
+            calculated.extend(converted_compared_calculated)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team, filter, limit, offset)
+            events = events.filter(filter.date_filter_Q)
+            calculated = self.calculate_sessions(events, filter, team)
 
-        return result
+        return calculated
 
-    def _session_list(
-        self, base_query: str, params: Tuple[Any, ...], team: Team, filter: SessionsFilter, limit: int, offset: int
-    ) -> List[Dict[str, Any]]:
+    def calculate_sessions(self, events: QuerySet, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        all_sessions, sessions_sql_params = self.build_all_sessions_query(events)
 
-        session_list = """
-            SELECT
-                *
-            FROM (
-                SELECT
-                    global_session_id,
-                    properties,
-                    start_time,
-                    end_time,
-                    length,
-                    sessions.distinct_id,
-                    event_count,
-                    events
-                FROM (
-                    SELECT
-                        global_session_id,
-                        count(1) as event_count,
-                        MAX(distinct_id) as distinct_id,
-                        EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp))) AS length,
-                        MIN(timestamp) as start_time,
-                        MAX(timestamp) as end_time,
-                        array_agg(json_build_object( 'id', id, 'event', event, 'timestamp', timestamp, 'properties', properties, 'elements_hash', elements_hash) ORDER BY timestamp) as events
-                    FROM
-                        ({base_query}) as count
-                    GROUP BY 1
-                ) as sessions
-                LEFT OUTER JOIN
-                    posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id AND posthog_persondistinctid.team_id = %s
-                LEFT OUTER JOIN
-                    posthog_person ON posthog_person.id = posthog_persondistinctid.person_id
-                ORDER BY
-                    start_time DESC
-            ) as ordered_sessions
-            OFFSET %s
-            LIMIT %s
-        """.format(
-            base_query=base_query
-        )
+        if filter.session_type == SESSION_AVG:
+            if not filter.date_from:
+                filter._date_from = (
+                    Event.objects.filter(team_id=team)
+                    .order_by("timestamp")[0]
+                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                    .isoformat()
+                )
+            return self._session_avg(all_sessions, sessions_sql_params, filter)
+        else:  # SESSION_DIST
+            return self._session_dist(all_sessions, sessions_sql_params)
 
-        with connection.cursor() as cursor:
-            params = params + (team.pk, offset, limit,)
-            cursor.execute(session_list, params)
-            sessions = dict_from_cursor_fetchall(cursor)
-
-            hash_ids = []
-            for session in sessions:
-                for event in session["events"]:
-                    if event.get("elements_hash"):
-                        hash_ids.append(event["elements_hash"])
-
-            groups = self._prefetch_elements(hash_ids, team)
-
-            for session in sessions:
-                for event in session["events"]:
-                    try:
-                        event.update(
-                            {
-                                "elements": ElementSerializer(
-                                    [group for group in groups if group.hash == event["elements_hash"]][0]
-                                    .element_set.all()
-                                    .order_by("order"),
-                                    many=True,
-                                ).data
-                            }
-                        )
-                    except IndexError:
-                        event.update({"elements": []})
-        return filter_sessions_by_recordings(team, sessions, filter)
-
-    def _session_avg(self, base_query: str, params: Tuple[Any, ...], filter: SessionsFilter) -> List[Dict[str, Any]]:
+    def _session_avg(self, base_query: Query, params: QueryParams, filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
             if interval == "minute":
                 return (
@@ -260,7 +169,7 @@ class Sessions(BaseQuery):
         result = [time_series_data]
         return result
 
-    def _session_dist(self, base_query: str, params: Tuple[Any, ...]) -> List[Dict[str, Any]]:
+    def _session_dist(self, base_query: Query, params: QueryParams) -> List[Dict[str, Any]]:
         distribution = "SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
                         COUNT(CASE WHEN length > 0 AND length <= 3 THEN 1 ELSE NULL END) as second,\
                         COUNT(CASE WHEN length > 3 AND length <= 10 THEN 1 ELSE NULL END) as third,\
@@ -281,9 +190,3 @@ class Sessions(BaseQuery):
         calculated = cursor.fetchall()
         result = [{"label": DIST_LABELS[index], "count": calculated[0][index]} for index in range(len(DIST_LABELS))]
         return result
-
-    def _prefetch_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
-        groups = ElementGroup.objects.none()
-        if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
-        return groups

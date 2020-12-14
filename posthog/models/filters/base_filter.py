@@ -9,6 +9,7 @@ class BaseFilter(BaseParamMixin):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         if request:
             data = {
+                **(data if data else {}),
                 **request.GET.dict(),
             }
         elif not data:

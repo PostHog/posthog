@@ -17,6 +17,8 @@ from posthog.constants import (
     DISPLAY,
     EVENTS,
     INSIGHT,
+    INSIGHT_TO_DISPLAY,
+    INSIGHT_TRENDS,
     INTERVAL,
     OFFSET,
     SELECTOR,
@@ -31,12 +33,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.utils import relative_date_parse
-
-
-class DisplayMixin(BaseParamMixin):
-    @cached_property
-    def display(self) -> Optional[str]:
-        return self._data.get(DISPLAY, None)
 
 
 class IntervalMixin(BaseParamMixin):
@@ -86,8 +82,14 @@ class BreakdownValueMixin(BaseParamMixin):
 
 class InsightMixin(BaseParamMixin):
     @cached_property
-    def insight(self) -> Optional[str]:
-        return self._data.get(INSIGHT, None)
+    def insight(self) -> str:
+        return self._data.get(INSIGHT, INSIGHT_TRENDS)
+
+
+class DisplayDerivedMixin(InsightMixin):
+    @cached_property
+    def display(self) -> str:
+        return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
 
 class SessionTypeMixin(BaseParamMixin):

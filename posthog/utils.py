@@ -9,7 +9,16 @@ import subprocess
 import time
 import uuid
 from itertools import count
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 from urllib.parse import urljoin, urlparse
 
 import lzstring
@@ -462,3 +471,11 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     for idx, param in enumerate(params):
         named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params
+
+
+def flatten(l: List[Any]) -> Generator:
+    for el in l:
+        if isinstance(el, list):
+            yield from flatten(el)
+        else:
+            yield el

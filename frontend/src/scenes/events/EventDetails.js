@@ -35,6 +35,7 @@ export function EventDetails({ event }) {
             >
                 Create action from event
             </Button>
+
             <Tabs
                 style={{ float: 'left', width: '100%', marginTop: -40 }}
                 data-attr="event-details"

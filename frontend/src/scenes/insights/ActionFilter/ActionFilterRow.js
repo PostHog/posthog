@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Dropdown, Menu, Col, Row, Select } from 'antd'
 import { EntityTypes } from '../trendsLogic'
@@ -138,10 +138,17 @@ const determineFilterLabel = (visible, filter) => {
 
 export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(logic)
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
+    const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    const {
+        selectFilter,
+        updateFilterMath,
+        removeLocalFilter,
+        updateFilterProperty,
+        setEntityFilterVisibility,
+    } = useActions(logic)
     const { eventProperties, eventPropertiesNumerical } = useValues(userLogic)
-    const [entityFilterVisible, setEntityFilterVisible] = useState(false)
+
+    const visible = entityFilterVisible[filter.order]
 
     let entity, name, value
     let math = filter.math
@@ -241,10 +248,10 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                 <Button
                     className="ant-btn-md"
-                    onClick={() => setEntityFilterVisible(!entityFilterVisible)}
+                    onClick={() => setEntityFilterVisibility(filter.order, !visible)}
                     data-attr={'show-prop-filter-' + index}
                 >
-                    {determineFilterLabel(entityFilterVisible, filter)}
+                    {determineFilterLabel(visible, filter)}
                 </Button>
                 <CloseButton
                     onClick={onClose}
@@ -257,7 +264,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 />
             </div>
 
-            {entityFilterVisible && (
+            {visible && (
                 <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}

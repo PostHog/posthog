@@ -18,7 +18,7 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
 }
 
-export type RecordingDurationFilter = ['lt' | 'gt', number | null]
+export type RecordingDurationFilter = ['lt' | 'gt', number | null, 's' | 'm' | 'h']
 
 const buildURL = (
     selectedDateURLparam?: string,
@@ -69,10 +69,10 @@ export const sessionsTableLogic = kea<
                     offset: 0,
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     properties: values.properties,
-                    duration: values.duration,
+                    ...values.durationFilter,
                 })
                 await breakpoint(10)
-                const response = await api.get(`api/insight/session/?${params}`)
+                const response = await api.get(`api/event/sessions/?${params}`)
                 breakpoint()
                 if (response.offset) {
                     actions.setNextOffset(response.offset)
@@ -156,6 +156,18 @@ export const sessionsTableLogic = kea<
                 return result
             },
         ],
+        durationFilter: [
+            (selectors) => [selectors.duration],
+            (duration: RecordingDurationFilter | null) => {
+                if (!duration) {
+                    return undefined
+                }
+
+                const multipliers = { s: 1, m: 60, h: 3600 }
+                const seconds = (duration[1] || 0) * multipliers[duration[2]]
+                return { duration_operator: duration[0], duration: seconds }
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async (_, breakpoint) => {
@@ -164,7 +176,7 @@ export const sessionsTableLogic = kea<
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
             })
-            const response = await api.get(`api/insight/session/?${params}`)
+            const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
             if (response.offset) {
                 actions.setNextOffset(response.offset)

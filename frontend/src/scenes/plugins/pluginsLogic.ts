@@ -2,17 +2,27 @@ import { kea } from 'kea'
 import { pluginsLogicType } from 'types/scenes/plugins/pluginsLogicType'
 import api from 'lib/api'
 import { PluginConfigType, PluginType } from '~/types'
-import { PluginRepositoryEntry, PluginTypeWithConfig } from './types'
+import { PluginInstallationType, PluginRepositoryEntry, PluginTypeWithConfig } from './types'
 import { userLogic } from 'scenes/userLogic'
 import { getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import posthog from 'posthog-js'
+
+function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
+    posthog.capture(event, {
+        plugin_name: plugin.name,
+        plugin_url: plugin.url?.startsWith('file:') ? 'file://masked-local-path' : plugin.url,
+        plugin_tag: plugin.tag,
+        ...(type && { plugin_installation_type: type }),
+    })
+}
 
 export const pluginsLogic = kea<
-    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig>
+    pluginsLogicType<PluginType, PluginConfigType, PluginRepositoryEntry, PluginTypeWithConfig, PluginInstallationType>
 >({
     actions: {
         editPlugin: (id: number | null) => ({ id }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, type: 'local' | 'custom' | 'repository') => ({ pluginUrl, type }),
+        installPlugin: (pluginUrl: string, type: PluginInstallationType) => ({ pluginUrl, type }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
@@ -35,6 +45,7 @@ export const pluginsLogic = kea<
                 installPlugin: async ({ pluginUrl, type }) => {
                     const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create('api/plugin', { url })
+                    capturePluginEvent(`plugin installed`, response, type)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -43,6 +54,7 @@ export const pluginsLogic = kea<
                         return plugins
                     }
                     await api.delete(`api/plugin/${editingPlugin.id}`)
+                    capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
@@ -85,11 +97,23 @@ export const pluginsLogic = kea<
                         formData.append('order', '0')
                         response = await api.create(`api/plugin_config/`, formData)
                     }
+                    capturePluginEvent(`plugin config updated`, editingPlugin)
+                    if (editingPlugin.pluginConfig.enabled !== response.enabled) {
+                        capturePluginEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
+                    }
 
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    const { pluginConfigs } = values
+                    const { pluginConfigs, plugins } = values
+                    // pluginConfigs are indexed by plugin id, must look up the right config manually
+                    const pluginConfig = Object.values(pluginConfigs).find((config) => config.id === id)
+                    if (pluginConfig) {
+                        const plugin = plugins[pluginConfig.plugin]
+                        if (plugin) {
+                            capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin)
+                        }
+                    }
                     const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
                     })

@@ -1,14 +1,42 @@
 import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from django.db import connection
 from django.db.models import F, Max, Min
 
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.base import BaseQuery
+from posthog.models.utils import namedtuplefetchall
 
 DistinctId = str
 Snapshots = List[Any]
+
+
+OPERATORS = {"gt": ">", "lt": "<"}
+SESSIONS_IN_RANGE_QUERY = """
+    SELECT
+        session_id,
+        distinct_id,
+        start_time,
+        end_time,
+        end_time - start_time as duration
+    FROM (
+        SELECT
+            session_id,
+            distinct_id,
+            MIN(timestamp) as start_time,
+            MAX(timestamp) as end_time,
+            MAX(timestamp) - MIN(timestamp) as duration,
+            COUNT(*) FILTER(where snapshot_data->>'type' = '2') as full_snapshots
+        FROM posthog_sessionrecordingevent
+        WHERE
+            team_id = %(team_id)s
+            AND timestamp >= %(start_time)s
+            AND timestamp <= %(end_time)s
+        GROUP BY distinct_id, session_id
+    ) AS p
+    WHERE full_snapshots > 0 {filter_query}
+"""
 
 
 class SessionRecording:
@@ -36,13 +64,25 @@ class SessionRecording:
 def query_sessions_in_range(
     team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
 ) -> List[dict]:
-    return list(
-        SessionRecordingEvent.objects.filter(team=team)
-        .values("distinct_id", "session_id")
-        .annotate(start_time=Min("timestamp"), end_time=Max("timestamp"))
-        .filter(start_time__lte=F("end_time"), end_time__gte=F("start_time"))
-        .filter(snapshot_data__type=2)
-    )
+    filter_query, filter_params = "", {}
+
+    if filter.duration_operator:
+        filter_query = (
+            f"AND duration {OPERATORS[filter.duration_operator]} INTERVAL '%(min_recording_duration)s seconds'"
+        )
+        filter_params = {
+            "min_recording_duration": filter.duration,
+        }
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query),
+            {"team_id": team.id, "start_time": start_time, "end_time": end_time, **filter_params,},
+        )
+
+        results = namedtuplefetchall(cursor)
+
+    return [row._asdict() for row in results]
 
 
 # :TRICKY: This mutates sessions list
