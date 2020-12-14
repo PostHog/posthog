@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { dateOptions, retentionTableLogic } from './retentionTableLogic'
+import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { Loading } from '../../lib/utils'
@@ -22,7 +22,7 @@ export function RetentionLineGraph({
     filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, retention, retentionLoading, people, peopleLoading } = useValues(logic)
+    const { filters, results, resultsLoading, people, peopleLoading } = useValues(logic)
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
@@ -33,17 +33,17 @@ export function RetentionLineGraph({
     const peopleData = people?.result
     const peopleNext = people?.next
 
-    return retentionLoading ? (
+    return resultsLoading ? (
         <Loading />
-    ) : retention && retention.data && !retentionLoading ? (
+    ) : results && !resultsLoading ? (
         <>
             <LineGraph
                 pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}
-                datasets={retention.data}
-                labels={(retention.data[0] && retention.data[0].labels) || []}
+                datasets={results}
+                labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
@@ -60,7 +60,7 @@ export function RetentionLineGraph({
                 }
             />
             <Modal
-                title={dateOptions[filters.period] + ' ' + day + ' people'}
+                title={filters.period + ' ' + day + ' people'}
                 visible={modalVisible}
                 onOk={closeModal}
                 onCancel={closeModal}

@@ -20,9 +20,9 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.constants import TRENDS_FUNNEL
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardItem, Filter, Team
+from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import generate_cache_key, render_template
+from posthog.utils import render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -152,6 +152,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "filters",
+            "filters_hash",
             "order",
             "deleted",
             "dashboard",

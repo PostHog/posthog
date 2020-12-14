@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
+from rest_framework.request import Request
 
 from posthog.constants import (
     ACTIONS,
@@ -20,6 +21,8 @@ from posthog.constants import (
     ENTITIES,
     EVENTS,
     INSIGHT,
+    INSIGHT_RETENTION,
+    INSIGHT_SESSIONS,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
     INTERVAL,
@@ -115,32 +118,29 @@ class Filter(PropertyMixin):
 
     def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
         if target_entity_data:
-            data = json.loads(target_entity_data)
+            data = target_entity_data if isinstance(target_entity_data, dict) else json.loads(target_entity_data)
             return Entity({"id": data["id"], "type": data["type"]})
         return None
 
     def to_dict(self) -> Dict[str, Any]:
-        full_dict = {
-            DATE_FROM: self._date_from,
-            DATE_TO: self._date_to,
-            PROPERTIES: [prop.to_dict() for prop in self.properties],
-            INTERVAL: self.interval,
-            EVENTS: [entity.to_dict() for entity in self.events],
-            ACTIONS: [entity.to_dict() for entity in self.actions],
-            DISPLAY: self.display,
-            SELECTOR: self.selector,
-            SHOWN_AS: self.shown_as,
-            BREAKDOWN: self.breakdown,
-            BREAKDOWN_TYPE: self.breakdown_type,
-            COMPARE: self.compare,
-            INSIGHT: self.insight,
-            SESSION: self.session_type,
-        }
-        return {
-            key: value
-            for key, value in full_dict.items()
-            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
-        }
+        ret = {}
+
+        for key, value in self.__dict__.items():
+            if key in ["entities"] or key.startswith("_"):
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                continue
+            if not isinstance(value, list) and not value:
+                continue
+            if not isinstance(value, (list, bool, int, float, str)) and not hasattr(value, "__dict__"):
+                continue
+            if isinstance(value, Entity):
+                value = value.to_dict()
+            if isinstance(value, list) and isinstance(value[0], Entity):
+                value = [entity.to_dict() for entity in value]
+            ret[key] = value
+
+        return ret
 
     @property
     def compare(self) -> bool:
@@ -208,3 +208,18 @@ class Filter(PropertyMixin):
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
+
+def get_filter(team, data: Optional[dict] = {}, request: Optional[Request] = None) -> Filter:
+    from posthog.models.filters.retention_filter import RetentionFilter
+    from posthog.models.filters.sessions_filter import SessionsFilter
+    from posthog.models.filters.stickiness_filter import StickinessFilter
+
+    insight = data.get("insight") or request.GET.get("insight")
+    if insight == INSIGHT_RETENTION:
+        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
+    elif insight == INSIGHT_SESSIONS:
+        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
+    elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
+        return StickinessFilter(data=data, request=request, team=team)
+    return Filter(data=data, request=request)

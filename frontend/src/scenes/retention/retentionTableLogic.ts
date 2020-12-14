@@ -8,12 +8,7 @@ import { Moment } from 'moment'
 import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 
-export const dateOptions = {
-    h: 'Hour',
-    d: 'Day',
-    w: 'Week',
-    m: 'Month',
-}
+export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
 const RETENTION_RECURRING = 'retention_recurring'
 const RETENTION_FIRST_TIME = 'retention_first_time'
@@ -48,16 +43,16 @@ function cleanFilters(filters): any {
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
         date_to: filters.date_to,
-        period: filters.period || 'd',
+        period: filters.period || 'Day',
         display: filters.display || 'ActionsTable',
     }
 }
 
-function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): string {
-    let params: Record<string, any> = { ...values.filters }
+function prepareParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): Record<string, any> {
+    const params: Record<string, any> = { ...values.filters }
     params['properties'] = values.properties
     if (values.period) {
-        params['period'] = dateOptions[values.period]
+        params['period'] = values.period
     }
     if (values.startEntity) {
         params['target_entity'] = values.startEntity
@@ -73,11 +68,15 @@ function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string,
             ? values.filters.returningEntity.events
             : []
     }
-    params = {
+    return {
         ...params,
         ...extraVals,
+        insight: ViewType.RETENTION,
     }
-    const urlParams = toParams(params)
+}
+
+function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): string {
+    const urlParams = toParams(prepareParams(values, extraVals))
     return urlParams
 }
 
@@ -86,16 +85,17 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     loaders: ({ values, props }) => ({
-        retention: {
-            __default: ({} as Record<string, unknown>) || Array,
-            loadResults: async (refresh = true, breakpoint) => {
+        results: {
+            __default: [],
+            loadResults: async (refresh = false, breakpoint) => {
+                console.log(props.cachedResults, refresh)
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }
                 const urlParams = toUrlParams(values)
                 const res = await api.get(`api/insight/retention/?${urlParams}`)
                 breakpoint()
-                return res
+                return res.data
             },
         },
         people: {
@@ -148,7 +148,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                           actions: [],
                       },
                       date_to: props.filters.date_to,
-                      period: props.filters.period || 'd',
+                      period: props.filters.period || 'Day',
                       retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
                       display: props.filters.display || ACTIONS_TABLE,
                   }
@@ -161,7 +161,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             clearPeople: () => ({}),
             updatePeople: (_, { people }) => people,
         },
-        retention: {
+        results: {
             updateRetention: (_, { retention }) => retention,
             clearRetention: () => ({}),
         },
@@ -264,7 +264,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             actions.clearPeople()
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             if (!props.dashboardItemId) {
-                actions.createInsight(cleanRetentionParams(values.filters, values.properties))
+                actions.createInsight(prepareParams(values))
             }
         },
         loadMorePeople: async () => {

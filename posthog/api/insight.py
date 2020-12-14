@@ -21,6 +21,7 @@ from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_RETENTION,
+    INSIGHT_SESSIONS,
     INSIGHT_TRENDS,
     OFFSET,
     TRENDS_STICKINESS,
@@ -28,6 +29,7 @@ from posthog.constants import (
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Person, Team
 from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters.filter import get_filter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -45,6 +47,7 @@ class InsightSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "filters",
+            "filters_hash",
             "order",
             "deleted",
             "dashboard",
@@ -82,8 +85,8 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
+        filter = get_filter(data=dashboard_item.filters, team=dashboard_item.team)
+        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), dashboard_item.team_id))
         result = cache.get(cache_key)
         if not result or result.get("task_id", None):
             return None
@@ -155,7 +158,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_trends(request)
         return Response(result)
 
-    @cached_function(cache_type=CacheType.TRENDS)
+    @cached_function()
     def calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request)
@@ -181,9 +184,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result: Dict[str, Any] = {
-            "result": sessions.Sessions().run(
-                filter=Filter(request=request, data={"insight": INSIGHT_RETENTION}), team=self.team
-            )
+            "result": sessions.Sessions().run(filter=SessionsFilter(request=request), team=self.team)
         }
 
         return Response(result)
@@ -204,6 +205,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
+    @cached_function()
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = request.GET.get("refresh", None)
@@ -243,6 +245,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response({"data": result})
 
+    @cached_function()
     def calculate_retention(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = RetentionFilter(request=request)
@@ -263,6 +266,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
+    @cached_function()
     def calculate_path(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_PATHS})
