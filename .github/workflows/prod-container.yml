@@ -62,6 +62,14 @@ jobs:
                   container-name: posthog-production-worker
                   image: ${{ steps.build-image.outputs.image }}
 
+            - name: Fill in the new plugins image ID in the Amazon ECS task definition
+              id: task-def-plugins
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: deploy/task-definition.plugins.json
+                  container-name: posthog-production-plugins
+                  image: ${{ steps.build-image.outputs.image }}
+
             - name: Fill in the new migration image ID in the Amazon ECS task definition
               id: task-def-migrate
               uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -104,4 +112,11 @@ jobs:
               with:
                   task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
                   service: posthog-production-worker
+                  cluster: posthog-production-cluster
+
+            - name: Deploy Amazon ECS plugins task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def-plugins.outputs.task-definition }}
+                  service: posthog-production-plugins
                   cluster: posthog-production-cluster
