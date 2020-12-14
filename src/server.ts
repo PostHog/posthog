@@ -46,7 +46,7 @@ export async function createServer(
         // don't repeat the same info in each thread
         if (threadId === null) {
             console.info(
-                `🪵 Sending metrics to statsd at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
+                `🪵 Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
             )
         }
     }
@@ -138,7 +138,7 @@ export async function startPluginsServer(
         const processEvent = (event: PluginEvent) => piscina!.runTask({ task: 'processEvent', args: { event } })
 
         if (!server.DISABLE_WEB) {
-            fastifyInstance = await startFastifyInstance(server.WEB_PORT, server.WEB_HOSTNAME)
+            fastifyInstance = await startFastifyInstance(server)
         }
 
         queue = startQueue(server, processEvent)
@@ -157,13 +157,13 @@ export async function startPluginsServer(
             }
         })
 
-        // every 5 sec set a @posthog-plugin-server/ping redis key
+        // every 5 seconds set a @posthog-plugin-server/ping Redis key
         pingJob = schedule.scheduleJob('*/5 * * * * *', () => {
             server!.redis!.set('@posthog-plugin-server/ping', new Date().toISOString())
             server!.redis!.expire('@posthog-plugin-server/ping', 60)
         })
 
-        // every 10 seconds sends stuff to statsd
+        // every 10 seconds sends stuff to StatsD
         statsJob = schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 server!.statsd?.gauge(`piscina.utilization`, (piscina?.utilization || 0) * 100)
@@ -202,7 +202,7 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await piscina.destroy()
 }
 
-export function runTasksDebounced(server: PluginsServer, piscina: Piscina, taskName: string) {
+export function runTasksDebounced(server: PluginsServer, piscina: Piscina, taskName: string): void {
     const runTask = (pluginConfigId: PluginConfigId) => piscina.runTask({ task: taskName, args: { pluginConfigId } })
 
     for (const pluginConfigId of server.pluginSchedule[taskName]) {
@@ -225,7 +225,7 @@ export function runTasksDebounced(server: PluginsServer, piscina: Piscina, taskN
     }
 }
 
-export async function waitForTasksToFinish(server: PluginsServer) {
+export async function waitForTasksToFinish(server: PluginsServer): Promise<any[]> {
     const activePromises = Object.values(server.pluginSchedulePromises)
         .map(Object.values)
         .flat()
