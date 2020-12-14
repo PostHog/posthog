@@ -48,7 +48,7 @@ class StickinessFilter(
         get_earliest_timestamp: Optional[Callable] = kwargs.get("get_earliest_timestamp", None)
         if not get_earliest_timestamp:
             raise ValueError("Callable must be provided when date filtering is all time")
-        self.get_earliest_timestamp = get_earliest_timestamp
+        self.get_earliest_timestamp = get_earliest_timestamp  # type: ignore
 
     def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
         if self.interval == "minute":

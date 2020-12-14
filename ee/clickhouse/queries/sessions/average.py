@@ -11,12 +11,11 @@ from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
 from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
 from ee.clickhouse.sql.sessions.no_events import SESSIONS_NO_EVENTS_SQL
 from posthog.models import Filter, Team
-from posthog.types import Comparable_filter_type
 from posthog.utils import append_data, friendly_time
 
 
 class ClickhouseSessionsAvg:
-    def calculate_avg(self, filter: Comparable_filter_type, team: Team):
+    def calculate_avg(self, filter: Filter, team: Team):
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 
