@@ -5,6 +5,17 @@
 }
 
 .actions-graph {
+    .top-bar {
+        // Hacks to make History appear far right
+        margin-right: -32px;
+        .ant-tabs,
+        .ant-tabs-nav-list {
+            width: 100%;
+        }
+        .ant-tabs-tab:nth-last-child(3) {
+            flex: 1;
+        }
+    }
     hr {
         margin: 1rem 0;
     }

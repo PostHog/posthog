@@ -105,15 +105,25 @@ function _Insights() {
         user?.team && (
             <div className="actions-graph">
                 <PageHeader title="Insights" />
-                <Row justify="space-between" align="middle">
+                <Row justify="space-between" align="middle" className="top-bar">
                     <Tabs
                         size="large"
                         activeKey={activeView}
                         style={{
                             overflow: 'visible',
                         }}
+                        className="top-bar"
                         onChange={(key) => setActiveView(key)}
                         animated={false}
+                        tabBarExtraContent={{
+                            right: (
+                                <TabPane
+                                    className="pull-right"
+                                    tab={<span data-attr="insight-history-button">Historyyy</span>}
+                                    key="history"
+                                />
+                            ),
+                        }}
                     >
                         <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS} />
                         <TabPane tab={<span data-attr="insight-sessions-tab">Sessions</span>} key={ViewType.SESSIONS} />
@@ -123,6 +133,7 @@ function _Insights() {
                             key={ViewType.RETENTION}
                         />
                         <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS} />
+                        <TabPane className="spacer" />
                         <TabPane
                             className="pull-right"
                             tab={<span data-attr="insight-history-button">History</span>}

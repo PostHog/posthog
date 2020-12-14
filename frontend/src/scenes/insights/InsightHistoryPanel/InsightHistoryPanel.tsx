@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
@@ -36,6 +36,12 @@ function InsightPane({
 }): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
     const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
+
+    useEffect(() => {
+        loadInsights()
+        loadSavedInsights()
+        loadTeamInsights()
+    }, [])
 
     return (
         <Row gutter={[16, 16]}>
@@ -112,7 +118,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                     data-attr="insight-history-pane"
                 >
                     <InsightPane
-                        data={insights.map((insight) => ({ ...insight, name: insight.name || 'Unsaved insight' }))}
+                        data={insights.map((insight) => ({ ...insight }))}
                         loadMore={insightsNext && loadNextInsights}
                         loadingMore={loadingMoreInsights}
                         footer={(item) => <>Ran query {moment(item.created_at).fromNow()}</>}

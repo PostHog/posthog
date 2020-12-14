@@ -1,13 +1,12 @@
 import datetime
 import json
 from distutils.util import strtobool
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
-from rest_framework.request import Request
 
 from posthog.constants import (
     ACTIONS,
@@ -125,13 +124,28 @@ class Filter(PropertyMixin):
     def to_dict(self) -> Dict[str, Any]:
         ret = {}
 
-        for key, value in self.__dict__.items():
-            if key in ["entities"] or key.startswith("_"):
+        for key in dir(self):
+            value = getattr(self, key)
+            if key in [
+                "entities",
+                "determine_time_delta",
+                "date_filter_Q",
+                "custom_date_filter_Q",
+                "properties_to_Q",
+                "toJSON",
+                "to_dict",
+            ] or key.startswith("_"):
                 continue
             if isinstance(value, list) and len(value) == 0:
                 continue
             if not isinstance(value, list) and not value:
                 continue
+            if key == "date_from" and not self._date_from:
+                continue
+            if key == "date_to" and not self._date_to:
+                continue
+            if isinstance(value, datetime.datetime):
+                value = value.isoformat()
             if not isinstance(value, (list, bool, int, float, str)) and not hasattr(value, "__dict__"):
                 continue
             if isinstance(value, Entity):
@@ -210,12 +224,14 @@ class Filter(PropertyMixin):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
 
 
-def get_filter(team, data: Optional[dict] = {}, request: Optional[Request] = None) -> Filter:
+def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None) -> Filter:
     from posthog.models.filters.retention_filter import RetentionFilter
     from posthog.models.filters.sessions_filter import SessionsFilter
     from posthog.models.filters.stickiness_filter import StickinessFilter
 
-    insight = data.get("insight") or request.GET.get("insight")
+    insight = data.get("insight")
+    if not insight and request:
+        insight = request.GET.get("insight")
     if insight == INSIGHT_RETENTION:
         return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
     elif insight == INSIGHT_SESSIONS:

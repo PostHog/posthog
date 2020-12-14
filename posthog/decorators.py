@@ -37,14 +37,13 @@ def cached_function():
             # return cached result if possible
             if not request.GET.get("refresh", False):
                 cached_result = cache.get(cache_key)
-                print("cached result", filter.toJSON())
-                if cached_result:
+                if cached_result and cached_result.get("result"):
                     return cached_result["result"]
             # call function being wrapped
             result = f(*args, **kwargs)
 
             # cache new data
-            if result is not None:
+            if result is not None and (not isinstance(result, dict) or not result.get("loading")):
                 print(cache_key, result)
                 cache.set(
                     cache_key, {"result": result, "details": payload,}, CACHED_RESULTS_TTL,

@@ -226,7 +226,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     return result
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
-
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes

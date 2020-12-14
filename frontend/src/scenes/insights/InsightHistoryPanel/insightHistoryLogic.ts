@@ -6,9 +6,28 @@ import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
-const updateInsightState = (state, { item, insight }): DashboardItemType[] => {
+const updateInsightState = (
+    state,
+    { item, insight }: { item?: DashboardItemType; insight?: DashboardItemType },
+    isSaved: boolean
+): DashboardItemType[] => {
     item = item || insight
-    return state.map((i) => (i.id === item.id ? item : i))
+    if (!item) {
+        return state
+    }
+    let found = false
+    const map = state.map((i) => {
+        if (i.id === item.id) {
+            found = true
+            return item
+        }
+        return i
+    })
+    // If item is newly saved..
+    if (isSaved && !found && item.saved) {
+        map.unshift(item)
+    }
+    return map
 }
 
 export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
@@ -20,7 +39,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                     'api/insight/?' +
                         toParams({
                             order: '-created_at',
-                            limit: 6,
+                            limit: 20,
                             user: true,
                         })
                 )
@@ -68,12 +87,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
-            updateInsightSuccess: updateInsightState,
+            updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
-            updateInsightSuccess: updateInsightState,
+            updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [
@@ -164,14 +183,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             const response = await api.get(values.teamInsightsNext)
             actions.setTeamInsightsNext(response.next)
             actions.updateTeamInsights(response.results)
-        },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadInsights()
-            actions.loadSavedInsights()
-            actions.loadTeamInsights()
-            console.log('mounted!')
         },
     }),
 })
