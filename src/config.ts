@@ -26,20 +26,20 @@ export function getDefaultConfig(): PluginsServerConfig {
 
 export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     return {
-        CELERY_DEFAULT_QUEUE: 'celery outgoing queue',
-        DATABASE_URL: 'url for postgres',
-        PLUGINS_CELERY_QUEUE: 'celery incoming queue',
-        REDIS_URL: 'url for redis',
+        CELERY_DEFAULT_QUEUE: 'Celery outgoing queue',
+        PLUGINS_CELERY_QUEUE: 'Celery incoming queue',
+        DATABASE_URL: 'Postgres database URL',
+        REDIS_URL: 'Redis store URL',
         BASE_DIR: 'base path for resolving local plugins',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'redis channel for reload events',
-        DISABLE_WEB: 'do not start the web service',
-        WEB_PORT: 'port for web server',
-        WEB_HOSTNAME: 'hostname for web server',
+        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
+        DISABLE_WEB: 'whether to disable web server',
+        WEB_PORT: 'port for web server to listen on',
+        WEB_HOSTNAME: 'hostname for web server to listen on',
         WORKER_CONCURRENCY: 'number of concurrent worker threads',
         TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
         LOG_LEVEL: 'minimum log level',
-        SENTRY_DSN: 'sentry ingestion url',
-        STATSD_HOST: 'StatsD host - integration disabled if not provided',
+        SENTRY_DSN: 'Sentry ingestion URL',
+        STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
         STATSD_PREFIX: 'StatsD prefix',
     }
@@ -57,7 +57,7 @@ export function overrideWithEnv(
             if (typeof defaultConfig[key] === 'number') {
                 newConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
             } else if (typeof defaultConfig[key] === 'boolean') {
-                newConfig[key] = env[key] === 'true' || env[key] === 'True' || env[key] === '1'
+                newConfig[key] = env[key]?.toLowerCase() === 'true' || env[key] === '1'
             } else {
                 newConfig[key] = env[key]
             }
