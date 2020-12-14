@@ -65,8 +65,8 @@ export function PluginDrawer(): JSX.Element {
                                         placement="topLeft"
                                         title="Are you sure you wish to uninstall this plugin?"
                                         onConfirm={editingPlugin ? () => uninstallPlugin(editingPlugin.name) : () => {}}
-                                        okText="Yes"
-                                        cancelText="No"
+                                        okText="Uninstall"
+                                        cancelText="Cancel"
                                     >
                                         <Button style={{ color: 'var(--red)', float: 'left' }} type="link">
                                             <DeleteOutlined /> Uninstall

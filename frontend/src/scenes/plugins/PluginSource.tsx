@@ -48,7 +48,7 @@ export function PluginSource(): JSX.Element {
             visible={editingSource}
             onClose={() => setEditingSource(false)}
             width={'min(90vw, 820px)'}
-            title={`Edit Plugin: ${editingPlugin?.name}`}
+            title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"
             footer={
                 <div style={{ textAlign: 'right' }}>

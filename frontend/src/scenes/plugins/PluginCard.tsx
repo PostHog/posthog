@@ -61,10 +61,7 @@ export function PluginCard({
                 bodyStyle={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
             >
                 {pluginType === 'source' ? (
-                    <SourcePluginTag
-                        title="Source"
-                        style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }}
-                    />
+                    <SourcePluginTag style={{ position: 'absolute', top: 10, left: 10, cursor: 'pointer' }} />
                 ) : null}
                 {url?.startsWith('file:') ? (
                     <LocalPluginTag
@@ -130,7 +127,7 @@ export function PluginCard({
                             <Button
                                 type="primary"
                                 loading={loading}
-                                onClick={() => (url ? installPlugin(url, PluginInstallationType.Repository) : null)}
+                                onClick={url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined}
                                 icon={<PlusOutlined />}
                             >
                                 Install
