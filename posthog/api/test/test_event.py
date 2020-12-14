@@ -149,15 +149,33 @@ def test_event_api_factory(event_factory, person_factory, action_factory):
                 distinct_id="bla", event="random event", team=self.team, properties={"something_else": "qwerty"}
             )
             event_factory(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
+            event_factory(
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]}
+            )
+            event_factory(
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
+            )
+
             team2 = Team.objects.create()
             event_factory(distinct_id="bla", event="random event", team=team2, properties={"random_prop": "abcd"})
             response = self.client.get("/api/event/values/?key=random_prop").json()
 
             keys = [resp["name"].replace(" ", "") for resp in response]
             self.assertCountEqual(
-                keys, ["asdf", "qwerty", "565", "false", "true", '{"first_name":"Mary","last_name":"Smith"}']
+                keys,
+                [
+                    "asdf",
+                    "qwerty",
+                    "565",
+                    "false",
+                    "true",
+                    '{"first_name":"Mary","last_name":"Smith"}',
+                    "item1",
+                    "item2",
+                    "item3",
+                ],
             )
-            self.assertEqual(len(response), 6)
+            self.assertEqual(len(response), 9)
 
             response = self.client.get("/api/event/values/?key=random_prop&value=qw").json()
             self.assertEqual(response[0]["name"], "qwerty")

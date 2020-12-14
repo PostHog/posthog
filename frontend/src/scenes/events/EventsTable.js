@@ -44,7 +44,7 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                             ? `There is 1 new event. Click here to load it.`
                             : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
-                            colSpan: 5,
+                            colSpan: 6,
                             style: {
                                 cursor: 'pointer',
                             },
@@ -154,6 +154,38 @@ function _EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                 }
                 return (
                     <Tooltip title={moment(event.timestamp).format('LLL')}>{moment(event.timestamp).fromNow()}</Tooltip>
+                )
+            },
+        },
+        {
+            title: 'Usage',
+            key: 'usage',
+            render: function renderWhen({ event }) {
+                if (!event) {
+                    return { props: { colSpan: 0 } }
+                }
+
+                if (event.event === '$autocapture') {
+                    return <></>
+                }
+
+                let eventLink = ''
+
+                if (event.event === '$pageview') {
+                    const currentUrl = encodeURIComponent(event.properties.$current_url)
+                    eventLink = `/insights?interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22properties%22%3A%5B%7B%22key%22%3A%22%24current_url%22%2C%22value%22%3A%22${currentUrl}%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D`
+                } else {
+                    const eventTag = encodeURIComponent(event.event)
+                    eventLink = `/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22${eventTag}%22%2C%22name%22%3A%22${eventTag}%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=#backTo=Events&backToURL=${window.location.pathname}`
+                }
+
+                return (
+                    <Link
+                        to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
+                        data-attr="events-table-usage"
+                    >
+                        Insights <ExportOutlined />
+                    </Link>
                 )
             },
         },
