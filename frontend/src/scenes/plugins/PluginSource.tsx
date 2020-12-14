@@ -5,14 +5,43 @@ import { Button, Form, Input } from 'antd'
 import MonacoEditor from 'react-monaco-editor'
 import { Drawer } from 'lib/components/Drawer'
 
-const defaultCode = `// Write your plugin here!
-function processEvent(event) {
+const defaultSource = `// /* Runs on every event */
+function processEvent(event, { config }) {
+    // Some events (like $identify) don't have properties
     if (event.properties) {
-        event.properties['changed'] = true
+        event.properties['hello'] = \`Hello \${config.name || 'world'}\`
     }
+    
+    // Return the event to injest, return nothing to discard  
     return event
 }
+
+// /* Ran whenever the plugin VM initialises */
+// function setupPlugin (meta) {
+// 
+// }
+
+// /* Ran once per hour on each worker instance */
+// function runEveryHour(meta) {
+//     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
+//     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
+// }
 `
+
+const defaultConfig = [
+    {
+        markdown: 'Specify your config here',
+    },
+    {
+        key: 'username',
+        name: 'Person to greet',
+        type: 'string',
+        hint: 'Used to personalise the property `hello`',
+        default: '',
+        required: false,
+        order: 2,
+    },
+]
 
 export function PluginSource(): JSX.Element {
     const { editingPlugin, editingSource, loading } = useValues(pluginsLogic)
@@ -21,10 +50,11 @@ export function PluginSource(): JSX.Element {
 
     useEffect(() => {
         if (editingPlugin) {
+            const newPlugin = !editingPlugin.source && Object.keys(editingPlugin.config_schema).length === 0
             form.setFieldsValue({
-                name: editingPlugin.name || '',
-                source: editingPlugin.source || defaultCode,
-                configSchema: JSON.stringify(editingPlugin.config_schema, null, 2),
+                name: editingPlugin.name || 'Untitled Plugin',
+                source: newPlugin ? defaultSource : editingPlugin.source,
+                configSchema: JSON.stringify(newPlugin ? defaultConfig : editingPlugin.config_schema, null, 2),
             })
         } else {
             form.resetFields()
