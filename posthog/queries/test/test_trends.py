@@ -3,7 +3,7 @@ from datetime import datetime
 
 from freezegun import freeze_time
 
-from posthog.constants import TRENDS_LIFECYCLE
+from posthog.constants import TRENDS_LIFECYCLE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
 from posthog.test.base import APIBaseTest, BaseTest
@@ -144,7 +144,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 daily_response = trends().run(
                     Filter(
                         data={
-                            "display": "ActionsTable",
+                            "display": TRENDS_TABLE,
                             "interval": "week",
                             "events": [{"id": "sign up", "math": "dau"}],
                         }
@@ -155,11 +155,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
                     Filter(
-                        data={
-                            "display": "ActionsTable",
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                        }
+                        data={"display": TRENDS_TABLE, "interval": "day", "events": [{"id": "sign up", "math": "dau"}],}
                     ),
                     self.team,
                 )
@@ -200,7 +196,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 daily_response = trends().run(
                     Filter(
                         data={
-                            "display": "ActionsTable",
+                            "display": TRENDS_TABLE,
                             "interval": "week",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -212,7 +208,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 weekly_response = trends().run(
                     Filter(
                         data={
-                            "display": "ActionsTable",
+                            "display": TRENDS_TABLE,
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
                         }
@@ -277,7 +273,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 daily_response = trends().run(
                     Filter(
                         data={
-                            "display": "ActionsTable",
+                            "display": TRENDS_TABLE,
                             "interval": "week",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
@@ -290,7 +286,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 weekly_response = trends().run(
                     Filter(
                         data={
-                            "display": "ActionsTable",
+                            "display": TRENDS_TABLE,
                             "interval": "day",
                             "breakdown": "$some_property",
                             "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],

@@ -5,7 +5,7 @@ from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
 from django.utils import timezone
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 
 from .dashboard import Dashboard
@@ -42,10 +42,10 @@ class TeamManager(models.Manager):
                 team=team,
                 dashboard=dashboard,
                 name="Most popular browsers this week",
-                type="ActionsTable",
+                type=TRENDS_TABLE,
                 filters={
                     TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": "ActionsTable",
+                    "display": TRENDS_TABLE,
                     "breakdown": "$browser",
                 },
                 last_refresh=timezone.now(),

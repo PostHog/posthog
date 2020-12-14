@@ -7,6 +7,7 @@ TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
+TRENDS_TABLE = "ActionsTable"
 
 TRENDS_STICKINESS = "Stickiness"
 TRENDS_LIFECYCLE = "Lifecycle"

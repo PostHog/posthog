@@ -23,7 +23,7 @@ from ee.clickhouse.sql.trends.breakdown import (
 )
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_PIE, TRENDS_TABLE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -112,7 +112,7 @@ class ClickhouseTrendsBreakdown:
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = breakdown_query.format(
                 breakdown_filter=breakdown_filter, event_join=join_condition, aggregate_operation=aggregate_operation
@@ -152,7 +152,7 @@ class ClickhouseTrendsBreakdown:
     def _get_breakdown_query(self, filter: Filter):
         breakdown = filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
 
-        if filter.display == "ActionsTable" or filter.display == "ActionsPie":
+        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             return BREAKDOWN_AGGREGATE_DEFAULT_SQL if "all" in breakdown else BREAKDOWN_AGGREGATE_QUERY_SQL
         elif filter.breakdown_type == "cohort" and "all" in breakdown:
             return BREAKDOWN_DEFAULT_SQL
