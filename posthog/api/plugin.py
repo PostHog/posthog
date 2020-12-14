@@ -45,7 +45,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
-        if validated_data.get("plugin_type", None) != Plugin.SOURCE:
+        if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             self._update_validated_data_from_url(validated_data, validated_data["url"])
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
@@ -56,7 +56,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin upgrades via the web are disabled!")
-        if plugin.plugin_type != Plugin.SOURCE:
+        if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
@@ -96,10 +96,10 @@ class PluginSerializer(serializers.ModelSerializer):
 
             # Keep plugin type as "repository" or reset to "custom" if it was something else.
             if (
-                validated_data.get("plugin_type", None) != Plugin.CUSTOM
-                and validated_data.get("plugin_type", None) != Plugin.REPOSITORY
+                validated_data.get("plugin_type", None) != Plugin.PluginType.CUSTOM
+                and validated_data.get("plugin_type", None) != Plugin.PluginType.REPOSITORY
             ):
-                validated_data["plugin_type"] = Plugin.CUSTOM
+                validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
         return validated_data
 

@@ -3,18 +3,14 @@ from django.db import models
 
 
 class Plugin(models.Model):
-    LOCAL = "local"
-    CUSTOM = "custom"
-    REPOSITORY = "repository"
-    SOURCE = "source"
-    PLUGIN_TYPE_CHOICES = [
-        (LOCAL, LOCAL),  # url starts with "file:"
-        (CUSTOM, CUSTOM),  # github or npm url downloaded as zip or tar.gz into field "archive"
-        (REPOSITORY, REPOSITORY),  # same, but originating from our plugins.json repository
-        (SOURCE, SOURCE),  # coded inside the browser (versioned via plugin_source_version)
-    ]
+    class PluginType(models.TextChoices):
+        LOCAL = "local", "local"  # url starts with "file:"
+        CUSTOM = "custom", "custom"  # github or npm url downloaded as zip or tar.gz into field "archive"
+        REPOSITORY = "repository", "repository"  # same, but originating from our plugins.json repository
+        SOURCE = "source", "source"  # coded inside the browser (versioned via plugin_source_version)
+
     plugin_type: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True, choices=PLUGIN_TYPE_CHOICES, default=None
+        max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
