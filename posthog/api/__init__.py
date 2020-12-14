@@ -11,7 +11,6 @@ from . import (
     element,
     event,
     feature_flag,
-    funnel,
     insight,
     organization,
     organization_invite,
@@ -35,7 +34,6 @@ router = DefaultRouterPlusPlus()
 # legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
-router.register(r"funnel", funnel.FunnelViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)

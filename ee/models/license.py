@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, List, Optional, cast
 
 import requests
 from django.db import models
+from django.utils import timezone
 
 
 class LicenseError(Exception):
@@ -26,10 +27,10 @@ class LicenseManager(models.Manager):
 
         kwargs["valid_until"] = resp["valid_until"]
         kwargs["plan"] = resp["plan"]
-        return self._create(*args, **kwargs)
+        return cast(License, super().create(*args, **kwargs))
 
-    def _create(self, *args: Any, **kwargs: Any) -> "License":
-        return super().create(*args, **kwargs)
+    def first_valid(self) -> Optional["License"]:
+        return cast(Optional[License], (self.filter(valid_until__gte=timezone.now()).first()))
 
 
 class License(models.Model):
@@ -41,7 +42,11 @@ class License(models.Model):
     key: models.CharField = models.CharField(max_length=200)
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = ["zapier", "organizations_projects"]
+    ENTERPRISE_FEATURES = ["zapier", "organizations_projects", "google_login"]
     PLANS = {
         ENTERPRISE_PLAN: ENTERPRISE_FEATURES,
     }
+
+    @property
+    def available_features(self) -> List[str]:
+        return self.PLANS.get(self.plan, [])

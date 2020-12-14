@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
+from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
@@ -56,6 +57,7 @@ class Cohort(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     objects = CohortManager()
 
@@ -83,8 +85,12 @@ class Cohort(models.Model):
 
                 self.is_calculating = False
                 self.last_calculation = timezone.now()
+                self.errors_calculating = 0
                 self.save()
         except:
+            self.is_calculating = False
+            self.errors_calculating = F("errors_calculating") + 1
+            self.save()
             capture_exception()
 
     def __str__(self):

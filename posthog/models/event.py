@@ -126,6 +126,14 @@ class EventManager(models.QuerySet):
                     filter["match_{}__gt".format(index)] = F("match_{}".format(index - 1))
         return (subqueries, filter)
 
+    def earliest_timestamp(self, team_id: int):
+        return (
+            self.filter(team_id=team_id)
+            .order_by("timestamp")[0]
+            .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
+
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
@@ -208,13 +216,13 @@ class EventManager(models.QuerySet):
 
         return events
 
-    def filter_by_action(self, action, order_by="-id") -> models.QuerySet:
+    def filter_by_action(self, action: Action, order_by: str = "-id") -> models.QuerySet:
         events = self.filter(action=action).add_person_id(team_id=action.team_id)
         if order_by:
             events = events.order_by(order_by)
         return events
 
-    def filter_by_event_with_people(self, event, team_id, order_by="-id") -> models.QuerySet:
+    def filter_by_event_with_people(self, event, team_id: int, order_by: str = "-id") -> models.QuerySet:
         events = self.filter(team_id=team_id).filter(event=event).add_person_id(team_id=team_id)
         if order_by:
             events = events.order_by(order_by)

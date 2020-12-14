@@ -7,6 +7,7 @@ import { cohortsModel } from '../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+import { Link } from '../Link'
 
 const { TabPane } = Tabs
 
@@ -48,7 +49,7 @@ function PropertyPaneContents({
                             setThisFilter(
                                 newKey.value.replace(/^(event_|person_|element_)/gi, ''),
                                 undefined,
-                                operator,
+                                newKey.value === 'event_$active_feature_flags' ? 'icontains' : operator,
                                 newKey.type
                             )
                         }
@@ -243,6 +244,11 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     value={value}
                     displayOperatorAndValue={displayOperatorAndValue}
                 />
+                {type === 'cohort' && value ? (
+                    <Link to={`/cohorts/${value}`} target="_blank">
+                        <Col style={{ marginLeft: 10, marginTop: 5 }}> View </Col>
+                    </Link>
+                ) : null}
             </TabPane>
         </Tabs>
     )

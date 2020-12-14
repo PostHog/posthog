@@ -9,7 +9,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.event import Selector
 
 
-def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
+def format_action_filter(action: Action, prepend: str = "action", index=0, use_loop: bool = False) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk}
     steps = action.steps.all()
@@ -35,7 +35,9 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
             from ee.clickhouse.models.property import parse_prop_clauses
 
             prop_query, prop_params = parse_prop_clauses(
-                Filter(data={"properties": step.properties}).properties, action.team.pk
+                Filter(data={"properties": step.properties}).properties,
+                action.team.pk,
+                prepend="action_props_{}".format(index),
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -51,8 +53,8 @@ def format_action_filter(action: Action, prepend: str = "", index=0, use_loop: b
     return formatted_query, params
 
 
-def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[List[str], Dict]:
-    params = {}
+def filter_event(step: ActionStep, prepend: str = "event", index: int = 0) -> Tuple[List[str], Dict]:
+    params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
 
     if step.url:
@@ -72,7 +74,7 @@ def filter_event(step: ActionStep, prepend: str = "", index: int = 0) -> Tuple[L
             )
             params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
 
-    conditions.append("event = '{}'".format(step.event))
+    conditions.append("event = %({}_{})s".format(prepend, index))
 
     return conditions, params
 

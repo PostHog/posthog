@@ -90,7 +90,7 @@ function _Setup(): JSX.Element {
                 <h2 className="subtitle" id="webhook">
                     Webhook Integration
                 </h2>
-                <WebhookIntegration user={user} />
+                <WebhookIntegration />
                 <Divider />
                 <h2 className="subtitle" id="datacapture">
                     Data Capture Configuration

@@ -84,7 +84,7 @@ filter_events takes team_id, filter, entity and generates a Q objects that you c
 """
 
 
-def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None, include_dates: bool = True) -> Q:
+def filter_events(team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True) -> Q:
     filters = Q()
     if filter.date_from and include_dates:
         filters &= Q(timestamp__gte=filter.date_from)

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip } from 'antd'
+import { Table, Button, Spin, Space, Tooltip, Drawer } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -8,18 +8,40 @@ import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
 import moment from 'moment'
 import { SessionType } from '~/types'
-import { CaretLeftOutlined, CaretRightOutlined, PoweroffOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import {
+    CaretLeftOutlined,
+    CaretRightOutlined,
+    PoweroffOutlined,
+    QuestionCircleOutlined,
+    ArrowLeftOutlined,
+} from '@ant-design/icons'
 import SessionsPlayerButton from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
-import SessionsPlayerDrawer from 'scenes/sessions/SessionsPlayerDrawer'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SessionsPlay } from './SessionsPlay'
 import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
+}
+
+function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
+    const { closeSessionPlayer } = useActions(sessionsTableLogic)
+    return (
+        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
+            <>
+                <a onClick={closeSessionPlayer}>
+                    <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
+                </a>
+                <SessionsPlay />
+            </>
+        </Drawer>
+    )
 }
 
 export function SessionsTable({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
@@ -32,10 +54,12 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         selectedDate,
         properties,
         sessionRecordingId,
+        duration,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns = [
         {
@@ -146,12 +170,20 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
                     value={selectedDate}
-                    onChange={(date) => setFilters(properties, date, sessionRecordingId)}
+                    onChange={(date) => setFilters(properties, date, duration)}
                     allowClear={false}
                 />
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} />
             </Space>
+
+            {featureFlags['filter_by_session_props'] && (
+                <SessionRecordingFilters
+                    duration={duration}
+                    onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
+                />
+            )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
@@ -170,7 +202,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     expandRowByClick: true,
                 }}
             />
-            {!!sessionRecordingId && <SessionsPlayerDrawer />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

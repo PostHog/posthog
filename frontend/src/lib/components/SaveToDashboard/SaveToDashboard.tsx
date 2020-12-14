@@ -29,8 +29,6 @@ export function SaveToDashboard(props: Props): JSX.Element {
     let _filters: Record<string, any> | null = null
     let _annotations: Array<Record<string, any>> | null = null
 
-    const _type: string = item.type
-
     if ('filters' in item.entity) {
         _filters = item.entity.filters
         _annotations = item.entity.annotations
@@ -44,7 +42,6 @@ export function SaveToDashboard(props: Props): JSX.Element {
                 <SaveToDashboardModal
                     closeModal={(): void => setOpenModal(false)}
                     name={_name}
-                    type={_type}
                     filters={_filters}
                     fromItem={fromItem}
                     fromDashboard={fromDashboard}

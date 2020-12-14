@@ -1,13 +1,30 @@
 from typing import Any, Dict, Optional
 
+import posthoganalytics
 from django.conf import settings
+from django.contrib.auth import login, password_validation
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, request, response, serializers, status, viewsets
+from rest_framework import (
+    exceptions,
+    generics,
+    permissions,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 
-from posthog.models import Organization
+from posthog.api.user import UserSerializer
+from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    CREATE_METHODS,
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+    UninitiatedOrCloudOnly,
+)
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -91,3 +108,47 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         organization = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, organization)
         return organization
+
+
+class OrganizationSignupSerializer(serializers.Serializer):
+    first_name: serializers.Field = serializers.CharField(max_length=128)
+    email: serializers.Field = serializers.EmailField()
+    password: serializers.Field = serializers.CharField()
+    company_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+
+    def validate_password(self, value):
+        password_validation.validate_password(value)
+        return value
+
+    def create(self, validated_data, **kwargs):
+        is_first_user: bool = not User.objects.exists()
+        realm: str = "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+
+        company_name = validated_data.pop("company_name", validated_data["first_name"])
+        self._organization, self._team, self._user = User.objects.bootstrap(company_name=company_name, **validated_data)
+        user = self._user
+        login(
+            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+        )
+
+        posthoganalytics.capture(
+            user.distinct_id,
+            "user signed up",
+            properties={"is_first_user": is_first_user, "is_organization_first_user": True},
+        )
+
+        posthoganalytics.identify(
+            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": settings.EE_AVAILABLE},
+        )
+
+        return user
+
+    def to_representation(self, instance):
+        serializer = UserSerializer(instance=instance)
+        return serializer.data
+
+
+class OrganizationSignupViewset(generics.CreateAPIView):
+    serializer_class = OrganizationSignupSerializer
+    permission_classes = [UninitiatedOrCloudOnly]

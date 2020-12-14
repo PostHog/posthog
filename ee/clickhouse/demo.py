@@ -13,8 +13,10 @@ from ee.clickhouse.models.person import update_person_is_identified, update_pers
 from posthog.management.commands.generate_app_data import generate_app_data
 from posthog.management.commands.generate_revenue_data import generate_revenue_data
 from posthog.models import Team
+
 from posthog.models.element import Element
 from posthog.models.person import Person
+from posthog.models.team import Team
 
 
 def create_anonymous_users_ch(team: Team, base_url: str, organization: str) -> None:

@@ -9,7 +9,6 @@ import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
 import { ActionsTable } from 'scenes/insights/ActionsTable'
 import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
-import { RetentionTable } from 'scenes/retention/RetentionTable'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { Paths } from 'scenes/paths/Paths'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -35,7 +34,7 @@ import moment from 'moment'
 import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { RetentionLineGraph } from 'scenes/retention/RetentionLineGraph'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -91,24 +90,11 @@ const typeMap = {
             ).url
         },
     },
-    RetentionTable: {
+    RetentionContainer: {
         className: 'retention',
-        element: RetentionTable,
+        element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View table',
-        link: ({ id, dashboard, name, filters }) => {
-            return combineUrl(
-                `/insights`,
-                { insight: ViewType.Retention, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
-    },
-    RetentionGraph: {
-        className: 'retention-graph',
-        element: RetentionLineGraph,
-        icon: LineChartOutlined,
-        viewText: 'View graph',
+        viewText: 'View retention',
         link: ({ id, dashboard, name, filters }) => {
             return combineUrl(
                 `/insights`,
@@ -148,11 +134,12 @@ export function DashboardItem({
     onRefresh,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
-    const className = typeMap[item.type].className
-    const Element = typeMap[item.type].element
-    const Icon = typeMap[item.type].icon
-    const viewText = typeMap[item.type].viewText
-    const link = typeMap[item.type].link(item)
+    const _type = item.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : item.filters.display
+    const className = typeMap[_type].className
+    const Element = typeMap[_type].element
+    const Icon = typeMap[_type].icon
+    const viewText = typeMap[_type].viewText
+    const link = typeMap[_type].link(item)
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 

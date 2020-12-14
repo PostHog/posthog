@@ -15,7 +15,6 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
-    SessionsPlay = 'sessionsPlay',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
@@ -25,7 +24,7 @@ export enum Scene {
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
-    InstanceStatus = 'instanceStatus',
+    SystemStatus = 'systemStatus',
     InstanceLicenses = 'instanceLicenses',
     MySettings = 'mySettings',
     Annotations = 'annotations',
@@ -52,7 +51,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
-    [Scene.SessionsPlay]: () => import(/* webpackChunkName: 'sessionsPlay' */ './sessions/SessionsPlay'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
@@ -65,7 +63,7 @@ export const scenes: Record<Scene, () => any> = {
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
     [Scene.ProjectCreateFirst]: () => import(/* webpackChunkName: 'projectCreateFirst' */ './project/Create'),
-    [Scene.InstanceStatus]: () => import(/* webpackChunkName: 'instanceStatus' */ './instance/SystemStatus'),
+    [Scene.SystemStatus]: () => import(/* webpackChunkName: 'systemStatus' */ './instance/SystemStatus'),
     [Scene.InstanceLicenses]: () => import(/* webpackChunkName: 'instanceLicenses' */ './instance/Licenses'),
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
@@ -104,9 +102,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectCreateFirst]: {
         plain: true,
     },
-    [Scene.SessionsPlay]: {
-        plain: true,
-    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
@@ -124,11 +119,10 @@ export const routes: Record<string, Scene> = {
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
-    '/sessions/play': Scene.SessionsPlay,
     '/person_by_id/:id': Scene.Person,
     '/person/*': Scene.Person,
     '/persons': Scene.Persons,
-    '/cohorts/new': Scene.Persons,
+    '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
     '/annotations': Scene.Annotations,
@@ -140,7 +134,7 @@ export const routes: Record<string, Scene> = {
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
-    '/instance/status': Scene.InstanceStatus,
+    '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
@@ -291,6 +285,9 @@ export const sceneLogic = kea<sceneLogicType>({
                                 ? others[Object.keys(others)[0]]
                                 : values.loadedScenes['404'].component,
                         logic: logic,
+                    }
+                    if (Object.keys(others).length > 1) {
+                        console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
                 actions.setLoadedScene(scene, loadedScene)

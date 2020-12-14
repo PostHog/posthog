@@ -56,7 +56,6 @@ const saveToDashboardModalLogic = kea({
 
 const radioStyle = {
     display: 'block',
-    lineHeight: 30,
     overflow: 'hidden',
     whiteSpace: 'normal',
 }
@@ -64,7 +63,6 @@ const radioStyle = {
 export function SaveToDashboardModal({
     closeModal,
     name: initialName,
-    type,
     filters,
     fromItem,
     fromDashboard,
@@ -85,7 +83,6 @@ export function SaveToDashboardModal({
         if (newItem) {
             const response = await api.create('api/dashboard_item', {
                 filters,
-                type,
                 name,
                 dashboard: dashboardId,
             })
@@ -101,7 +98,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
+            await api.update(`api/dashboard_item/${fromItem}`, { filters })
         }
         toast(
             <div data-attr="success-toast">

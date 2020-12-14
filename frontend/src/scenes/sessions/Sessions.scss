@@ -11,8 +11,10 @@
 }
 
 .session-player {
-    padding: $default_spacing * 2 $default_spacing 0;
-    height: calc(100vh - #{$top_nav_height});
+    padding: $default_spacing * 2 $default_spacing $default_spacing;
+    height: calc(
+        100vh - 48px - #{$default_spacing * 2}
+    ); // 24px (top & bottom, each) for .ant-drawer-body; + padding-top for this item
 
     .player-container {
         height: calc(100% - 30px);

@@ -61,7 +61,7 @@ class Organization(UUIDModel):
 
         # Otherwise, try to find a valid license on this instance
         if License is not None:
-            license = License.objects.filter(valid_until__gte=timezone.now()).first()
+            license = License.objects.first_valid()
             if license:
                 return (license.plan, "ee")
         return (None, None)
@@ -75,12 +75,8 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             return []
-
         if realm == "ee":
-            if plan not in License.PLANS:
-                return []
-            return License.PLANS[plan]
-
+            return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
 
     def is_feature_available(self, feature: str) -> bool:

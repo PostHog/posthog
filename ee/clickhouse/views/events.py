@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from rest_framework import viewsets
@@ -11,12 +12,13 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
-from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.queries.sessions.list import SESSIONS_LIST_DEFAULT_LIMIT, ClickhouseSessionsList
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL, SELECT_ONE_EVENT_SQL
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
-from posthog.utils import convert_property_value
+from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
@@ -90,13 +92,42 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
-
         key = request.GET.get("key")
         team = self.team
         result = []
+        flattened = []
         if key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
-        return Response([{"name": convert_property_value(value[0])} for value in result])
+            for value in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append(json.loads(value[0]))
+                except json.decoder.JSONDecodeError:
+                    flattened.append(value[0])
+        return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
+
+    @action(methods=["GET"], detail=False)
+    def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = SessionsFilter(request=request)
+
+        limit = int(request.GET.get("limit", SESSIONS_LIST_DEFAULT_LIMIT))
+        offset = int(request.GET.get("offset", 0))
+
+        response = ClickhouseSessionsList().run(team=team, filter=filter, limit=limit + 1, offset=offset)
+
+        if filter.distinct_id:
+            try:
+                person_ids = get_persons_by_distinct_ids(team.pk, [filter.distinct_id])[0].distinct_ids
+                response = [session for i, session in enumerate(response) if response[i]["distinct_id"] in person_ids]
+            except IndexError:
+                response = []
+
+        if len(response) > limit:
+            response.pop()
+            return Response({"result": response, "offset": offset + limit})
+        else:
+            return Response({"result": response,})
 
     # ******************************************
     # /event/session_recording
@@ -106,7 +137,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET.get("session_recording_id")
+            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )
 
         return Response({"result": session_recording})
