@@ -1,4 +1,4 @@
-import { formatLabel, identifierToHuman, midEllipsis } from './utils'
+import { formatLabel, identifierToHuman, midEllipsis, isURL } from './utils'
 
 describe('identifierToHuman()', () => {
     it('humanizes properly', () => {
@@ -54,5 +54,24 @@ describe('midEllipsis()', () => {
         expect(midEllipsis('1234567890', 8)).toEqual('1234...7890')
         expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F...oSdWwrEWtdBeM')
         expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25).length).toBeLessThanOrEqual(28) // 25 + 3 (...)
+    })
+})
+
+describe('isURL()', () => {
+    it('recognizes URLs propertly', () => {
+        expect(isURL('https://www.posthog.com')).toEqual(true)
+        expect(isURL('http://www.posthog.com')).toEqual(true)
+        expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
+    })
+
+    it('recognizes non-URLs propertly', () => {
+        expect(isURL('1234567890')).toEqual(false)
+        expect(isURL('www.posthog')).toEqual(false)
+        expect(isURL('http://posthog')).toEqual(false)
+        expect(isURL('-.posthog')).toEqual(false)
+        expect(isURL('posthog.3')).toEqual(false)
+        expect(isURL(1)).toEqual(false)
+        expect(isURL(true)).toEqual(false)
+        expect(isURL(null)).toEqual(false)
     })
 })

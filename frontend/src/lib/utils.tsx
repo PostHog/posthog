@@ -247,6 +247,7 @@ export function formatLabel(label: string, action: Record<string, any>): string 
 }
 
 export function deletePersonData(person: Record<string, any>, callback: () => void): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     if (window.confirm('Are you sure you want to delete this user? This cannot be undone')) {
         api.delete('api/person/' + person.id).then(() => {
             toast('Person succesfully deleted.')
@@ -258,6 +259,7 @@ export function deletePersonData(person: Record<string, any>, callback: () => vo
 }
 
 export function savePersonData(person: Record<string, any>): void {
+    // DEPRECATED: Remove after releasing PersonsV2 (persons-2353)
     api.update('api/person/' + person.id, person).then(() => {
         toast('Person Updated')
     })
@@ -381,13 +383,13 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isURL(string: string): boolean {
-    if (!string) {
+export function isURL(input: any): boolean {
+    if (!input || typeof input !== 'string') {
         return false
     }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
     const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!string.match?.(regexp)
+    return !!input.match?.(regexp)
 }
 
 export function isEmail(string: string): boolean {

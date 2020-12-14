@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { personsLogicType } from 'types/scenes/persons/personsLogicType'
 import { PersonType } from '~/types'
 
@@ -15,6 +16,7 @@ const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     actions: {
         setListFilters: (payload) => ({ payload }),
+        editProperty: (key, newValue) => ({ key, newValue }),
     },
     reducers: {
         listFilters: [
@@ -33,6 +35,20 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
     },
+    listeners: ({ actions, values }) => ({
+        deletePersonSuccess: () => {
+            toast('Person deleted successfully')
+            actions.loadPersons()
+            router.actions.push('/persons')
+        },
+        editProperty: async ({ key, newValue }) => {
+            const person = values.person
+            person.properties[key] = newValue
+            actions.setPerson(person) // To update the UI immediately while the request is being processed
+            const response = await api.update(`api/person/${person.id}`, person)
+            actions.setPerson(response)
+        },
+    }),
     loaders: ({ values }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
@@ -52,6 +68,34 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 },
             },
         ],
+        person: [
+            null as PersonType | null,
+            {
+                loadPerson: async (id: string): Promise<PersonType> => {
+                    const response = await api.get(`api/person/?distinct_id=${id}`)
+                    if (!response.results.length) {
+                        router.actions.push('/404')
+                    }
+                    return response.results[0]
+                },
+                setPerson: (person: PersonType): PersonType => {
+                    // Used after merging persons to update the view without an additional request
+                    return person
+                },
+            },
+        ],
+        deletedPerson: [
+            false,
+            {
+                deletePerson: async () => {
+                    if (!values.person) {
+                        return false
+                    }
+                    await api.delete(`api/person/${values.person.id}`)
+                    return true
+                },
+            },
+        ],
     }),
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
@@ -67,6 +111,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 // Initial load
                 actions.loadPersons()
             }
+        },
+        '/person/:id': ({ id }: { id: string }) => {
+            actions.loadPerson(id)
         },
     }),
 })

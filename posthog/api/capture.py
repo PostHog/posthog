@@ -198,10 +198,11 @@ def get_event(request):
             )
         else:
             task_name = "posthog.tasks.process_event.process_event"
-            celery_queue = settings.CELERY_DEFAULT_QUEUE
             if team.plugins_opt_in:
                 task_name += "_with_plugins"
                 celery_queue = settings.PLUGINS_CELERY_QUEUE
+            else:
+                celery_queue = settings.CELERY_DEFAULT_QUEUE
 
             celery_app.send_task(
                 name=task_name,
@@ -217,8 +218,7 @@ def get_event(request):
                 ],
             )
 
-        if is_ee_enabled() and settings.LOG_TO_WAL:
-            # log the event to kafka write ahead log for processing
+        if is_ee_enabled():
             log_event(
                 distinct_id=distinct_id,
                 ip=get_ip_address(request),

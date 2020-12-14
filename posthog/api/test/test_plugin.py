@@ -89,6 +89,7 @@ class TestPluginAPI(APIBaseTest):
                 response.data,
                 {
                     "id": response.data["id"],  # type: ignore
+                    "plugin_type": "custom",
                     "name": "helloworldplugin",
                     "description": "Greet the World and Foo a Bar, JS edition!",
                     "url": "https://github.com/PostHog/helloworldplugin",
@@ -96,7 +97,7 @@ class TestPluginAPI(APIBaseTest):
                         "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False,},
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                    "error": None,
+                    "source": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -122,6 +123,7 @@ class TestPluginAPI(APIBaseTest):
                 response.data,
                 {
                     "id": response.data["id"],  # type: ignore
+                    "plugin_type": "custom",
                     "name": "helloworldplugin",
                     "description": "Greet the World and Foo a Bar, JS edition!",
                     "url": "https://github.com/PostHog/helloworldplugin",
@@ -129,7 +131,7 @@ class TestPluginAPI(APIBaseTest):
                         "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False,},
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                    "error": None,
+                    "source": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
@@ -148,6 +150,7 @@ class TestPluginAPI(APIBaseTest):
                 response2.data,
                 {
                     "id": response.data["id"],  # type: ignore
+                    "plugin_type": "custom",
                     "name": "helloworldplugin",
                     "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
                     "url": "https://github.com/PostHog/helloworldplugin",
@@ -156,10 +159,37 @@ class TestPluginAPI(APIBaseTest):
                         "foodb": {"name": "Upload your database", "type": "attachment", "required": False,},
                     },
                     "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
-                    "error": None,
+                    "source": None,
                 },
             )
             self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(mock_reload.call_count, 2)
+
+    def test_create_plugin_source(self, mock_get, mock_reload):
+        with self.settings(PLUGINS_INSTALL_VIA_API=True, PLUGINS_CONFIGURE_VIA_API=True):
+            self.assertEqual(mock_reload.call_count, 0)
+            response = self.client.post(
+                "/api/plugin/", {"plugin_type": "source", "name": "myplugin", "source": "const processEvent = e => e",}
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(
+                response.data,
+                {
+                    "id": response.data["id"],  # type: ignore
+                    "plugin_type": "source",
+                    "name": "myplugin",
+                    "description": None,
+                    "url": None,
+                    "config_schema": {},
+                    "tag": None,
+                    "source": "const processEvent = e => e",
+                },
+            )
+            self.assertEqual(Plugin.objects.count(), 1)
+            self.assertEqual(mock_reload.call_count, 1)
+
+            self.client.delete("/api/plugin/{}".format(response.data["id"]))  # type: ignore
+            self.assertEqual(Plugin.objects.count(), 0)
             self.assertEqual(mock_reload.call_count, 2)
 
     def test_plugin_repository(self, mock_get, mock_reload):
