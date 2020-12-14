@@ -16,7 +16,6 @@ const typeToInsightMap: Record<string, string> = {
 const parseInsight = (result: Record<string, any>): InsightHistory => {
     return {
         filters: result.filters,
-        type: result.filters.insight || typeToInsightMap[result.type],
         id: result.id,
         createdAt: result.created_at,
         saved: result.saved,

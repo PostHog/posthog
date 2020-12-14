@@ -187,7 +187,6 @@ export interface CohortType {
 
 export interface InsightHistory {
     id: number
-    type: string
     filters: Record<string, any>
     name?: string
     createdAt: string

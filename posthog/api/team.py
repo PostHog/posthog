@@ -1,6 +1,5 @@
 from typing import Any, Dict
 
-import posthoganalytics
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
@@ -123,21 +122,3 @@ class TeamViewSet(viewsets.ModelViewSet):
         team.api_token = generate_random_token()
         team.save()
         return response.Response(TeamSerializer(team).data)
-
-
-class TeamSignupViewset(OrganizationSignupViewset):
-    """
-    DEPRECATED: Only for transition purposes to support posthog-production repo. May be removed after
-    https://github.com/PostHog/posthog-production/pull/54 is merged.
-    """
-
-    pass
-
-
-class TeamSignupSerializer(OrganizationSignupSerializer):
-    """
-    DEPRECATED: Only for transition purposes to support posthog-production repo. May be removed after
-    https://github.com/PostHog/posthog-production/pull/54 is merged.
-    """
-
-    pass

@@ -1,18 +1,12 @@
-import datetime
-import random
-import string
-from datetime import timedelta
 from typing import Any, Dict, List, Tuple, Union
 
-from dateutil.relativedelta import relativedelta
-from django.core.cache import cache
 from django.db import connection
 from django.db.models import Min
 from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
-from django.utils.timezone import now
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Event, Filter, Team
@@ -21,7 +15,6 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery
-from posthog.utils import generate_cache_key
 
 
 class Retention(BaseQuery):
@@ -76,7 +69,7 @@ class Retention(BaseQuery):
         }
         return [result]
 
-    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _determine_query_params(self, filter: RetentionFilter, team: Team):
 
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -122,8 +115,28 @@ class Retention(BaseQuery):
                 .union(first_date.values_list("first_date", "person_id", "event", "action"))
             )
 
+        start_params = (
+            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+        )
+
         event_query, events_query_params = final_query.query.sql_with_params()
         reference_event_query, first_date_params = first_date.query.sql_with_params()
+
+        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
+
+        return (
+            {
+                "event_query": event_query,
+                "reference_event_query": reference_event_query,
+                "fields": fields,
+                "return_condition": returning_condition_stringified,
+                "target_condition": entity_condition_strigified,
+            },
+            start_params + events_query_params + first_date_params + event_params,
+        )
+
+    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+        format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
             SELECT
@@ -138,56 +151,16 @@ class Retention(BaseQuery):
             OR ({target_condition} AND event_date = first_date)
             GROUP BY date, first_date
         """.format(
-            event_query=event_query,
-            reference_event_query=reference_event_query,
-            fields=fields,
-            return_condition=returning_condition_stringified,
-            target_condition=entity_condition_strigified,
-        )
-        event_params = (filter.target_entity.id, filter.returning_entity.id, filter.target_entity.id)
-
-        start_params = (
-            (filter.date_from, filter.date_from) if period == "Month" or period == "Hour" else (filter.date_from,)
+            **format_fields
         )
 
         with connection.cursor() as cursor:
-            cursor.execute(
-                final_query, start_params + events_query_params + first_date_params + event_params,
-            )
+            cursor.execute(final_query, params)
             data = namedtuplefetchall(cursor)
 
-            scores: dict = {}
-            for datum in data:
-                key = round(datum.first_date, 1)
-                if not scores.get(key, None):
-                    scores.update({key: {}})
-                for person in datum.people:
-                    if not scores[key].get(person, None):
-                        scores[key].update({person: 1})
-                    else:
-                        scores[key][person] += 1
-
-        by_dates = {}
-        for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
-
-            random_key = "".join(
-                random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
-            )
-            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
-            cache.set(
-                cache_key, people, 600,
-            )
-            by_dates.update(
-                {
-                    (int(row.first_date), int(row.date)): {
-                        "count": row.count,
-                        "people": people[0:100],
-                        "offset": 100,
-                        "next": cache_key if len(people) > 100 else None,
-                    }
-                }
-            )
+            by_dates = {}
+            for row in data:
+                by_dates.update({(int(row.first_date), int(row.date)): {"count": row.count}})
 
         return by_dates
 
@@ -265,6 +238,63 @@ class Retention(BaseQuery):
 
         return PersonSerializer(people, many=True).data
 
+    def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+        results = self._retrieve_people_in_period(filter, team)
+        return results
+
+    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+
+        filter._date_from = (filter.date_from + filter.selected_interval * filter.period_increment).isoformat()
+        format_fields, params = self._determine_query_params(filter, team)
+
+        final_query = """
+            SELECT person_id, count(person_id) appearance_count, array_agg(date) appearances FROM (
+                SELECT DISTINCT
+                    {fields}
+                    "events"."person_id"
+                FROM ({event_query}) events
+                LEFT JOIN ({reference_event_query}) first_event_date
+                ON (events.person_id = first_event_date.person_id)
+                WHERE event_date >= first_date
+                AND {target_condition} AND {return_condition}
+                OR ({target_condition} AND event_date = first_date)
+            ) person_appearances
+            WHERE first_date = 0
+            GROUP BY person_id
+            ORDER BY appearance_count DESC
+            LIMIT %s OFFSET %s
+        """.format(
+            **format_fields
+        )
+
+        result = []
+
+        from posthog.api.person import PersonSerializer
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                final_query, params + (100, filter.offset),
+            )
+            raw_results = cursor.fetchall()
+            people_dict = {}
+            for person in Person.objects.filter(team_id=team.pk, id__in=[val[0] for val in raw_results]):
+                people_dict.update({person.pk: PersonSerializer(person).data})
+
+            result = self.process_people_in_period(filter, raw_results, people_dict)
+
+        return result
+
+    def process_people_in_period(
+        self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
+    ) -> List[Dict[str, Any]]:
+        marker_length = filter.total_intervals - filter.selected_interval
+        result = []
+        for val in vals:
+            result.append(
+                {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+            )
+        return result
+
     def get_entity_condition(self, entity: Entity, table: str) -> Tuple[Q, str]:
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             return Q(event=entity.id), "{}.event = %s".format(table)
@@ -302,3 +332,10 @@ class Retention(BaseQuery):
             return TruncMonth(subject), fields
         else:
             raise ValueError(f"Period {period} is unsupported.")
+
+
+def appearance_to_markers(vals: List, num_intervals: int) -> List:
+    markers = [0 for _ in range(num_intervals)]
+    for val in vals:
+        markers[int(val)] = 1
+    return markers
