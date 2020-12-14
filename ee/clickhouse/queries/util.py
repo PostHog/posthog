@@ -7,9 +7,10 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.types import Filter_type
 
 
-def parse_timestamps(filter: Union[Filter, PathFilter], team_id: int, table: str = "") -> Tuple[str, str, dict]:
+def parse_timestamps(filter: Filter_type, team_id: int, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}

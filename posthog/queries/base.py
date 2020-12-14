@@ -7,6 +7,7 @@ from django.db.models import Q, QuerySet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Entity, Event, Filter, Team
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.types import Comparable_filter_type
 from posthog.utils import get_compare_period_dates
 
 """
@@ -25,7 +26,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def determine_compared_filter(filter: Filter) -> Filter:
+def determine_compared_filter(filter: Comparable_filter_type) -> Comparable_filter_type:
     if not filter.date_to or not filter.date_from:
         raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
@@ -35,7 +36,9 @@ def determine_compared_filter(filter: Filter) -> Filter:
     return compared_filter
 
 
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+def convert_to_comparison(
+    trend_entity: List[Dict[str, Any]], filter: Comparable_filter_type, label: str
+) -> List[Dict[str, Any]]:
     for entity in trend_entity:
         days = [i for i in range(len(entity["days"]))]
         labels = [
@@ -62,7 +65,7 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
 """
 
 
-def handle_compare(filter: Filter, func: Callable, team: Team, **kwargs) -> List:
+def handle_compare(filter: Comparable_filter_type, func: Callable, team: Team, **kwargs) -> List:
     entities_list = []
     trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
     if filter.compare:

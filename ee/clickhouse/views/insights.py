@@ -29,8 +29,10 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = Filter(request=request)
 
         if filter.shown_as == TRENDS_STICKINESS:
-            filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
-            result = ClickhouseStickiness().run(filter, team)
+            stickiness_filter = StickinessFilter(
+                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
+            )
+            result = ClickhouseStickiness().run(stickiness_filter, team)
         else:
             result = ClickhouseTrends().run(filter, team)
 

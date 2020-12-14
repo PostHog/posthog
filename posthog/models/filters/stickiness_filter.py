@@ -11,7 +11,7 @@ from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.common import CompareMixin, IntervalMixin, OffsetMixin, ShownAsMixin
+from posthog.models.filters.mixins.common import CompareMixin, DateMixin, IntervalMixin, OffsetMixin, ShownAsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.stickiness import (
     EntityIdMixin,
@@ -33,6 +33,7 @@ class StickinessFilter(
     OffsetMixin,
     CompareMixin,
     ShownAsMixin,
+    DateMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable

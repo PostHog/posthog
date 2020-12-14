@@ -88,7 +88,7 @@ class ClickhouseFunnel(Funnel):
 
         for step in reversed(self._filter.entities):
             # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]  # type: ignore
+            result_step = [x for x in results if step.order + 1 == x[0]]
             if len(result_step) > 0:
                 total_people += result_step[0][1]
                 relevant_people += result_step[0][2]
