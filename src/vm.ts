@@ -1,11 +1,9 @@
 import { VM } from 'vm2'
 import fetch from 'node-fetch'
 import { createConsole } from './extensions/console'
-import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
-import { PluginEvent } from 'posthog-plugins'
 import { createCache } from './extensions/cache'
-import { createInternalPostHogInstance } from 'posthog-js-lite'
-import { performance } from 'perf_hooks'
+import { createPosthog } from './extensions/posthog'
+import { PluginsServer, PluginConfig, PluginConfigVMReponse } from './types'
 
 function areWeTestingWithJest() {
     return process.env.JEST_WORKER_ID !== undefined
@@ -22,6 +20,8 @@ export function createPluginConfigVM(
     })
     vm.freeze(createConsole(), 'console')
     vm.freeze(fetch, 'fetch')
+    vm.freeze(createPosthog(server, pluginConfig), 'posthog')
+
     if (areWeTestingWithJest()) {
         vm.freeze(setTimeout, '__jestSetTimeout')
     }
