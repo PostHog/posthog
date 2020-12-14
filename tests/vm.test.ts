@@ -4,6 +4,9 @@ import { PluginEvent } from 'posthog-plugins'
 import { createServer } from '../src/server'
 import * as fetch from 'node-fetch'
 import { delay } from '../src/utils'
+import Client from '../src/celery/client'
+
+jest.mock('../src/celery/client')
 
 const defaultEvent = {
     distinct_id: 'my_id',
@@ -42,6 +45,7 @@ const mockConfig: PluginConfig = {
 }
 
 beforeEach(async () => {
+    ;(Client as any).mockClear()
     mockServer = (await createServer())[0]
 })
 
@@ -614,4 +618,41 @@ test('runEvery must be a function', async () => {
     expect(Object.values(vm.tasks).map((v) => v?.name)).toEqual(['runEveryMinute'])
     expect(Object.values(vm.tasks).map((v) => v?.type)).toEqual(['runEvery'])
     expect(Object.values(vm.tasks).map((v) => typeof v?.exec)).toEqual(['function'])
+})
+
+test('posthog in runEvery', async () => {
+    const indexJs = `
+        function runEveryMinute(meta) {
+            posthog.capture('my-new-event', { random: 'properties' })
+            return 'haha'
+        }
+    `
+    const vm = createPluginConfigVM(mockServer, mockConfig, indexJs)
+
+    expect(Client).not.toHaveBeenCalled
+
+    const response = await vm.tasks.runEveryMinute.exec()
+    expect(response).toBe('haha')
+
+    expect(Client).toHaveBeenCalledTimes(1)
+    expect((Client as any).mock.calls[0][1]).toEqual(mockServer.PLUGINS_CELERY_QUEUE)
+
+    const mockClientInstance = (Client as any).mock.instances[0]
+    const mockSendTask = mockClientInstance.sendTask
+
+    expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
+    expect(mockSendTask.mock.calls[0][1]).toEqual([
+        'mock-plugin',
+        null,
+        null,
+        expect.objectContaining({
+            distinct_id: 'mock-plugin',
+            event: 'my-new-event',
+            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
+        }),
+        2,
+        mockSendTask.mock.calls[0][1][5],
+        mockSendTask.mock.calls[0][1][6],
+    ])
+    expect(mockSendTask.mock.calls[0][2]).toEqual({})
 })
