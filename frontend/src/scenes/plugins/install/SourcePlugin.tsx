@@ -19,7 +19,7 @@ export function SourcePlugin(): JSX.Element {
                             value={sourcePluginName}
                             disabled={loading}
                             onChange={(e) => setSourcePluginName(e.target.value)}
-                            placeholder="The Funky Chicken Plugin"
+                            placeholder={`For example: "Hourly Weather Sync Plugin"`}
                         />
                     </Col>
                     <Col>
