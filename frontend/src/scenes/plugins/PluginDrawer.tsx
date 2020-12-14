@@ -91,7 +91,7 @@ export function PluginDrawer(): JSX.Element {
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
                                 <div>
-                                    <PluginImage url={editingPlugin.url} />
+                                    <PluginImage pluginType={editingPlugin.plugin_type} url={editingPlugin.url} />
                                 </div>
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
                                     {editingPlugin.description}
