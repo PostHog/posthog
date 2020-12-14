@@ -1,0 +1,22 @@
+@import '~/vars';
+
+.properties-table-key {
+    display: flex;
+    align-items: center;
+
+    .anticon-delete {
+        color: $primary;
+        margin-right: 4px;
+    }
+}
+
+.properties-table-value {
+    display: 'flex';
+    align-items: 'center';
+
+    .editable {
+        text-decoration: underline dotted;
+        text-decoration-color: $primary;
+        cursor: pointer;
+    }
+}
