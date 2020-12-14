@@ -44,9 +44,4 @@ def dashboard_item_saved(sender, instance: DashboardItem, **kwargs):
         filter = get_filter(data=instance.filters, team=instance.team)
 
         instance.filters = filter.to_dict()
-        print(
-            "store insight cache",
-            filter.toJSON(),
-            generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id)),
-        )
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))

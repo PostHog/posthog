@@ -150,6 +150,8 @@ class Filter(PropertyMixin):
                 continue
             if isinstance(value, Entity):
                 value = value.to_dict()
+            if key == "properties" and isinstance(value[0], Property):
+                value = [prop.to_dict() for prop in value]
             if isinstance(value, list) and isinstance(value[0], Entity):
                 value = [entity.to_dict() for entity in value]
             ret[key] = value

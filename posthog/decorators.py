@@ -44,7 +44,6 @@ def cached_function():
 
             # cache new data
             if result is not None and (not isinstance(result, dict) or not result.get("loading")):
-                print(cache_key, result)
                 cache.set(
                     cache_key, {"result": result, "details": payload,}, CACHED_RESULTS_TTL,
                 )
