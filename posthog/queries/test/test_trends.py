@@ -1,10 +1,12 @@
 import json
 from datetime import datetime
+from typing import List
 
 from freezegun import freeze_time
 
 from posthog.constants import TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
+from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.trends import Trends
 from posthog.test.base import APIBaseTest, BaseTest
 from posthog.utils import relative_date_parse
@@ -12,7 +14,7 @@ from posthog.utils import relative_date_parse
 
 # parameterize tests to reuse in EE
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
-    class TestTrends(APIBaseTest):
+    class TestTrends(AbstractIntervalTest, APIBaseTest):
         def _create_events(self, use_time=False):
 
             person = person_factory(
@@ -165,6 +167,210 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(no_compare_response[0]["data"][4], 3.0)
             self.assertEqual(no_compare_response[0]["labels"][5], "Thu. 2 January")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
+
+        def _test_interval_filtering(self, dates: List[str], result, **filter_params):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            for time in dates:
+                with freeze_time(time):
+                    event_factory(
+                        event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"},
+                    )
+
+            response = trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team,)
+            self.assertEqual(response, result)
+
+        def test_minute_interval(self):
+            self._test_interval_filtering(
+                dates=["2020-11-01 10:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
+                interval="minute",
+                date_from="2020-11-01 10:20:00",
+                date_to="2020-11-01 10:30:00",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 3.0,
+                        "data": [1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        "labels": [
+                            "Sun. 1 November, 10:20",
+                            "Sun. 1 November, 10:21",
+                            "Sun. 1 November, 10:22",
+                            "Sun. 1 November, 10:23",
+                            "Sun. 1 November, 10:24",
+                            "Sun. 1 November, 10:25",
+                            "Sun. 1 November, 10:26",
+                            "Sun. 1 November, 10:27",
+                            "Sun. 1 November, 10:28",
+                            "Sun. 1 November, 10:29",
+                            "Sun. 1 November, 10:30",
+                        ],
+                        "days": [
+                            "2020-11-01 10:20:00",
+                            "2020-11-01 10:21:00",
+                            "2020-11-01 10:22:00",
+                            "2020-11-01 10:23:00",
+                            "2020-11-01 10:24:00",
+                            "2020-11-01 10:25:00",
+                            "2020-11-01 10:26:00",
+                            "2020-11-01 10:27:00",
+                            "2020-11-01 10:28:00",
+                            "2020-11-01 10:29:00",
+                            "2020-11-01 10:30:00",
+                        ],
+                    }
+                ],
+            )
+
+        def test_hour_interval(self):
+            self._test_interval_filtering(
+                dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
+                interval="hour",
+                date_from="2020-11-01 12:00:00",
+                date_to="2020-11-01 18:00:00",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 3.0,
+                        "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                        "labels": [
+                            "Sun. 1 November, 12:00",
+                            "Sun. 1 November, 13:00",
+                            "Sun. 1 November, 14:00",
+                            "Sun. 1 November, 15:00",
+                            "Sun. 1 November, 16:00",
+                            "Sun. 1 November, 17:00",
+                            "Sun. 1 November, 18:00",
+                        ],
+                        "days": [
+                            "2020-11-01 12:00:00",
+                            "2020-11-01 13:00:00",
+                            "2020-11-01 14:00:00",
+                            "2020-11-01 15:00:00",
+                            "2020-11-01 16:00:00",
+                            "2020-11-01 17:00:00",
+                            "2020-11-01 18:00:00",
+                        ],
+                    }
+                ],
+            )
+
+        def test_day_interval(self):
+            self._test_interval_filtering(
+                dates=["2020-11-01", "2020-11-02", "2020-11-03", "2020-11-04"],
+                interval="day",
+                date_from="2020-11-01",
+                date_to="2020-11-07",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 4.0,
+                        "data": [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                        "labels": [
+                            "Sun. 1 November",
+                            "Mon. 2 November",
+                            "Tue. 3 November",
+                            "Wed. 4 November",
+                            "Thu. 5 November",
+                            "Fri. 6 November",
+                            "Sat. 7 November",
+                        ],
+                        "days": [
+                            "2020-11-01",
+                            "2020-11-02",
+                            "2020-11-03",
+                            "2020-11-04",
+                            "2020-11-05",
+                            "2020-11-06",
+                            "2020-11-07",
+                        ],
+                    }
+                ],
+            )
+
+        def test_week_interval(self):
+            self._test_interval_filtering(
+                dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
+                interval="week",
+                date_from="2020-11-01",
+                date_to="2020-11-24",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 4.0,
+                        "data": [1.0, 2.0, 1.0, 0.0],
+                        "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                        "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
+                    }
+                ],
+            )
+
+        def test_month_interval(self):
+            self._test_interval_filtering(
+                dates=["2020-06-01", "2020-07-10", "2020-07-30", "2020-10-18"],
+                interval="month",
+                date_from="2020-6-01",
+                date_to="2020-11-24",
+                result=[
+                    {
+                        "action": {
+                            "id": "event_name",
+                            "type": "events",
+                            "order": None,
+                            "name": "event_name",
+                            "math": None,
+                            "math_property": None,
+                            "properties": [],
+                        },
+                        "label": "event_name",
+                        "count": 4.0,
+                        "data": [1.0, 2.0, 0.0, 0.0, 1.0, 0.0],
+                        "labels": [
+                            "Mon. 1 June",
+                            "Wed. 1 July",
+                            "Sat. 1 August",
+                            "Tue. 1 September",
+                            "Thu. 1 October",
+                            "Sun. 1 November",
+                        ],
+                        "days": ["2020-06-01", "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01", "2020-11-01"],
+                    }
+                ],
+            )
 
         def test_property_filtering(self):
             self._create_events()
