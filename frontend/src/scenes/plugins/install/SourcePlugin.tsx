@@ -2,6 +2,7 @@ import React from 'react'
 import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function SourcePlugin(): JSX.Element {
     const { sourcePluginName, pluginError, loading } = useValues(pluginsLogic)
@@ -26,7 +27,7 @@ export function SourcePlugin(): JSX.Element {
                             disabled={loading}
                             loading={loading}
                             type="default"
-                            onClick={() => installPlugin(sourcePluginName, 'source')}
+                            onClick={() => installPlugin(sourcePluginName, PluginInstallationType.Source)}
                         >
                             Start Coding
                         </Button>

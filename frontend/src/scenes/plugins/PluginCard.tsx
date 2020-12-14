@@ -1,4 +1,4 @@
-import { Col, Card, Button, Switch, Popconfirm, Skeleton } from 'antd'
+import { Button, Card, Col, Popconfirm, Skeleton, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from './pluginsLogic'
@@ -130,7 +130,7 @@ export function PluginCard({
                             <Button
                                 type="primary"
                                 loading={loading}
-                                onClick={() => (url ? installPlugin(url, 'repository') : null)}
+                                onClick={() => (url ? installPlugin(url, PluginInstallationType.Repository) : null)}
                                 icon={<PlusOutlined />}
                             >
                                 Install
