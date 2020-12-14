@@ -275,7 +275,7 @@ export const dashboardLogic = kea({
         },
 
         updateItemColor: ({ id, color }) => {
-            api.update(`api/dashboard_item/${id}`, { color })
+            api.update(`api/insight/${id}`, { color })
         },
 
         enableWobblyDragging: () => {
@@ -313,7 +313,7 @@ export const dashboardLogic = kea({
             }
         },
         refreshDashboardItem: async ({ id }) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${id}`)
+            const dashboardItem = await api.get(`api/insight/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
             if (dashboardItem.refreshing) {
                 setTimeout(() => actions.refreshDashboardItem(id), 1000)

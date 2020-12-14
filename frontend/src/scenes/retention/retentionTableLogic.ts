@@ -88,8 +88,8 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     loaders: ({ values, props }) => ({
         retention: {
             __default: ({} as Record<string, unknown>) || Array,
-            loadRetention: async (_: any, breakpoint) => {
-                if (props.cachedResults || props.preventLoading) {
+            loadResults: async (refresh = true, breakpoint) => {
+                if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }
                 const urlParams = toUrlParams(values)
@@ -214,7 +214,7 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         ],
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadRetention,
+        afterMount: actions.loadResults,
     }),
     actionToUrl: ({ props, values }) => ({
         setFilters: () => {
@@ -255,12 +255,12 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
-            actions.loadRetention(true)
+            actions.loadResults(true)
         },
         setFilters: () => {
-            actions.loadRetention(true)
+            actions.loadResults(true)
         },
-        loadRetention: () => {
+        loadResults: () => {
             actions.clearPeople()
             actions.setAllFilters(cleanRetentionParams(values.filters, values.properties))
             if (!props.dashboardItemId) {

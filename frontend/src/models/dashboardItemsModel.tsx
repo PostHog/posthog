@@ -22,7 +22,7 @@ export const dashboardItemsModel = kea({
                 value: item.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    item = await api.update(`api/dashboard_item/${item.id}`, { name })
+                    item = await api.update(`api/insight/${item.id}`, { name })
                     toast('Succesfully renamed item')
                     actions.renameDashboardItemSuccess(item)
                 },
@@ -48,12 +48,12 @@ export const dashboardItemsModel = kea({
 
             const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
-            const addedItem = await api.create('api/dashboard_item', newItem)
+            const addedItem = await api.create('api/insight', newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move) {
-                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, {
+                const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
@@ -69,8 +69,8 @@ export const dashboardItemsModel = kea({
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, deletedItem] = await Promise.all([
-                                    api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
-                                    api.update(`api/dashboard_item/${addedItem.id}`, {
+                                    api.update(`api/insight/${item.id}`, { deleted: false }),
+                                    api.update(`api/insight/${addedItem.id}`, {
                                         deleted: true,
                                     }),
                                 ])

@@ -181,7 +181,7 @@ export function DashboardItem({
     }
 
     const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
-    const { resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
+    const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
@@ -399,7 +399,7 @@ export function DashboardItem({
                                             onClick={() =>
                                                 deleteWithUndo({
                                                     object: item,
-                                                    endpoint: 'dashboard_item',
+                                                    endpoint: 'insight',
                                                     callback: loadDashboardItems,
                                                 })
                                             }
@@ -427,7 +427,7 @@ export function DashboardItem({
                 <div className="dashboard-item-content">
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
-                            {(inSharedMode || preventLoading) && !item.result ? (
+                            {(inSharedMode || preventLoading) && !results && !item.result ? (
                                 <Skeleton />
                             ) : (
                                 <Element

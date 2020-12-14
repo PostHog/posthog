@@ -138,10 +138,9 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                if (props.cachedResults) {
+                if (props.cachedResults && !refresh) {
                     return props.cachedResults
                 }
-                console.log('fuck you if statement', values.results.length, props.cachedResults)
                 let response
                 if (
                     props.view === ViewType.SESSIONS ||

@@ -37,7 +37,7 @@ from posthog.utils import generate_cache_key
 
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = serializers.SerializerMethodField()
 
     class Meta:
         model = DashboardItem
@@ -46,7 +46,6 @@ class InsightSerializer(serializers.ModelSerializer):
             "name",
             "filters",
             "order",
-            "type",
             "deleted",
             "dashboard",
             "layouts",
@@ -58,6 +57,10 @@ class InsightSerializer(serializers.ModelSerializer):
             "saved",
             "created_by",
         ]
+        read_only_fields = (
+            "created_by",
+            "created_at",
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context["request"]
@@ -85,6 +88,10 @@ class InsightSerializer(serializers.ModelSerializer):
         if not result or result.get("task_id", None):
             return None
         return result["result"]
+
+    def get_created_by(self, dashboard_item: DashboardItem):
+        if dashboard_item.created_by:
+            return UserSerializer(dashboard_item.created_by).data
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
