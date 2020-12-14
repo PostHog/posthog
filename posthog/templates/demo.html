@@ -74,7 +74,7 @@
             <p>The one-stop shop for all your hedgehog movies.</p>
             <br>
 
-            <a href='/demo/1' id='sign-up'><button>Sign up</button></a>
+            <a href='/demo/1' id='sign-up'><button id='sign-up-cta'>Sign up</button></a>
         </header>
         {% endif %}
 
@@ -202,6 +202,10 @@
     </div>
 
     <script>
+        if (posthog.isFeatureEnabled('sign-up-cta')) {
+            document.getElementById('sign-up-cta').innerText = 'Get started now'
+        }
+
         document.getElementById('submit-review').addEventListener('click', () => {
             document.getElementById('new-review').innerText = document.getElementById('review-text').value
         })
