@@ -55,7 +55,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             {
                 loadPersons: async (url: string | null = '') => {
                     const qs = Object.keys(values.listFilters)
-                        .filter((key) => FILTER_WHITELIST.includes(key))
+                        .filter((key) =>
+                            key !== 'is_identified' ? FILTER_WHITELIST.includes(key) : !url?.includes('is_identified')
+                        )
                         .reduce(function (result, key) {
                             const value = values.listFilters[key]
                             if (value !== undefined && value !== null) {
