@@ -134,7 +134,7 @@ export function PluginDrawer(): JSX.Element {
                                 Configuration
                             </h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
-                                <div>This plugin does not offer configuration option</div>
+                                <div>This plugin is not configurable.</div>
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
