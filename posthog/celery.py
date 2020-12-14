@@ -71,6 +71,7 @@ def setup_periodic_tasks(sender, **kwargs):
         # ee enabled scheduled tasks
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
 
     sender.add_periodic_task(60, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -117,6 +118,25 @@ def clickhouse_row_count():
             rows = sync_execute(query)[0][0]
             g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
             g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_part_count():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """
+            select table, count(1) freq
+            from system.parts
+            group by table
+            order by freq desc; 
+        """
+        rows = sync_execute(QUERY)
+        for (table, parts) in rows:
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
     else:
         pass
 

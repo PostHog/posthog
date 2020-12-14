@@ -1,3 +1,4 @@
+// DEPRECATED in favor of PropertiesTable.tsx
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'

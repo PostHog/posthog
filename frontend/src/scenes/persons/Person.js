@@ -10,18 +10,29 @@ import { hot } from 'react-hot-loader/root'
 import { SessionsTable } from '../sessions/SessionsTable'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EventsTable } from 'scenes/events'
-import { MergePersonButton } from './MergePerson'
+import { MergePerson } from './MergePerson'
+import { PersonV2 } from './PersonV2'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 const { TabPane } = Tabs
 
 const confirm = Modal.confirm
 export const Person = hot(_Person)
-function _Person({ _: distinctId, id }) {
+
+function _Person(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['persons-2353'] ? <PersonV2 /> : <PersonV1 {...props} />
+}
+
+function PersonV1({ _: distinctId, id }) {
     const { innerWidth } = window
     const isScreenSmall = innerWidth < 700
     const { push } = router.actions
 
     const [person, setPerson] = useState(null)
     const [personChanged, setPersonChanged] = useState(false)
+    const [mergeModalOpen, setMergeModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState('events')
 
     useEffect(() => {
@@ -95,7 +106,21 @@ function _Person({ _: distinctId, id }) {
             >
                 {isScreenSmall ? <DeleteOutlined /> : 'Delete all data on this person'}
             </Button>
-            <MergePersonButton person={person} onPersonChange={setPerson} />
+
+            <Button
+                onClick={() => {
+                    posthog.capture('merge person modal opened')
+                    setMergeModalOpen(true)
+                }}
+                className="float-right"
+                style={{ marginRight: '10px' }}
+            >
+                Merge person
+            </Button>
+            {mergeModalOpen && (
+                <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
+            )}
+
             <Button
                 className="float-right"
                 onClick={() => showConfirm('save', "Are you sure you want to update this person's properties?")}

@@ -5,8 +5,14 @@ import { RetentionLineGraph } from './RetentionLineGraph'
 import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { RetentionTable } from './RetentionTable'
 
-export function RetentionContainer(): JSX.Element {
-    const { filters } = useValues(retentionTableLogic({ dashboardItemId: null }))
+export function RetentionContainer(props: {
+    dashboardItemId: number
+    filters: Record<string, any>
+    color: string
+    inSharedMode: boolean
+}): JSX.Element {
+    const logic = retentionTableLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
+    const { filters } = useValues(logic)
     return (
         <div
             style={
@@ -18,7 +24,11 @@ export function RetentionContainer(): JSX.Element {
                     : {}
             }
         >
-            {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? <RetentionLineGraph /> : <RetentionTable />}
+            {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? (
+                <RetentionLineGraph {...props} />
+            ) : (
+                <RetentionTable {...props} />
+            )}
         </div>
     )
 }

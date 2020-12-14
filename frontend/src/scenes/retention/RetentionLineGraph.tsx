@@ -44,7 +44,7 @@ export function RetentionLineGraph({
                 color={color}
                 datasets={retention.data}
                 labels={(retention.data[0] && retention.data[0].labels) || []}
-                isInProgress={!filters.selectedDate}
+                isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
                 percentage={true}

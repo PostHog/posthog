@@ -27,6 +27,7 @@ class StickinessFilter(Filter):
         super().__init__(data, request)
         if request:
             data = {
+                **(data if data else {}),
                 **request.GET.dict(),
             }
         elif not data:

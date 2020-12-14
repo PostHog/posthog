@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import moment, { Moment } from 'moment'
+import { Moment } from 'moment'
 import { retentionTableLogicType } from 'types/scenes/retention/retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
 
@@ -33,7 +33,6 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 function cleanRetentionParams(filters, properties): any {
     return {
         ...filters,
-        selectedDate: filters.selectedDate?.format('YYYY-MM-DD HH:00'),
         properties: properties,
         insight: ViewType.RETENTION,
     }
@@ -48,7 +47,7 @@ function cleanFilters(filters): any {
             events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
         },
         retentionType: filters.retentionType || RETENTION_FIRST_TIME,
-        selectedDate: filters.selectedDate ? moment(filters.selectedDate) : null,
+        date_to: filters.date_to,
         period: filters.period || 'd',
         display: filters.display || 'ActionsTable',
     }
@@ -57,9 +56,6 @@ function cleanFilters(filters): any {
 function toUrlParams(values: Record<string, unknown>, extraVals?: Record<string, unknown>): string {
     let params: Record<string, any> = { ...values.filters }
     params['properties'] = values.properties
-    if (values.selectedDate) {
-        params['date_to'] = values.selectedDate.toISOString()
-    }
     if (values.period) {
         params['period'] = dateOptions[values.period]
     }
@@ -144,11 +140,11 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                       startEntity: props.filters.startEntity || {
                           events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                       },
-                      selectedDate: moment(props.filters.selectedDate),
                       returningEntity: props.filters.returningEntity || {
                           events: [{ id: '$pageview', type: 'events', name: '$pageview' }],
                           actions: [],
                       },
+                      date_to: props.filters.date_to,
                       period: props.filters.period || 'd',
                       retentionType: props.filters.retentionType || RETENTION_FIRST_TIME,
                       display: props.filters.display || ACTIONS_TABLE,
@@ -201,12 +197,6 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
                 return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
-        selectedDate: [
-            () => [selectors.filters],
-            (filters) => {
-                return filters.selectedDate
-            },
-        ],
         retentionType: [
             () => [selectors.filters],
             (filters) => {
@@ -228,13 +218,13 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, router.values.hashParams]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
