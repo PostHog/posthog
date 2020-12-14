@@ -99,7 +99,7 @@ export function PluginDrawer(): JSX.Element {
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
                                             <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
                                         ) : editingPlugin.plugin_type === 'source' ? (
-                                            <SourcePluginTag title="Source Plugin" />
+                                            <SourcePluginTag />
                                         ) : editingPlugin.url ? (
                                             <Link to={editingPlugin.url} target="_blank" rel="noopener noreferrer">
                                                 View plugin <ArrowRightOutlined />
