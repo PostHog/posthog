@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { Link } from 'lib/components/Link'
+import { BackTo } from 'lib/components/BackTo'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -125,6 +126,8 @@ function _App(): JSX.Element | null {
                     {featureFlags['navigation-1775'] ? <TopNavigation /> : <TopContent />}
                     <Layout.Content className="main-app-content" data-attr="layout-content">
                         {!featureFlags['hide-billing-toolbar'] && <BillingToolbar />}
+                        {featureFlags['navigation-1775'] ? <BackTo /> : null}
+
                         {currentTeam && !currentTeam.ingested_event && (
                             <Alert
                                 type="warning"
