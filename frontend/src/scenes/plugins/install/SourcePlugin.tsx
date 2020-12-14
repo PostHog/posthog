@@ -12,7 +12,12 @@ export function SourcePlugin(): JSX.Element {
         <div style={{ marginTop: 16 }}>
             <Card>
                 <h3 className="l3">Write The Code</h3>
-                <p>Write your own plugin directly in PostHog! Just give it a name and start coding!</p>
+                <p>
+                    Write your plugin directly in PostHog.{' '}
+                    <a href="https://posthog.com/docs/plugins/overview" target="_blank">
+                        Read the documentation for more information!
+                    </a>
+                </p>
                 <Row style={{ width: '100%' }} gutter={16}>
                     <Col style={{ flex: 1 }}>
                         <Input
