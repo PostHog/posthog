@@ -17,7 +17,7 @@ class StartPointMixin(BaseParamMixin):
         return self._data.get(START_POINT, None)
 
 
-class PropTypeMixin(PathTypeMixin):
+class PropTypeDerivedMixin(PathTypeMixin):
     @cached_property
     def prop_type(self) -> str:
         if self.path_type == SCREEN_EVENT:
@@ -30,7 +30,7 @@ class PropTypeMixin(PathTypeMixin):
             return "properties->> '$current_url'"
 
 
-class ComparatorMixin(PropTypeMixin):
+class ComparatorDerivedMixin(PropTypeDerivedMixin):
     @cached_property
     def comparator(self) -> str:
         if self.path_type == SCREEN_EVENT:
@@ -43,7 +43,7 @@ class ComparatorMixin(PropTypeMixin):
             return "{} =".format(self.prop_type)
 
 
-class TargetEventMixin(PropTypeMixin):
+class TargetEventDerivedMixin(PropTypeDerivedMixin):
     @cached_property
     def target_event(self) -> Tuple[Optional[str], Dict[str, str]]:
         if self.path_type == SCREEN_EVENT:
