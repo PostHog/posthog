@@ -25,7 +25,7 @@ export function LocalPlugin(): JSX.Element {
                     </Col>
                     <Col>
                         <Button
-                            disabled={loading}
+                            disabled={loading || !localPluginUrl}
                             loading={loading}
                             type="default"
                             onClick={() => installPlugin(localPluginUrl, PluginInstallationType.Local)}

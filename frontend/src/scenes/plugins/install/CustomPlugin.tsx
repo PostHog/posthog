@@ -29,7 +29,7 @@ export function CustomPlugin(): JSX.Element {
                     </Col>
                     <Col>
                         <Button
-                            disabled={loading}
+                            disabled={loading || !customPluginUrl}
                             loading={loading}
                             type="default"
                             onClick={() => installPlugin(customPluginUrl, PluginInstallationType.Custom)}

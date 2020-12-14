@@ -24,7 +24,7 @@ export function SourcePlugin(): JSX.Element {
                     </Col>
                     <Col>
                         <Button
-                            disabled={loading}
+                            disabled={loading || !sourcePluginName}
                             loading={loading}
                             type="default"
                             onClick={() => installPlugin(sourcePluginName, PluginInstallationType.Source)}
