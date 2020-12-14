@@ -200,6 +200,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             rowKey: 'id',
+            fixed: 'left',
+            width: 200,
+            ellipsis: true,
             render: function renderEvent(item) {
                 if (!item.event) {
                     return {
@@ -278,6 +281,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }) {
                     columns={columns}
                     size="small"
                     className="ph-no-capture"
+                    scroll={{ x: columns.length * 180 }}
                     locale={{
                         emptyText: (
                             <span>

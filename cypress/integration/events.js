@@ -8,7 +8,7 @@ describe('Events', () => {
     })
 
     it('Click on an event', () => {
-        cy.get('[data-attr=events-table] .event-row:first-child td:first-child').click()
+        cy.get('[data-attr=events-table] .event-row:nth-child(2) td:first-child').click()
         cy.get('[data-attr=event-details]').should('exist')
     })
 
