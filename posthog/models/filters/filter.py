@@ -146,8 +146,12 @@ class Filter(PropertyMixin):
                 continue
             if isinstance(value, datetime.datetime):
                 value = value.isoformat()
-            if not isinstance(value, (list, bool, int, float, str)) and not hasattr(value, "__dict__"):
-                continue
+            if not isinstance(value, (list, bool, int, float, str)):
+                # Try to see if this object is json serializable
+                try:
+                    json.dumps(value)
+                except:
+                    continue
             if isinstance(value, Entity):
                 value = value.to_dict()
             if key == "properties" and isinstance(value[0], Property):

@@ -38,6 +38,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import SaveModal from 'scenes/insights/SaveModal'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 export const displayMap = {
     ActionsLineGraph: {
@@ -138,8 +139,6 @@ export function DashboardItem({
     dashboardId,
     updateItemColor,
     loadDashboardItems,
-    renameDashboardItem,
-    duplicateDashboardItem,
     isDraggingRef,
     inSharedMode,
     enableWobblyDragging,
@@ -163,6 +162,7 @@ export function DashboardItem({
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
+    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(enableWobblyDragging, {
