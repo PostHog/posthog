@@ -183,7 +183,7 @@ export const sessionsTableLogic = kea<
 
             if (
                 JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
-                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration) ||
+                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration || {}) ||
                 (values.selectedDate && values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD'))
             ) {
                 actions.setFilters(params.properties || [], newDate, params.duration || null)
