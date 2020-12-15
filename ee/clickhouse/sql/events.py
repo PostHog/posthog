@@ -118,10 +118,8 @@ _offset
 FROM events
 """
 
-MAT_EVENT_PROP_TABLE_SQL = """
-CREATE MATERIALIZED VIEW events_properties_view
-ENGINE = MergeTree()
-ORDER BY (team_id, key, value, event_id)
+EVENT_PROP_TABLE_SQL = """
+CREATE VIEW events_properties_view
 AS SELECT uuid as event_id,
 team_id,
 array_property_keys as key,

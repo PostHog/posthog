@@ -8,9 +8,9 @@ from ee.clickhouse.sql.events import (
     DROP_EVENTS_TABLE_SQL,
     DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
     DROP_MAT_EVENTS_PROP_TABLE_SQL,
+    EVENT_PROP_TABLE_SQL,
     EVENTS_TABLE_SQL,
     EVENTS_WITH_PROPS_TABLE_SQL,
-    MAT_EVENT_PROP_TABLE_SQL,
 )
 from ee.clickhouse.sql.person import (
     DROP_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -60,7 +60,7 @@ class ClickhouseTestMixin:
     def _create_event_tables(self):
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
-        sync_execute(MAT_EVENT_PROP_TABLE_SQL)
+        sync_execute(EVENT_PROP_TABLE_SQL)
 
     @contextmanager
     def _assertNumQueries(self, func):
