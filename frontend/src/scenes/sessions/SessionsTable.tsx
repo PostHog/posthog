@@ -16,7 +16,7 @@ import {
     ArrowLeftOutlined,
     PlaySquareOutlined,
 } from '@ant-design/icons'
-import SessionsPlayerButton from './SessionsPlayerButton'
+import SessionsPlayerButton, { sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LinkButton } from 'lib/components/LinkButton'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -195,14 +196,15 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
-                    <Button
+                    <LinkButton
+                        to={firstRecordingId !== null ? sessionPlayerUrl(firstRecordingId) : '#'}
                         icon={<PlaySquareOutlined />}
                         type="primary"
                         data-attr="play-all-recordings"
                         disabled={!user?.team?.session_recording_opt_in || firstRecordingId === null}
                     >
                         Play all
-                    </Button>
+                    </LinkButton>
                 </Tooltip>
             </div>
 
