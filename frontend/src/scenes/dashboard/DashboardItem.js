@@ -150,6 +150,7 @@ export function DashboardItem({
     preventLoading,
     moveDashboardItem,
     saveDashboardItem,
+    duplicateDashboardItem,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -162,7 +163,7 @@ export function DashboardItem({
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
+    const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(enableWobblyDragging, {
