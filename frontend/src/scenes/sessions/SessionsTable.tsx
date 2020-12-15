@@ -25,7 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { router } from 'kea-router'
+import { LinkButton } from 'lib/components/LinkButton'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -196,15 +196,17 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
-                    <Button
-                        onClick={() => firstRecordingId && router.actions.push(sessionPlayerUrl(firstRecordingId))}
-                        icon={<PlaySquareOutlined />}
-                        type="primary"
-                        data-attr="play-all-recordings"
-                        disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
-                    >
-                        Play all
-                    </Button>
+                    <span>
+                        <LinkButton
+                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            icon={<PlaySquareOutlined />}
+                            type="primary"
+                            data-attr="play-all-recordings"
+                            disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                        >
+                            Play all
+                        </LinkButton>
+                    </span>
                 </Tooltip>
             </div>
 
