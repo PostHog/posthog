@@ -169,12 +169,15 @@ export const sessionsTableLogic = kea<
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
+                distinct_id: props.personIds ? props.personIds[0] : '',
+                properties: values.properties,
+                ...values.durationFilter,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
