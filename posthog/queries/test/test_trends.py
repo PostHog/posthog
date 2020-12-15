@@ -3,7 +3,7 @@ from datetime import datetime
 
 from freezegun import freeze_time
 
-from posthog.constants import TRENDS_LIFECYCLE
+from posthog.constants import TRENDS_LIFECYCLE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
 from posthog.test.base import APIBaseTest, BaseTest
@@ -137,6 +137,166 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
             self.assertEqual(response[0]["data"][5], 4.0)
+
+        def test_trends_single_aggregate_dau(self):
+            self._create_events()
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "dau"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={"display": TRENDS_TABLE, "interval": "day", "events": [{"id": "sign up", "math": "dau"}],}
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(daily_response[0]["aggregated_value"], 1)
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+
+        def test_trends_single_aggregate_math(self):
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            with freeze_time("2020-01-01 00:06:34"):
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 2},
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 3},
+                )
+
+            with freeze_time("2020-01-02 00:06:34"):
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 4},
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla", properties={"$math_prop": 4},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+
+        def test_trends_breakdown_single_aggregate_math(self):
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            with freeze_time("2020-01-01 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 1},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 2},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 3},
+                )
+
+            with freeze_time("2020-01-02 00:06:34"):
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 4},
+                )
+                event_factory(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$math_prop": 4},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$math_prop"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
         def test_trends_compare(self):
             self._create_events()
