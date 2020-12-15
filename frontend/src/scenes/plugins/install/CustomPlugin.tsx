@@ -2,6 +2,7 @@ import React from 'react'
 import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function CustomPlugin(): JSX.Element {
     const { customPluginUrl, pluginError, loading } = useValues(pluginsLogic)
@@ -28,10 +29,10 @@ export function CustomPlugin(): JSX.Element {
                     </Col>
                     <Col>
                         <Button
-                            disabled={loading}
+                            disabled={loading || !customPluginUrl}
                             loading={loading}
                             type="default"
-                            onClick={() => installPlugin(customPluginUrl, 'custom')}
+                            onClick={() => installPlugin(customPluginUrl, PluginInstallationType.Custom)}
                         >
                             Fetch and install
                         </Button>

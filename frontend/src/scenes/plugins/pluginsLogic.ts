@@ -22,12 +22,16 @@ export const pluginsLogic = kea<
     actions: {
         editPlugin: (id: number | null) => ({ id }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, type: PluginInstallationType) => ({ pluginUrl, type }),
+        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
+        setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
         setPluginTab: (tab: string) => ({ tab }),
+        setEditingSource: (editingSource: boolean) => ({ editingSource }),
         resetPluginConfigError: (id: number) => ({ id }),
+        editPluginSource: (values: { id: number; name: string; source: string; configSchema: Record<string, any> }) =>
+            values,
     },
 
     loaders: ({ values }) => ({
@@ -42,10 +46,13 @@ export const pluginsLogic = kea<
                     }
                     return plugins
                 },
-                installPlugin: async ({ pluginUrl, type }) => {
-                    const url = type === 'local' ? `file:${pluginUrl}` : pluginUrl
-                    const response = await api.create('api/plugin', { url })
-                    capturePluginEvent(`plugin installed`, response, type)
+                installPlugin: async ({ pluginUrl, pluginType }) => {
+                    const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
+                    const response = await api.create(
+                        'api/plugin',
+                        pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
+                    )
+                    capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
                 },
                 uninstallPlugin: async () => {
@@ -57,6 +64,12 @@ export const pluginsLogic = kea<
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
+                },
+                editPluginSource: async ({ id, name, source, configSchema }) => {
+                    const { plugins } = values
+                    const response = await api.update(`api/plugin/${id}`, { name, source, config_schema: configSchema })
+                    capturePluginEvent(`plugin source edited`, response)
+                    return { ...plugins, [id]: response }
                 },
             },
         ],
@@ -153,6 +166,14 @@ export const pluginsLogic = kea<
                 installPluginSuccess: (_, { plugins }) => Object.values(plugins).pop()?.id || null,
             },
         ],
+        editingSource: [
+            false,
+            {
+                setEditingSource: (_, { editingSource }) => editingSource,
+                editPluginSourceSuccess: () => false,
+                editPlugin: () => false,
+            },
+        ],
         customPluginUrl: [
             '',
             {
@@ -164,6 +185,13 @@ export const pluginsLogic = kea<
             '',
             {
                 setLocalPluginUrl: (_, { localPluginUrl }) => localPluginUrl,
+                installPluginSuccess: () => '',
+            },
+        ],
+        sourcePluginName: [
+            '',
+            {
+                setSourcePluginName: (_, { sourcePluginName }) => sourcePluginName,
                 installPluginSuccess: () => '',
             },
         ],

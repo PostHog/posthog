@@ -1,10 +1,11 @@
 import copy
 import datetime
 from itertools import accumulate
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from django.db import connection
 from django.db.models import (
     Avg,
     BooleanField,
@@ -21,7 +22,7 @@ from django.db.models import (
     Value,
     functions,
 )
-from django.db.models.expressions import RawSQL, Subquery
+from django.db.models.expressions import F, RawSQL, Subquery
 from django.db.models.functions import Cast
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 
@@ -54,6 +55,17 @@ MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "p90": lambda expr: Percentile(0.9, expr),
     "p95": lambda expr: Percentile(0.95, expr),
     "p99": lambda expr: Percentile(0.99, expr),
+}
+
+MATH_TO_AGGREGATE_STRING: Dict[str, str] = {
+    "sum": "SUM({math_prop})",
+    "avg": "AVG({math_prop})",
+    "min": "MIN({math_prop})",
+    "max": "MAX({math_prop})",
+    "median": "percentile_disc(0.5) WITHIN GROUP (ORDER BY {math_prop})",
+    "p90": "percentile_disc(0.9) WITHIN GROUP (ORDER BY {math_prop})",
+    "p95": "percentile_disc(0.95) WITHIN GROUP (ORDER BY {math_prop})",
+    "p99": "percentile_disc(0.99) WITHIN GROUP (ORDER BY {math_prop})",
 }
 
 
@@ -169,7 +181,7 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 
 def aggregate_by_interval(
     filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], int]:
     interval = filter.interval if filter.interval else "day"
     interval_annotation = get_interval_annotation(interval)
     values = [interval]
@@ -194,6 +206,7 @@ def aggregate_by_interval(
     if breakdown:
         aggregates = aggregates.order_by("-count")
 
+    entity_total = get_aggregate_total(filtered_events, entity)
     aggregates = process_math(aggregates, entity)
 
     dates_filled = group_events_to_date(
@@ -204,7 +217,33 @@ def aggregate_by_interval(
         breakdown=breakdown,
     )
 
-    return dates_filled
+    return dates_filled, entity_total
+
+
+def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
+    entity_total = 0
+    if entity.math == "dau":
+        _query, _params = query.query.sql_with_params()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT count(DISTINCT person_id) FROM ({}) as aggregates".format(_query), _params)
+            entity_total = cursor.fetchall()[0][0]
+    elif entity.math in MATH_TO_AGGREGATE_FUNCTION:
+        query = query.annotate(
+            math_prop=Cast(
+                RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField(),
+            )
+        )
+        query = query.extra(
+            where=['jsonb_typeof("posthog_event"."properties"->%s) = \'number\''], params=[entity.math_property],
+        )
+        _query, _params = query.query.sql_with_params()
+        with connection.cursor() as cursor:
+            agg_func = MATH_TO_AGGREGATE_STRING[entity.math].format(math_prop="math_prop")
+            cursor.execute("SELECT {} FROM ({}) as aggregates".format(agg_func, _query), (_params))
+            entity_total = cursor.fetchall()[0][0]
+    else:
+        entity_total = len(query)
+    return entity_total
 
 
 def process_math(query: QuerySet, entity: Entity) -> QuerySet:
@@ -275,16 +314,20 @@ class Trends(LifecycleTrend, BaseQuery):
     def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items = aggregate_by_interval(filtered_events=events, team_id=team_id, entity=entity, filter=filter,)
+        items, entity_total = aggregate_by_interval(
+            filtered_events=events, team_id=team_id, entity=entity, filter=filter,
+        )
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
-            formatted_entities.append(append_data(dates_filled=list(item.items()), interval=filter.interval))
+            formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
+            formatted_data.update({"aggregated_value": entity_total})
+            formatted_entities.append(formatted_data)
         return formatted_entities
 
     def _serialize_breakdown(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
         events = events.filter(filter_events(team_id, filter, entity))
-        items = aggregate_by_interval(
+        items, entity_total = aggregate_by_interval(
             filtered_events=events,
             team_id=team_id,
             entity=entity,
@@ -294,6 +337,7 @@ class Trends(LifecycleTrend, BaseQuery):
         formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
+            new_dict.update({"aggregated_value": entity_total})
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
             formatted_entities.append(new_dict)

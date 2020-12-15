@@ -9,11 +9,11 @@ interface SessionsPlayerButtonProps {
     session: SessionType
 }
 
-export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
-    const sessionPlayerUrl = (sessionRecordingId: string): string => {
-        return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
-    }
+export const sessionPlayerUrl = (sessionRecordingId: string): string => {
+    return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
+}
 
+export function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
     if (!session.session_recording_ids) {
         return null
     }

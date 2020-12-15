@@ -50,10 +50,19 @@ export function _TopNavigation(): JSX.Element {
             </div>
             <div className="text-center">
                 <div>
-                    <Button className="mt" onClick={() => push('/organization/settings')}>
-                        Organization settings
+                    <Button className="mt" onClick={() => push('/organization/members')}>
+                        Org settings &amp; members
                     </Button>
                 </div>
+                {user?.is_multi_tenancy ? (
+                    <div className="mt-05">
+                        <a onClick={() => push('/organization/billing')}>Billing</a>
+                    </div>
+                ) : (
+                    <div className="mt-05">
+                        <a onClick={() => push('/instance/licenses')}>Licenses</a>
+                    </div>
+                )}
                 <div className="mt-05">
                     <a onClick={() => push('/me/settings')}>My account</a>
                 </div>

@@ -17,6 +17,7 @@ from posthog.models import (
     DashboardItem,
     Element,
     Event,
+    FeatureFlag,
     Person,
     PersonDistinctId,
     Team,
@@ -214,6 +215,9 @@ def demo(request):
         )
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo"))
+        FeatureFlag.objects.create(
+            team=team, rollout_percentage=100, name="Sign Up CTA", key="sign-up-cta", created_by=user,
+        )
         _recalculate(team=team)
     user.current_team = team
     user.save()

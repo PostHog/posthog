@@ -10,14 +10,6 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
-DROP_MAT_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
-DROP TABLE events_with_array_props_mv
-"""
-
-DROP_MAT_EVENTS_PROP_TABLE_SQL = """
-DROP TABLE events_properties_view
-"""
-
 EVENTS_TABLE = "events"
 
 EVENTS_TABLE_BASE_SQL = """
@@ -105,32 +97,7 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 EVENTS_WITH_PROPS_TABLE_SQL = """
-CREATE TABLE events_with_array_props_view
-(
-    uuid UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    timestamp DateTime64(6, 'UTC'),
-    team_id Int64,
-    distinct_id VARCHAR,
-    elements_chain VARCHAR,
-    created_at DateTime64,
-    array_property_keys Array(VARCHAR),
-    array_property_values Array(VARCHAR),
-    _timestamp UInt64,
-    _offset UInt64
-) ENGINE = {engine} 
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid 
-{storage_policy}
-""".format(
-    engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
-)
-
-MAT_EVENTS_WITH_PROPS_TABLE_SQL = """
-CREATE MATERIALIZED VIEW events_with_array_props_mv
-TO events_with_array_props_view
+CREATE VIEW events_with_array_props_view
 AS SELECT
 uuid,
 event,
@@ -145,18 +112,6 @@ arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_prop
 _timestamp,
 _offset
 FROM events
-"""
-
-MAT_EVENT_PROP_TABLE_SQL = """
-CREATE MATERIALIZED VIEW events_properties_view
-ENGINE = MergeTree()
-ORDER BY (team_id, key, value, event_id)
-AS SELECT uuid as event_id,
-team_id,
-array_property_keys as key,
-array_property_values as value
-from events_with_array_props_view
-ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """

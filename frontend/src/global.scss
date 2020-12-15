@@ -108,6 +108,14 @@ style files without adding already imported styles. */
     margin-top: $default_spacing;
 }
 
+.mb-2 {
+    margin-bottom: $default_spacing * 2;
+}
+
+.mt-2 {
+    margin-top: $default_spacing * 2;
+}
+
 .mb-05 {
     margin-bottom: $default_spacing * 0.5;
 }

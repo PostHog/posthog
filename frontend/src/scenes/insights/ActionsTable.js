@@ -16,7 +16,7 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
 
     let data = results
     if (!filters.session) {
-        data = data.sort((a, b) => b.count - a.count)
+        data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
     return data && !resultsLoading ? (
         data[0] && (filters.session || data[0].labels) ? (
@@ -34,7 +34,7 @@ export function ActionsTable({ dashboardItemId = null, view, filters: filtersPar
                             )
                         },
                     },
-                    { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
+                    { title: filters.session ? 'Value' : 'Count', dataIndex: 'aggregated_value' },
                 ]}
                 rowKey="label"
                 pagination={{ pageSize: 9999, hideOnSinglePage: true }}
