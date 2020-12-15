@@ -48,7 +48,7 @@ def update_cached_items() -> None:
     )
 
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
-        filter = Filter(data=item.filters)
+        filter = get_filter(data=item.filters, team=item.team)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)
 
