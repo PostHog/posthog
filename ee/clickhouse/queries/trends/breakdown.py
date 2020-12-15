@@ -161,8 +161,10 @@ class ClickhouseTrendsBreakdown:
 
         for idx, stats in enumerate(result):
 
-            breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
-            stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+            breakdown_value_raw = stats[2] if not filter.breakdown_type == "cohort" else ""
+            stripped_value = (
+                breakdown_value_raw.strip('"') if isinstance(breakdown_value_raw, str) else breakdown_value_raw
+            )
 
             extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
             label = "{} - {}".format(entity.name, extra_label)
