@@ -633,9 +633,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
+            self.assertEqual(response[0]["labels"][2], "Sun. 1 December")
             self.assertEqual(response[0]["data"][2], 1.0)
-            self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
+            self.assertEqual(response[0]["labels"][3], "Wed. 1 January")
             self.assertEqual(response[0]["data"][3], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
@@ -1063,9 +1063,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
+            self.assertEqual(response[0]["labels"][2], "Sun. 1 December")
             self.assertEqual(response[0]["data"][2], 1.0)
-            self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
+            self.assertEqual(response[0]["labels"][3], "Wed. 1 January")
             self.assertEqual(response[0]["data"][3], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
