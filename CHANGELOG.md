@@ -64,7 +64,7 @@ This might not be news to all of you, since we have been experimenting with our 
 
 In addition to the average, sum, maximum, and minimum operations available to numerical properties in trends, we now also support median, and 90th, 95th, and 99th percentiles.
 
-#### [Full Release Notes](posthog.com/blog/the-posthog-array-1-19-0)
+#### [Full Release Notes](https://posthog.com/blog/the-posthog-array-1-19-0)
 
 ### 1.18.0 - Monday 30 November 2020
 
