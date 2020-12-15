@@ -10,10 +10,6 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
-DROP_MAT_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
-DROP TABLE events_with_array_props_mv
-"""
-
 DROP_MAT_EVENTS_PROP_TABLE_SQL = """
 DROP TABLE events_properties_view
 """
@@ -105,32 +101,7 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 EVENTS_WITH_PROPS_TABLE_SQL = """
-CREATE TABLE events_with_array_props_view
-(
-    uuid UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    timestamp DateTime64(6, 'UTC'),
-    team_id Int64,
-    distinct_id VARCHAR,
-    elements_chain VARCHAR,
-    created_at DateTime64,
-    array_property_keys Array(VARCHAR),
-    array_property_values Array(VARCHAR),
-    _timestamp UInt64,
-    _offset UInt64
-) ENGINE = {engine} 
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid 
-{storage_policy}
-""".format(
-    engine=table_engine("events_with_array_props_view", "_timestamp"), storage_policy=STORAGE_POLICY
-)
-
-MAT_EVENTS_WITH_PROPS_TABLE_SQL = """
-CREATE MATERIALIZED VIEW events_with_array_props_mv
-TO events_with_array_props_view
+CREATE VIEW events_with_array_props_view
 AS SELECT
 uuid,
 event,
