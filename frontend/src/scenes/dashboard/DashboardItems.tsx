@@ -7,6 +7,7 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType } from '~/types'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const ReactGridLayout = WidthProvider(Responsive)
 const noop = (): void => {}
@@ -15,14 +16,13 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(logic)
     const {
         loadDashboardItems,
-        renameDashboardItem,
         refreshDashboardItem,
         updateLayouts,
         updateContainerWidth,
         updateItemColor,
-        duplicateDashboardItem,
         enableWobblyDragging,
     } = useActions(logic)
+    const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -92,7 +92,6 @@ export function DashboardItems({ logic, inSharedMode }: { logic: BuiltLogic; inS
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
                         loadDashboardItems={loadDashboardItems}
-                        renameDashboardItem={renameDashboardItem}
                         duplicateDashboardItem={duplicateDashboardItem}
                         moveDashboardItem={(item: DashboardItemType, dashboardId: number) =>
                             duplicateDashboardItem(item, dashboardId, true)
