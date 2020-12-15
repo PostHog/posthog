@@ -7,7 +7,6 @@ from django.db.models import Q, QuerySet
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Entity, Event, Filter, Team
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.types import Comparable_filter_type
 from posthog.utils import get_compare_period_dates
 
 """
