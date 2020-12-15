@@ -62,6 +62,17 @@ class TestUrls(TestCase):
             OrganizationMembership.objects.filter(organization=organization, user__email=invited_email).exists()
         )
 
+    def test_login_with_next_url(self):
+        organization, team, user = User.objects.bootstrap(
+            "test", "adminuser@posthog.com", None, team_fields={"signup_token": "abcd1234"}
+        )
+        User.objects.create_and_join(organization=organization, email="jane@acme.com", password="password")
+        with self.settings(TEST=False):
+            response = self.client.post(
+                f"/login?next=/demo", {"email": "jane@acme.com", "password": "password"}, follow=True,
+            )
+        self.assertRedirects(response, "/demo")
+
 
 class TestUrlsLoggedIn(BaseTest):
     TESTS_API = True

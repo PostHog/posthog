@@ -54,7 +54,7 @@ def login_view(request):
         email = request.POST["email"]
         password = request.POST["password"]
         user = cast(Optional[User], authenticate(request, email=email, password=password))
-        next_url = request.GET.get("next", "")
+        next_url = request.GET.get("next")
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             if user.distinct_id:
