@@ -8,16 +8,19 @@ SELECT groupArray(day_start), groupArray(count), breakdown_value FROM (
                     SELECT breakdown_value
                     FROM (
                         SELECT %(values)s as breakdown_value
-                    ) ARRAY JOIN breakdown_value 
+                    ) ARRAY JOIN breakdown_value
                 ) as sec
             ORDER BY breakdown_value, day_start
-            UNION ALL 
-            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start, value as breakdown_value
-            FROM 
+            UNION ALL
+            SELECT
+                {aggregate_operation} as total,
+                toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
+                {breakdown_value} as breakdown_value
+            FROM
             events e {event_join} {breakdown_filter}
             GROUP BY day_start, breakdown_value
         )
-    ) 
+    )
     GROUP BY day_start, breakdown_value
     ORDER BY breakdown_value, day_start
 ) GROUP BY breakdown_value
@@ -29,16 +32,16 @@ SELECT groupArray(day_start), groupArray(count) FROM (
         SELECT * FROM (
             {null_sql} as main
             ORDER BY day_start
-            UNION ALL 
+            UNION ALL
             SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
-            FROM 
+            FROM
             events e {event_join} {breakdown_filter}
             GROUP BY day_start
         )
-    ) 
+    )
     GROUP BY day_start
     ORDER BY day_start
-) 
+)
 """
 
 BREAKDOWN_CONDITIONS_SQL = """
@@ -63,20 +66,16 @@ INNER JOIN (
         ARRAY JOIN array_property_keys, array_property_values
     ) ep
     WHERE key = %(key)s
-) ep 
+) ep
 ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
 
 BREAKDOWN_PROP_JOIN_SQL = """
-INNER JOIN (
-    SELECT *
-    FROM events_properties_view AS ep
-    WHERE key = %(key)s and team_id = %(team_id)s
-) ep 
-ON uuid = ep.event_id where e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-AND breakdown_value in (%(values)s) {actions_query}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+  AND JSONHas(properties, %(key)s)
+  AND JSONExtractRaw(properties, %(key)s) in (%(values)s) {actions_query}
 """
 
 BREAKDOWN_COHORT_JOIN_SQL = """
