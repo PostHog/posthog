@@ -51,6 +51,7 @@ function _SessionsPlay(): JSX.Element {
     const {
         sessionPlayerData,
         sessionPlayerDataLoading,
+        loadingNextRecording,
         sessionDate,
         addingTagShown,
         addingTag,
@@ -69,6 +70,8 @@ function _SessionsPlay(): JSX.Element {
     const [pageEvent, atPageIndex] = useMemo(() => eventIndex.getPageMetadata(playerTime), [eventIndex, playerTime])
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
 
+    const isLoading = sessionPlayerDataLoading || loadingNextRecording
+
     useEffect(() => {
         if (addingTagShown && addTagInput.current) {
             addTagInput.current.focus()
@@ -85,9 +88,9 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
-                        {sessionPlayerDataLoading && <Skeleton paragraph={{ rows: 0 }} active />}
+                        {isLoading && <Skeleton paragraph={{ rows: 0 }} active />}
 
-                        {!sessionPlayerDataLoading && (
+                        {!isLoading && (
                             <>
                                 {pageEvent ? (
                                     <>
@@ -108,7 +111,7 @@ function _SessionsPlay(): JSX.Element {
                         )}
                     </div>
                     <div className="ph-no-capture player-container">
-                        {sessionPlayerDataLoading ? (
+                        {isLoading ? (
                             <Loading />
                         ) : (
                             <Player
@@ -124,7 +127,7 @@ function _SessionsPlay(): JSX.Element {
                 <Col span={6} className="sidebar" style={{ paddingLeft: 16 }}>
                     <Card className="card-elevated">
                         <h3 className="l3">Session Information</h3>
-                        {sessionPlayerDataLoading ? (
+                        {isLoading ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 3 }} active />
                             </div>
@@ -200,7 +203,7 @@ function _SessionsPlay(): JSX.Element {
                         <p className="text-muted text-small">
                             Click on an item to jump to that point in the recording.
                         </p>
-                        {sessionPlayerDataLoading ? (
+                        {isLoading ? (
                             <div>
                                 <Skeleton paragraph={{ rows: 6 }} active />
                             </div>

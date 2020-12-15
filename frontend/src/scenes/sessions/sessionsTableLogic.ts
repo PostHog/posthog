@@ -9,6 +9,8 @@ import { eventWithTime } from 'rrweb/typings/types'
 
 type Moment = moment.Moment
 
+type SessionRecordingId = string
+
 interface Params {
     date?: string
     properties?: any

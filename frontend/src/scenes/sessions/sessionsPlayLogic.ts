@@ -7,6 +7,7 @@ import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { toast } from 'react-toastify'
 
 type SessionRecordingId = string
 
@@ -18,13 +19,14 @@ interface SessionPlayerData {
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'nextOffset']],
-        actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions']],
+        actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer']],
     },
     actions: {
         toggleAddingTagShown: () => {},
         setAddingTag: (payload: string) => ({ payload }),
         goToNext: true,
         goToPrevious: true,
+        openNextRecordingOnLoad: true,
     },
     reducers: {
         sessionRecordingId: [
@@ -51,6 +53,14 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 setAddingTag: (_, { payload }) => payload,
             },
         ],
+        loadingNextRecording: [
+            false,
+            {
+                openNextRecordingOnLoad: () => true,
+                loadRecording: () => false,
+                closeSessionPlayer: () => false,
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         toggleAddingTagShown: () => {
@@ -60,12 +70,31 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             }
         },
         goToNext: () => {
-            const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
-            actions.loadRecording(id)
+            console.log(
+                values.recordingIndex,
+                values.orderedSessionRecordingIds.length,
+                values.orderedSessionRecordingIds
+            )
+            if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
+                const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
+                actions.loadRecording(id)
+            } else if (values.nextOffset) {
+                console.log('next page loading!')
+                // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
+                actions.openNextRecordingOnLoad()
+                actions.fetchNextSessions()
+            } else {
+                toast('Found no more recordings.', { type: 'info' })
+            }
         },
         goToPrevious: () => {
             const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
             actions.loadRecording(id)
+        },
+        appendNewSessions: () => {
+            if (values.sessionRecordingId && values.loadingNextRecording) {
+                actions.goToNext()
+            }
         },
     }),
     urlToAction: ({ actions, values }) => ({
@@ -117,7 +146,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         orderedSessionRecordingIds: [
             (selectors) => [selectors.sessions],
             (sessions: SessionType[]): SessionRecordingId[] =>
-                sessions.flatMap((session) => session.session_recording_ids),
+                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
         ],
         recordingIndex: [
             (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
@@ -127,7 +156,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         showNext: [
             (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.nextOffset],
             (index: number, ids: SessionRecordingId[], offset: number | null) =>
-                index > -1 && (index < ids.length || offset !== null),
+                index > -1 && (index < ids.length - 1 || offset !== null),
         ],
     },
 })
