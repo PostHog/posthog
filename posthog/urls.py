@@ -54,13 +54,24 @@ def login_view(request):
         email = request.POST["email"]
         password = request.POST["password"]
         user = cast(Optional[User], authenticate(request, email=email, password=password))
+        next_url = request.GET.get("next")
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             if user.distinct_id:
                 posthoganalytics.capture(user.distinct_id, "user logged in")
+            if next_url:
+                return redirect(next_url)
             return redirect("/")
         else:
-            return render_template("login.html", request=request, context={"email": email, "error": True})
+            return render_template(
+                "login.html",
+                request=request,
+                context={
+                    "email": email,
+                    "error": True,
+                    "action": "/login" if not next_url else f"/login?next={next_url}",
+                },
+            )
     return render_template("login.html", request)
 
 

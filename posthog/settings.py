@@ -142,21 +142,11 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
 
 IS_HEROKU = get_bool_from_env("IS_HEROKU", False)
+
+# Kafka configs
 KAFKA_URL = os.environ.get("KAFKA_URL", "kafka://kafka")
-
-LOG_TO_WAL = get_bool_from_env("LOG_TO_WAL", True)
-
-
-# Kafka Configs
-
-_kafka_hosts = KAFKA_URL.split(",")
-
-KAFKA_HOSTS_LIST = []
-for host in _kafka_hosts:
-    url = urlparse(host)
-    KAFKA_HOSTS_LIST.append(url.netloc)
+KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-
 KAFKA_BASE64_KEYS = get_bool_from_env("KAFKA_BASE64_KEYS", False)
 
 PRIMARY_DB = os.environ.get("PRIMARY_DB", RDBMS.POSTGRES)  # type: str

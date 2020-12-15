@@ -69,7 +69,7 @@ export function OptInPlugins(): JSX.Element {
             )}
             <div style={{ marginBottom: 20 }}>
                 <Checkbox checked={optIn} onChange={() => setOptIn(!optIn)} disabled={serverStatus !== 'online'}>
-                    I understand the risks and wish to try this beta feature now for <b>{user?.team.name}</b>.
+                    I understand the risks and wish to try this beta feature now for <b>{user?.team?.name}</b>.
                 </Checkbox>
             </div>
             <div>

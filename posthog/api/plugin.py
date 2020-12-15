@@ -34,8 +34,8 @@ from posthog.redis import get_client
 class PluginSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plugin
-        fields = ["id", "name", "description", "url", "config_schema", "tag", "error"]
-        read_only_fields = ["id", "name", "description", "config_schema", "tag", "error"]
+        fields = ["id", "plugin_type", "name", "description", "url", "config_schema", "tag", "source"]
+        read_only_fields = ["id"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and can_install_plugins_via_api():
@@ -45,7 +45,8 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin installation via the web is disabled!")
-        validated_data = self._get_validated_data_for_url(validated_data["url"])
+        if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
+            self._update_validated_data_from_url(validated_data, validated_data["url"])
         if len(Plugin.objects.filter(name=validated_data["name"])) > 0:
             raise ValidationError('Plugin with name "{}" already installed!'.format(validated_data["name"]))
         plugin = super().create(validated_data)
@@ -55,25 +56,28 @@ class PluginSerializer(serializers.ModelSerializer):
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         if not can_install_plugins_via_api():
             raise ValidationError("Plugin upgrades via the web are disabled!")
-        validated_data = self._get_validated_data_for_url(validated_data["url"])
+        if plugin.plugin_type != Plugin.PluginType.SOURCE:
+            validated_data = self._update_validated_data_from_url(validated_data, validated_data["url"])
         response = super().update(plugin, validated_data)
         reload_plugins_on_workers()
         return response
 
-    def _get_validated_data_for_url(self, url: str) -> Dict:
-        validated_data: Dict[str, Any] = {}
+    # If remote plugin, download the archive and get up-to-date validated_data from there.
+    def _update_validated_data_from_url(self, validated_data: Dict[str, Any], url: str) -> Dict:
         if url.startswith("file:"):
             plugin_path = url[5:]
             json_path = os.path.join(plugin_path, "plugin.json")
             json = load_json_file(json_path)
             if not json:
                 raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+            validated_data["plugin_type"] = "local"
             validated_data["url"] = url
             validated_data["tag"] = None
             validated_data["archive"] = None
             validated_data["name"] = json.get("name", json_path.split("/")[-2])
             validated_data["description"] = json.get("description", "")
             validated_data["config_schema"] = json.get("config", {})
+            validated_data["source"] = None
         else:
             parsed_url = parse_url(url, get_latest_if_none=True)
             if parsed_url:
@@ -86,8 +90,16 @@ class PluginSerializer(serializers.ModelSerializer):
                 validated_data["name"] = plugin_json["name"]
                 validated_data["description"] = plugin_json.get("description", "")
                 validated_data["config_schema"] = plugin_json.get("config", {})
+                validated_data["source"] = None
             else:
                 raise ValidationError("Must be a GitHub repository or a NPM package URL!")
+
+            # Keep plugin type as "repository" or reset to "custom" if it was something else.
+            if (
+                validated_data.get("plugin_type", None) != Plugin.PluginType.CUSTOM
+                and validated_data.get("plugin_type", None) != Plugin.PluginType.REPOSITORY
+            ):
+                validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
         return validated_data
 

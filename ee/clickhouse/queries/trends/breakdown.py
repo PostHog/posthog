@@ -102,12 +102,19 @@ class ClickhouseTrendsBreakdown:
             if "all" in breakdown:
                 null_sql = NULL_SQL
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
+                breakdown_value = ""
             else:
-                _params, breakdown_filter, _breakdown_filter_params = self._breakdown_cohort_params(breakdown, team_id)
+                _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params(
+                    breakdown, team_id
+                )
         elif filter.breakdown_type == "person":
-            _params, breakdown_filter, _breakdown_filter_params = self._breakdown_person_params(filter, team_id)
+            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_person_params(
+                filter, team_id
+            )
         else:
-            _params, breakdown_filter, _breakdown_filter_params = self._breakdown_prop_params(filter, team_id)
+            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
+                filter, team_id
+            )
 
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
@@ -115,7 +122,10 @@ class ClickhouseTrendsBreakdown:
         if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = breakdown_query.format(
-                breakdown_filter=breakdown_filter, event_join=join_condition, aggregate_operation=aggregate_operation
+                breakdown_filter=breakdown_filter,
+                event_join=join_condition,
+                aggregate_operation=aggregate_operation,
+                breakdown_value=breakdown_value,
             )
 
             result = sync_execute(content_sql, params)
@@ -138,6 +148,7 @@ class ClickhouseTrendsBreakdown:
                 event_join=join_condition,
                 aggregate_operation=aggregate_operation,
                 interval_annotation=interval_annotation,
+                breakdown_value=breakdown_value,
             )
 
             try:
@@ -165,7 +176,7 @@ class ClickhouseTrendsBreakdown:
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
 
-        return params, breakdown_filter, breakdown_filter_params
+        return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_person_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
@@ -184,7 +195,7 @@ class ClickhouseTrendsBreakdown:
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
 
-        return params, breakdown_filter, breakdown_filter_params
+        return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_prop_params(self, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
@@ -198,7 +209,7 @@ class ClickhouseTrendsBreakdown:
         }
         breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
 
-        return params, breakdown_filter, {}
+        return params, breakdown_filter, {}, "JSONExtractRaw(properties, %(key)s)"
 
     def _parse_single_aggregate_result(self, result, filter: Filter, entity: Entity):
         parsed_results = []
