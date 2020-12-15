@@ -5,7 +5,7 @@ import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
-import './insightHistoryPanel.scss'
+import './InsightHistoryPanel.scss'
 import moment from 'moment'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
