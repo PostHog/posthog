@@ -98,13 +98,13 @@ class ClickhouseTrendsBreakdown:
             if "all" in breakdown:
                 null_sql = NULL_SQL
                 breakdown_filter = BREAKDOWN_CONDITIONS_SQL
-                breakdown_query = BREAKDOWN_DEFAULT_SQL
+                breakdown_query, breakdown_value = BREAKDOWN_DEFAULT_SQL, ""
             else:
                 cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(breakdown, team_id)
                 params = {**params, "values": cohort_ids, **cohort_params}
                 breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
                 breakdown_filter_params = {**breakdown_filter_params, "cohort_queries": cohort_queries}
-                breakdown_query = BREAKDOWN_QUERY_SQL
+                breakdown_query, breakdown_value = BREAKDOWN_QUERY_SQL, "value"
         elif filter.breakdown_type == "person":
             elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
                 parsed_date_from=parsed_date_from,
@@ -121,7 +121,7 @@ class ClickhouseTrendsBreakdown:
                 **breakdown_filter_params,
                 "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
             }
-            breakdown_query = BREAKDOWN_QUERY_SQL
+            breakdown_query, breakdown_value = BREAKDOWN_QUERY_SQL, "value"
         else:
 
             elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -134,7 +134,7 @@ class ClickhouseTrendsBreakdown:
                 "values": top_elements_array,
             }
             breakdown_filter = BREAKDOWN_PROP_JOIN_SQL
-            breakdown_query = BREAKDOWN_QUERY_SQL
+            breakdown_query, breakdown_value = BREAKDOWN_QUERY_SQL, "JSONExtractRaw(properties, %(key)s)"
 
         null_sql = null_sql.format(
             interval=interval_annotation,
@@ -149,6 +149,7 @@ class ClickhouseTrendsBreakdown:
             event_join=join_condition,
             aggregate_operation=aggregate_operation,
             interval_annotation=interval_annotation,
+            breakdown_value=breakdown_value,
         )
 
         try:
@@ -160,8 +161,10 @@ class ClickhouseTrendsBreakdown:
 
         for idx, stats in enumerate(result):
 
-            breakdown_value = stats[2] if not filter.breakdown_type == "cohort" else ""
-            stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
+            breakdown_value_raw = stats[2] if not filter.breakdown_type == "cohort" else ""
+            stripped_value = (
+                breakdown_value_raw.strip('"') if isinstance(breakdown_value_raw, str) else breakdown_value_raw
+            )
 
             extra_label = self._determine_breakdown_label(idx, filter.breakdown_type, filter.breakdown, stripped_value)
             label = "{} - {}".format(entity.name, extra_label)
