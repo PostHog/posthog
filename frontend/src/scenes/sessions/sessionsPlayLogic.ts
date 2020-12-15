@@ -3,9 +3,12 @@ import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
-import { PersonType } from '~/types'
+import { PersonType, SessionType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
+import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+
+type SessionRecordingId = string
 
 interface SessionPlayerData {
     snapshots: eventWithTime[]
@@ -13,13 +16,19 @@ interface SessionPlayerData {
 }
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
+    connect: {
+        values: [sessionsTableLogic, ['sessions', 'nextOffset']],
+        actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions']],
+    },
     actions: {
         toggleAddingTagShown: () => {},
         setAddingTag: (payload: string) => ({ payload }),
+        goToNext: true,
+        goToPrevious: true,
     },
     reducers: {
         sessionRecordingId: [
-            null as string | null,
+            null as SessionRecordingId | null,
             {
                 loadRecording: (_, sessionRecordingId) => sessionRecordingId,
             },
@@ -50,9 +59,17 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 actions.setAddingTag('')
             }
         },
+        goToNext: () => {
+            const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
+            actions.loadRecording(id)
+        },
+        goToPrevious: () => {
+            const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
+            actions.loadRecording(id)
+        },
     }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_: any, params: { sessionRecordingId: string }) => {
+        '*': (_: any, params: { sessionRecordingId: SessionRecordingId }) => {
             const sessionRecordingId = params.sessionRecordingId
             if (sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)
@@ -97,5 +114,20 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             (sessionPlayerData: SessionPlayerData): EventIndex => new EventIndex(sessionPlayerData?.snapshots || []),
         ],
         pageVisitEvents: [(selectors) => [selectors.eventIndex], (eventIndex) => eventIndex.pageChangeEvents()],
+        orderedSessionRecordingIds: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): SessionRecordingId[] =>
+                sessions.flatMap((session) => session.session_recording_ids),
+        ],
+        recordingIndex: [
+            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
+            (recordingIds: SessionRecordingId[], id: SessionRecordingId): number => recordingIds.indexOf(id),
+        ],
+        showPrev: [(selectors) => [selectors.recordingIndex], (index: number): boolean => index > 0],
+        showNext: [
+            (selectors) => [selectors.recordingIndex, selectors.orderedSessionRecordingIds, selectors.nextOffset],
+            (index: number, ids: SessionRecordingId[], offset: number | null) =>
+                index > -1 && (index < ids.length || offset !== null),
+        ],
     },
 })

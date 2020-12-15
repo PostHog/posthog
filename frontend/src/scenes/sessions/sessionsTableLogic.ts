@@ -9,8 +9,6 @@ import { eventWithTime } from 'rrweb/typings/types'
 
 type Moment = moment.Moment
 
-type SessionRecordingId = string
-
 interface Params {
     date?: string
     properties?: any
@@ -131,31 +129,6 @@ export const sessionsTableLogic = kea<
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
-        orderedSessionRecordingIds: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): SessionRecordingId[] =>
-                sessions.flatMap((session) => session.session_recording_ids),
-        ],
-        sessionRecordingNavigation: [
-            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
-            (
-                recordings: SessionRecordingId[],
-                recordingId: SessionRecordingId | null
-            ): { next?: SessionRecordingId; prev?: SessionRecordingId } => {
-                if (recordingId === null) {
-                    return {}
-                }
-                const index = recordings.indexOf(recordingId)
-                const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
-                if (index !== -1 && index < recordings.length - 1) {
-                    result.next = recordings[index + 1]
-                }
-                if (index > 0) {
-                    result.prev = recordings[index - 1]
-                }
-                return result
-            },
-        ],
         durationFilter: [
             (selectors) => [selectors.duration],
             (duration: RecordingDurationFilter | null) => {

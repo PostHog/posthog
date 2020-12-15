@@ -58,8 +58,10 @@ function _SessionsPlay(): JSX.Element {
         tagsLoading,
         eventIndex,
         pageVisitEvents,
+        showNext,
+        showPrev,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag } = useActions(sessionsPlayLogic)
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious } = useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)
@@ -113,6 +115,8 @@ function _SessionsPlay(): JSX.Element {
                                 ref={playerRef}
                                 events={sessionPlayerData?.snapshots || []}
                                 onPlayerTimeChange={setCurrentPlayerTime}
+                                onNext={showNext ? goToNext : undefined}
+                                onPrevious={showPrev ? goToPrevious : undefined}
                             />
                         )}
                     </div>
