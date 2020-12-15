@@ -70,16 +70,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             }
         },
         goToNext: () => {
-            console.log(
-                values.recordingIndex,
-                values.orderedSessionRecordingIds.length,
-                values.orderedSessionRecordingIds
-            )
             if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
                 const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
                 actions.loadRecording(id)
             } else if (values.nextOffset) {
-                console.log('next page loading!')
                 // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
                 actions.openNextRecordingOnLoad()
                 actions.fetchNextSessions()
