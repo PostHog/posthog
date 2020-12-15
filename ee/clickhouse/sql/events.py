@@ -10,7 +10,7 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
-DROP_MAT_EVENTS_PROP_TABLE_SQL = """
+DROP_EVENTS_PROP_TABLE_SQL = """
 DROP TABLE events_properties_view
 """
 
