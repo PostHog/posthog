@@ -192,7 +192,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                     onChange={(newDuration) => setFilters(properties, selectedDate, newDuration)}
                 />
             )}
-            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+            <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
 
             <div className="text-right mb">
                 <Tooltip title={playAllCTA}>
