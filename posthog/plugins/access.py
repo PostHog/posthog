@@ -12,4 +12,4 @@ def can_install_plugins_via_api():
 
 
 def can_configure_plugins_via_api():
-    return settings.PLUGINS_CONFIGURE_VIA_API and not_in_multi_tenancy()
+    return settings.PLUGINS_CONFIGURE_VIA_API

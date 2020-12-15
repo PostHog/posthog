@@ -16,7 +16,8 @@ export function InstalledPlugins(): JSX.Element {
         <div>
             <Subtitle
                 subtitle={
-                    'Installed' + (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
+                    (user?.is_multi_tenancy ? 'Available' : 'Installed') +
+                    (!loading || installedPlugins.length > 0 ? ` (${installedPlugins.length})` : '')
                 }
                 buttons={
                     user?.plugin_access.install && (
