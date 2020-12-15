@@ -177,6 +177,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     )
 
             response = trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team,)
+            print(response)
             self.assertEqual(response, result)
 
         def test_minute_interval(self):

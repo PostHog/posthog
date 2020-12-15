@@ -21,7 +21,8 @@ from django.db.models import (
     Value,
     functions,
 )
-from django.db.models.expressions import RawSQL, Subquery
+from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
+from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 
@@ -43,7 +44,7 @@ from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
-FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
+FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "MS"}
 
 MATH_TO_AGGREGATE_FUNCTION: Dict[str, Callable] = {
     "sum": Sum,
@@ -79,8 +80,6 @@ def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str
         )
     if interval == "week":
         dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
-    elif interval == "month":
-        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
     return dataframe
 
 
@@ -136,7 +135,9 @@ def get_interval_annotation(key: str) -> Dict[str, Any]:
         "minute": functions.TruncMinute("timestamp"),
         "hour": functions.TruncHour("timestamp"),
         "day": functions.TruncDay("timestamp"),
-        "week": functions.TruncWeek("timestamp"),
+        "week": functions.TruncWeek(
+            ExpressionWrapper(F("timestamp") + datetime.timedelta(days=1), output_field=DateTimeField())
+        ),
         "month": functions.TruncMonth("timestamp"),
     }
     func = map.get(key)
