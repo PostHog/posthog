@@ -56,18 +56,26 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         properties,
         sessionRecordingId,
         duration,
+        firstRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const sessionRecordingCTA = (
+    const enableSessionRecordingCTA = (
         <>
             Session recording is turned off for this project. Go to{' '}
             <Link to="/project/settings#session-recording"> project settings</Link> to enable.
         </>
     )
+
+    const playAllCTA =
+        firstRecordingId === null
+            ? user?.team?.session_recording_opt_in
+                ? 'No recordings found for this date'
+                : enableSessionRecordingCTA
+            : undefined
 
     const columns = [
         {
@@ -148,7 +156,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             </span>
                         </Tooltip>
                     ) : (
-                        <Tooltip title={sessionRecordingCTA}>
+                        <Tooltip title={enableSessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
                                 Play session
@@ -186,12 +194,12 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
 
             <div className="text-right mb">
-                <Tooltip title={!user?.team?.session_recording_opt_in ? sessionRecordingCTA : ''}>
+                <Tooltip title={playAllCTA}>
                     <Button
                         icon={<PlaySquareOutlined />}
                         type="primary"
                         data-attr="play-all-recordings"
-                        disabled={!user?.team?.session_recording_opt_in}
+                        disabled={!user?.team?.session_recording_opt_in || firstRecordingId === null}
                     >
                         Play all
                     </Button>

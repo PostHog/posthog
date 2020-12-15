@@ -3,7 +3,7 @@ import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from 'types/scenes/sessions/sessionsPlayLogicType'
-import { PersonType, SessionType } from '~/types'
+import { PersonType } from '~/types'
 import moment from 'moment'
 import { EventIndex } from 'posthog-react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -18,7 +18,7 @@ interface SessionPlayerData {
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex>>({
     connect: {
-        values: [sessionsTableLogic, ['sessions', 'nextOffset']],
+        values: [sessionsTableLogic, ['sessions', 'nextOffset', 'orderedSessionRecordingIds']],
         actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer']],
     },
     actions: {
@@ -143,11 +143,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
             (sessionPlayerData: SessionPlayerData): EventIndex => new EventIndex(sessionPlayerData?.snapshots || []),
         ],
         pageVisitEvents: [(selectors) => [selectors.eventIndex], (eventIndex) => eventIndex.pageChangeEvents()],
-        orderedSessionRecordingIds: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): SessionRecordingId[] =>
-                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
-        ],
         recordingIndex: [
             (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
             (recordingIds: SessionRecordingId[], id: SessionRecordingId): number => recordingIds.indexOf(id),

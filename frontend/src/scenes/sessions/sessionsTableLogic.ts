@@ -143,6 +143,15 @@ export const sessionsTableLogic = kea<
                 return { duration_operator: duration[0], duration: seconds }
             },
         ],
+        orderedSessionRecordingIds: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): SessionRecordingId[] =>
+                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
+        ],
+        firstRecordingId: [
+            (selectors) => [selectors.orderedSessionRecordingIds],
+            (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
+        ],
     },
     listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
