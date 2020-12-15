@@ -13,10 +13,10 @@ from posthog.utils import relative_date_parse
 def lifecycle_test_factory(trends, event_factory, person_factory, action_factory):
     class TestLifecycle(APIBaseTest):
         def _create_events(self, data):
-            person_result = ()
+            person_result = []
             for person in data:
                 id = person[0]
-                person_result += (person_factory(team_id=self.team.pk, distinct_ids=[id], properties={"name": id}),)
+                person_result.append(person_factory(team_id=self.team.pk, distinct_ids=[id], properties={"name": id}),)
                 timestamps = person[1]
                 for timestamp in timestamps:
                     event_factory(
