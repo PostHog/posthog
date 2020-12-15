@@ -10,10 +10,6 @@ DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
 DROP TABLE events_with_array_props_view
 """
 
-DROP_EVENTS_PROP_TABLE_SQL = """
-DROP TABLE events_properties_view
-"""
-
 EVENTS_TABLE = "events"
 
 EVENTS_TABLE_BASE_SQL = """
@@ -116,16 +112,6 @@ arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_prop
 _timestamp,
 _offset
 FROM events
-"""
-
-EVENT_PROP_TABLE_SQL = """
-CREATE VIEW events_properties_view
-AS SELECT uuid as event_id,
-team_id,
-array_property_keys as key,
-array_property_values as value
-from events_with_array_props_view
-ARRAY JOIN array_property_keys, array_property_values
 """
 
 SELECT_PROP_VALUES_SQL = """
