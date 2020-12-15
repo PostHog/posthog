@@ -88,7 +88,6 @@ export const retentionTableLogic = kea<retentionTableLogicType<Moment>>({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
-                console.log(props.cachedResults, refresh)
                 if (!refresh && (props.cachedResults || props.preventLoading)) {
                     return props.cachedResults
                 }

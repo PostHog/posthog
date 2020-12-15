@@ -227,7 +227,7 @@ export function DashboardItem({
                                 }}
                                 style={{ fontSize: 16, fontWeight: '500' }}
                             >
-                                {item.name}
+                                {item.name || 'Unsaved query'}
                             </Link>
                         )}
                     </div>

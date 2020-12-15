@@ -167,7 +167,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })
-            console.log('loadSavedInsight')
         },
         loadNextInsights: async () => {
             const response = await api.get(values.insightsNext)
