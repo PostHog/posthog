@@ -14,8 +14,9 @@ import {
     PoweroffOutlined,
     QuestionCircleOutlined,
     ArrowLeftOutlined,
+    PlaySquareOutlined,
 } from '@ant-design/icons'
-import SessionsPlayerButton from './SessionsPlayerButton'
+import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -24,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { SessionRecordingFilters } from 'scenes/sessions/SessionRecordingFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LinkButton } from 'lib/components/LinkButton'
 
 interface SessionsTableProps {
     personIds?: string[]
@@ -55,11 +57,26 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
         properties,
         sessionRecordingId,
         duration,
+        firstRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters } = useActions(logic)
     const { user } = useValues(userLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const enableSessionRecordingCTA = (
+        <>
+            Session recording is turned off for this project. Go to{' '}
+            <Link to="/project/settings#session-recording"> project settings</Link> to enable.
+        </>
+    )
+
+    const playAllCTA =
+        firstRecordingId === null
+            ? user?.team?.session_recording_opt_in
+                ? 'No recordings found for this date'
+                : enableSessionRecordingCTA
+            : undefined
 
     const columns = [
         {
@@ -140,14 +157,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                             </span>
                         </Tooltip>
                     ) : (
-                        <Tooltip
-                            title={
-                                <>
-                                    Session recording is turned off for this project. Go to{' '}
-                                    <Link to="/project/settings#session-recording"> project settings</Link> to enable.
-                                </>
-                            }
-                        >
+                        <Tooltip title={enableSessionRecordingCTA}>
                             <span>
                                 <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
                                 Play session
@@ -165,7 +175,7 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
 
     return (
         <div className="events" data-attr="events-table">
-            {!isPersonPage && <PageHeader title="Sessions By Day" />}
+            {!isPersonPage && <PageHeader title="Sessions" />}
             <Space className="mb-05">
                 <Button onClick={previousDay} icon={<CaretLeftOutlined />} />
                 <DatePicker
@@ -183,6 +193,22 @@ export function SessionsTable({ personIds, isPersonPage = false }: SessionsTable
                 />
             )}
             <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} />
+
+            <div className="text-right mb">
+                <Tooltip title={playAllCTA}>
+                    <span>
+                        <LinkButton
+                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            icon={<PlaySquareOutlined />}
+                            type="primary"
+                            data-attr="play-all-recordings"
+                            disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                        >
+                            Play all
+                        </LinkButton>
+                    </span>
+                </Tooltip>
+            </div>
 
             <Table
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}

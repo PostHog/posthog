@@ -131,31 +131,6 @@ export const sessionsTableLogic = kea<
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
-        orderedSessionRecordingIds: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): SessionRecordingId[] =>
-                sessions.flatMap((session) => session.session_recording_ids),
-        ],
-        sessionRecordingNavigation: [
-            (selectors) => [selectors.orderedSessionRecordingIds, selectors.sessionRecordingId],
-            (
-                recordings: SessionRecordingId[],
-                recordingId: SessionRecordingId | null
-            ): { next?: SessionRecordingId; prev?: SessionRecordingId } => {
-                if (recordingId === null) {
-                    return {}
-                }
-                const index = recordings.indexOf(recordingId)
-                const result: { next?: SessionRecordingId; prev?: SessionRecordingId } = {}
-                if (index !== -1 && index < recordings.length - 1) {
-                    result.next = recordings[index + 1]
-                }
-                if (index > 0) {
-                    result.prev = recordings[index - 1]
-                }
-                return result
-            },
-        ],
         durationFilter: [
             (selectors) => [selectors.duration],
             (duration: RecordingDurationFilter | null) => {
@@ -168,13 +143,25 @@ export const sessionsTableLogic = kea<
                 return { duration_operator: duration[0], duration: seconds }
             },
         ],
+        orderedSessionRecordingIds: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): SessionRecordingId[] =>
+                Array.from(new Set(sessions.flatMap((session) => session.session_recording_ids))),
+        ],
+        firstRecordingId: [
+            (selectors) => [selectors.orderedSessionRecordingIds],
+            (ids: SessionRecordingId[]): SessionRecordingId | null => ids[0] || null,
+        ],
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
             const params = toParams({
                 date_from: values.selectedDateURLparam,
                 date_to: values.selectedDateURLparam,
                 offset: values.nextOffset,
+                distinct_id: props.personIds ? props.personIds[0] : '',
+                properties: values.properties,
+                ...values.durationFilter,
             })
             const response = await api.get(`api/event/sessions/?${params}`)
             breakpoint()
@@ -207,7 +194,8 @@ export const sessionsTableLogic = kea<
 
             if (
                 JSON.stringify(params.properties || []) !== JSON.stringify(values.properties) ||
-                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration) ||
+                JSON.stringify(params.duration || {}) !== JSON.stringify(values.duration || {}) ||
+                !values.selectedDate ||
                 (values.selectedDate && values.selectedDate.format('YYYY-MM-DD') !== newDate.format('YYYY-MM-DD'))
             ) {
                 actions.setFilters(params.properties || [], newDate, params.duration || null)
