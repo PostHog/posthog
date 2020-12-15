@@ -1,5 +1,71 @@
 # Changelog
 
+### 1.19.0 - Tuesday 15 December 2020
+
+- [Scheduled Plugins and Editor](https://github.com/PostHog/posthog/pull/2743)
+
+![Plugin Editor Screenshot](https://posthog.com/static/f4aae550d6d85f934877d6e2c9e787c8/8c557/plugin-editor.png)
+
+We now support scheduled plugins that run periodically on a specified time cycle (e.g. minute, hour, day), as well as have a built-in code editor for plugins right into the PostHog UI.
+
+With the ability to run tasks in specified time intervals, you can now setup plugins that, for example, keep track of external metrics and add this data to PostHog via new events. This is possible because we now [support `posthog.capture` calls inside plugins as well](https://github.com/PostHog/posthog-plugin-server/pull/67). 
+
+Some metrics you might want to keep track of are, for example, server performance, GitHub activities (e.g. stars ⭐ ), engagement with your project's social media profiles, and anything else you can think of!
+
+Here's an example to give you an idea:
+
+```js
+async function runEveryMinute({ config }) {
+    const url = `https://api.github.com/repos/PostHog/posthog`
+    const response = await fetch(url)
+    const metrics = await response.json()
+    posthog.capture('github metrics', {
+        stars: metrics.stargazers_count,
+        open_issues: metrics.open_issues_count,
+        forks: metrics.forks_count,
+        subscribers: metrics.subscribers_count
+    })
+}
+```
+
+You can learn more about scheduled plugins on the [PR that created them](https://github.com/PostHog/posthog-plugin-server/pull/63), as well as our docs for [building your own plugin](/docs/plugins/build).
+
+> **Note:** Plugins are a Beta feature currently only available on self-hosted instances. We are working to make it available on PostHog Cloud soon.
+
+- [Lifecycle Analysis](https://github.com/PostHog/posthog/pull/2460)
+
+![Lifecycle Screenshot](https://posthog.com/static/b577dd0e4d2817e816ba602e5ef94e1d/8c557/lifecycle.png)
+
+Our 'Trends' tab just got an awesome new feature: lifecycle graphs!
+
+Lifecycle analysis digs deeper into your events and shows you a breakdown of the users who performed the event into new, returning, and resurrecting users. In addition, it also shows you the churn on for the specified time period. 
+
+To use it, select 'Shown As' -> 'Lifecycle' when in the 'Trends' tab.  
+
+- [New Session Recording Compression Scheme](https://github.com/PostHog/posthog/pull/2578)
+
+![Gzip Session Recording Screenshot](https://posthog.com/static/fe91676a24a8c70a017fafe2ab68f63e/8c557/session-recording-gzip.png)
+
+See the image above? That's our event processing time before and after the new compression scheme!
+
+By using gzip-based compression, we have now significantly improved performance both on the client and server, making event processing faster, as well as decreasing the number of session recordings that are lost. Be on the lookout for more green play buttons on your 'Sessions' page now.
+
+Also, while on the topic of session recording, have you been keeping up with the [updates to our player](#session-recording-player-ux-improvements)?
+
+> If you installed `posthog-js` via `npm`, you should update to version 1.8.0 to get access to this update. Snippet users have access to the latest version by default.
+
+- [New Actions UX](https://github.com/PostHog/posthog/pull/2615)
+
+![New Actions UX Screenshot](https://posthog.com/static/1f931cd359d1238e8ecba8d72a0be0c4/8c557/actions-ux.png)
+
+This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
+
+- [New operations for numerical properties](https://github.com/PostHog/posthog/pull/2630)
+
+In addition to the average, sum, maximum, and minimum operations available to numerical properties in trends, we now also support median, and 90th, 95th, and 99th percentiles.
+
+#### [Full Release Notes](https://posthog.com/blog/the-posthog-array-1-19-0)
+
 ### 1.18.0 - Monday 30 November 2020
 
 Our primary goals for this release were to iron out bugs and improve the user experience of our Beta features.
