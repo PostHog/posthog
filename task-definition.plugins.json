@@ -1,6 +1,7 @@
 {
     "family": "posthog-production-plugins",
     "networkMode": "awsvpc",
+    "name": "postiong-plugins",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
@@ -151,52 +152,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN::"
                 },
                 {
-                    "name": "SOCIAL_AUTH_GITHUB_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITHUB_KEY::"
-                },
-                {
-                    "name": "SOCIAL_AUTH_GITHUB_SECRET",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITHUB_SECRET::"
-                },
-                {
-                    "name": "SOCIAL_AUTH_GITLAB_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITLAB_KEY::"
-                },
-                {
-                    "name": "SOCIAL_AUTH_GITLAB_SECRET",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITLAB_SECRET::"
-                },
-                {
-                    "name": "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GOOGLE_OAUTH2_KEY::"
-                },
-                {
-                    "name": "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET::"
-                },
-                {
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
-                },
-                {
-                    "name": "STRIPE_API_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_API_KEY::"
-                },
-                {
-                    "name": "STRIPE_DEFAULT_PRICE_ID",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_DEFAULT_PRICE_ID::"
-                },
-                {
-                    "name": "STRIPE_GROWTH_PRICE_ID",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_GROWTH_PRICE_ID::"
-                },
-                {
-                    "name": "STRIPE_PUBLISHABLE_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_PUBLISHABLE_KEY::"
-                },
-                {
-                    "name": "STRIPE_WEBHOOK_SECRET",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
                 }
             ],
             "entryPoint": ["sh", "-c"],
@@ -204,6 +161,6 @@
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
-    "cpu": "1024",
-    "memory": "2048"
+    "cpu": 1024,
+    "memory": 2048
 }
