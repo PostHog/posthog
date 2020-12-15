@@ -1,7 +1,7 @@
 {% extends 'layout.html' %}
 
 {% block content %}
-    <form class="form-signin" method="post" action="/login">
+    <form class="form-signin" method="post" action="{{ action }}">
         {% csrf_token %}
         <h1 class="h3 mb-3 font-weight-normal">Log in to <a href='https://posthog.com'>PostHog</a></h1>
 

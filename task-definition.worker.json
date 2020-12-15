@@ -73,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "LOG_TO_WAL",
-                    "value": "True"
-                },
-                {
                     "name": "PRIMARY_DB",
                     "value": "clickhouse"
                 },

@@ -1,6 +1,7 @@
 import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from 'types/scenes/system_status/systemStatusLogicType'
+import { userLogic } from 'scenes/userLogic'
 
 interface SystemStatus {
     metric: string
@@ -17,6 +18,10 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
             [] as SystemStatus[],
             {
                 loadSystemStatus: async () => {
+                    const { user } = userLogic.values
+                    if (user?.is_multi_tenancy && !user.is_staff) {
+                        return []
+                    }
                     return (await api.get('_system_status')).results
                 },
             },

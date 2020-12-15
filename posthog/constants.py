@@ -8,6 +8,7 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
+TRENDS_TABLE = "ActionsTable"
 TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 

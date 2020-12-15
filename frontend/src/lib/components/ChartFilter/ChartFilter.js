@@ -62,7 +62,7 @@ export function ChartFilter(props) {
             <Select.Option value={ACTIONS_PIE_CHART} disabled={pieDisabled}>
                 Pie
             </Select.Option>
-            <Select.Option value={ACTIONS_BAR_CHART} disabled={filters.session}>
+            <Select.Option value={ACTIONS_BAR_CHART} disabled={filters.session || filters.retentionType}>
                 Bar
             </Select.Option>
         </Select>,

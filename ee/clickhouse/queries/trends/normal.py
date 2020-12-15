@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 
@@ -9,8 +9,13 @@ from ee.clickhouse.queries.trends.util import parse_response, process_math
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
-from ee.clickhouse.sql.trends.volume import VOLUME_ACTIONS_SQL, VOLUME_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from ee.clickhouse.sql.trends.volume import (
+    VOLUME__TOTAL_AGGREGATE_ACTIONS_SQL,
+    VOLUME_ACTIONS_SQL,
+    VOLUME_SQL,
+    VOLUME_TOTAL_AGGREGATE_SQL,
+)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_PIE, TRENDS_TABLE
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -43,36 +48,66 @@ class ClickhouseTrendsNormal:
             "aggregate_operation": aggregate_operation,
         }
 
+        entity_params, entity_format_params = self._populate_entity_params(entity)
+        params = {**params, **entity_params}
+        content_sql_params = {**content_sql_params, **entity_format_params}
+
+        if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            agg_query = self._determine_single_aggregate_query(filter, entity)
+            content_sql = agg_query.format(**content_sql_params)
+
+            try:
+                result = sync_execute(content_sql, params)
+            except:
+                result = []
+
+            return [{"aggregated_value": result[0][0] if result and len(result) else 0}]
+        else:
+            content_sql = self._determine_trend_aggregate_query(filter, entity)
+            content_sql = content_sql.format(**content_sql_params)
+
+            null_sql = NULL_SQL.format(
+                interval=interval_annotation,
+                seconds_in_interval=seconds_in_interval,
+                num_intervals=num_intervals,
+                date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+            try:
+                result = sync_execute(final_query, params)
+            except:
+                result = []
+
+            parsed_results = []
+            for _, stats in enumerate(result):
+                parsed_result = parse_response(stats, filter)
+                parsed_results.append(parsed_result)
+
+            return parsed_results
+
+    def _populate_entity_params(self, entity: Entity) -> Tuple[Dict, Dict]:
+        params, content_sql_params = {}, {}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
                 action = Action.objects.get(pk=entity.id)
                 action_query, action_params = format_action_filter(action)
-                params = {**params, **action_params}
-                content_sql = VOLUME_ACTIONS_SQL
-                content_sql_params = {**content_sql_params, "actions_query": action_query}
+                params = {**action_params}
+                content_sql_params = {"actions_query": action_query}
             except:
-                return []
+                raise ValueError("Action does not exist")
         else:
-            content_sql = VOLUME_SQL
-            params = {**params, "event": entity.id}
-        null_sql = NULL_SQL.format(
-            interval=interval_annotation,
-            seconds_in_interval=seconds_in_interval,
-            num_intervals=num_intervals,
-            date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        content_sql = content_sql.format(**content_sql_params)
-        final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+            params = {"event": entity.id}
 
-        try:
-            result = sync_execute(final_query, params)
+        return params, content_sql_params
 
-        except:
-            result = []
+    def _determine_single_aggregate_query(self, filter: Filter, entity: Entity) -> str:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            return VOLUME__TOTAL_AGGREGATE_ACTIONS_SQL
+        else:
+            return VOLUME_TOTAL_AGGREGATE_SQL
 
-        parsed_results = []
-        for _, stats in enumerate(result):
-            parsed_result = parse_response(stats, filter)
-            parsed_results.append(parsed_result)
-
-        return parsed_results
+    def _determine_trend_aggregate_query(self, filter: Filter, entity: Entity) -> str:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            return VOLUME_ACTIONS_SQL
+        else:
+            return VOLUME_SQL
