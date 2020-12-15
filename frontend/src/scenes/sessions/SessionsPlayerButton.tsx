@@ -13,7 +13,7 @@ export const sessionPlayerUrl = (sessionRecordingId: string): string => {
     return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
 }
 
-export default function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
+export function SessionsPlayerButton({ session }: SessionsPlayerButtonProps): JSX.Element | null {
     if (!session.session_recording_ids) {
         return null
     }

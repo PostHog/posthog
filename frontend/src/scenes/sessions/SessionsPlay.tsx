@@ -88,9 +88,9 @@ function _SessionsPlay(): JSX.Element {
             <Row gutter={16} style={{ height: '100%' }}>
                 <Col span={18} style={{ paddingRight: 0 }}>
                     <div className="mb-05" style={{ display: 'flex' }}>
-                        {isLoading && <Skeleton paragraph={{ rows: 0 }} active />}
-
-                        {!isLoading && (
+                        {isLoading ? (
+                            <Skeleton paragraph={{ rows: 0 }} active />
+                        ) : (
                             <>
                                 {pageEvent ? (
                                     <>

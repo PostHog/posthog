@@ -16,7 +16,7 @@ import {
     ArrowLeftOutlined,
     PlaySquareOutlined,
 } from '@ant-design/icons'
-import SessionsPlayerButton, { sessionPlayerUrl } from './SessionsPlayerButton'
+import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import rrwebBlockClass from 'lib/utils/rrwebBlockClass'
 import { PageHeader } from 'lib/components/PageHeader'
