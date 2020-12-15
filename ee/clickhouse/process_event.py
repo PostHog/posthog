@@ -4,7 +4,6 @@ from typing import Dict, Optional
 from uuid import UUID
 
 import statsd
-from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -179,14 +178,17 @@ def log_event(
     now: datetime.datetime,
     sent_at: Optional[datetime.datetime],
 ) -> None:
-    data = {
-        "distinct_id": distinct_id,
-        "ip": ip,
-        "site_url": site_url,
-        "data": json.dumps(data),
-        "team_id": team_id,
-        "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
-    }
-    p = KafkaProducer()
-    p.produce(topic=KAFKA_EVENTS_WAL, data=data)
+    if settings.DEBUG:
+        print(f'Logging event {data["event"]} to WAL')
+    KafkaProducer().produce(
+        topic=KAFKA_EVENTS_WAL,
+        data={
+            "distinct_id": distinct_id,
+            "ip": ip,
+            "site_url": site_url,
+            "data": json.dumps(data),
+            "team_id": team_id,
+            "now": now.isoformat(),
+            "sent_at": sent_at.isoformat() if sent_at else "",
+        },
+    )
