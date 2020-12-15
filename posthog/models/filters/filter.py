@@ -61,7 +61,7 @@ class Filter(PropertyMixin):
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
     insight: str
-    session_type: Optional[str] = None
+    session: Optional[str] = None
     path_type: Optional[str] = None
     start_point: Optional[str] = None
     _offset: Optional[str] = None
@@ -90,7 +90,7 @@ class Filter(PropertyMixin):
         self.breakdown_value = data.get(BREAKDOWN_VALUE)
         self._compare = data.get(COMPARE, "false")
         self.insight = data.get(INSIGHT, INSIGHT_TRENDS)
-        self.session_type = data.get(SESSION)
+        self.session = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
         self.start_point = data.get(START_POINT)
         self._offset = data.get(OFFSET)

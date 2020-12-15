@@ -12,7 +12,7 @@ from posthog.utils import relative_date_parse
 
 
 def set_default_dates(filter: Filter) -> None:
-    if filter.session_type != SESSION_AVG and filter.session_type != SESSION_DIST:
+    if filter.session != SESSION_AVG and filter.session != SESSION_DIST:
         if not filter._date_from:
             filter._date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         if not filter._date_to and filter.date_from:
@@ -29,7 +29,7 @@ class ClickhouseSessions(BaseQuery, ClickhouseSessionsAvg, ClickhouseSessionsDis
         result: List = []
 
         set_default_dates(filter)
-        if filter.session_type == SESSION_AVG:
+        if filter.session == SESSION_AVG:
             if filter.compare:
                 current_response = self.calculate_avg(filter, team)
                 parsed_response = convert_to_comparison(current_response, filter, "current")
@@ -42,7 +42,7 @@ class ClickhouseSessions(BaseQuery, ClickhouseSessionsAvg, ClickhouseSessionsDis
             else:
                 result = self.calculate_avg(filter, team)
 
-        elif filter.session_type == SESSION_DIST:
+        elif filter.session == SESSION_DIST:
             result = self.calculate_dist(filter, team)
 
         return result

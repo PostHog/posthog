@@ -78,7 +78,7 @@ class Sessions(BaseSessions):
         calculated = []
 
         # get compared period
-        if filter.compare and filter._date_from != "all" and filter.session_type == SESSION_AVG:
+        if filter.compare and filter._date_from != "all" and filter.session == SESSION_AVG:
 
             calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), filter, team)
             calculated = convert_to_comparison(calculated, filter, "current")
@@ -98,7 +98,7 @@ class Sessions(BaseSessions):
     def calculate_sessions(self, events: QuerySet, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         all_sessions, sessions_sql_params = self.build_all_sessions_query(events)
 
-        if filter.session_type == SESSION_AVG:
+        if filter.session == SESSION_AVG:
             if not filter.date_from:
                 filter._date_from = (
                     Event.objects.filter(team_id=team)
