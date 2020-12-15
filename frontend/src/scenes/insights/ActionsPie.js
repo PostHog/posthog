@@ -23,7 +23,7 @@ export function ActionsPie({ dashboardItemId, view, filters: filtersParam, color
         setData([
             {
                 labels: data.map((item) => item.label),
-                data: data.map((item) => item.data && item.data.reduce((prev, d) => prev + d, 0)),
+                data: data.map((item) => item.aggregated_value),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
