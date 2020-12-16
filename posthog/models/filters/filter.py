@@ -1,34 +1,13 @@
 import datetime
 import json
-from distutils.util import strtobool
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
-from posthog.constants import (
-    ACTIONS,
-    BREAKDOWN,
-    BREAKDOWN_TYPE,
-    COMPARE,
-    DATE_FROM,
-    DATE_TO,
-    DISPLAY,
-    EVENTS,
-    INSIGHT,
-    INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
-    INSIGHT_TO_DISPLAY,
-    INSIGHT_TRENDS,
-    INTERVAL,
-    PROPERTIES,
-    SELECTOR,
-    SESSION,
-    SHOWN_AS,
-)
-from posthog.models.entity import Entity
+from posthog.constants import ACTIONS, DATE_FROM, DATE_TO, EVENTS, PROPERTIES
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
@@ -45,7 +24,6 @@ from posthog.models.filters.mixins.common import (
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.property import Property
 from posthog.utils import relative_date_parse
 
 

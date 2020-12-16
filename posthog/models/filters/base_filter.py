@@ -1,10 +1,10 @@
 import inspect
 import json
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
 
-from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin
+from posthog.models.filters.mixins.common import BaseParamMixin
 
 
 class BaseFilter(BaseParamMixin):

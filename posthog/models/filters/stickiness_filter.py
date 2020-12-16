@@ -1,30 +1,17 @@
-import json
-from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Union
 
-from django.db.models.expressions import Value
-from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek, TruncYear
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek
 from django.http import HttpRequest
-from django.utils import timezone
 
-from posthog.constants import INTERVAL, STICKINESS_DAYS
-from posthog.models.entity import Entity
-from posthog.models.event import Event
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.common import CompareMixin, DateMixin, IntervalMixin, OffsetMixin, ShownAsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.stickiness import (
-    EntityIdMixin,
-    EntityTypeMixin,
     SelectedIntervalMixin,
     TargetEntityDerivedMixin,
     TotalIntervalsDerivedMixin,
 )
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import Property
 from posthog.models.team import Team
-from posthog.utils import relative_date_parse
 
 
 class StickinessFilter(
@@ -33,6 +20,7 @@ class StickinessFilter(
     SelectedIntervalMixin,
     PropertyMixin,
     OffsetMixin,
+    IntervalMixin,
     CompareMixin,
     ShownAsMixin,
     DateMixin,
