@@ -93,9 +93,9 @@ class DisplayDerivedMixin(InsightMixin):
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
 
-class SessionTypeMixin(BaseParamMixin):
+class SessionMixin(BaseParamMixin):
     @cached_property
-    def session_type(self) -> Optional[str]:
+    def session(self) -> Optional[str]:
         return self._data.get(SESSION, None)
 
 

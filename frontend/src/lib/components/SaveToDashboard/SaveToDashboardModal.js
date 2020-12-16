@@ -81,7 +81,7 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/dashboard_item', {
+            const response = await api.create('api/insight', {
                 filters,
                 name,
                 dashboard: dashboardId,
@@ -98,7 +98,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters })
+            await api.update(`api/insight/${fromItem}`, { filters })
         }
         toast(
             <div data-attr="success-toast">

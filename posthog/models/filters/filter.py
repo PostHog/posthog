@@ -1,6 +1,7 @@
 import datetime
 import json
-from typing import Any, Dict, Optional, Union
+from distutils.util import strtobool
+from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -17,12 +18,17 @@ from posthog.constants import (
     DISPLAY,
     EVENTS,
     INSIGHT,
+    INSIGHT_RETENTION,
+    INSIGHT_SESSIONS,
+    INSIGHT_TO_DISPLAY,
+    INSIGHT_TRENDS,
     INTERVAL,
     PROPERTIES,
     SELECTOR,
     SESSION,
     SHOWN_AS,
 )
+from posthog.models.entity import Entity
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
     BreakdownTypeMixin,
@@ -34,10 +40,12 @@ from posthog.models.filters.mixins.common import (
     IntervalMixin,
     OffsetMixin,
     SelectorMixin,
-    SessionTypeMixin,
+    SessionMixin,
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.property import Property
+from posthog.types import FilterType
 from posthog.utils import relative_date_parse
 
 
@@ -53,7 +61,7 @@ class Filter(
     BreakdownValueMixin,
     CompareMixin,
     InsightMixin,
-    SessionTypeMixin,
+    SessionMixin,
     OffsetMixin,
 ):
     """
@@ -84,27 +92,45 @@ class Filter(
         self._date_to = data.get(DATE_TO)
 
     def to_dict(self) -> Dict[str, Any]:
-        full_dict = {
-            DATE_FROM: self._date_from,
-            DATE_TO: self._date_to,
-            PROPERTIES: [prop.to_dict() for prop in self.properties],
-            INTERVAL: self.interval,
-            EVENTS: [entity.to_dict() for entity in self.events],
-            ACTIONS: [entity.to_dict() for entity in self.actions],
-            DISPLAY: self.display,
-            SELECTOR: self.selector,
-            SHOWN_AS: self.shown_as,
-            BREAKDOWN: self.breakdown,
-            BREAKDOWN_TYPE: self.breakdown_type,
-            COMPARE: self.compare,
-            INSIGHT: self.insight,
-            SESSION: self.session_type,
-        }
-        return {
-            key: value
-            for key, value in full_dict.items()
-            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
-        }
+        ret = {}
+
+        for key in dir(self):
+            value = getattr(self, key)
+            if key in [
+                "entities",
+                "determine_time_delta",
+                "date_filter_Q",
+                "custom_date_filter_Q",
+                "properties_to_Q",
+                "toJSON",
+                "to_dict",
+            ] or key.startswith("_"):
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                continue
+            if not isinstance(value, list) and not value:
+                continue
+            if key == "date_from" and not self._date_from:
+                continue
+            if key == "date_to" and not self._date_to:
+                continue
+            if isinstance(value, datetime.datetime):
+                value = value.isoformat()
+            if not isinstance(value, (list, bool, int, float, str)):
+                # Try to see if this object is json serializable
+                try:
+                    json.dumps(value)
+                except:
+                    continue
+            if isinstance(value, Entity):
+                value = value.to_dict()
+            if key == "properties" and isinstance(value, list) and isinstance(value[0], Property):
+                value = [prop.to_dict() for prop in value]
+            if isinstance(value, list) and isinstance(value[0], Entity):
+                value = [entity.to_dict() for entity in value]
+            ret[key] = value
+
+        return ret
 
     @property
     def date_from(self) -> Optional[datetime.datetime]:
@@ -151,3 +177,20 @@ class Filter(
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
+
+def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None) -> FilterType:
+    from posthog.models.filters.retention_filter import RetentionFilter
+    from posthog.models.filters.sessions_filter import SessionsFilter
+    from posthog.models.filters.stickiness_filter import StickinessFilter
+
+    insight = data.get("insight")
+    if not insight and request:
+        insight = request.GET.get("insight")
+    if insight == INSIGHT_RETENTION:
+        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
+    elif insight == INSIGHT_SESSIONS:
+        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
+    elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
+        return StickinessFilter(data=data, request=request, team=team)
+    return Filter(data=data, request=request)
