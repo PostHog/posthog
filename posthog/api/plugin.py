@@ -36,7 +36,6 @@ class PluginSerializer(serializers.ModelSerializer):
         model = Plugin
         fields = [
             "id",
-            "organization_id",
             "plugin_type",
             "name",
             "description",
@@ -45,7 +44,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "source",
         ]
-        read_only_fields = ["id", "organization_id"]
+        read_only_fields = ["id"]
 
     def get_error(self, plugin: Plugin) -> Optional[JSONField]:
         if plugin.error and can_install_plugins_via_api(self.context["organization_id"]):
