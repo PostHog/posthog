@@ -285,13 +285,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             for result in event_response:
                 if result["label"] == "sign up - cohort1":
-                    self.assertEqual(event_response[0]["aggregated_value"], 2)
+                    self.assertEqual(result["aggregated_value"], 2)
                 elif result["label"] == "sign up - cohort2":
-                    self.assertEqual(event_response[1]["aggregated_value"], 2)
+                    self.assertEqual(result["aggregated_value"], 2)
                 elif result["label"] == "sign up - cohort3":
-                    self.assertEqual(event_response[2]["aggregated_value"], 3)
+                    self.assertEqual(result["aggregated_value"], 3)
                 else:
-                    self.assertEqual(event_response[3]["aggregated_value"], 7)
+                    self.assertEqual(result["aggregated_value"], 7)
 
         def test_trends_breakdown_single_aggregate(self):
             person = person_factory(
