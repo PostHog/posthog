@@ -200,7 +200,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-worker"]
+            "command": ["./bin/docker-worker-celery --with-scheduler"]
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
