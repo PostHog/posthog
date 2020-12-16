@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Union
 
@@ -21,6 +22,7 @@ from posthog.models.filters.mixins.stickiness import (
     TotalIntervalsDerivedMixin,
 )
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
@@ -49,6 +51,47 @@ class StickinessFilter(
         if not get_earliest_timestamp:
             raise ValueError("Callable must be provided when date filtering is all time")
         self.get_earliest_timestamp = get_earliest_timestamp  # type: ignore
+
+    def to_dict(self) -> Dict[str, Any]:
+        ret = {}
+
+        for key in dir(self):
+            value = getattr(self, key)
+            if key in [
+                "entities",
+                "determine_time_delta",
+                "date_filter_Q",
+                "custom_date_filter_Q",
+                "properties_to_Q",
+                "toJSON",
+                "to_dict",
+            ] or key.startswith("_"):
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                continue
+            if not isinstance(value, list) and not value:
+                continue
+            if key == "date_from" and not self._date_from:
+                continue
+            if key == "date_to" and not self._date_to:
+                continue
+            if isinstance(value, datetime):
+                value = value.isoformat()
+            if not isinstance(value, (list, bool, int, float, str)):
+                # Try to see if this object is json serializable
+                try:
+                    json.dumps(value)
+                except:
+                    continue
+            if isinstance(value, Entity):
+                value = value.to_dict()
+            if key == "properties" and isinstance(value, list) and isinstance(value[0], Property):
+                value = [prop.to_dict() for prop in value]
+            if isinstance(value, list) and isinstance(value[0], Entity):
+                value = [entity.to_dict() for entity in value]
+            ret[key] = value
+
+        return ret
 
     def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
         if self.interval == "minute":

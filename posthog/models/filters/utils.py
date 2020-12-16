@@ -6,6 +6,7 @@ from posthog.constants import INSIGHT_RETENTION, INSIGHT_SESSIONS, INSIGHT_TREND
 
 
 def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None):
+    from posthog.models.event import Event
     from posthog.models.filters.filter import Filter
     from posthog.models.filters.retention_filter import RetentionFilter
     from posthog.models.filters.sessions_filter import SessionsFilter
@@ -19,5 +20,6 @@ def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None):
     elif insight == INSIGHT_SESSIONS:
         return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
     elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
-        return StickinessFilter(data=data, request=request, team=team)
+        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
+        return StickinessFilter(data=data, request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
     return Filter(data=data, request=request)
