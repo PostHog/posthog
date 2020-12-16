@@ -141,7 +141,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
             }
 
             try {
-                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs)
+                pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, indexJs, libJs)
                 console.info(`Loaded local plugin "${plugin.name}" from "${pluginPath}"!`)
                 await clearError(server, pluginConfig)
                 return true
@@ -169,7 +169,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
 
             if (indexJs) {
                 try {
-                    pluginConfig.vm = createPluginConfigVM(server, pluginConfig, indexJs, libJs || '')
+                    pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, indexJs, libJs || '')
                     console.info(`Loaded plugin "${plugin.name}"!`)
                     await clearError(server, pluginConfig)
                     return true
@@ -181,7 +181,7 @@ async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Pr
             }
         } else if (plugin.plugin_type === 'source' && plugin.source) {
             try {
-                pluginConfig.vm = createPluginConfigVM(server, pluginConfig, plugin.source)
+                pluginConfig.vm = await createPluginConfigVM(server, pluginConfig, plugin.source)
                 console.info(`Loaded plugin "${plugin.name}"!`)
                 await clearError(server, pluginConfig)
                 return true

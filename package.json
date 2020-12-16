@@ -27,6 +27,7 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
+        "@google-cloud/bigquery": "^5.5.0",
         "@sentry/node": "^5.29.0",
         "@sentry/tracing": "^5.29.0",
         "adm-zip": "^0.4.16",
