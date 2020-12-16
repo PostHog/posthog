@@ -6,7 +6,7 @@
     "main": "dist/src/index.js",
     "scripts": {
         "test": "jest --testPathIgnorePatterns='benchmarks/'",
-        "benchmark": "jest --runInBand benchmarks/",
+        "benchmark": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/",
         "start": "yarn start:dev",
         "start:dist": "node dist/src/index.js --base-dir ../posthog",
         "start:dev": "ts-node-dev --exit-child src/index.ts --base-dir ../posthog",

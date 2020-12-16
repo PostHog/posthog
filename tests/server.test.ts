@@ -1,9 +1,14 @@
 import { setupPiscina } from './helpers/worker'
-import { createServer, runTasksDebounced, waitForTasksToFinish } from '../src/server'
+import { createServer, runTasksDebounced, startPluginsServer, waitForTasksToFinish } from '../src/server'
 import { LogLevel } from '../src/types'
 import { delay } from '../src/utils'
 import { PluginEvent } from 'posthog-plugins/src/types'
+import { makePiscina } from '../src/worker/piscina'
+import { mockJestWithIndex } from './helpers/plugins'
+import { defaultConfig } from '../src/config'
+import { startQueue } from '../src/worker/queue'
 
+jest.mock('../src/sql')
 jest.setTimeout(60000) // 60 sec timeout
 
 function createEvent(index = 0): PluginEvent {
@@ -87,4 +92,22 @@ test('runTasksDebounced exception', async () => {
 
     await piscina.destroy()
     await closeServer()
+})
+
+test('startPluginsServer', async () => {
+    const testCode = `
+        async function processEvent (event) {
+            return event
+        }
+    `
+    const pluginsServer = await startPluginsServer(
+        {
+            WORKER_CONCURRENCY: 2,
+            LOG_LEVEL: LogLevel.Debug,
+            __jestMock: mockJestWithIndex(testCode),
+        },
+        makePiscina
+    )
+
+    await pluginsServer.stop()
 })

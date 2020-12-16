@@ -2,7 +2,7 @@ import { PluginsServerConfig } from '../types'
 import { TaskQueue } from 'piscina/src/common'
 
 // Copy From: node_modules/piscina/src/index.ts -- copied because it's not exported
-interface Options {
+export interface PiscinaOptions {
     filename?: string | null
     minThreads?: number
     maxThreads?: number
@@ -20,8 +20,8 @@ interface Options {
     trackUnmanagedFds?: boolean
 }
 
-export function createConfig(serverConfig: PluginsServerConfig, filename: string): Options {
-    const config: Options = {
+export function createConfig(serverConfig: PluginsServerConfig, filename: string): PiscinaOptions {
+    const config: PiscinaOptions = {
         filename,
         workerData: { serverConfig },
     }

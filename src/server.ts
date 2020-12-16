@@ -74,10 +74,18 @@ export async function createServer(
     return [server, closeServer]
 }
 
+// TODO: refactor this into a class, removing the need for many different Servers
+type ServerInstance = {
+    server: PluginsServer
+    piscina: Piscina
+    queue: Worker
+    stop: () => Promise<void>
+}
+
 export async function startPluginsServer(
-    config: PluginsServerConfig,
+    config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina
-): Promise<void> {
+): Promise<ServerInstance> {
     console.info(`⚡ posthog-plugin-server v${version}`)
 
     let serverConfig: PluginsServerConfig | undefined
@@ -135,13 +143,21 @@ export async function startPluginsServer(
         ;[server, closeServer] = await createServer(serverConfig, null)
 
         piscina = makePiscina(serverConfig)
-        const processEvent = (event: PluginEvent) => piscina!.runTask({ task: 'processEvent', args: { event } })
+        const processEvent = (event: PluginEvent) => {
+            if ((piscina?.queueSize || 0) > (server?.WORKER_CONCURRENCY || 4) * (server?.WORKER_CONCURRENCY || 4)) {
+                queue?.pause()
+            }
+            return piscina!.runTask({ task: 'processEvent', args: { event } })
+        }
 
         if (!server.DISABLE_WEB) {
             fastifyInstance = await startFastifyInstance(server)
         }
 
         queue = startQueue(server, processEvent)
+        piscina.on('drain', () => {
+            queue?.resume()
+        })
 
         pubSub = new Redis(server.REDIS_URL)
         pubSub.subscribe(server.PLUGINS_RELOAD_PUBSUB_CHANNEL)
@@ -192,6 +208,13 @@ export async function startPluginsServer(
         await closeJobs()
 
         process.exit(1)
+    }
+
+    return {
+        server,
+        piscina,
+        queue,
+        stop: closeJobs,
     }
 }
 

@@ -1,6 +1,9 @@
 import * as Redis from 'ioredis'
 import { v4 } from 'uuid'
 import { Message } from './message'
+import { Pausable } from './pausable'
+
+type BrokerSubscription = { queue: string; callback: (message: Message) => any }
 
 class RedisMessage extends Message {
     private raw: Record<string, any>
@@ -18,10 +21,12 @@ class RedisMessage extends Message {
     }
 }
 
-export default class RedisBroker {
+export default class RedisBroker implements Pausable {
     redis: Redis.Redis
+    subscriptions: BrokerSubscription[] = []
     channels: Promise<void>[] = []
     closing = false
+    paused = false
 
     /**
      * Redis broker class
@@ -78,47 +83,78 @@ export default class RedisBroker {
     }
 
     /**
+     * Pause execution of queue. Wait until all channel promises have been exhausted.
+     * @method RedisBroker#pause
+     *
+     * @returns {Promise}
+     */
+    public async pause(): Promise<void> {
+        if (this.paused) {
+            return
+        }
+        const oldChannels = this.channels
+        this.paused = true
+        this.channels = []
+        await Promise.all(oldChannels)
+    }
+
+    public resume(): void {
+        if (!this.paused) {
+            return
+        }
+        this.paused = false
+        for (const { queue, callback } of this.subscriptions) {
+            this.channels.push(new Promise((resolve) => this.receiveFast(resolve, queue, callback)))
+        }
+    }
+
+    /**
      * @method RedisBroker#subscribe
      * @param {string} queue
      * @param {Function} callback
      * @returns {Promise}
      */
     public subscribe(queue: string, callback: (message: Message) => any): Promise<any[]> {
-        const promiseCount = 1
-
-        for (let index = 0; index < promiseCount; index += 1) {
-            this.channels.push(new Promise((resolve) => this.receive(index, resolve, queue, callback)))
-        }
-
+        this.subscriptions.push({ queue, callback })
+        this.channels.push(new Promise((resolve) => this.receiveFast(resolve, queue, callback)))
         return Promise.all(this.channels)
     }
 
     /**
+     * Ask for the next event the next chance we get.
      * @private
-     * @param {number} index
      * @param {Fucntion} resolve
      * @param {string} queue
      * @param {Function} callback
      */
-    private receive(index: number, resolve: () => void, queue: string, callback: (message: Message) => any): void {
-        process.nextTick(() => this.recieveOneOnNextTick(index, resolve, queue, callback))
+    private receiveFast(resolve: () => void, queue: string, callback: (message: Message) => any): void {
+        process.nextTick(() => this.recieveOneOnNextTick(resolve, queue, callback))
+    }
+
+    /**
+     * Pause 50ms before asking for another event. Used if no event was returned the last time.
+     * @private
+     * @param {Fucntion} resolve
+     * @param {string} queue
+     * @param {Function} callback
+     */
+    private receiveSlow(resolve: () => void, queue: string, callback: (message: Message) => any): void {
+        setTimeout(() => this.recieveOneOnNextTick(resolve, queue, callback), 50)
     }
 
     /**
      * @private
-     * @param {number} index
      * @param {Function} resolve
      * @param {String} queue
      * @param {Function} callback
      * @returns {Promise}
      */
     private async recieveOneOnNextTick(
-        index: number,
         resolve: () => void,
         queue: string,
         callback: (message: Message) => any
     ): Promise<void> {
-        if (this.closing) {
+        if (this.closing || this.paused) {
             resolve()
             return
         }
@@ -129,8 +165,15 @@ export default class RedisBroker {
                     callback(body)
                 }
                 Promise.resolve()
+                return body
             })
-            .then(() => this.receive(index, resolve, queue, callback))
+            .then((body) => {
+                if (body) {
+                    this.receiveFast(resolve, queue, callback)
+                } else {
+                    this.receiveSlow(resolve, queue, callback)
+                }
+            })
             .catch((err) => console.error(err))
     }
 
