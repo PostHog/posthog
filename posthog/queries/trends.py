@@ -252,7 +252,7 @@ def aggregate_cohort_filter(
     if len(filtered_events) == 0:
         return 0
 
-    filtered_events = filtered_events.filter(
+    filtered_events = filtered_events.annotate(
         **add_cohort_annotations(
             team_id=team_id,
             breakdown=filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else [],
