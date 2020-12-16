@@ -18,7 +18,7 @@ RUN mkdir /code/plugins
 COPY plugins/package.json /code/plugins/
 COPY plugins/yarn.lock /code/plugins/
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl git \
+RUN apt-get update && apt-get install -y --no-install-recommends curl git make \
     && curl -sL https://deb.nodesource.com/setup_14.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
     && npm install -g yarn@1 \
