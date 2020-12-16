@@ -90,19 +90,27 @@ def paths_test_factory(paths, event_factory, person_factory):
 
             with freeze_time("2012-01-15T03:21:34.000Z"):
                 date_from = now() - relativedelta(days=7)
-                response = self.client.get("/api/insight/path/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 4)
 
                 date_to = now()
-                response = self.client.get("/api/insight/path/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 4)
 
                 date_from = now() + relativedelta(days=7)
-                response = self.client.get("/api/insight/path/?date_from=" + date_from.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 0)
 
                 date_to = now() - relativedelta(days=7)
-                response = self.client.get("/api/insight/path/?date_to=" + date_to.strftime("%Y-%m-%d")).json()
+                response = self.client.get(
+                    "/api/insight/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
+                ).json()
                 self.assertEqual(len(response), 0)
 
                 date_from = now() - relativedelta(days=7)

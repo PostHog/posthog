@@ -10,7 +10,7 @@ from django.utils import timezone
 from posthog.constants import INTERVAL, STICKINESS_DAYS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
-from posthog.models.filters.base_filter import BaseFilter, SerializerWithDateMixin
+from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.common import CompareMixin, DateMixin, IntervalMixin, OffsetMixin, ShownAsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -35,7 +35,7 @@ class StickinessFilter(
     OffsetMixin,
     CompareMixin,
     ShownAsMixin,
-    SerializerWithDateMixin,
+    DateMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable

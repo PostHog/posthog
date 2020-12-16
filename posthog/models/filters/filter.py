@@ -29,7 +29,7 @@ from posthog.constants import (
     SHOWN_AS,
 )
 from posthog.models.entity import Entity
-from posthog.models.filters.base_filter import BaseFilter, SerializerWithDateMixin
+from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
     BreakdownTypeMixin,
@@ -63,7 +63,6 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
-    SerializerWithDateMixin,
     BaseFilter,
 ):
     """
