@@ -85,9 +85,7 @@ class InsightSerializer(serializers.ModelSerializer):
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
             return None
-        filter = get_filter(data=dashboard_item.filters, team=dashboard_item.team)
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), dashboard_item.team_id))
-        result = cache.get(cache_key)
+        result = cache.get(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result["result"]
