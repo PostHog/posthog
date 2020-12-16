@@ -45,7 +45,6 @@ from posthog.models.filters.mixins.common import (
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.property import Property
-from posthog.types import FilterType
 from posthog.utils import relative_date_parse
 
 
@@ -177,20 +176,3 @@ class Filter(
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
-
-
-def get_filter(team, data: dict = {}, request: Optional[HttpRequest] = None) -> FilterType:
-    from posthog.models.filters.retention_filter import RetentionFilter
-    from posthog.models.filters.sessions_filter import SessionsFilter
-    from posthog.models.filters.stickiness_filter import StickinessFilter
-
-    insight = data.get("insight")
-    if not insight and request:
-        insight = request.GET.get("insight")
-    if insight == INSIGHT_RETENTION:
-        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
-    elif insight == INSIGHT_SESSIONS:
-        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
-    elif insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness":
-        return StickinessFilter(data=data, request=request, team=team)
-    return Filter(data=data, request=request)
